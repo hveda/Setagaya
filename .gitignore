@@ -1,4 +1,5 @@
 shibuya-bin
+shibuya/shibuya
 shibuya/db/all.sql
 shibuya/config/gcp
 docs/book
