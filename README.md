@@ -56,7 +56,7 @@ Please read the makefile to understand what components are needed and how to set
 4. Grafana:
    Setup your Grafana with dashboards specified in `grafana/dashboards` folder. Point the data source to your prometheus. Specify this Grafana endpoint with correct dashboards in your config_env.json
 5. MySQL:
-   We use mariaDB v10.0.23 to store our metadata. So anything that is compatible with this spec of mariaDB can be used in place.
+   We use mariaDB v11.8 to store our metadata. So anything that is compatible with this spec of mariaDB can be used in place.
 6. Nexus:
    We use Nexus to store the test plans and their data. If you want to use some other kind of storage you can implement the storage interface for your data source and use it in place of Nexus. As an alternative to Nexus, we also support GCP Bucket.
 7. LDAP:
