@@ -40,3 +40,11 @@ func makeProjectOwnershipError() error {
 func makeCollectionOwnershipError() error {
 	return fmt.Errorf("%w%s", noPermissionErr, "You don't own the collection")
 }
+
+func makeBadRequestError(message string) error {
+	return fmt.Errorf("%w%s", invalidRequestErr, message)
+}
+
+func makeUnauthorizedError() error {
+	return fmt.Errorf("%w%s", noPermissionErr, "Unauthorized access")
+}
