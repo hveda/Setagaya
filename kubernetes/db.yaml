@@ -16,7 +16,7 @@ spec:
         app: db
     spec:
       containers:
-      - image: mariadb:10.0.23
+      - image: mariadb:11.8
         name: db
         ports:
           - containerPort: 3306
