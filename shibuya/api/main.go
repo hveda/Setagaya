@@ -752,32 +752,32 @@ type Routes []*Route
 
 func (s *ShibuyaAPI) InitRoutes() Routes {
 	routes := Routes{
-		&Route{"get_projects", "GET", "/api/projects", s.projectsGetHandler},
-		&Route{"create_project", "POST", "/api/projects", s.projectCreateHandler},
-		&Route{"delete_project", "DELETE", "/api/projects/:project_id", s.projectDeleteHandler},
-		&Route{"get_project", "GET", "/api/projects/:project_id", s.projectGetHandler},
-		&Route{"update_project", "PUT", "/api/projects/:project_id", s.projectUpdateHandler},
+		&Route{"get_projects", "GET", "/api/projects", s.requireResourcePermission("projects", "read")(s.projectsGetHandler)},
+		&Route{"create_project", "POST", "/api/projects", s.requireResourcePermission("projects", "create")(s.projectCreateHandler)},
+		&Route{"delete_project", "DELETE", "/api/projects/:project_id", s.projectOwnershipRequired(s.projectDeleteHandler)},
+		&Route{"get_project", "GET", "/api/projects/:project_id", s.projectOwnershipRequired(s.projectGetHandler)},
+		&Route{"update_project", "PUT", "/api/projects/:project_id", s.projectOwnershipRequired(s.projectUpdateHandler)},
 
-		&Route{"create_plan", "POST", "/api/plans", s.planCreateHandler},
-		&Route{"get_plan", "GET", "/api/plans/:plan_id", s.planGetHandler},
-		&Route{"update_plan", "PUT", "/api/plans/:plan_id", s.planUpdateHandler},
-		&Route{"delete_plan", "DELETE", "/api/plans/:plan_id", s.planDeleteHandler},
-		&Route{"get_plan_files", "GET", "/api/plans/:plan_id/files", s.planFilesGetHandler},
-		&Route{"upload_plan_files", "PUT", "/api/plans/:plan_id/files", s.planFilesUploadHandler},
-		&Route{"delete_plan_files", "DELETE", "/api/plans/:plan_id/files", s.planFilesDeleteHandler},
+		&Route{"create_plan", "POST", "/api/plans", s.requireResourcePermission("plans", "create")(s.planCreateHandler)},
+		&Route{"get_plan", "GET", "/api/plans/:plan_id", s.requireResourcePermission("plans", "read")(s.planGetHandler)},
+		&Route{"update_plan", "PUT", "/api/plans/:plan_id", s.requireResourcePermission("plans", "update")(s.planUpdateHandler)},
+		&Route{"delete_plan", "DELETE", "/api/plans/:plan_id", s.requireResourcePermission("plans", "delete")(s.planDeleteHandler)},
+		&Route{"get_plan_files", "GET", "/api/plans/:plan_id/files", s.requireResourcePermission("files", "download")(s.planFilesGetHandler)},
+		&Route{"upload_plan_files", "PUT", "/api/plans/:plan_id/files", s.requireResourcePermission("files", "upload")(s.planFilesUploadHandler)},
+		&Route{"delete_plan_files", "DELETE", "/api/plans/:plan_id/files", s.requireResourcePermission("files", "delete")(s.planFilesDeleteHandler)},
 
-		&Route{"create_collection", "POST", "/api/collections", s.collectionCreateHandler},
-		&Route{"delete_collection", "DELETE", "/api/collections/:collection_id", s.collectionDeleteHandler},
-		&Route{"get_collection", "GET", "/api/collections/:collection_id", s.collectionGetHandler},
-		&Route{"edit_collection", "PUT", "/api/collections/:collection_id", s.collectionUpdateHandler},
-		&Route{"get_collection_files", "GET", "/api/collections/:collection_id/files", s.collectionFilesGetHandler},
-		&Route{"upload_collection_files", "PUT", "/api/collections/:collection_id/files", s.collectionFilesUploadHandler},
-		&Route{"delete_collection_files", "DELETE", "/api/collections/:collection_id/files", s.collectionFilesDeleteHandler},
-		&Route{"get_collection_engines_detail", "GET", "/api/collections/:collection_id/engines_detail", s.collectionEnginesDetailHandler},
-		&Route{"deploy", "POST", "/api/collections/:collection_id/deploy", s.collectionDeploymentHandler},
-		&Route{"trigger", "POST", "/api/collections/:collection_id/trigger", s.collectionTriggerHandler},
-		&Route{"stop", "POST", "/api/collections/:collection_id/stop", s.collectionTermHandler},
-		&Route{"purge", "POST", "/api/collections/:collection_id/purge", s.collectionPurgeHandler},
+		&Route{"create_collection", "POST", "/api/collections", s.requireResourcePermission("collections", "create")(s.collectionCreateHandler)},
+		&Route{"delete_collection", "DELETE", "/api/collections/:collection_id", s.collectionOwnershipRequired(s.collectionDeleteHandler)},
+		&Route{"get_collection", "GET", "/api/collections/:collection_id", s.collectionOwnershipRequired(s.collectionGetHandler)},
+		&Route{"edit_collection", "PUT", "/api/collections/:collection_id", s.collectionOwnershipRequired(s.collectionUpdateHandler)},
+		&Route{"get_collection_files", "GET", "/api/collections/:collection_id/files", s.collectionOwnershipRequired(s.collectionFilesGetHandler)},
+		&Route{"upload_collection_files", "PUT", "/api/collections/:collection_id/files", s.collectionOwnershipRequired(s.collectionFilesUploadHandler)},
+		&Route{"delete_collection_files", "DELETE", "/api/collections/:collection_id/files", s.collectionOwnershipRequired(s.collectionFilesDeleteHandler)},
+		&Route{"get_collection_engines_detail", "GET", "/api/collections/:collection_id/engines_detail", s.collectionOwnershipRequired(s.collectionEnginesDetailHandler)},
+		&Route{"deploy", "POST", "/api/collections/:collection_id/deploy", s.collectionOwnershipRequired(s.collectionDeploymentHandler)},
+		&Route{"trigger", "POST", "/api/collections/:collection_id/trigger", s.collectionOwnershipRequired(s.collectionTriggerHandler)},
+		&Route{"stop", "POST", "/api/collections/:collection_id/stop", s.collectionOwnershipRequired(s.collectionTermHandler)},
+		&Route{"purge", "POST", "/api/collections/:collection_id/purge", s.collectionOwnershipRequired(s.collectionPurgeHandler)},
 		&Route{"get_runs", "GET", "/api/collections/:collection_id/runs", s.runGetHandler},
 		&Route{"get_run", "GET", "/api/collections/:collection_id/runs/:run_id", s.runGetHandler},
 		&Route{"delete_runs", "DELETE", "/api/collections/:collection_id/runs", s.runDeleteHandler},
@@ -793,13 +793,53 @@ func (s *ShibuyaAPI) InitRoutes() Routes {
 		&Route{"usage_summary", "GET", "/api/usage/summary", s.usageSummaryHandler},
 		&Route{"usage_summary_by_sid", "GET", "/api/usage/summary_sid", s.usageSummaryHandlerBySid},
 
-		&Route{"admin_collections", "GET", "/api/admin/collections", s.collectionAdminGetHandler},
+		&Route{"admin_collections", "GET", "/api/admin/collections", s.requireAdminRole(s.collectionAdminGetHandler)},
+
+		// RBAC Routes - Role Management
+		&Route{"get_roles", "GET", "/api/rbac/roles", s.requirePermission("roles:read")(s.rolesGetHandler)},
+		&Route{"create_role", "POST", "/api/rbac/roles", s.requirePermission("roles:create")(s.roleCreateHandler)},
+		&Route{"get_role", "GET", "/api/rbac/roles/:role_id", s.requirePermission("roles:read")(s.roleGetHandler)},
+		&Route{"update_role", "PUT", "/api/rbac/roles/:role_id", s.requirePermission("roles:update")(s.roleUpdateHandler)},
+		&Route{"delete_role", "DELETE", "/api/rbac/roles/:role_id", s.requirePermission("roles:delete")(s.roleDeleteHandler)},
+
+		// RBAC Routes - Permission Management
+		&Route{"get_permissions", "GET", "/api/rbac/permissions", s.requirePermission("roles:read")(s.permissionsGetHandler)},
+		&Route{"create_permission", "POST", "/api/rbac/permissions", s.requirePermission("system:admin")(s.permissionCreateHandler)},
+		&Route{"get_permission", "GET", "/api/rbac/permissions/:permission_id", s.requirePermission("roles:read")(s.permissionGetHandler)},
+
+		// RBAC Routes - User Management
+		&Route{"get_users", "GET", "/api/rbac/users", s.requirePermission("users:read")(s.usersGetHandler)},
+		&Route{"create_user", "POST", "/api/rbac/users", s.requirePermission("users:create")(s.userCreateHandler)},
+		&Route{"get_user", "GET", "/api/rbac/users/:user_id", s.requirePermission("users:read")(s.userGetHandler)},
+		&Route{"update_user", "PUT", "/api/rbac/users/:user_id", s.requirePermission("users:update")(s.userUpdateHandler)},
+		&Route{"delete_user", "DELETE", "/api/rbac/users/:user_id", s.requirePermission("users:delete")(s.userDeleteHandler)},
+
+		// RBAC Routes - User Role Assignment
+		&Route{"get_user_roles", "GET", "/api/rbac/users/:user_id/roles", s.requirePermission("users:read")(s.userRolesGetHandler)},
+		&Route{"assign_user_role", "POST", "/api/rbac/users/:user_id/roles", s.requirePermission("users:assign_roles")(s.userRoleAssignHandler)},
+		&Route{"remove_user_role", "DELETE", "/api/rbac/users/:user_id/roles/:role_id", s.requirePermission("users:assign_roles")(s.userRoleRemoveHandler)},
+		&Route{"get_user_permissions", "GET", "/api/rbac/users/:user_id/permissions", s.requirePermission("users:read")(s.userPermissionsGetHandler)},
+
+		// RBAC Routes - Current User Info
+		&Route{"current_user", "GET", "/api/rbac/me", s.rbacRequired(s.currentUserHandler)},
 	}
+	
+	// Apply authentication to routes that don't already have middleware applied
 	for _, r := range routes {
-		// TODO! We don't require auth for usage endpoint for now.
+		// Skip auth for usage endpoints for now
 		if strings.Contains(r.Path, "usage") {
 			continue
 		}
+		
+		// Skip auth for routes that already have RBAC middleware applied
+		if strings.Contains(r.Path, "/api/rbac") || 
+		   strings.Contains(r.Path, "/api/admin") ||
+		   strings.Contains(r.Path, "/api/projects") ||
+		   strings.Contains(r.Path, "/api/plans") ||
+		   strings.Contains(r.Path, "/api/collections") {
+			continue
+		}
+		
 		r.HandlerFunc = s.authRequired(r.HandlerFunc)
 	}
 	return routes

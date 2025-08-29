@@ -6,63 +6,34 @@ import (
 
 func setupAndTeardown() error {
 	db := config.SC.DBC
-	q, err := db.Prepare("delete from plan")
-	if err != nil {
-		return err
+	
+	// Clean up RBAC tables first due to foreign key constraints
+	tables := []string{
+		"user_roles",
+		"role_permissions", 
+		"users",
+		"permissions",
+		"roles",
+		"plan",
+		"running_plan",
+		"collection",
+		"collection_plan",
+		"project",
+		"collection_run",
+		"collection_run_history",
 	}
-	defer q.Close()
-	_, err = q.Exec()
-	if err != nil {
-		return err
+	
+	for _, table := range tables {
+		q, err := db.Prepare("delete from " + table)
+		if err != nil {
+			return err
+		}
+		defer q.Close()
+		_, err = q.Exec()
+		if err != nil {
+			return err
+		}
 	}
-
-	q, err = db.Prepare("delete from running_plan")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection_plan")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from project")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection_run")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection_run_history")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
+	
 	return nil
 }
