@@ -127,6 +127,24 @@ func (u *UI) rbacTestHandler(w http.ResponseWriter, r *http.Request, params http
 	template.Execute(w, nil)
 }
 
+func (u *UI) phase3DemoHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	template := u.tmpl.Lookup("phase3-demo.html")
+	if template == nil {
+		http.Error(w, "Template not found", http.StatusNotFound)
+		return
+	}
+	template.Execute(w, nil)
+}
+
+func (u *UI) adminInterfaceHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	template := u.tmpl.Lookup("admin-interface.html")
+	if template == nil {
+		http.Error(w, "Template not found", http.StatusNotFound)
+		return
+	}
+	template.Execute(w, nil)
+}
+
 func (u *UI) InitRoutes() api.Routes {
 	return api.Routes{
 		&api.Route{"home", "GET", "/", u.homeHandler},
@@ -135,5 +153,7 @@ func (u *UI) InitRoutes() api.Routes {
 		&api.Route{"logout", "POST", "/logout", u.logoutHandler},
 		&api.Route{"phase2_demo", "GET", "/phase2-demo.html", u.phase2DemoHandler},
 		&api.Route{"rbac_test", "GET", "/app-rbac-test.html", u.rbacTestHandler},
+		&api.Route{"phase3_demo", "GET", "/phase3-demo.html", u.phase3DemoHandler},
+		&api.Route{"admin_interface", "GET", "/admin-interface.html", u.adminInterfaceHandler},
 	}
 }

@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Setagaya Admin Interface - Phase 3</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link href="/static/css/styles.css" rel="stylesheet">
+    <link href="/static/fontawesome/css/all.min.css" rel="stylesheet">
+    
+    <!-- Alpine.js -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Axios for HTTP requests -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    
+    <style>
+        .admin-sidebar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: calc(100vh - 80px);
+        }
+        
+        .admin-nav-item {
+            color: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+        }
+        
+        .admin-nav-item:hover, .admin-nav-item.active {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+            text-decoration: none;
+        }
+        
+        .admin-card {
+            border: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .admin-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-online { background-color: #28a745; }
+        .status-offline { background-color: #dc3545; }
+        .status-warning { background-color: #ffc107; }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        
+        .file-drop-zone {
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+            min-height: 200px;
+        }
+        
+        .file-drop-zone.drag-over {
+            border-color: #007bff;
+            background: #e3f2fd;
+        }
+        
+        .progress-circle {
+            width: 40px;
+            height: 40px;
+        }
+        
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body x-data="adminInterface()" x-init="init()">
+    <!-- Navigation Header -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#admin">
+                <i class="fas fa-shield-alt mr-2"></i>
+                Setagaya Admin
+            </a>
+            
+            <div class="navbar-nav ml-auto">
+                <div class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" 
+                       data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        <i class="fas fa-user mr-1"></i>
+                        <span x-text="currentUser?.username || 'Admin'"></span>
+                    </a>
+                    <div class="dropdown-menu dropdown-menu-right">
+                        <a class="dropdown-item" href="#" @click="logout()">
+                            <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar Navigation -->
+            <div class="col-md-3 col-lg-2 px-0">
+                <div class="admin-sidebar p-3">
+                    <nav class="nav flex-column">
+                        <a class="nav-link admin-nav-item mb-2 p-3 rounded" 
+                           :class="{ 'active': activeTab === 'dashboard' }"
+                           @click="setActiveTab('dashboard')" href="#">
+                            <i class="fas fa-tachometer-alt mr-2"></i>
+                            Dashboard
+                        </a>
+                        
+                        <a class="nav-link admin-nav-item mb-2 p-3 rounded"
+                           :class="{ 'active': activeTab === 'users' }"
+                           @click="setActiveTab('users')" href="#"
+                           x-show-if-permission="users:read">
+                            <i class="fas fa-users mr-2"></i>
+                            User Management
+                        </a>
+                        
+                        <a class="nav-link admin-nav-item mb-2 p-3 rounded"
+                           :class="{ 'active': activeTab === 'roles' }"
+                           @click="setActiveTab('roles')" href="#"
+                           x-show-if-permission="roles:read">
+                            <i class="fas fa-user-shield mr-2"></i>
+                            Role Management
+                        </a>
+                        
+                        <a class="nav-link admin-nav-item mb-2 p-3 rounded"
+                           :class="{ 'active': activeTab === 'collections' }"
+                           @click="setActiveTab('collections')" href="#"
+                           x-show-if-permission="collections:read_all">
+                            <i class="fas fa-tasks mr-2"></i>
+                            Collection Monitor
+                        </a>
+                        
+                        <a class="nav-link admin-nav-item mb-2 p-3 rounded"
+                           :class="{ 'active': activeTab === 'files' }"
+                           @click="setActiveTab('files')" href="#"
+                           x-show-if-permission="files:read">
+                            <i class="fas fa-folder mr-2"></i>
+                            File Management
+                        </a>
+                        
+                        <a class="nav-link admin-nav-item mb-2 p-3 rounded"
+                           :class="{ 'active': activeTab === 'monitoring' }"
+                           @click="setActiveTab('monitoring')" href="#"
+                           x-show-if-permission="monitoring:read_all">
+                            <i class="fas fa-chart-line mr-2"></i>
+                            System Monitoring
+                        </a>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Main Content Area -->
+            <div class="col-md-9 col-lg-10">
+                <div class="p-4">
+                    <!-- Dashboard Tab -->
+                    <div x-show="activeTab === 'dashboard'" x-data="adminDashboard()" x-init="init()">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2 class="h3 mb-0">Admin Dashboard</h2>
+                            <div class="text-muted">
+                                <span class="status-indicator" :class="systemStatus.isOnline ? 'status-online' : 'status-offline'"></span>
+                                System <span x-text="systemStatus.isOnline ? 'Online' : 'Offline'"></span>
+                            </div>
+                        </div>
+
+                        <!-- System Overview Cards -->
+                        <div class="row mb-4">
+                            <div class="col-md-3 mb-3">
+                                <div class="card admin-card metric-card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-users fa-2x mb-2"></i>
+                                        <h4 class="mb-0" x-text="stats.totalUsers || 0"></h4>
+                                        <small>Total Users</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-3 mb-3">
+                                <div class="card admin-card metric-card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-play-circle fa-2x mb-2"></i>
+                                        <h4 class="mb-0" x-text="stats.activeCollections || 0"></h4>
+                                        <small>Active Collections</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-3 mb-3">
+                                <div class="card admin-card metric-card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-project-diagram fa-2x mb-2"></i>
+                                        <h4 class="mb-0" x-text="stats.totalProjects || 0"></h4>
+                                        <small>Total Projects</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-3 mb-3">
+                                <div class="card admin-card metric-card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-server fa-2x mb-2"></i>
+                                        <h4 class="mb-0" x-text="stats.systemLoad || '0%'"></h4>
+                                        <small>System Load</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity -->
+                        <div class="row">
+                            <div class="col-lg-8">
+                                <div class="card admin-card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Recent Activity</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div x-show="recentActivity.length === 0" class="text-center text-muted py-4">
+                                            No recent activity
+                                        </div>
+                                        
+                                        <template x-for="activity in recentActivity" :key="activity.id">
+                                            <div class="d-flex align-items-start mb-3 pb-3 border-bottom">
+                                                <div class="user-avatar mr-3">
+                                                    <span x-text="activity.user?.charAt(0).toUpperCase()"></span>
+                                                </div>
+                                                <div class="flex-grow-1">
+                                                    <div class="d-flex justify-content-between">
+                                                        <strong x-text="activity.user"></strong>
+                                                        <small class="text-muted" x-text="formatTime(activity.timestamp)"></small>
+                                                    </div>
+                                                    <div x-text="activity.action"></div>
+                                                    <small class="text-muted" x-text="activity.details"></small>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-lg-4">
+                                <div class="card admin-card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">System Health</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <div class="d-flex justify-content-between">
+                                                <span>CPU Usage</span>
+                                                <span x-text="systemHealth.cpu || '0%'"></span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar" role="progressbar" 
+                                                     :style="`width: ${systemHealth.cpu || 0}%`"></div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <div class="d-flex justify-content-between">
+                                                <span>Memory Usage</span>
+                                                <span x-text="systemHealth.memory || '0%'"></span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar bg-warning" role="progressbar" 
+                                                     :style="`width: ${systemHealth.memory || 0}%`"></div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <div class="d-flex justify-content-between">
+                                                <span>Disk Usage</span>
+                                                <span x-text="systemHealth.disk || '0%'"></span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar bg-info" role="progressbar" 
+                                                     :style="`width: ${systemHealth.disk || 0}%`"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Management Tab -->
+                    <div x-show="activeTab === 'users'" x-data="userManagementComponent()" x-init="init()">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2 class="h3 mb-0">User Management</h2>
+                            <button class="btn btn-primary" @click="showUserModal = true" 
+                                    x-show-if-permission="users:create">
+                                <i class="fas fa-plus mr-2"></i>Add User
+                            </button>
+                        </div>
+
+                        <!-- Search and Filter -->
+                        <div class="card admin-card mb-4">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <input type="text" class="form-control" placeholder="Search users..." 
+                                               x-model="searchTerm">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <select class="form-control">
+                                            <option value="">All Roles</option>
+                                            <template x-for="role in roles" :key="role.id">
+                                                <option :value="role.id" x-text="role.name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Users Table -->
+                        <div class="card admin-card">
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>User</th>
+                                                <th>Email</th>
+                                                <th>Roles</th>
+                                                <th>Status</th>
+                                                <th>Last Login</th>
+                                                <th x-show-if-permission="users:update">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="user in filteredUsers" :key="user.id">
+                                                <tr>
+                                                    <td>
+                                                        <div class="d-flex align-items-center">
+                                                            <div class="user-avatar mr-2">
+                                                                <span x-text="user.username?.charAt(0).toUpperCase()"></span>
+                                                            </div>
+                                                            <div>
+                                                                <div x-text="user.full_name || user.username"></div>
+                                                                <small class="text-muted" x-text="user.username"></small>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td x-text="user.email"></td>
+                                                    <td>
+                                                        <template x-for="role in user.roles" :key="role.id">
+                                                            <span class="badge badge-secondary mr-1" x-text="role.name"></span>
+                                                        </template>
+                                                    </td>
+                                                    <td>
+                                                        <span class="badge" 
+                                                              :class="user.active ? 'badge-success' : 'badge-secondary'"
+                                                              x-text="user.active ? 'Active' : 'Inactive'"></span>
+                                                    </td>
+                                                    <td x-text="formatDate(user.last_login)"></td>
+                                                    <td x-show-if-permission="users:update">
+                                                        <div class="btn-group">
+                                                            <button class="btn btn-sm btn-outline-primary" 
+                                                                    @click="selectUser(user)">
+                                                                <i class="fas fa-edit"></i>
+                                                            </button>
+                                                            <button class="btn btn-sm btn-outline-danger" 
+                                                                    @click="deleteUser(user)" 
+                                                                    x-show-if-permission="users:delete">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- File Management Tab -->
+                    <div x-show="activeTab === 'files'">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2 class="h3 mb-0">File Management</h2>
+                        </div>
+
+                        <!-- File Upload Area -->
+                        <div class="card admin-card mb-4" x-data="fileUploadComponent()" x-init="init()">
+                            <div class="card-header">
+                                <h5 class="mb-0">Upload Files</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="file-drop-zone d-flex flex-column align-items-center justify-content-center p-4"
+                                     :class="{ 'drag-over': isDragOver }" 
+                                     @dragover.prevent="isDragOver = true"
+                                     @dragleave.prevent="isDragOver = false"
+                                     @drop.prevent="isDragOver = false; handleFiles($event.dataTransfer.files)">
+                                    
+                                    <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                                    <h4 class="text-muted">Drag & Drop Files Here</h4>
+                                    <p class="text-muted">or click to browse</p>
+                                    <input type="file" class="d-none" multiple 
+                                           @change="handleFiles($event.target.files)"
+                                           accept=".jmx,.jar,.csv,.properties,.txt">
+                                    <button class="btn btn-outline-primary" @click="$el.previousElementSibling.click()">
+                                        Browse Files
+                                    </button>
+                                </div>
+
+                                <!-- Upload Queue -->
+                                <div x-show="files.length > 0" class="mt-4">
+                                    <h6>Upload Queue</h6>
+                                    <template x-for="file in files" :key="file.id">
+                                        <div class="d-flex align-items-center justify-content-between border-bottom py-2">
+                                            <div class="d-flex align-items-center">
+                                                <i :class="getFileIcon(file.name)" class="mr-2"></i>
+                                                <div>
+                                                    <div x-text="file.name"></div>
+                                                    <small class="text-muted" x-text="formatFileSize(file.size)"></small>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex align-items-center">
+                                                <div class="progress mr-3" style="width: 100px;">
+                                                    <div class="progress-bar" role="progressbar" 
+                                                         :style="`width: ${file.progress}%`"></div>
+                                                </div>
+                                                <i :class="getStatusIcon(file.status)"></i>
+                                                <button class="btn btn-sm btn-outline-danger ml-2" 
+                                                        @click="removeFile(file.id)">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    
+                                    <div class="mt-3">
+                                        <button class="btn btn-primary mr-2" @click="uploadFiles()" 
+                                                :disabled="isUploading" x-show-if-permission="files:upload">
+                                            <i class="fas fa-upload mr-2"></i>Upload All
+                                        </button>
+                                        <button class="btn btn-outline-secondary" @click="clearAll()">
+                                            Clear All
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- File Browser -->
+                        <div class="card admin-card" x-data="fileManagerComponent()" x-init="init()">
+                            <div class="card-header">
+                                <h5 class="mb-0">File Browser</h5>
+                            </div>
+                            <div class="card-body">
+                                <!-- Search and Controls -->
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <input type="text" class="form-control" placeholder="Search files..." 
+                                               x-model="searchTerm">
+                                    </div>
+                                    <div class="col-md-6 text-right">
+                                        <button class="btn btn-outline-danger" @click="deleteSelectedFiles()"
+                                                x-show="selectedFiles.size > 0" x-show-if-permission="files:delete">
+                                            <i class="fas fa-trash mr-2"></i>Delete Selected
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Files Table -->
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>
+                                                    <input type="checkbox" @change="$event.target.checked ? selectAllFiles() : clearSelection()">
+                                                </th>
+                                                <th @click="setSorting('name')" style="cursor: pointer;">
+                                                    Name
+                                                    <i class="fas fa-sort ml-1"></i>
+                                                </th>
+                                                <th @click="setSorting('size')" style="cursor: pointer;">
+                                                    Size
+                                                    <i class="fas fa-sort ml-1"></i>
+                                                </th>
+                                                <th @click="setSorting('uploaded_at')" style="cursor: pointer;">
+                                                    Uploaded
+                                                    <i class="fas fa-sort ml-1"></i>
+                                                </th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="file in paginatedFiles" :key="file.id">
+                                                <tr>
+                                                    <td>
+                                                        <input type="checkbox" 
+                                                               :checked="selectedFiles.has(file.id)"
+                                                               @change="toggleFileSelection(file.id)">
+                                                    </td>
+                                                    <td>
+                                                        <div class="d-flex align-items-center">
+                                                            <i :class="getFileIcon(file.name)" class="mr-2"></i>
+                                                            <span x-text="file.name"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td x-text="formatFileSize(file.size)"></td>
+                                                    <td x-text="formatDate(file.uploaded_at)"></td>
+                                                    <td>
+                                                        <div class="btn-group">
+                                                            <button class="btn btn-sm btn-outline-primary" 
+                                                                    @click="downloadFile(file.id, file.name)"
+                                                                    x-show-if-permission="files:download">
+                                                                <i class="fas fa-download"></i>
+                                                            </button>
+                                                            <button class="btn btn-sm btn-outline-danger" 
+                                                                    @click="deleteFile(file.id)"
+                                                                    x-show-if-permission="files:delete">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Pagination -->
+                                <nav x-show="totalPages > 1">
+                                    <ul class="pagination justify-content-center">
+                                        <li class="page-item" :class="{ 'disabled': currentPage === 1 }">
+                                            <a class="page-link" @click="currentPage = Math.max(1, currentPage - 1)">Previous</a>
+                                        </li>
+                                        <template x-for="page in totalPages" :key="page">
+                                            <li class="page-item" :class="{ 'active': currentPage === page }">
+                                                <a class="page-link" @click="currentPage = page" x-text="page"></a>
+                                            </li>
+                                        </template>
+                                        <li class="page-item" :class="{ 'disabled': currentPage === totalPages }">
+                                            <a class="page-link" @click="currentPage = Math.min(totalPages, currentPage + 1)">Next</a>
+                                        </li>
+                                    </ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Monitoring Tab -->
+                    <div x-show="activeTab === 'monitoring'" x-data="realtimeSystemComponent()" x-init="init()">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2 class="h3 mb-0">System Monitoring</h2>
+                            <div class="text-muted">
+                                <span class="status-indicator" :class="isConnected ? 'status-online' : 'status-offline'"></span>
+                                Real-time <span x-text="isConnected ? 'Connected' : 'Disconnected'"></span>
+                            </div>
+                        </div>
+
+                        <!-- Real-time Metrics -->
+                        <div class="row mb-4">
+                            <div class="col-lg-12">
+                                <div class="card admin-card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Live System Metrics</h5>
+                                        <small class="text-muted">Last updated: <span x-text="formatTime(lastUpdate)"></span></small>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-3 text-center">
+                                                <div class="metric-card p-3 rounded">
+                                                    <h4 x-text="systemMetrics.activeConnections || 0"></h4>
+                                                    <small>Active Connections</small>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3 text-center">
+                                                <div class="metric-card p-3 rounded">
+                                                    <h4 x-text="systemMetrics.requestsPerSecond || 0"></h4>
+                                                    <small>Requests/sec</small>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3 text-center">
+                                                <div class="metric-card p-3 rounded">
+                                                    <h4 x-text="systemMetrics.responseTime || '0ms'"></h4>
+                                                    <small>Avg Response Time</small>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3 text-center">
+                                                <div class="metric-card p-3 rounded">
+                                                    <h4 x-text="systemMetrics.errorRate || '0%'"></h4>
+                                                    <small>Error Rate</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load JavaScript Components -->
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/rbac-components.js"></script>
+    <script src="/static/js/admin.js"></script>
+    <script src="/static/js/file-upload.js"></script>
+    <script src="/static/js/realtime.js"></script>
+    
+    <script>
+        // Admin Interface Main Component
+        function adminInterface() {
+            return {
+                activeTab: 'dashboard',
+                currentUser: null,
+
+                async init() {
+                    try {
+                        const response = await axios.get('/api/rbac/me');
+                        this.currentUser = response.data.user;
+                    } catch (error) {
+                        console.error('Failed to load user info:', error);
+                    }
+                    
+                    console.log('Admin interface initialized');
+                },
+
+                setActiveTab(tab) {
+                    this.activeTab = tab;
+                },
+
+                logout() {
+                    if (confirm('Are you sure you want to logout?')) {
+                        window.location.href = '/logout';
+                    }
+                }
+            }
+        }
+
+        // Admin Dashboard Component
+        function adminDashboard() {
+            return {
+                stats: {},
+                recentActivity: [],
+                systemHealth: {},
+                systemStatus: { isOnline: true },
+
+                async init() {
+                    await this.loadStats();
+                    await this.loadRecentActivity();
+                    await this.loadSystemHealth();
+                    
+                    // Set up real-time updates
+                    setInterval(() => this.loadSystemHealth(), 30000);
+                },
+
+                async loadStats() {
+                    try {
+                        const response = await axios.get('/api/admin/stats');
+                        this.stats = response.data;
+                    } catch (error) {
+                        console.error('Failed to load stats:', error);
+                    }
+                },
+
+                async loadRecentActivity() {
+                    try {
+                        const response = await axios.get('/api/admin/activity');
+                        this.recentActivity = response.data.activities || [];
+                    } catch (error) {
+                        console.error('Failed to load recent activity:', error);
+                    }
+                },
+
+                async loadSystemHealth() {
+                    try {
+                        const response = await axios.get('/api/admin/health');
+                        this.systemHealth = response.data;
+                        this.systemStatus.isOnline = true;
+                    } catch (error) {
+                        console.error('Failed to load system health:', error);
+                        this.systemStatus.isOnline = false;
+                    }
+                },
+
+                formatTime(timestamp) {
+                    return timestamp ? new Date(timestamp).toLocaleString() : 'Never';
+                }
+            }
+        }
+    </script>
+</body>
+</html>

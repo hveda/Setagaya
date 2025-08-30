@@ -3,36 +3,73 @@ all: | cluster permissions db prometheus grafana setagaya jmeter local_storage i
 setagaya-controller-ns = setagaya-executors
 setagaya-executor-ns = setagaya-executors
 
-# UI Build System Integration - Phase 1
-.PHONY: ui-deps ui-dev ui-build ui-clean
+# UI Build System Integration - Phase 3 Enhanced
+.PHONY: ui-deps ui-dev ui-build ui-clean ui-lint ui-test
 
-# Install UI dependencies
+# Install UI dependencies with enhanced tools
 ui-deps:
-	@echo "📦 Installing UI dependencies..."
-	@if [ ! -f package.json ]; then \
-		echo "❌ package.json not found. Run npm init first."; \
+	@echo "📦 Installing Enhanced UI dependencies..."
+	@if [ ! -f setagaya/package.json ]; then \
+		echo "❌ setagaya/package.json not found. Run npm init first."; \
 		exit 1; \
 	fi
-	@npm install
-	@echo "✅ UI dependencies installed"
+	@cd setagaya && npm install
+	@echo "✅ Enhanced UI dependencies installed"
+	@echo "🔧 Available tools: Webpack, Tailwind CSS, ESLint, Jest"
 
-# Start UI development (for now just ensures CSS is ready)
+# Start enhanced UI development mode
 ui-dev:
-	@echo "🎨 UI development mode ready"
-	@echo "✅ CSS file is static and ready for development"
-	@echo "📝 Edit setagaya/ui/static/css/styles.css for styling changes"
+	@echo "🎨 Starting enhanced UI development mode..."
+	@echo "🔧 Running Tailwind CSS watcher and Webpack dev mode"
+	@cd setagaya && npm run dev &
+	@echo "📝 Edit files in setagaya/ui/static/ for hot reloading"
+	@echo "✅ Development mode active with hot reloading"
 
-# Build production UI assets  
+# Build production-ready UI assets with optimization
 ui-build:
-	@echo "🏗️  Building UI assets..."
-	@npm run build
-	@echo "✅ UI assets ready for production"
+	@echo "🏗️  Building optimized production UI assets..."
+	@cd setagaya && npm run build
+	@echo "📦 CSS and JS assets built and minified"
+	@echo "🗜️  Assets optimized for production deployment"
+	@echo "✅ Production build complete"
 
-# Clean UI build artifacts
+# Enhanced development environment with live server
+ui-serve:
+	@echo "🌐 Starting UI development server..."
+	@cd setagaya && npm run serve &
+	@echo "🔗 Server available at http://localhost:8081"
+	@echo "✅ Development server running"
+
+# Lint UI code for quality assurance
+ui-lint:
+	@echo "🔍 Linting UI code..."
+	@cd setagaya && npm run lint
+	@echo "✅ Code linting complete"
+
+# Fix linting issues automatically
+ui-lint-fix:
+	@echo "🔧 Auto-fixing linting issues..."
+	@cd setagaya && npm run lint:fix
+	@echo "✅ Auto-fix complete"
+
+# Run UI tests
+ui-test:
+	@echo "🧪 Running UI tests..."
+	@cd setagaya && npm run test
+	@echo "✅ UI tests complete"
+
+# Run UI tests in watch mode for development
+ui-test-watch:
+	@echo "👀 Starting UI tests in watch mode..."
+	@cd setagaya && npm run test:watch &
+	@echo "✅ Test watcher active"
+
+# Clean UI build artifacts and dependencies
 ui-clean:
-	@echo "🧹 Cleaning UI artifacts..."
-	@rm -rf node_modules package-lock.json 2>/dev/null || true
-	@echo "✅ UI artifacts cleaned"
+	@echo "🧹 Cleaning UI artifacts and dependencies..."
+	@cd setagaya && npm run clean 2>/dev/null || true
+	@rm -rf setagaya/ui/static/dist 2>/dev/null || true
+	@echo "✅ UI artifacts and dependencies cleaned"
 
 .PHONY: cluster
 cluster:
@@ -85,7 +122,7 @@ local_controller:
 	rm -f /tmp/controller-local.tar
 
 .PHONY: setagaya
-setagaya: ui-build local_api local_controller grafana
+setagaya: local_api local_controller grafana
 	helm uninstall setagaya || true
 	cd setagaya && helm upgrade --install setagaya install/setagaya
 
