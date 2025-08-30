@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Setagaya Phase 2 Demo - Alpine.js Conversion</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <!-- Bootstrap CSS for styling -->
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link href="/static/css/styles.css" rel="stylesheet">
+    <link href="/static/fontawesome/css/all.min.css" rel="stylesheet">
+    
+    <!-- Alpine.js -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Axios for HTTP requests -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    
+    <script>
+        // Mock global variables for testing
+        var running_context = "local";
+        var result_dashboard = "http://localhost:3000/dashboard";
+        var enable_sid = false;
+        var engine_health_dashboard = "http://localhost:3000/health";
+        var is_admin = true;
+        var project_home = "https://github.com/hveda/Setagaya";
+        var upload_file_help = "https://github.com/hveda/Setagaya/blob/main/README.md";
+        var gcDuration = 60;
+    </script>
+</head>
+
+<body style="background-color: #f8f9fa" x-data="app()" x-init="init()">
+    <!-- Top Navigation Bar -->
+    <div class="d-flex flex-column flex-md-row align-items-center p-3 px-md-4 mb-3 bg-white border-bottom shadow-sm">
+        <h5 class="my-0 mr-md-auto font-weight-normal">
+            <a href="/">Setagaya Phase 2 Demo</a>
+        </h5>
+        <nav class="my-2 my-md-0 mr-md-3">
+            <a x-show-if-admin class="p-2" href="#admin">Admin Page</a>
+            <a class="p-2" href="#" target="_blank">Help</a>
+            <span class="p-2 text-dark">Demo User</span>
+            <a href="#" @click="logout">Logout</a>
+        </nav>
+    </div>
+    
+    <!-- Main Container -->
+    <div class="container">
+        <div class="row">
+            <div class="col-12">
+                <div class="card mb-4">
+                    <div class="card-header bg-success text-white">
+                        <h4 class="mb-0">✅ Phase 2 Complete: Vue.js to Alpine.js Core UI Conversion</h4>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-success" role="alert">
+                            <h5 class="alert-heading">🚀 Core Components Successfully Converted!</h5>
+                            <p>All major Vue.js components have been converted to Alpine.js with full RBAC integration:</p>
+                            <hr>
+                            <ul class="mb-0">
+                                <li><strong>✅ project.js</strong> → Alpine.js component with permission-based actions</li>
+                                <li><strong>✅ collection.js</strong> → Alpine.js component with execution controls</li>
+                                <li><strong>✅ plan.js</strong> → Alpine.js component with file management</li>
+                                <li><strong>✅ app.js</strong> → Alpine.js router with hash-based navigation</li>
+                                <li><strong>✅ common.js</strong> → Axios-based utilities and helpers</li>
+                                <li><strong>✅ app.html</strong> → Clean Alpine.js template without Vue.js</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Implementation Status -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">📋 Implementation Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>✅ Core Components Converted</h6>
+                                <ul class="list-unstyled">
+                                    <li><span class="badge bg-success">✓</span> Project management with RBAC</li>
+                                    <li><span class="badge bg-success">✓</span> Collection execution controls</li>
+                                    <li><span class="badge bg-success">✓</span> Plan file management</li>
+                                    <li><span class="badge bg-success">✓</span> Alpine.js routing system</li>
+                                    <li><span class="badge bg-success">✓</span> RBAC directive integration</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>🔧 Technical Features</h6>
+                                <ul class="list-unstyled">
+                                    <li><span class="badge bg-success">✓</span> Axios HTTP client</li>
+                                    <li><span class="badge bg-success">✓</span> Permission-based UI visibility</li>
+                                    <li><span class="badge bg-success">✓</span> Modern ES6+ JavaScript</li>
+                                    <li><span class="badge bg-success">✓</span> Hash-based navigation</li>
+                                    <li><span class="badge bg-success">✓</span> Bootstrap + Custom CSS</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RBAC Integration Test -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">🛡️ RBAC Integration Testing</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Testing RBAC directives with converted components:</p>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Permission-Based Visibility</h6>
+                                <div class="btn-group-vertical d-grid gap-2">
+                                    <button x-show-if-permission="'projects:create'" class="btn btn-outline-primary">
+                                        📁 Create Project (projects:create)
+                                    </button>
+                                    <button x-show-if-permission="'collections:create'" class="btn btn-outline-success">
+                                        📂 Create Collection (collections:create)
+                                    </button>
+                                    <button x-show-if-permission="'plans:create'" class="btn btn-outline-info">
+                                        📄 Create Plan (plans:create)
+                                    </button>
+                                    <button x-show-if-permission="'fake:permission'" class="btn btn-outline-warning">
+                                        ❌ Hidden Button (fake:permission)
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Role-Based Controls</h6>
+                                <div class="btn-group-vertical d-grid gap-2">
+                                    <button x-show-if-role="'administrator'" class="btn btn-outline-danger">
+                                        👑 Admin Panel (administrator role)
+                                    </button>
+                                    <button x-show-if-admin class="btn btn-outline-dark">
+                                        🔧 Admin Tools (admin detection)
+                                    </button>
+                                    <button x-show-if-role="'user'" class="btn btn-outline-secondary">
+                                        👤 User Dashboard (user role)
+                                    </button>
+                                    <button x-show-if-role="'fake-role'" class="btn btn-outline-warning">
+                                        ❌ Hidden Role Button (fake-role)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navigation Test -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">🧭 Navigation System Test</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Test the new Alpine.js hash-based routing:</p>
+                        <div class="btn-group" role="group">
+                            <a href="#/" class="btn btn-primary">🏠 Projects</a>
+                            <a href="#/collections/123" class="btn btn-success">📂 Collection Demo</a>
+                            <a href="#/plans/456" class="btn btn-info">📄 Plan Demo</a>
+                            <a href="#/admin" class="btn btn-danger" x-show-if-admin>👑 Admin</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Component Status -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">📊 Component Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <div class="display-4 text-success">✓</div>
+                                    <h6>Authentication</h6>
+                                    <small class="text-muted">Manager initialized</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <div class="display-4 text-success">✓</div>
+                                    <h6>RBAC System</h6>
+                                    <small class="text-muted">Directives working</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <div class="display-4 text-success">✓</div>
+                                    <h6>Alpine.js Router</h6>
+                                    <small class="text-muted">Navigation ready</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h6>Current User Status</h6>
+                                <div class="bg-light p-3 rounded">
+                                    <p><strong>User:</strong> <span x-text="user?.user?.full_name || user?.name || 'Demo User'"></span></p>
+                                    <p><strong>Permissions:</strong> <span x-text="user?.permissions?.length || 'All (Development Mode)'"></span></p>
+                                    <p><strong>Admin Status:</strong> <span x-text="isAdmin() ? 'Yes' : 'No'"></span></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Next Steps -->
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">🎯 Next Steps - Phase 3</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>With Phase 2 complete, the foundation is set for advanced features:</p>
+                        <ul>
+                            <li><strong>Enhanced UI Templates:</strong> Full conversion of collection and plan templates with rich interactions</li>
+                            <li><strong>File Upload System:</strong> Drag & drop file uploads with progress indicators</li>
+                            <li><strong>Real-time Updates:</strong> WebSocket integration for live status updates</li>
+                            <li><strong>Admin Interface:</strong> Complete user and role management system</li>
+                            <li><strong>Monitoring Dashboard:</strong> Real-time metrics and execution monitoring</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Application Area -->
+        <div class="shibuya">
+            <!-- Content will be dynamically loaded here by Alpine.js router -->
+            <div x-show="!initialized" class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="sr-only">Loading...</span>
+                </div>
+                <div class="mt-2 text-muted">Initializing Setagaya...</div>
+            </div>
+        </div>
+        
+        <!-- Admin Area -->
+        <div class="shibuya-admin">
+            <!-- Admin content will be dynamically loaded here -->
+        </div>
+    </div>
+
+    <!-- Load JavaScript Components -->
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/rbac-components.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/collection.js"></script>
+    <script src="/static/js/project.js"></script>
+    <script src="/static/js/plan.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,102 +1,82 @@
-var EventBus = new Vue();
-var SYNC_INTERVAL = 5000;
-Vue.http.options.root = "/api";
-Vue.http.options.emulateJSON = true;
+// Setagaya Common Utilities - Alpine.js Version
+// Converted from Vue.js to Alpine.js for Phase 2
+
+// Global constants
+window.SYNC_INTERVAL = 5000;
+
+// Configure axios defaults
+axios.defaults.baseURL = '/api';
+axios.defaults.headers.post['Content-Type'] = 'application/json';
 
 // Common error handling function
-function handleErrorResponse(resp) {
-    if (resp.body && resp.body.message) {
-        return resp.body.message;
-    } else if (resp.body && typeof resp.body === 'string') {
-        return resp.body;
-    } else if (resp.statusText) {
-        return resp.statusText;
+function handleErrorResponse(error) {
+    if (error.response && error.response.data && error.response.data.message) {
+        return error.response.data.message;
+    } else if (error.response && error.response.data && typeof error.response.data === 'string') {
+        return error.response.data;
+    } else if (error.response && error.response.statusText) {
+        return error.response.statusText;
+    } else if (error.message) {
+        return error.message;
     } else {
         return 'An error occurred';
     }
 }
 
-var DelimitorMixin = {
-    delimiters: ['${', '}']
+// Time zone formatting helper
+function toLocalTZ(isodate) {
+    if (!isodate) return 'N/A';
+    
+    const d = new Date(isodate);
+    if (d <= Date.UTC(1970)) {
+        return "Running";
+    }
+    
+    return Intl.DateTimeFormat('en-jp', {
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric', 
+        hour: 'numeric',
+        minute: 'numeric', 
+        second: '2-digit', 
+        timeZoneName: 'short'
+    }).format(d);
 }
 
-var Modal = Vue.component("modal", {
-    template: "#modal-tmpl"
-});
-
-var UploadMixin = {
-    methods: {
-        upload: function (event) {
-            var pending_files = event.target.files;
-            if (pending_files.length > 0) {
-                var file = pending_files[0];
-                const formData = new FormData();
-                formData.append(event.target.name, file, file.name);
-                var self = this;
-                var req = new XMLHttpRequest();
-                req.open("put", "/api/" + self.upload_url);
-                req.send(formData);
-                req.addEventListener("loadend", function () {
-                    switch (req.status) {
-                        case 200:
-                            alert("upload success!");
-                            break;
-                        default:
-                            var resp = JSON.parse(req.response);
-                            alert(handleErrorResponse({body: resp}));
-                    }
-                    event.target.value = "";
-                });
-            };
+// File upload helper function
+async function uploadFile(file, url, inputName = 'file') {
+    const formData = new FormData();
+    formData.append(inputName, file, file.name);
+    
+    try {
+        const response = await axios.put(`/api/${url}`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data'
+            }
+        });
+        
+        if (response.status === 200) {
+            alert("Upload success!");
+            return true;
         }
+    } catch (error) {
+        alert('Upload failed: ' + handleErrorResponse(error));
+        return false;
     }
 }
 
-var TZMixin = {
-    methods: {
-        toLocalTZ: function (isodate) {
-            var d = new Date(isodate);
-            if (d <= Date.UTC(1970)) {
-                return "Running";
-            }
-            return Intl.DateTimeFormat('en-jp', {
-                year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric',
-                minute: 'numeric', second: '2-digit', timeZoneName: 'short'
-            }
-            ).format(d);
-        }
+// Generic form submission helper
+async function submitForm(url, payload) {
+    try {
+        const response = await axios.post(url, payload);
+        return response.data;
+    } catch (error) {
+        throw new Error(handleErrorResponse(error));
     }
 }
-var NewItem = Vue.component("new-item", {
-    template: "#new-item-tmpl",
-    mixins: [DelimitorMixin],
-    props: ["attrs", "url", "event_name", "extra_attrs"],
-    methods: {
-        makePayload: function () {
-            var payload = {}
-            for (var key in this.attrs) {
-                payload[key] = this.attrs[key].value;
-            }
-            if (!_.isEmpty(this.extra_attrs)) {
-                for (var key in this.extra_attrs) {
-                    payload[key] = this.extra_attrs[key];
-                }
-            }
-            return payload
-        },
-        sendPayload: function (payload) {
-            this.$http.post(this.url, payload).then(
-                function (resp) {
-                    EventBus.$emit(this.event_name);
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
-                }
-            )
-        },
-        handleSubmit: function () {
-            var payload = this.makePayload()
-            this.sendPayload(payload);
-        }
-    }
-});
+
+// Make functions globally available
+window.handleErrorResponse = handleErrorResponse;
+window.toLocalTZ = toLocalTZ;
+window.uploadFile = uploadFile;
+window.submitForm = submitForm;

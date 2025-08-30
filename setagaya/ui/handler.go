@@ -109,11 +109,31 @@ func (u *UI) loginPageHandler(w http.ResponseWriter, r *http.Request, params htt
 	template.Execute(w, e)
 }
 
+func (u *UI) phase2DemoHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	template := u.tmpl.Lookup("phase2-demo.html")
+	if template == nil {
+		http.Error(w, "Template not found", http.StatusNotFound)
+		return
+	}
+	template.Execute(w, nil)
+}
+
+func (u *UI) rbacTestHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	template := u.tmpl.Lookup("app-rbac-test.html")
+	if template == nil {
+		http.Error(w, "Template not found", http.StatusNotFound)
+		return
+	}
+	template.Execute(w, nil)
+}
+
 func (u *UI) InitRoutes() api.Routes {
 	return api.Routes{
 		&api.Route{"home", "GET", "/", u.homeHandler},
 		&api.Route{"login", "POST", "/login", u.loginHandler},
 		&api.Route{"login", "GET", "/login", u.loginPageHandler},
 		&api.Route{"logout", "POST", "/logout", u.logoutHandler},
+		&api.Route{"phase2_demo", "GET", "/phase2-demo.html", u.phase2DemoHandler},
+		&api.Route{"rbac_test", "GET", "/app-rbac-test.html", u.rbacTestHandler},
 	}
 }

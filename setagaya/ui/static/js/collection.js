@@ -1,379 +1,463 @@
-var PlanAttrs = {
-    data: function () {
-        return {
-            "name": {
-                label: "Plan Name"
+// Setagaya Collection Management - Alpine.js Component
+// Converted from Vue.js to Alpine.js for Phase 2
+
+// Collection component for individual collection management
+function collectionComponent(collectionId) {
+    return {
+        // Data properties
+        collectionId: collectionId,
+        collection: {},
+        collection_status: {},
+        cache: {},
+        plan_status: {},
+        launched: false,
+        triggered: false,
+        trigger_in_progress: false,
+        stop_in_progress: false,
+        purge_in_progress: false,
+        showing_log: false,
+        showing_engines_detail: false,
+        log_content: "",
+        log_modal_title: "",
+        engines_detail: {},
+        upload_url: "",
+        loading: true,
+        refreshInterval: null,
+
+        // Initialize component
+        async init() {
+            await this.fetchCollection();
+            // Set up auto-refresh
+            this.refreshInterval = setInterval(() => {
+                this.fetchCollection();
+            }, window.SYNC_INTERVAL || 5000);
+        },
+
+        // Cleanup when component is destroyed
+        destroy() {
+            if (this.refreshInterval) {
+                clearInterval(this.refreshInterval);
             }
-        }
-    }
-}
-var Collection = Vue.component("collection", {
-    mixins: [DelimitorMixin, UploadMixin, TZMixin],
-    template: "#collection-tmpl",
-    data: function () {
-        return {
-            cache: {},
-            collection_status: {},
-            plan_status: {},
-            collection: {},
-            launched: false,
-            triggered: false,
-            internal: null,
-            collection_file: null,
-            trigger_in_progress: false,
-            stop_in_progress: false,
-            purge_in_progress: false,
-            upload_file_help: upload_file_help,
-            showing_log: false,
-            showing_engines_detail: false,
-            log_content: "",
-            log_modal_title: "",
-            engines_detail: {},
-            upload_url: ""
-        }
-    },
-    computed: {
-        verb: function () {
-            if (this.collection_status.pool_size > 1) {
-                return "are";
-            }
-            return "is";
         },
-        running_context: function () {
-            return running_context;
+
+        // Computed properties
+        get verb() {
+            return this.collection_status.pool_size > 1 ? "are" : "is";
         },
-        collection_id: function () {
-            return this.$route.params.id;
+
+        get running_context() {
+            return window.running_context || "local";
         },
-        stopped: function () {
+
+        get stopped() {
             return !this.triggered;
         },
-        show_runs: function () {
+
+        get show_runs() {
             if (!this.collection.hasOwnProperty("run_history")) return false;
             if (this.collection.run_history === null) return false;
             return this.collection.run_history.length > 0;
         },
-        can_be_launched: function () {
-            var that = this;
-            var everything_is_launched = true;
-            _.all(this.collection_status.status, function (plan) {
-                if (plan.engines_deployed === 0) {
-                    that.launched = false;
-                    everything_is_launched = false;
-                    return;
-                }
-            });
+
+        get can_be_launched() {
+            let everything_is_launched = true;
+            if (this.collection_status.status) {
+                this.collection_status.status.forEach(plan => {
+                    if (plan.engines_deployed === 0) {
+                        this.launched = false;
+                        everything_is_launched = false;
+                    }
+                });
+            }
+            
             if (!everything_is_launched) {
                 return true;
             }
+            
             if (this.can_be_triggered) {
                 this.launched = true;
             }
+            
             if (!this.collection.hasOwnProperty("execution_plans")) {
                 return false;
             }
+            
             return this.collection.execution_plans.length > 0 && !this.launched;
         },
-        can_be_triggered: function () {
-            var collection_status = this.collection_status.status;
+
+        get can_be_triggered() {
+            const collection_status = this.collection_status.status;
             if (collection_status == null) {
                 return false;
             }
-            var t = collection_status.length > 0;
-            _.all(collection_status, function (plan) {
-                t = t && plan.engines_deployed === plan.engines && plan.engines_reachable
+            
+            let result = collection_status.length > 0;
+            collection_status.forEach(plan => {
+                result = result && plan.engines_deployed === plan.engines && plan.engines_reachable;
             });
-            return t;
+            
+            return result;
         },
-        launchable: function () {
+
+        get launchable() {
             if (this.can_be_triggered) {
                 this.launched = true;
             }
             return this.can_be_launched && !this.launched;
         },
-        triggerable: function () {
+
+        get triggerable() {
             return this.can_be_triggered && this.launched && this.stopped;
         },
-        stoppable: function () {
+
+        get stoppable() {
             return this.triggered;
         },
-        purge_tip: function () {
-            var t = true;
-            _.all(this.collection_status.status, function (plan) {
-                t = t && (plan.engines_deployed === plan.engines);
-            });
-            if (!t) {
+
+        get purge_tip() {
+            let result = true;
+            if (this.collection_status.status) {
+                this.collection_status.status.forEach(plan => {
+                    result = result && (plan.engines_deployed === plan.engines);
+                });
+            }
+            
+            if (!result) {
                 this.purge_in_progress = false;
             }
-            return this.purge_in_progress && t;
+            
+            return this.purge_in_progress && result;
         },
-        collectionConfigDownloadUrl: function () {
-            return "api/collections/" + this.collection_id + "/config";
+
+        get collectionConfigDownloadUrl() {
+            return `/api/collections/${this.collectionId}/config`;
         },
-        engine_remaining_time: function () {
-            var engines_detail = this.engines_detail;
-            var engine_life_span = gcDuration; // value we get from the ui handler
-            if (engines_detail.engines.length > 0) {
-                var e = engines_detail.engines[0],
-                    now = Date.now(),
-                    created_time = new Date(e.created_time)
-                var running_time = (now - created_time) / 1000 / 60;
+
+        get engine_remaining_time() {
+            const engines_detail = this.engines_detail;
+            const engine_life_span = window.gcDuration || 60; // Default 60 minutes
+            
+            if (engines_detail.engines && engines_detail.engines.length > 0) {
+                const engine = engines_detail.engines[0];
+                const now = Date.now();
+                const created_time = new Date(engine.created_time);
+                const running_time = (now - created_time) / 1000 / 60;
                 return Math.ceil(engine_life_span - running_time);
             }
+            
             return engine_life_span;
         },
-        total_engines: function () {
-            var total = 0;
-            _.each(this.collection_status.status, function (plan) {
-                total += plan.engines;
-            })
-            return total
-        }
-    },
-    created: function () {
-        this.fetchCollection();
-        this.interval = setInterval(this.fetchCollection, SYNC_INTERVAL);
-    },
-    destroyed: function () {
-        clearInterval(this.interval);
-    },
-    methods: {
-        updateCache: function (collection_status) {
-            var self = this,
-                stopped = true;
-            _.each(collection_status, function (plan_status) {
+
+        get total_engines() {
+            let total = 0;
+            if (this.collection_status.status) {
+                this.collection_status.status.forEach(plan => {
+                    total += plan.engines;
+                });
+            }
+            return total;
+        },
+
+        // Methods
+        updateCache(collection_status) {
+            let stopped = true;
+            collection_status.forEach(plan_status => {
                 plan_status.started_time = new Date(plan_status.started_time);
                 stopped = stopped && !plan_status.in_progress;
-                Vue.set(self.cache, plan_status.plan_id, plan_status);
+                this.cache[plan_status.plan_id] = plan_status;
             });
             this.triggered = !stopped;
         },
-        fetchCollection: function () {
-            this.$http.get("collections/" + this.collection_id).then(
-                function (resp) {
-                    this.collection = resp.body;
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
+
+        async fetchCollection() {
+            try {
+                // Fetch collection data
+                const collectionResponse = await axios.get(`/api/collections/${this.collectionId}`);
+                this.collection = collectionResponse.data;
+
+                // Fetch collection status
+                const statusResponse = await axios.get(`/api/collections/${this.collectionId}/status`);
+                this.collection_status = statusResponse.data;
+                this.updateCache(this.collection_status.status);
+                
+                this.loading = false;
+            } catch (error) {
+                console.error('Failed to fetch collection:', error);
+                this.loading = false;
+                if (error.response?.status !== 401) {
+                    alert('Failed to load collection: ' + (error.response?.data?.message || error.message));
                 }
-            );
-            this.$http.get("collections/" + this.collection_id + '/status').then(
-                function (resp) {
-                    this.collection_status = resp.body;
-                    this.updateCache(this.collection_status.status);
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
-                }
-            );
+            }
         },
-        plan_url: function (plan_id) {
-            return "#plans/" + plan_id;
+
+        planUrl(plan_id) {
+            return `/plans/${plan_id}`;
         },
-        launch: function () {
-            var url = "collections/" + this.collection_id + "/deploy"
-            this.$http.post(url).then(
-                function (resp) {
-                    this.launched = true;
-                    this.purged = false;
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
-                }
-            )
+
+        async launch() {
+            if (!window.authManager.hasPermission('collections:execute')) {
+                alert('You do not have permission to launch collections');
+                return;
+            }
+
+            try {
+                await axios.post(`/api/collections/${this.collectionId}/deploy`);
+                this.launched = true;
+                this.purged = false;
+            } catch (error) {
+                alert('Failed to launch collection: ' + (error.response?.data?.message || error.message));
+            }
         },
-        trigger: function () {
+
+        async trigger() {
+            if (!window.authManager.hasPermission('collections:execute')) {
+                alert('You do not have permission to trigger collections');
+                return;
+            }
+
             this.trigger_in_progress = true;
-            var url = "collections/" + this.collection_id + "/trigger"
-            this.$http.post(url).then(
-                function (resp) {
-                    this.triggered = true;
-                    this.trigger_in_progress = false;
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
-                    this.trigger_in_progress = false;
-                }
-            );
+            try {
+                await axios.post(`/api/collections/${this.collectionId}/trigger`);
+                this.triggered = true;
+                this.trigger_in_progress = false;
+            } catch (error) {
+                alert('Failed to trigger collection: ' + (error.response?.data?.message || error.message));
+                this.trigger_in_progress = false;
+            }
         },
-        stop: function () {
+
+        async stop() {
+            if (!window.authManager.hasPermission('collections:execute')) {
+                alert('You do not have permission to stop collections');
+                return;
+            }
+
             this.stop_in_progress = true;
-            var url = "collections/" + this.collection_id + "/stop"
-            this.$http.post(url).then(
-                function (resp) {
-                    this.triggered = false;
-                    this.stop_in_progress = false;
-                },
-                function (resp) {
-                    console.log(resp.body);
-                    this.stop_in_progress = false;
-                }
-            );
+            try {
+                await axios.post(`/api/collections/${this.collectionId}/stop`);
+                this.triggered = false;
+                this.stop_in_progress = false;
+            } catch (error) {
+                console.error('Failed to stop collection:', error);
+                this.stop_in_progress = false;
+            }
         },
-        purge: function () {
-            var url = "collections/" + this.collection_id + "/purge"
+
+        async purge() {
+            if (!window.authManager.hasPermission('collections:execute')) {
+                alert('You do not have permission to purge collections');
+                return;
+            }
+
             this.purge_in_progress = true;
-            this.$http.post(url).then(
-                function (resp) {
-                    this.launched = false;
-                    this.triggered = false;
-                },
-                function (resp) {
-                    console.log(resp.body);
-                }
-            );
+            try {
+                await axios.post(`/api/collections/${this.collectionId}/purge`);
+                this.launched = false;
+                this.triggered = false;
+            } catch (error) {
+                console.error('Failed to purge collection:', error);
+            }
         },
-        remove: function () {
-            var r = confirm("You are going to delete the collection. Continue?");
-            if (!r) return;
-            var url = "collections/" + this.collection_id;
-            this.$http.delete(url, {
-                collection_id: this.collection_id
-            }).then(
-                function (resp) {
-                    window.location.href = "/";
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
-                }
-            )
+
+        async deleteCollection() {
+            if (!window.authManager.hasPermission('collections:delete')) {
+                alert('You do not have permission to delete collections');
+                return;
+            }
+
+            const confirmed = confirm("You are going to delete the collection. Continue?");
+            if (!confirmed) return;
+
+            try {
+                await axios.delete(`/api/collections/${this.collectionId}`);
+                window.location.href = "/";
+            } catch (error) {
+                alert('Failed to delete collection: ' + (error.response?.data?.message || error.message));
+            }
         },
-        calPlanLaunchProgress: function (plan_id) {
-            var status = this.cache[plan_id];
+
+        calPlanLaunchProgress(plan_id) {
+            const status = this.cache[plan_id];
             if (status === undefined) {
-                return "0%";
+                return 0;
             }
-            var progress = status.engines_deployed / status.engines;
-            return progress.toFixed(2) * 100;
+            const progress = status.engines_deployed / status.engines;
+            return (progress * 100).toFixed(0);
         },
-        progressBarStyle: function (plan_id) {
-            var p = this.calPlanLaunchProgress(plan_id);
-            return {
-                width: p * 0.5 + "%"
-            }
+
+        progressBarStyle(plan_id) {
+            const progress = this.calPlanLaunchProgress(plan_id);
+            return `width: ${progress * 0.5}%`;
         },
-        isPlanReachable: function (plan_id) {
-            var status = this.cache[plan_id];
-            if (status == undefined) {
+
+        isPlanReachable(plan_id) {
+            const status = this.cache[plan_id];
+            if (status === undefined) {
                 return false;
             }
             return status.engines_reachable;
         },
-        reachableText: function (plan_id) {
-            return this.isPlanReachable(plan_id) ? "Reachable" : "Unreachable"
+
+        reachableText(plan_id) {
+            return this.isPlanReachable(plan_id) ? "Reachable" : "Unreachable";
         },
-        reachableClass: function (plan_id) {
+
+        reachableClass(plan_id) {
             return this.isPlanReachable(plan_id) ? "progress-bar bg-success" : "progress-bar bg-danger";
         },
-        reachableStyle: function (plan_id) {
-            var status = this.cache[plan_id];
-            var style = {
-                width: "100%"
-            };
-            if (status == undefined) {
-                return style
+
+        reachableStyle(plan_id) {
+            const status = this.cache[plan_id];
+            let style = "width: 100%";
+            
+            if (status === undefined || !status.engines_deployed) {
+                return style;
             }
-            if (!status.engines_deployed) {
-                return style
-            }
-            style.width = "50%";
-            return style;
+            
+            return "width: 50%";
         },
-        planStarted: function (plan) {
-            var plan_status = this.cache[plan.plan_id];
+
+        planStarted(plan) {
+            const plan_status = this.cache[plan.plan_id];
             if (plan_status === undefined) {
-                return false
+                return false;
             }
             return plan_status.in_progress;
         },
-        runningProgress: function (plan) {
+
+        runningProgress(plan) {
             if (!this.planStarted(plan)) {
                 return "0%";
             }
-            var plan_status = this.cache[plan.plan_id];
-            var started_time = plan_status.started_time,
-                now = new Date(),
-                delta = Math.abs(now - started_time),
-                duration = plan.duration * 60 * 1000,
-                progress = Math.min(100, delta / duration * 100); // we can have overflow
+            
+            const plan_status = this.cache[plan.plan_id];
+            const started_time = plan_status.started_time;
+            const now = new Date();
+            const delta = Math.abs(now - started_time);
+            const duration = plan.duration * 60 * 1000;
+            const progress = Math.min(100, delta / duration * 100);
+            
             return progress.toFixed(0) + "%";
         },
-        runningProgressStyle: function (plan) {
-            var p = this.runningProgress(plan);
-            return {
-                width: p
+
+        runningProgressStyle(plan) {
+            const progress = this.runningProgress(plan);
+            return `width: ${progress}`;
+        },
+
+        async showEnginesDetail() {
+            try {
+                const response = await axios.get(`/api/collections/${this.collection.id}/engines_detail`);
+                this.showing_engines_detail = true;
+                this.engines_detail = response.data;
+            } catch (error) {
+                alert('Failed to load engines detail: ' + (error.response?.data?.message || error.message));
             }
         },
-        showEnginesDetail: function (e) {
-            e.preventDefault();
-            var url = "collections/" + this.collection.id + "/engines_detail";
-            this.$http.get(url).then(
-                function (resp) {
-                    this.showing_engines_detail = true;
-                    this.engines_detail = resp.body;
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
+
+        async viewPlanLog(plan_id) {
+            const url = `/api/collections/${this.collection.id}/logs/${plan_id}`;
+            this.log_modal_title = `${this.collection.name}/${plan_id}`;
+            
+            try {
+                const response = await axios.get(url);
+                this.showing_log = true;
+                this.log_content = response.data.c;
+            } catch (error) {
+                if (!this.triggered) {
+                    alert("The collection has not been triggered!");
+                    return;
                 }
-            );
+                console.error('Failed to load plan log:', error);
+            }
         },
-        viewPlanLog: function (e, plan_id) {
-            e.preventDefault();
-            var url = "collections/" + this.collection.id + "/logs/" + plan_id;
-            this.log_modal_title = this.collection.name + "/" + plan_id;
-            this.$http.get(url).then(
-                function (resp) {
-                    this.showing_log = true;
-                    this.log_content = resp.body.c;
-                },
-                function (resp) {
-                    if (!this.triggered) {
-                        alert("The collection has not been triggered!");
-                        return
-                    }
-                    console.log(resp.body.message);
-                }
-            )
-        },
-        runGrafanaUrl: function (run) {
-            //buffer 1 minute before and after because of time lag in shipping of results
-            var start = new Date(run.started_time);
+
+        runGrafanaUrl(run) {
+            // Buffer 1 minute before and after because of time lag in shipping of results
+            const start = new Date(run.started_time);
             start.setMinutes(start.getMinutes() - 1);
-            var end = new Date(run.end_time);
+            const end = new Date(run.end_time);
+            
+            const result_dashboard = window.result_dashboard || "";
+            
             if (end.getTime() <= 0) {
-                return result_dashboard + "?var-runID=" + run.id + "&from=" + start.getTime() + "&to=now" + "&refresh=3s";
+                return `${result_dashboard}?var-runID=${run.id}&from=${start.getTime()}&to=now&refresh=3s`;
             }
+            
             end.setMinutes(end.getMinutes() + 1);
-            return result_dashboard + "?var-runID=" + run.id + "&from=" + start.getTime() + "&to=" + end.getTime();
+            return `${result_dashboard}?var-runID=${run.id}&from=${start.getTime()}&to=${end.getTime()}`;
         },
-        hasEngineDashboard: function () {
-            return engine_health_dashboard !== "";
+
+        hasEngineDashboard() {
+            return window.engine_health_dashboard && window.engine_health_dashboard !== "";
         },
-        engineHealthGrafanaUrl: function () {
-            return engine_health_dashboard + "?var-collectionID=" + this.collection_id;
+
+        engineHealthGrafanaUrl() {
+            return `${window.engine_health_dashboard}?var-collectionID=${this.collectionId}`;
         },
-        makeUploadURL: function (path) {
+
+        makeUploadURL(path) {
             switch (path) {
                 case "yaml":
-                    this.upload_url = "collections/" + this.collection.id + "/config";
+                    this.upload_url = `collections/${this.collection.id}/config`;
                     break;
                 case "data":
-                    this.upload_url = "collections/" + this.collection.id + "/files"
+                    this.upload_url = `collections/${this.collection.id}/files`;
                     break;
                 default:
                     console.log("Wrong upload type selection for making collection upload url");
             }
         },
-        deleteCollectionFile: function (filename) {
-            var url = encodeURI("collections/" + this.collection_id + "/files?filename=" + filename);
-            this.$http.delete(url).then(
-                function (resp) {
-                    alert("File deleted successfully");
-                },
-                function (resp) {
-                    alert(handleErrorResponse(resp));
-                }
-            );
+
+        async deleteCollectionFile(filename) {
+            if (!window.authManager.hasPermission('collections:update')) {
+                alert('You do not have permission to delete collection files');
+                return;
+            }
+
+            const url = encodeURI(`/api/collections/${this.collectionId}/files?filename=${filename}`);
+            try {
+                await axios.delete(url);
+                alert("File deleted successfully");
+                // Refresh collection data
+                await this.fetchCollection();
+            } catch (error) {
+                alert('Failed to delete file: ' + (error.response?.data?.message || error.message));
+            }
+        },
+
+        // File upload helper (to be integrated with upload system)
+        async uploadFile(file, type = 'data') {
+            if (!window.authManager.hasPermission('collections:update')) {
+                alert('You do not have permission to upload files');
+                return;
+            }
+
+            this.makeUploadURL(type);
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                await axios.post(`/api/${this.upload_url}`, formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                });
+                alert("File uploaded successfully");
+                // Refresh collection data
+                await this.fetchCollection();
+            } catch (error) {
+                alert('Failed to upload file: ' + (error.response?.data?.message || error.message));
+            }
+        },
+
+        // Time zone helper
+        toLocalTZ(timestamp) {
+            if (!timestamp) return 'N/A';
+            return new Date(timestamp).toLocaleString();
         }
-    }
-});
+    };
+}
+
+// Make component globally available
+window.collectionComponent = collectionComponent;
