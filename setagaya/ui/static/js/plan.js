@@ -52,12 +52,12 @@ function planComponent(planId) {
                 return;
             }
 
-            const confirmed = confirm("You are going to delete the plan. Continue?");
+            const confirmed = confirm('You are going to delete the plan. Continue?');
             if (!confirmed) return;
 
             try {
                 await axios.delete(`/api/plans/${this.planId}`);
-                window.location.href = "/";
+                window.location.href = '/';
             } catch (error) {
                 alert('Failed to delete plan: ' + (error.response?.data?.message || error.message));
             }
@@ -72,7 +72,7 @@ function planComponent(planId) {
             const url = encodeURI(`/api/plans/${this.planId}/files?filename=${filename}`);
             try {
                 await axios.delete(url);
-                alert("File deleted successfully");
+                alert('File deleted successfully');
                 // Refresh plan data
                 await this.fetchPlan();
             } catch (error) {
@@ -109,7 +109,7 @@ function planComponent(planId) {
                         'Content-Type': 'multipart/form-data'
                     }
                 });
-                alert("File uploaded successfully");
+                alert('File uploaded successfully');
                 // Clear the input and refresh plan data
                 event.target.value = '';
                 await this.fetchPlan();

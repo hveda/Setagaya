@@ -29,7 +29,7 @@ function toLocalTZ(isodate) {
     
     const d = new Date(isodate);
     if (d <= Date.UTC(1970)) {
-        return "Running";
+        return 'Running';
     }
     
     return Intl.DateTimeFormat('en-jp', {
@@ -56,7 +56,7 @@ async function uploadFile(file, url, inputName = 'file') {
         });
         
         if (response.status === 200) {
-            alert("Upload success!");
+            alert('Upload success!');
             return true;
         }
     } catch (error) {

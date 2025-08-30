@@ -17,10 +17,10 @@ function collectionComponent(collectionId) {
         purge_in_progress: false,
         showing_log: false,
         showing_engines_detail: false,
-        log_content: "",
-        log_modal_title: "",
+        log_content: '',
+        log_modal_title: '',
         engines_detail: {},
-        upload_url: "",
+        upload_url: '',
         loading: true,
         refreshInterval: null,
 
@@ -42,11 +42,11 @@ function collectionComponent(collectionId) {
 
         // Computed properties
         get verb() {
-            return this.collection_status.pool_size > 1 ? "are" : "is";
+            return this.collection_status.pool_size > 1 ? 'are' : 'is';
         },
 
         get running_context() {
-            return window.running_context || "local";
+            return window.running_context || 'local';
         },
 
         get stopped() {
@@ -54,7 +54,7 @@ function collectionComponent(collectionId) {
         },
 
         get show_runs() {
-            if (!this.collection.hasOwnProperty("run_history")) return false;
+            if (!Object.prototype.hasOwnProperty.call(this.collection, 'run_history')) return false;
             if (this.collection.run_history === null) return false;
             return this.collection.run_history.length > 0;
         },
@@ -78,7 +78,7 @@ function collectionComponent(collectionId) {
                 this.launched = true;
             }
             
-            if (!this.collection.hasOwnProperty("execution_plans")) {
+            if (!Object.prototype.hasOwnProperty.call(this.collection, 'execution_plans')) {
                 return false;
             }
             
@@ -265,12 +265,12 @@ function collectionComponent(collectionId) {
                 return;
             }
 
-            const confirmed = confirm("You are going to delete the collection. Continue?");
+            const confirmed = confirm('You are going to delete the collection. Continue?');
             if (!confirmed) return;
 
             try {
                 await axios.delete(`/api/collections/${this.collectionId}`);
-                window.location.href = "/";
+                window.location.href = '/';
             } catch (error) {
                 alert('Failed to delete collection: ' + (error.response?.data?.message || error.message));
             }
@@ -299,22 +299,22 @@ function collectionComponent(collectionId) {
         },
 
         reachableText(plan_id) {
-            return this.isPlanReachable(plan_id) ? "Reachable" : "Unreachable";
+            return this.isPlanReachable(plan_id) ? 'Reachable' : 'Unreachable';
         },
 
         reachableClass(plan_id) {
-            return this.isPlanReachable(plan_id) ? "progress-bar bg-success" : "progress-bar bg-danger";
+            return this.isPlanReachable(plan_id) ? 'progress-bar bg-success' : 'progress-bar bg-danger';
         },
 
         reachableStyle(plan_id) {
             const status = this.cache[plan_id];
-            let style = "width: 100%";
+            let style = 'width: 100%';
             
             if (status === undefined || !status.engines_deployed) {
                 return style;
             }
             
-            return "width: 50%";
+            return 'width: 50%';
         },
 
         planStarted(plan) {
@@ -327,7 +327,7 @@ function collectionComponent(collectionId) {
 
         runningProgress(plan) {
             if (!this.planStarted(plan)) {
-                return "0%";
+                return '0%';
             }
             
             const plan_status = this.cache[plan.plan_id];
@@ -337,7 +337,7 @@ function collectionComponent(collectionId) {
             const duration = plan.duration * 60 * 1000;
             const progress = Math.min(100, delta / duration * 100);
             
-            return progress.toFixed(0) + "%";
+            return progress.toFixed(0) + '%';
         },
 
         runningProgressStyle(plan) {
@@ -365,7 +365,7 @@ function collectionComponent(collectionId) {
                 this.log_content = response.data.c;
             } catch (error) {
                 if (!this.triggered) {
-                    alert("The collection has not been triggered!");
+                    alert('The collection has not been triggered!');
                     return;
                 }
                 console.error('Failed to load plan log:', error);
@@ -378,7 +378,7 @@ function collectionComponent(collectionId) {
             start.setMinutes(start.getMinutes() - 1);
             const end = new Date(run.end_time);
             
-            const result_dashboard = window.result_dashboard || "";
+            const result_dashboard = window.result_dashboard || '';
             
             if (end.getTime() <= 0) {
                 return `${result_dashboard}?var-runID=${run.id}&from=${start.getTime()}&to=now&refresh=3s`;
@@ -389,7 +389,7 @@ function collectionComponent(collectionId) {
         },
 
         hasEngineDashboard() {
-            return window.engine_health_dashboard && window.engine_health_dashboard !== "";
+            return window.engine_health_dashboard && window.engine_health_dashboard !== '';
         },
 
         engineHealthGrafanaUrl() {
@@ -398,14 +398,14 @@ function collectionComponent(collectionId) {
 
         makeUploadURL(path) {
             switch (path) {
-                case "yaml":
+                case 'yaml':
                     this.upload_url = `collections/${this.collection.id}/config`;
                     break;
-                case "data":
+                case 'data':
                     this.upload_url = `collections/${this.collection.id}/files`;
                     break;
                 default:
-                    console.log("Wrong upload type selection for making collection upload url");
+                    console.log('Wrong upload type selection for making collection upload url');
             }
         },
 
@@ -418,7 +418,7 @@ function collectionComponent(collectionId) {
             const url = encodeURI(`/api/collections/${this.collectionId}/files?filename=${filename}`);
             try {
                 await axios.delete(url);
-                alert("File deleted successfully");
+                alert('File deleted successfully');
                 // Refresh collection data
                 await this.fetchCollection();
             } catch (error) {
@@ -443,7 +443,7 @@ function collectionComponent(collectionId) {
                         'Content-Type': 'multipart/form-data'
                     }
                 });
-                alert("File uploaded successfully");
+                alert('File uploaded successfully');
                 // Refresh collection data
                 await this.fetchCollection();
             } catch (error) {

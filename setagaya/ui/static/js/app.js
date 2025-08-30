@@ -521,7 +521,7 @@ function app() {
     canManageRoles() {
       return this.can('roles:manage') || this.isAdmin();
     }
-  }
+  };
 }
 
 // Make app function globally available

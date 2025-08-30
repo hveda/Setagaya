@@ -1,8 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    "./setagaya/ui/templates/**/*.html",
-    "./setagaya/ui/static/js/**/*.js",
+    "./ui/templates/**/*.html",
+    "./ui/static/js/**/*.js",
     "./src/**/*.{html,js}"
   ],
   theme: {

@@ -252,7 +252,7 @@ class RealtimeManager {
     closeAll() {
         console.log('Closing all real-time connections');
         
-        for (const [key, eventSource] of this.eventSources) {
+        for (const [, eventSource] of this.eventSources) {
             eventSource.close();
         }
         
@@ -470,7 +470,7 @@ function realtimeCollectionComponent() {
             };
             return statusClasses[this.status] || 'bg-secondary';
         }
-    }
+    };
 }
 
 // Real-time System Monitor Component
@@ -497,7 +497,7 @@ function realtimeSystemComponent() {
                 this.handleSystemUpdate(data);
             });
 
-            window.realtimeManager.on('system_error', (error) => {
+            window.realtimeManager.on('system_error', () => {
                 this.isConnected = false;
                 this.connectionErrors++;
             });
@@ -520,7 +520,7 @@ function realtimeSystemComponent() {
             this.systemMetrics = { ...this.systemMetrics, ...data };
             this.lastUpdate = new Date().toISOString();
         }
-    }
+    };
 }
 
 // Initialize global real-time manager

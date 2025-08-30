@@ -52,7 +52,7 @@ function adminRootComponent() {
         setActiveTab(tab) {
             this.activeTab = tab;
         }
-    }
+    };
 }
 
 // Collection Admin Component
@@ -116,7 +116,7 @@ function collectionAdminComponent() {
             };
             return statusClasses[status] || 'bg-secondary';
         }
-    }
+    };
 }
 
 // User Management Component
@@ -263,7 +263,7 @@ function userManagementComponent() {
         selectUser(user) {
             this.selectedUser = { ...user };
         }
-    }
+    };
 }
 
 // Role Management Component  
@@ -376,7 +376,7 @@ function roleManagementComponent() {
         selectRole(role) {
             this.selectedRole = { ...role };
         }
-    }
+    };
 }
 
 // Admin Routes Configuration
@@ -397,7 +397,7 @@ const adminRoutes = {
         component: 'roleManagement',
         title: 'Role Management'
     }
-}
+};
 
 // Admin Router Helper
 window.adminRouter = {
@@ -417,7 +417,7 @@ window.adminRouter = {
         const routeConfig = adminRoutes[route.replace('#', '')];
         return routeConfig ? routeConfig.title : 'Admin';
     }
-}
+};
 
 // Admin Component Factory
 window.createAdminComponent = function(componentType) {
@@ -433,4 +433,4 @@ window.createAdminComponent = function(componentType) {
         default:
             return adminRootComponent();
     }
-}
+};

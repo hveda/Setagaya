@@ -241,7 +241,7 @@ function fileUploadComponent() {
             this.errors = [];
             this.successMessages = [];
         }
-    }
+    };
 }
 
 // File Manager Component for browsing uploaded files
@@ -419,7 +419,7 @@ function fileManagerComponent() {
             };
             return iconMap[extension] || 'fas fa-file';
         }
-    }
+    };
 }
 
 // File Preview Component
@@ -486,7 +486,7 @@ function filePreviewComponent() {
             this.error = null;
             this.previewType = 'text';
         }
-    }
+    };
 }
 
 // Register components globally

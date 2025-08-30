@@ -95,7 +95,7 @@ function projectComponent(projectData) {
                 alert('Failed to delete project: ' + (error.response?.data?.message || error.message));
             }
         }
-    }
+    };
 }
 
 // Projects list component for managing all projects
@@ -165,7 +165,7 @@ function projectsComponent() {
             }
 
             try {
-                const response = await axios.post('/api/projects', this.newProjectForm);
+                await axios.post('/api/projects', this.newProjectForm);
                 this.creating = false;
                 this.newProjectForm.name = '';
                 await this.fetchProjects(); // Refresh list
@@ -193,7 +193,7 @@ function projectsComponent() {
         onPlanCreated() {
             this.fetchProjects();
         }
-    }
+    };
 }
 
 // Make components globally available

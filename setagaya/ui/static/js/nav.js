@@ -1,15 +1,16 @@
-var TopBar = new Vue({
-    el: "#top-bar",
-    methods: {
-        logout: function () {
-            this.$http.post("/logout").then(
-                function (_) {
-                    window.location.reload();
-                },
-                function (_) {
-                    alert("Ooops, logout failed...");
-                }
-            );
+// Navigation Bar Alpine.js component
+function topBar() {
+    return {
+        async logout() {
+            try {
+                await axios.post('/logout');
+                window.location.reload();
+            } catch (error) {
+                alert('Oops, logout failed...');
+            }
         }
-    }
-})
+    };
+}
+
+// Make available globally
+window.topBar = topBar;

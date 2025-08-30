@@ -10,6 +10,9 @@
     <!-- Bootstrap CSS for backward compatibility -->
     <link rel="stylesheet" href="/static/css/bootstrap.min.css">
     
+    <!-- Tailwind CSS (Phase 3) -->
+    <link href="/static/css/output.css" rel="stylesheet">
+    
     <!-- Custom CSS -->
     <link href="/static/css/styles.css" rel="stylesheet">
     
@@ -37,7 +40,7 @@
 
 <body style="background-color: {{ .BackgroundColour }}" x-data="app()" x-init="init()">
     <!-- Top Navigation Bar -->
-    <div id="top-bar"
+    <div id="top-bar" x-data="topBar()"
         class="d-flex flex-column flex-md-row align-items-center p-3 px-md-4 mb-3 bg-white border-bottom shadow-sm">
         <h5 class="my-0 mr-md-auto font-weight-normal">
             <a href="/">Setagaya({{ .Context }})</a>
@@ -69,17 +72,12 @@
         </div>
     </div>
 
-    <!-- Load JavaScript Components -->
-    <script src="/static/js/auth.js"></script>
-    <script src="/static/js/rbac-components.js"></script>
-    <script src="/static/js/common.js"></script>
-    <script src="/static/js/collection.js"></script>
-    <script src="/static/js/project.js"></script>
-    <script src="/static/js/plan.js"></script>
-    <script src="/static/js/nav.js"></script>
+    <!-- Load Optimized JavaScript Bundles (Phase 3) -->
+    <script src="/static/dist/main.3b18591bb4c6304298fb.js"></script>
+    <script src="/static/dist/auth.45b2be2473ddfa79a8da.js"></script>
     {{ if .IsAdmin }}
-    <script src="/static/js/admin.js"></script>
+    <script src="/static/dist/admin.cc846433f19ec6f7c9cc.js"></script>
     {{ end }}
-    <script src="/static/js/app.js"></script>
+    <script src="/static/dist/realtime.da89aeabc68b76cdce2d.js"></script>
 </body>
 </html>
