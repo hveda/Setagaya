@@ -49,7 +49,7 @@ var (
 	JMX_FILEPATH      = path.Join(TEST_DATA_FOLDER, JMX_FILENAME)
 )
 
-type ShibuyaWrapper struct {
+type SetagayaWrapper struct {
 	newClients     chan chan string
 	closingClients chan chan string
 	clients        map[chan string]bool
@@ -76,9 +76,9 @@ func findCollectionIDPlanID() (string, string) {
 	return os.Getenv("collection_id"), os.Getenv("plan_id")
 }
 
-func NewServer() (sw *ShibuyaWrapper) {
+func NewServer() (sw *SetagayaWrapper) {
 	// Instantiate a broker
-	sw = &ShibuyaWrapper{
+	sw = &SetagayaWrapper{
 		newClients:     make(chan chan string),
 		closingClients: make(chan chan string),
 		clients:        make(map[chan string]bool),
@@ -100,7 +100,7 @@ func NewServer() (sw *ShibuyaWrapper) {
 	return
 }
 
-func (sw *ShibuyaWrapper) readOutput() {
+func (sw *SetagayaWrapper) readOutput() {
 	rd := bufio.NewReader(sw.reader)
 	for {
 		line, _, err := rd.ReadLine()
@@ -112,7 +112,7 @@ func (sw *ShibuyaWrapper) readOutput() {
 	}
 }
 
-func parseRawMetrics(rawLine string) (enginesModel.ShibuyaMetric, error) {
+func parseRawMetrics(rawLine string) (enginesModel.SetagayaMetric, error) {
 	line := strings.Split(rawLine, "|")
 	// We use char "|" as the separator in jmeter jtl file. If some users somehow put another | in their label name
 	// we could end up a broken split. For those requests, we simply ignore otherwise the process will crash.
@@ -121,16 +121,16 @@ func parseRawMetrics(rawLine string) (enginesModel.ShibuyaMetric, error) {
 	// timeStamp|elapsed|label|responseCode|responseMessage|threadName|success|bytes|grpThreads|allThreads|Latency|Connect
 	if len(line) < 12 {
 		log.Printf("line length was less than required. Raw line is %s", rawLine)
-		return enginesModel.ShibuyaMetric{}, fmt.Errorf("line length was less than required. Raw line is %s", rawLine)
+		return enginesModel.SetagayaMetric{}, fmt.Errorf("line length was less than required. Raw line is %s", rawLine)
 	}
 	label := line[2]
 	status := line[3]
 	threads, _ := strconv.ParseFloat(line[9], 64)
 	latency, err := strconv.ParseFloat(line[10], 64)
 	if err != nil {
-		return enginesModel.ShibuyaMetric{}, err
+		return enginesModel.SetagayaMetric{}, err
 	}
-	return enginesModel.ShibuyaMetric{
+	return enginesModel.SetagayaMetric{
 		Threads: threads,
 		Label:   label,
 		Status:  status,
@@ -139,7 +139,7 @@ func parseRawMetrics(rawLine string) (enginesModel.ShibuyaMetric, error) {
 	}, nil
 }
 
-func (sw *ShibuyaWrapper) makePromMetrics(line string) {
+func (sw *SetagayaWrapper) makePromMetrics(line string) {
 	metric, err := parseRawMetrics(line)
 	// we need to pass the engine meta(project, collection, plan), especially run id
 	// Run id is generated at controller side
@@ -164,7 +164,7 @@ func (sw *ShibuyaWrapper) makePromMetrics(line string) {
 
 }
 
-func (sw *ShibuyaWrapper) listen() {
+func (sw *SetagayaWrapper) listen() {
 	for {
 		select {
 		case s := <-sw.newClients:
@@ -189,12 +189,12 @@ func (sw *ShibuyaWrapper) listen() {
 	}
 }
 
-func (sw *ShibuyaWrapper) makeLogFile() string {
+func (sw *SetagayaWrapper) makeLogFile() string {
 	filename := fmt.Sprintf("kpi-%d.jtl", sw.logCounter)
 	return path.Join(RESULT_ROOT, filename)
 }
 
-func (sw *ShibuyaWrapper) tailJemeter() {
+func (sw *SetagayaWrapper) tailJemeter() {
 	var t *tail.Tail
 	var err error
 	logFile := sw.makeLogFile()
@@ -220,7 +220,7 @@ func (sw *ShibuyaWrapper) tailJemeter() {
 	}
 }
 
-func (sw *ShibuyaWrapper) streamHandler(w http.ResponseWriter, r *http.Request) {
+func (sw *SetagayaWrapper) streamHandler(w http.ResponseWriter, r *http.Request) {
 	messageChan := make(chan string)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -252,7 +252,7 @@ func (sw *ShibuyaWrapper) streamHandler(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (sw *ShibuyaWrapper) stopHandler(w http.ResponseWriter, r *http.Request) {
+func (sw *SetagayaWrapper) stopHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		return
 	}
@@ -277,21 +277,21 @@ func (sw *ShibuyaWrapper) stopHandler(w http.ResponseWriter, r *http.Request) {
 	sw.closeSignal <- 1
 }
 
-func (sw *ShibuyaWrapper) setPid(pid int) {
+func (sw *SetagayaWrapper) setPid(pid int) {
 	sw.pidLock.Lock()
 	defer sw.pidLock.Unlock()
 
 	sw.currentPid = pid
 }
 
-func (sw *ShibuyaWrapper) getPid() int {
+func (sw *SetagayaWrapper) getPid() int {
 	sw.pidLock.RLock()
 	defer sw.pidLock.RUnlock()
 
 	return sw.currentPid
 }
 
-func (sw *ShibuyaWrapper) runCommand() int {
+func (sw *SetagayaWrapper) runCommand() int {
 	log.Printf("shibuya-agent: Start to run plan")
 	logFile := sw.makeLogFile()
 	cmd := exec.Command(JMETER_EXECUTABLE, "-n", "-t", JMX_FILEPATH, "-l", logFile,
@@ -391,7 +391,7 @@ func modifyJMX(file []byte, threads, duration, rampTime string) ([]byte, error) 
 	return planDoc.WriteToBytes()
 }
 
-func (sw *ShibuyaWrapper) prepareJMX(sf *model.SetagayaFile, threads, duration, rampTime string) error {
+func (sw *SetagayaWrapper) prepareJMX(sf *model.SetagayaFile, threads, duration, rampTime string) error {
 	file, err := sw.storageClient.Download(sf.Filepath)
 	if err != nil {
 		log.Println(err)
@@ -404,7 +404,7 @@ func (sw *ShibuyaWrapper) prepareJMX(sf *model.SetagayaFile, threads, duration, 
 	return saveToDisk(JMX_FILENAME, modified)
 }
 
-func (sw *ShibuyaWrapper) prepareCSV(sf *model.SetagayaFile) error {
+func (sw *SetagayaWrapper) prepareCSV(sf *model.SetagayaFile) error {
 	file, err := sw.storageClient.Download(sf.Filepath)
 	if err != nil {
 		return err
@@ -416,7 +416,7 @@ func (sw *ShibuyaWrapper) prepareCSV(sf *model.SetagayaFile) error {
 	return saveToDisk(sf.Filename, splittedCSV)
 }
 
-func (sw *ShibuyaWrapper) downloadAndSaveFile(sf *model.SetagayaFile) error {
+func (sw *SetagayaWrapper) downloadAndSaveFile(sf *model.SetagayaFile) error {
 	file, err := sw.storageClient.Download(sf.Filepath)
 	if err != nil {
 		return err
@@ -424,7 +424,7 @@ func (sw *ShibuyaWrapper) downloadAndSaveFile(sf *model.SetagayaFile) error {
 	return saveToDisk(sf.Filename, file)
 }
 
-func (sw *ShibuyaWrapper) prepareTestData(edc enginesModel.EngineDataConfig) error {
+func (sw *SetagayaWrapper) prepareTestData(edc enginesModel.EngineDataConfig) error {
 	for _, sf := range edc.EngineData {
 		fileType := filepath.Ext(sf.Filename)
 		switch fileType {
@@ -445,7 +445,7 @@ func (sw *ShibuyaWrapper) prepareTestData(edc enginesModel.EngineDataConfig) err
 	return nil
 }
 
-func (sw *ShibuyaWrapper) startHandler(w http.ResponseWriter, r *http.Request) {
+func (sw *SetagayaWrapper) startHandler(w http.ResponseWriter, r *http.Request) {
 	sw.handlerLock.Lock()
 	defer sw.handlerLock.Unlock()
 
@@ -492,7 +492,7 @@ func (sw *ShibuyaWrapper) startHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("hmm"))
 }
 
-func (sw *ShibuyaWrapper) progressHandler(w http.ResponseWriter, r *http.Request) {
+func (sw *SetagayaWrapper) progressHandler(w http.ResponseWriter, r *http.Request) {
 	pid := sw.getPid()
 	if pid == 0 {
 		w.WriteHeader(http.StatusNotFound)
@@ -501,13 +501,13 @@ func (sw *ShibuyaWrapper) progressHandler(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-func (sw *ShibuyaWrapper) stdoutHandler(w http.ResponseWriter, r *http.Request) {
+func (sw *SetagayaWrapper) stdoutHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(sw.buffer)
 }
 
 // This func reports the cpu/memory usage of the engine
 // It will run when the engine is started until it's finished.
-func (sw *ShibuyaWrapper) reportOwnMetrics(interval time.Duration) error {
+func (sw *SetagayaWrapper) reportOwnMetrics(interval time.Duration) error {
 	prev := uint64(0)
 	engineNumber := strconv.Itoa(sw.engineID)
 	for {
