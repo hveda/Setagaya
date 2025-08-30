@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Setagaya specific styles */
+@layer components {
+  .btn-setagaya {
+    @apply bg-setagaya-600 hover:bg-setagaya-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors;
+  }
+  
+  .btn-outline-setagaya {
+    @apply border border-setagaya-600 text-setagaya-600 hover:bg-setagaya-600 hover:text-white px-4 py-2 rounded-md text-sm font-medium transition-colors;
+  }
+  
+  .card {
+    @apply bg-white shadow rounded-lg;
+  }
+  
+  .card-body {
+    @apply p-6;
+  }
+  
+  .form-input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-setagaya-500 focus:border-transparent;
+  }
+}
+
+/* Override Alpine.js cloak */
+[x-cloak] { display: none !important; }

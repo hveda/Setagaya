@@ -51,7 +51,7 @@ func (u *UI) homeHandler(w http.ResponseWriter, r *http.Request, params httprout
 	if config.SC.DashboardConfig.EnginesDashboard == "" {
 		engineHealthDashboardURL = ""
 	}
-	template := u.tmpl.Lookup("app.html")
+	template := u.tmpl.Lookup("app-rbac-test.html")
 	sc := config.SC
 	gcDuration := config.SC.ExecutorConfig.Cluster.GCDuration
 	template.Execute(w, &HomeResp{account.Name, sc.BackgroundColour, sc.Context,

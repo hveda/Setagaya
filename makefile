@@ -3,6 +3,37 @@ all: | cluster permissions db prometheus grafana setagaya jmeter local_storage i
 setagaya-controller-ns = setagaya-executors
 setagaya-executor-ns = setagaya-executors
 
+# UI Build System Integration - Phase 1
+.PHONY: ui-deps ui-dev ui-build ui-clean
+
+# Install UI dependencies
+ui-deps:
+	@echo "📦 Installing UI dependencies..."
+	@if [ ! -f package.json ]; then \
+		echo "❌ package.json not found. Run npm init first."; \
+		exit 1; \
+	fi
+	@npm install
+	@echo "✅ UI dependencies installed"
+
+# Start UI development (for now just ensures CSS is ready)
+ui-dev:
+	@echo "🎨 UI development mode ready"
+	@echo "✅ CSS file is static and ready for development"
+	@echo "📝 Edit setagaya/ui/static/css/styles.css for styling changes"
+
+# Build production UI assets  
+ui-build:
+	@echo "🏗️  Building UI assets..."
+	@npm run build
+	@echo "✅ UI assets ready for production"
+
+# Clean UI build artifacts
+ui-clean:
+	@echo "🧹 Cleaning UI artifacts..."
+	@rm -rf node_modules package-lock.json 2>/dev/null || true
+	@echo "✅ UI artifacts cleaned"
+
 .PHONY: cluster
 cluster:
 	-kind create cluster --name setagaya --wait 180s
@@ -13,7 +44,7 @@ cluster:
 	touch setagaya/setagaya-gcp.json
 
 .PHONY: clean
-clean:
+clean: ui-clean
 	kind delete cluster --name setagaya
 	-killall kubectl 2>/dev/null || true
 	-podman rmi localhost/metrics-dashboard:local localhost/api:local localhost/controller:local localhost/setagaya:jmeter localhost/setagaya:storage localhost/setagaya:ingress-controller 2>/dev/null || true
@@ -54,7 +85,7 @@ local_controller:
 	rm -f /tmp/controller-local.tar
 
 .PHONY: setagaya
-setagaya: local_api local_controller grafana
+setagaya: ui-build local_api local_controller grafana
 	helm uninstall setagaya || true
 	cd setagaya && helm upgrade --install setagaya install/setagaya
 
@@ -71,6 +102,56 @@ expose:
 	-killall kubectl
 	-kubectl -n $(setagaya-controller-ns) port-forward service/setagaya-metrics-dashboard 3000:3000 > /dev/null 2>&1 &
 	-kubectl -n $(setagaya-controller-ns) port-forward service/setagaya-api-local 8080:8080 > /dev/null 2>&1 &
+
+# Enhanced development workflow with UI
+.PHONY: dev
+dev: ui-deps
+	@echo "🚀 Starting enhanced development environment..."
+	@$(MAKE) ui-dev
+	@$(MAKE) all
+	@$(MAKE) expose
+	@echo ""
+	@echo "✅ Development environment ready!"
+	@echo ""
+	@echo "🌐 Access URLs:"
+	@echo "  Setagaya UI: http://localhost:8080"
+	@echo "  Grafana:     http://localhost:3000"
+	@echo ""
+	@echo "📝 UI Development:"
+	@echo "  • Edit templates in setagaya/ui/templates/"
+	@echo "  • Edit styles in setagaya/ui/static/css/styles.css"
+	@echo "  • Edit JS in setagaya/ui/static/js/"
+	@echo "  • Run 'make setagaya' to rebuild after changes"
+
+# Enhanced help with UI commands
+.PHONY: help
+help:
+	@echo "Setagaya Load Testing Platform - Build Commands"
+	@echo ""
+	@echo "🏗️  Main Commands:"
+	@echo "  make              - Build and deploy full stack (default)"
+	@echo "  make dev          - Start development environment with UI"
+	@echo "  make setagaya     - Build and deploy Setagaya with UI"
+	@echo "  make clean        - Clean all resources including UI"
+	@echo ""
+	@echo "🎨 UI Development:"
+	@echo "  make ui-deps      - Install UI dependencies (npm packages)"
+	@echo "  make ui-dev       - UI development mode"
+	@echo "  make ui-build     - Build UI assets"
+	@echo "  make ui-clean     - Clean UI artifacts"
+	@echo ""
+	@echo "🔧 Infrastructure:"
+	@echo "  make grafana      - Deploy Grafana dashboard"
+	@echo "  make prometheus   - Deploy Prometheus monitoring"
+	@echo "  make local_storage - Deploy local storage"
+	@echo "  make db           - Deploy MariaDB database"
+	@echo ""
+	@echo "🧹 Cleanup:"
+	@echo "  make clean        - Clean Kubernetes resources and UI"
+	@echo ""
+	@echo "🌐 Access URLs:"
+	@echo "  Setagaya:  http://localhost:8080"
+	@echo "  Grafana:   http://localhost:3000"
 
 # TODO!
 # After k8s 1.22, service account token is no longer auto generated. We need to manually create the secret

@@ -1,0 +1,27 @@
+{
+  "name": "setagaya",
+  "version": "1.0.0",
+  "description": "Shibuya is a scheduler for load generator (Currently, Jmeter) that can deploy these executors in a kubernetes cluster and generate the results for you on the fly. Shibuya can scale quickly and to a higher capacity than distributed Jmeter mode. It also provides real time test results. Shibuya can be run on-prem or in public cloud.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build-css": "echo 'CSS watching not needed - using static CSS'",
+    "build-css-prod": "echo 'Using static CSS file - no build needed'",
+    "dev": "echo 'UI development ready - CSS file is static'",
+    "build": "echo 'UI build ready - CSS file is static'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.10",
+    "@tailwindcss/typography": "^0.5.16",
+    "tailwindcss": "^4.1.12"
+  },
+  "dependencies": {
+    "alpinejs": "^3.14.9",
+    "axios": "^1.11.0"
+  }
+}

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Setagaya {{ .Context }} - RBAC Test</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script>
+        // Template context variables for compatibility
+        var running_context = {{ .Context }};
+        var result_dashboard = {{ .ResultDashboard }};
+        var enable_sid = {{ .EnableSid }}
+        var engine_health_dashboard = {{ .EngineHealthDashboard }};
+        var is_admin = {{ .IsAdmin }}
+        var project_home = {{ .ProjectHome }}
+        var upload_file_help = {{ .UploadFileHelp }}
+        var gcDuration = {{ .GCDuration }}
+    </script>
+    <!-- Alpine.js and dependencies -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+
+<body class="bg-gray-50" x-data="app()" x-init="init()">
+    <!-- Hidden data elements for auth manager -->
+    <div style="display: none;" 
+         data-account="{{ .Account }}" 
+         data-is-admin="{{ .IsAdmin }}"></div>
+    
+    <!-- Navigation -->
+    <nav class="bg-white shadow border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-setagaya-600">
+                        <a href="/">Setagaya</a>
+                    </h1>
+                    <span class="ml-2 text-sm text-gray-500">({{ .Context }})</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- Admin link - shown only to admins -->
+                    <a x-show-if-admin href="#admin" class="text-gray-600 hover:text-gray-900">
+                        Admin Page
+                    </a>
+                    <a href="{{ .ProjectHome }}" target="_blank" class="text-gray-600 hover:text-gray-900">
+                        Help
+                    </a>
+                    <span class="text-gray-700" x-text="user?.name || '{{ .Account }}'"></span>
+                    <button @click="logout()" class="text-gray-600 hover:text-gray-900">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 px-4">
+        <!-- RBAC Integration Test Section -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Phase 1: RBAC Integration Test</h2>
+            
+            <!-- Loading state -->
+            <div x-show="!initialized" class="text-gray-500">
+                Initializing authentication...
+            </div>
+            
+            <!-- Initialized state -->
+            <div x-show="initialized" x-cloak>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- User Info -->
+                    <div class="border rounded-lg p-4">
+                        <h3 class="font-medium mb-2">Current User</h3>
+                        <p class="text-sm text-gray-600">
+                            Name: <span x-text="user?.name || 'Not logged in'"></span>
+                        </p>
+                        <p class="text-sm text-gray-600">
+                            Admin: <span x-text="isAdmin() ? 'Yes' : 'No'"></span>
+                        </p>
+                    </div>
+                    
+                    <!-- Permission Tests -->
+                    <div class="border rounded-lg p-4">
+                        <h3 class="font-medium mb-2">Permission Tests</h3>
+                        <div class="space-y-2 text-sm">
+                            <!-- Project permissions -->
+                            <div>
+                                <span x-show-if-permission="'projects:create'" class="text-green-600">✓</span>
+                                <span x-show="!can('projects:create')" class="text-red-600">✗</span>
+                                Can create projects
+                            </div>
+                            <div>
+                                <span x-show-if-permission="'projects:delete'" class="text-green-600">✓</span>
+                                <span x-show="!can('projects:delete')" class="text-red-600">✗</span>
+                                Can delete projects
+                            </div>
+                            <div>
+                                <span x-show-if-permission="'users:manage'" class="text-green-600">✓</span>
+                                <span x-show="!can('users:manage')" class="text-red-600">✗</span>
+                                Can manage users
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="mt-6 space-x-2">
+                    <button x-show-if-permission="'projects:create'" 
+                            class="btn-setagaya">
+                        New Project
+                    </button>
+                    <button x-show-if-permission="'collections:create'" 
+                            class="btn-outline-setagaya">
+                        New Collection
+                    </button>
+                    <button x-show-if-admin 
+                            class="btn-outline-setagaya">
+                        Admin Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Legacy Vue.js container (for backward compatibility) -->
+        <div class="shibuya">
+            <!-- Original Vue.js router-view would go here -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-medium mb-2">Projects</h3>
+                <p class="text-gray-600">
+                    This is where the original Vue.js components will be gradually replaced 
+                    with Alpine.js components in future phases.
+                </p>
+                <p class="text-sm text-gray-500 mt-2">
+                    Phase 1 focuses on foundation setup and RBAC integration.
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Include our new Alpine.js RBAC system -->
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/rbac-components.js"></script>
+    <script src="/static/js/app.js"></script>
+    
+    <!-- Keep original Vue.js for compatibility during transition -->
+    <!-- These will be gradually removed in future phases -->
+    <script src="/static/js/lib/vue.2.5.17.js"></script>
+    <script src="/static/js/lib/vue-router.js"></script>
+    <script src="/static/js/lib/vue-resource@1.5.1.js"></script>
+    <script src="/static/js/lib/underscore-min.js"></script>
+    <!-- Temporarily comment out other JS to avoid conflicts -->
+    <!--
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/collection.js"></script>
+    <script src="/static/js/project.js"></script>
+    <script src="/static/js/plan.js"></script>
+    <script src="/static/js/nav.js"></script>
+    {{ if .IsAdmin }}
+    <script src="/static/js/admin.js"></script>
+    {{ end }}
+    <script src="/static/js/app.js.vue.backup"></script>
+    -->
+</body>
+</html>
