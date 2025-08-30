@@ -10,7 +10,7 @@
     <!-- Bootstrap CSS for backward compatibility -->
     <link rel="stylesheet" href="/static/css/bootstrap.min.css">
     
-    <!-- Tailwind CSS (Phase 3) -->
+    <!-- Tailwind CSS -->
     <link href="/static/css/output.css" rel="stylesheet">
     
     <!-- Custom CSS -->
@@ -26,58 +26,176 @@
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     
     <script>
-        // Global configuration variables
-        var running_context = {{ .Context }};
-        var result_dashboard = {{ .ResultDashboard }};
-        var enable_sid = {{ .EnableSid }}
-        var engine_health_dashboard = {{ .EngineHealthDashboard }};
-        var is_admin = {{ .IsAdmin }}
-        var project_home = {{ .ProjectHome }}
-        var upload_file_help = {{ .UploadFileHelp }}
-        var gcDuration = {{ .GCDuration }}
+        // Global configuration variables from Go template
+        var running_context = "{{ .Context }}";
+        var result_dashboard = "{{ .ResultDashboard }}";
+        var enable_sid = {{ .EnableSid }};
+        var engine_health_dashboard = "{{ .EngineHealthDashboard }}";
+        var is_admin = {{ .IsAdmin }};
+        var project_home = "{{ .ProjectHome }}";
+        var upload_file_help = "{{ .UploadFileHelp }}";
+        var gcDuration = {{ .GCDuration }};
+        var user_account = "{{ .Account }}";
+        var background_colour = "{{ .BackgroundColour }}";
     </script>
+    
+    <!-- RBAC Components -->
+    <script src="/static/js/rbac-components.js"></script>
+    
+    <!-- Authentication Manager -->
+    <script src="/static/js/auth.js"></script>
+    
+    <!-- Project Components -->
+    <script src="/static/js/project.js"></script>
+    <script src="/static/js/collection.js"></script>
+    <script src="/static/js/plan.js"></script>
+    
+    <!-- Admin Components -->
+    <script src="/static/js/admin.js"></script>
+    
+    <!-- Main App -->
+    <script src="/static/js/app.js"></script>
 </head>
 
-<body style="background-color: {{ .BackgroundColour }}" x-data="app()" x-init="init()">
+<body style="background-color: {{ .BackgroundColour }}" x-data="shibuyaApp()" x-init="init()">
     <!-- Top Navigation Bar -->
-    <div id="top-bar" x-data="topBar()"
-        class="d-flex flex-column flex-md-row align-items-center p-3 px-md-4 mb-3 bg-white border-bottom shadow-sm">
-        <h5 class="my-0 mr-md-auto font-weight-normal">
-            <a href="/">Setagaya({{ .Context }})</a>
-        </h5>
-        <nav class="my-2 my-md-0 mr-md-3">
-            <!-- Admin link with RBAC -->
-            <a x-show-if-admin class="p-2" href="#admin">Admin Page</a>
-            
-            <a class="p-2" href="{{ .ProjectHome }}" target="_blank">Help</a>
-            <a class="p-2" href="#">Pricing</a>
-            <span class="p-2 text-dark">{{ .Account }}</span>
-            <a href="#" @click="logout">Logout</a>
-        </nav>
-    </div>
-    
-    <!-- Main Container -->
-    <div class="container">
-        <!-- Main Application Area (Projects, Collections, Plans) -->
-        <div class="shibuya">
-            <!-- Content will be dynamically loaded here by Alpine.js router -->
-            <div x-show="!initialized" class="text-center py-8">
-                <div class="text-gray-500">Loading Setagaya...</div>
+    <header id="top-nav" class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto">
+            <div class="flex justify-between items-center py-4 px-6">
+                <!-- Brand -->
+                <div class="flex items-center">
+                    <h1 class="text-xl font-semibold text-gray-900">
+                        <a href="/" class="text-blue-600 hover:text-blue-800">
+                            <i class="fas fa-bolt mr-2"></i>Setagaya
+                        </a>
+                        <span class="text-sm text-gray-500 ml-2">({{ .Context }})</span>
+                    </h1>
+                </div>
+                
+                <!-- Navigation -->
+                <nav class="flex items-center space-x-4">
+                    <!-- Main Navigation Links -->
+                    <a href="#/projects" 
+                       x-show-if-permission="'projects:read'"
+                       class="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+                       :class="{ 'text-blue-600 font-medium': currentRoute.startsWith('/projects') }">
+                        <i class="fas fa-project-diagram mr-1"></i>Projects
+                    </a>
+                    
+                    <a href="#/monitoring" 
+                       x-show-if-permission="'monitoring:read'"
+                       class="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+                       :class="{ 'text-blue-600 font-medium': currentRoute.startsWith('/monitoring') }">
+                        <i class="fas fa-chart-line mr-1"></i>Monitoring
+                    </a>
+                    
+                    <!-- Admin Link -->
+                    <a href="#/admin" 
+                       x-show-if-admin
+                       class="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+                       :class="{ 'text-blue-600 font-medium': currentRoute.startsWith('/admin') }">
+                        <i class="fas fa-cog mr-1"></i>Admin
+                    </a>
+                    
+                    <!-- External Links -->
+                    <a href="{{ .ProjectHome }}" 
+                       target="_blank" 
+                       class="p-2 text-gray-600 hover:text-blue-600">
+                        <i class="fas fa-question-circle mr-1"></i>Help
+                    </a>
+                    
+                    <!-- User Menu -->
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm text-gray-700">
+                            <i class="fas fa-user mr-1"></i>{{ .Account }}
+                        </span>
+                        <form method="POST" action="/logout" class="inline">
+                            <button type="submit" 
+                                    class="text-sm text-red-600 hover:text-red-800 transition-colors">
+                                <i class="fas fa-sign-out-alt mr-1"></i>Logout
+                            </button>
+                        </form>
+                    </div>
+                </nav>
             </div>
         </div>
-        
-        <!-- Admin Area -->
-        <div class="shibuya-admin">
-            <!-- Admin content will be dynamically loaded here -->
+    </header>
+    
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto py-6 px-6">
+        <!-- Loading State -->
+        <div x-show="!initialized" class="text-center py-12">
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <p class="mt-4 text-gray-500">Loading Setagaya...</p>
         </div>
-    </div>
-
-    <!-- Load Optimized JavaScript Bundles (Phase 3) -->
-    <script src="/static/dist/main.3b18591bb4c6304298fb.js"></script>
-    <script src="/static/dist/auth.45b2be2473ddfa79a8da.js"></script>
-    {{ if .IsAdmin }}
-    <script src="/static/dist/admin.cc846433f19ec6f7c9cc.js"></script>
-    {{ end }}
-    <script src="/static/dist/realtime.da89aeabc68b76cdce2d.js"></script>
+        
+        <!-- Main Application Content -->
+        <div x-show="initialized" class="min-h-screen">
+            <!-- Projects Section -->
+            <section id="main-content" class="space-y-6">
+                <!-- Welcome Banner -->
+                <div x-show="currentRoute === '/' || currentRoute === '/projects'" 
+                     class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-900">Welcome to Setagaya</h2>
+                            <p class="mt-2 text-gray-600">Distributed load testing platform with JMeter orchestration</p>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm text-gray-500">Context: <span class="font-medium">{{ .Context }}</span></div>
+                            {{ if .EnableSid }}
+                            <div class="text-sm text-gray-500 mt-1">Session ID: Enabled</div>
+                            {{ end }}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Dynamic Content Area -->
+                <div id="dynamic-content">
+                    <!-- Content will be injected here by Alpine.js router -->
+                </div>
+            </section>
+            
+            <!-- Admin Section -->
+            <section id="admin-content" x-show="currentRoute.startsWith('/admin')" class="space-y-6">
+                <!-- Admin content will be injected here -->
+            </section>
+        </div>
+    </main>
+    
+    <!-- Footer -->
+    <footer class="bg-gray-50 border-t mt-12">
+        <div class="max-w-7xl mx-auto py-6 px-6">
+            <div class="flex justify-between items-center text-sm text-gray-500">
+                <div>
+                    <span>Setagaya Load Testing Platform</span>
+                    {{ if .GCDuration }}
+                    <span class="ml-4">GC Interval: {{ .GCDuration }}s</span>
+                    {{ end }}
+                </div>
+                <div class="flex space-x-4">
+                    {{ if .ResultDashboard }}
+                    <a href="{{ .ResultDashboard }}" 
+                       target="_blank" 
+                       class="text-blue-600 hover:text-blue-800">
+                        <i class="fas fa-chart-bar mr-1"></i>Results Dashboard
+                    </a>
+                    {{ end }}
+                    {{ if .EngineHealthDashboard }}
+                    <a href="{{ .EngineHealthDashboard }}" 
+                       target="_blank" 
+                       class="text-blue-600 hover:text-blue-800">
+                        <i class="fas fa-heartbeat mr-1"></i>Engine Health
+                    </a>
+                    {{ end }}
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- Hidden data for auth initialization -->
+    <div class="hidden" 
+         data-account="{{ .Account }}" 
+         data-is-admin="{{ .IsAdmin }}"></div>
 </body>
 </html>
