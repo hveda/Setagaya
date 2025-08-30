@@ -15,7 +15,8 @@ spec:
         app: storage
     spec:
       containers:
-      - image: shibuya:storage
+      - image: localhost/setagaya:storage
+        imagePullPolicy: IfNotPresent
         name: storage
         ports:
           - containerPort: 8080

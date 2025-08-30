@@ -1,18 +1,24 @@
-FROM gcr.io/shibuya-214807/golang:1.20.2-buster AS builder
+# Multi-stage build for secure ingress controller
+FROM golang:1.21-alpine AS builder
 
-WORKDIR /go/src/shibuya-ingress-controller
+WORKDIR /go/src/setagaya-ingress-controller
 
-ENV GO111MODULE on
-ADD go.mod .
-ADD go.sum .
+ENV GO111MODULE=on
+COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . /go/src/shibuya-ingress-controller
+COPY . /go/src/setagaya-ingress-controller
 
-RUN GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /go/bin/sic
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s -extldflags=-static" -o /go/bin/sic
 
-FROM gcr.io/shibuya-214807/ubuntu:18.04
+# Use distroless for production
+FROM gcr.io/distroless/static-debian11:nonroot
 
+# Copy the statically compiled binary
 COPY --from=builder /go/bin/sic /usr/local/bin/sic
 
-CMD ["sic"]
+# Use nonroot user for security
+USER nonroot:nonroot
+
+# Use exec form for better signal handling
+CMD ["/usr/local/bin/sic"]

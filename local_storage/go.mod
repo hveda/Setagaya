@@ -1,4 +1,4 @@
-module github.com/rakutentech/shibuya/storage/v0
+module github.com/hveda/setagaya/storage/v0
 
 go 1.13
 

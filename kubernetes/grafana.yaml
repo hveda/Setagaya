@@ -15,7 +15,7 @@ spec:
         app: grafana
     spec:
       containers:
-      - image: shibuya:grafana
+      - image: setagaya:grafana
         name: grafana
         ports:
           - containerPort: 3000
