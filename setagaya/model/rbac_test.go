@@ -268,6 +268,10 @@ func TestGetAllFunctions(t *testing.T) {
 	permission2, err := CreatePermission("perm2", "resource2", "action2", "Second permission")
 	assert.NoError(t, err)
 
+	// Use variables to avoid unused variable errors
+	_ = permission1
+	_ = permission2
+
 	user1, err := CreateUser("user1", "user1@example.com", "First User", nil)
 	assert.NoError(t, err)
 	user2, err := CreateUser("user2", "user2@example.com", "Second User", nil)

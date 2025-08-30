@@ -6,13 +6,13 @@ FROM node:18-alpine AS ui-builder
 WORKDIR /app
 
 # Copy package files for dependency installation
-COPY package.json package-lock.json ./
+COPY package.json ./
 COPY src/ ./src/
 COPY tailwind.config.js ./
 COPY webpack.config.js ./
 
 # Install npm dependencies (including devDependencies for build tools)
-RUN npm ci
+RUN npm install
 
 # Copy UI source files
 COPY ui/ ./ui/

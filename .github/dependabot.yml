@@ -1,0 +1,122 @@
+version: 2
+updates:
+  # Go dependencies
+  - package-ecosystem: "gomod"
+    directory: "/setagaya"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    reviewers:
+      - "hveda"
+    assignees:
+      - "hveda"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "go"
+    open-pull-requests-limit: 5
+    target-branch: "develop"
+    groups:
+      kubernetes-deps:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      security-deps:
+        patterns:
+          - "golang.org/x/crypto*"
+          - "golang.org/x/net*"
+          - "*mysql*"
+          - "*oauth*"
+      prometheus-deps:
+        patterns:
+          - "github.com/prometheus/*"
+    ignore:
+      # Ignore major version updates for critical dependencies
+      - dependency-name: "k8s.io/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "github.com/go-sql-driver/mysql"
+        update-types: ["version-update:semver-major"]
+        
+  # NPM dependencies  
+  - package-ecosystem: "npm"
+    directory: "/setagaya"
+    schedule:
+      interval: "weekly"
+      day: "monday" 
+      time: "09:00"
+    reviewers:
+      - "hveda"
+    assignees:
+      - "hveda"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "javascript"
+    open-pull-requests-limit: 5
+    target-branch: "develop"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        patterns:
+          - "*"
+      build-tools:
+        patterns:
+          - "webpack*"
+          - "@babel/*"
+          - "tailwindcss*"
+          - "eslint*"
+      security-deps:
+        patterns:
+          - "*security*"
+          - "braces"
+          - "micromatch"
+          - "chokidar"
+    ignore:
+      # Don't update major versions of core tools automatically
+      - dependency-name: "webpack"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "alpinejs"
+        update-types: ["version-update:semver-major"]
+        
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/setagaya"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    reviewers:
+      - "hveda"
+    assignees:
+      - "hveda"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 3
+    
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+    reviewers:
+      - "hveda"
+    assignees:
+      - "hveda"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 3

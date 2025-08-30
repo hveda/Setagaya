@@ -147,13 +147,13 @@ func (u *UI) adminInterfaceHandler(w http.ResponseWriter, r *http.Request, param
 
 func (u *UI) InitRoutes() api.Routes {
 	return api.Routes{
-		&api.Route{"home", "GET", "/", u.homeHandler},
-		&api.Route{"login", "POST", "/login", u.loginHandler},
-		&api.Route{"login", "GET", "/login", u.loginPageHandler},
-		&api.Route{"logout", "POST", "/logout", u.logoutHandler},
-		&api.Route{"phase2_demo", "GET", "/phase2-demo.html", u.phase2DemoHandler},
-		&api.Route{"rbac_test", "GET", "/app-rbac-test.html", u.rbacTestHandler},
-		&api.Route{"phase3_demo", "GET", "/phase3-demo.html", u.phase3DemoHandler},
-		&api.Route{"admin_interface", "GET", "/admin-interface.html", u.adminInterfaceHandler},
+		&api.Route{Name: "home", Method: "GET", Path: "/", HandlerFunc: u.homeHandler},
+		&api.Route{Name: "login", Method: "POST", Path: "/login", HandlerFunc: u.loginHandler},
+		&api.Route{Name: "login", Method: "GET", Path: "/login", HandlerFunc: u.loginPageHandler},
+		&api.Route{Name: "logout", Method: "POST", Path: "/logout", HandlerFunc: u.logoutHandler},
+		&api.Route{Name: "phase2_demo", Method: "GET", Path: "/phase2-demo.html", HandlerFunc: u.phase2DemoHandler},
+		&api.Route{Name: "rbac_test", Method: "GET", Path: "/app-rbac-test.html", HandlerFunc: u.rbacTestHandler},
+		&api.Route{Name: "phase3_demo", Method: "GET", Path: "/phase3-demo.html", HandlerFunc: u.phase3DemoHandler},
+		&api.Route{Name: "admin_interface", Method: "GET", Path: "/admin-interface.html", HandlerFunc: u.adminInterfaceHandler},
 	}
 }

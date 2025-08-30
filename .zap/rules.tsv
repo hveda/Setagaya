@@ -1,0 +1,23 @@
+# ZAP Scanning Rules for Setagaya Load Testing Platform
+# Ignore false positives and adjust rules for application context
+
+# Ignore common development patterns that are acceptable in load testing context
+10021	IGNORE	(Low (Medium))	X-Content-Type-Options Header Missing
+10020	IGNORE	(Low (Medium))	X-Frame-Options Header Missing
+10017	IGNORE	(Low (Medium))	Cross-Domain JavaScript Source File Inclusion
+
+# Authentication endpoints - reduce noise for login forms
+10202	IGNORE	(Medium (Medium))	Absence of Anti-CSRF Tokens
+10012	IGNORE	(Low (Medium))	Password Autocomplete in Browser
+
+# Static resource findings that are acceptable for development
+10094	IGNORE	(Medium (Medium))	Base64 Disclosure
+10027	IGNORE	(Low (Medium))	Information Disclosure - Suspicious Comments
+
+# Load testing specific ignores - JMeter test files and monitoring endpoints
+10037	IGNORE	(Medium (Medium))	Server Leaks Information via "X-Powered-By" HTTP Response Header Field(s)
+10109	IGNORE	(Low (Medium))	Modern Web Application
+
+# Development server specifics
+10011	IGNORE	(Low (Medium))	Cookie Without Secure Flag
+10010	IGNORE	(Low (Medium))	Cookie No HttpOnly Flag
