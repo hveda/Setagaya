@@ -65,10 +65,10 @@ class AuthManager {
   }
 
   setDefaultUser() {
-    // For development with no-auth mode
+    // For development with no-auth mode - match template data
     this.user = {
-      name: 'shibuya',
-      username: 'shibuya'
+      name: 'setagaya',
+      username: 'setagaya'
     };
     this.roles = [{ name: 'administrator', id: 1 }];
     this.permissions = this.getAdminPermissions();

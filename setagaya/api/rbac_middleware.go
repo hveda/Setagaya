@@ -24,6 +24,11 @@ type RBACUser struct {
 
 // hasPermission checks if the user has a specific permission
 func (u *RBACUser) hasPermission(permission string) bool {
+	// Admin users have all permissions
+	if u.Account.IsAdmin() {
+		return true
+	}
+	
 	for _, perm := range u.Permissions {
 		if perm.Name == permission {
 			return true
@@ -34,6 +39,11 @@ func (u *RBACUser) hasPermission(permission string) bool {
 
 // hasResourcePermission checks if the user has permission for a specific resource and action
 func (u *RBACUser) hasResourcePermission(resource, action string) bool {
+	// Admin users have all permissions
+	if u.Account.IsAdmin() {
+		return true
+	}
+	
 	for _, perm := range u.Permissions {
 		if perm.Resource == resource && perm.Action == action {
 			return true

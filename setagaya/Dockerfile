@@ -22,7 +22,7 @@ RUN npm run build-css-prod
 RUN npm run build-js 2>/dev/null || echo "Webpack build skipped - no JS entry point"
 
 # Stage 2: Runtime Environment
-FROM gcr.io/distroless/base-debian11:nonroot
+FROM gcr.io/distroless/static
 
 # Copy ca-certificates are already included in distroless/base
 ARG binary_name=setagaya

@@ -2,14 +2,16 @@
     "bg_color": "#fff",
     "project_home": "",
     "upload_file_help": "",
+    "enable_sid": false,
     "auth_config": {
-        "admin_users": [],
+        "admin_users": ["admin", "setagaya"],
         "ldap_server": "",
         "ldap_port": "",
         "system_user": "",
         "system_password": "",
         "base_dn": "",
-        "no_auth": true
+        "no_auth": false,
+        "session_key": "setagaya-session"
     },
     "http_config": {
         "proxy": ""
@@ -18,7 +20,8 @@
         "host": "db",
         "user": "root",
         "password": "root",
-        "database": "setagaya"
+        "database": "setagaya",
+        "keypairs": "my-session-key-32-characters-long"
     },
     "executors": {
         "cluster": {

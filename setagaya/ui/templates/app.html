@@ -2,16 +2,13 @@
 <html>
 
 <head>
-    <title>Setagaya {{ .Context }}</title>
+    <title>Setagaya</title>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
-    <!-- Bootstrap CSS for backward compatibility -->
+    <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="/static/css/bootstrap.min.css">
-    
-    <!-- Tailwind CSS -->
-    <link href="/static/css/output.css" rel="stylesheet">
     
     <!-- Custom CSS -->
     <link href="/static/css/styles.css" rel="stylesheet">
@@ -25,177 +22,1794 @@
     <!-- Axios for HTTP requests -->
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     
+    <style>
+        .sidebar {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.8);
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            color: white;
+            background-color: rgba(255,255,255,0.1);
+            border-radius: 0.375rem;
+        }
+        
+        /* Tree navigation styling */
+        .project-item {
+            margin-bottom: 0.5rem;
+        }
+        
+        .project-item .nav-link {
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.25rem;
+        }
+        
+        .project-item .nav-link:hover {
+            background-color: rgba(255,255,255,0.1);
+        }
+        
+        .project-item .nav-link.active {
+            background-color: rgba(255,255,255,0.2);
+            color: white;
+        }
+        
+        /* Tree hierarchy styling */
+        .tree-level-0 { } /* Project level */
+        .tree-level-1 { 
+            padding-left: 1rem; 
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.9);
+        } /* Category level (Collections/Plans) */
+        .tree-level-2 { 
+            padding-left: 2.5rem; 
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.8);
+        } /* Item level (individual collections/plans) */
+        .tree-level-3 { 
+            padding-left: 1rem; 
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.7);
+        } /* Action level (Add buttons) */
+        
+        .main-content {
+            min-height: 100vh;
+        }
+        
+        .card {
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            min-width: 300px;
+        }
+        
+        .status-badge.running { background-color: #28a745; }
+        .status-badge.stopped { background-color: #6c757d; }
+        .status-badge.pending { background-color: #ffc107; }
+        .status-badge.error { background-color: #dc3545; }
+        
+        .file-upload-area {
+            border: 2px dashed #dee2e6;
+            border-radius: 0.375rem;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+        
+        .file-upload-area.dragover {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+        }
+        
+        /* Alpine.js cloak to prevent flash of content */
+        [x-cloak] { 
+            display: none !important; 
+        }
+    </style>
+    
     <script>
         // Global configuration variables from Go template
         var running_context = "{{ .Context }}";
         var result_dashboard = "{{ .ResultDashboard }}";
-        var enable_sid = {{ .EnableSid }};
+        var enable_sid = {{ if .EnableSid }}true{{ else }}false{{ end }};
         var engine_health_dashboard = "{{ .EngineHealthDashboard }}";
-        var is_admin = {{ .IsAdmin }};
+        var is_admin = {{ if .IsAdmin }}true{{ else }}false{{ end }};
         var project_home = "{{ .ProjectHome }}";
         var upload_file_help = "{{ .UploadFileHelp }}";
-        var gcDuration = {{ .GCDuration }};
+        var gcDuration = {{ if .GCDuration }}{{ .GCDuration }}{{ else }}0{{ end }};
         var user_account = "{{ .Account }}";
         var background_colour = "{{ .BackgroundColour }}";
+        
+        // Main Alpine.js app
+        function setagayaApp() {
+            return {
+                // Navigation state
+                currentView: 'dashboard',
+                sidebarCollapsed: false,
+                projectsTreeExpanded: true,
+                
+                // User data
+                user: {
+                    name: user_account,
+                    isAdmin: is_admin
+                },
+                
+                // Data collections
+                projects: [],
+                collections: [],
+                plans: [],
+                runningCollections: [],
+                stats: {
+                    totalProjects: 0,
+                    activeCollections: 0,
+                    totalPlans: 0,
+                    totalRuns: 0
+                },
+                
+                // Selected items for detail views
+                selectedProject: null,
+                selectedCollection: null,
+                selectedPlan: null,
+                
+                // Form states
+                forms: {
+                    createProject: { show: false, name: '', description: '' },
+                    createCollection: { show: false, name: '', description: '', project_id: '', max_engines: 5, timeout: 3600 },
+                    createPlan: { show: false, name: '', description: '', project_id: '', engines: 1, duration: 300, ramp_up: 30 }
+                },
+                
+                // File management
+                fileManager: {
+                    show: false,
+                    planId: null,
+                    files: []
+                },
+                
+                // Notification system
+                notification: {
+                    show: false,
+                    title: '',
+                    message: '',
+                    type: 'info'
+                },
+                
+                // Loading states
+                loading: {
+                    projects: false,
+                    collections: false,
+                    plans: false,
+                    global: false
+                },
+
+                // Initialize the application
+                async init() {
+                    console.log('Setagaya App initialized');
+                    
+                    // Explicitly ensure all modals are hidden
+                    this.fileManager.show = false;
+                    this.forms.createProject.show = false;
+                    this.forms.createCollection.show = false;
+                    this.forms.createPlan.show = false;
+                    this.notification.show = false;
+                    
+                    await this.loadInitialData();
+                    this.setupEventListeners();
+                },
+
+                async loadInitialData() {
+                    this.loading.global = true;
+                    try {
+                        await Promise.all([
+                            this.loadProjects(),
+                            this.loadStats()
+                        ]);
+                    } catch (error) {
+                        console.error('Failed to load initial data:', error);
+                        this.showNotification('Error', 'Failed to load initial data', 'error');
+                    } finally {
+                        this.loading.global = false;
+                    }
+                },
+
+                setupEventListeners() {
+                    // Handle URL changes for navigation
+                    window.addEventListener('popstate', () => {
+                        this.handleRouteChange();
+                    });
+                    
+                    // Handle initial route
+                    this.handleRouteChange();
+                },
+
+                handleRouteChange() {
+                    const path = window.location.pathname;
+                    
+                    if (path.startsWith('/projects/')) {
+                        const projectId = parseInt(path.split('/')[2]);
+                        this.setView('project-detail');
+                        this.loadProjectDetail(projectId);
+                    } else if (path === '/collections') {
+                        this.setView('collections');
+                    } else if (path === '/plans') {
+                        this.setView('plans');
+                    } else if (path === '/monitoring') {
+                        this.setView('monitoring');
+                    } else {
+                        this.setView('dashboard');
+                    }
+                },
+
+                // Navigation
+                setView(view) {
+                    this.currentView = view;
+                    
+                    // Load data based on view
+                    switch (view) {
+                        case 'projects':
+                            this.loadProjects();
+                            break;
+                        case 'collections':
+                            this.loadCollections();
+                            break;
+                        case 'plans':
+                            this.loadPlans();
+                            break;
+                        case 'monitoring':
+                            this.loadMonitoring();
+                            break;
+                    }
+                },
+
+                navigateTo(path) {
+                    window.history.pushState({}, '', path);
+                    this.handleRouteChange();
+                },
+
+                // Tree navigation methods
+                toggleProjectsTree() {
+                    this.projectsTreeExpanded = !this.projectsTreeExpanded;
+                },
+
+                async selectProject(project) {
+                    try {
+                        // Set the selected project first
+                        this.selectedProject = project;
+                        
+                        // Load project details including collections and plans
+                        const response = await fetch(`/api/projects/${project.id}`);
+                        if (response.ok) {
+                            const projectDetails = await response.json();
+                            
+                            // Update the selected project with full details
+                            this.selectedProject = {
+                                ...project,
+                                collections: projectDetails.collections || [],
+                                plans: projectDetails.plans || []
+                            };
+                            
+                            // Also update the project in the projects array
+                            const projectIndex = this.projects.findIndex(p => p.id === project.id);
+                            if (projectIndex !== -1) {
+                                this.projects[projectIndex] = {
+                                    ...this.projects[projectIndex],
+                                    collections: projectDetails.collections || [],
+                                    plans: projectDetails.plans || []
+                                };
+                            }
+                        }
+                        
+                        // Navigate to project detail view
+                        this.navigateTo(`/projects/${project.id}`);
+                    } catch (error) {
+                        console.error('Error loading project details:', error);
+                        // Still navigate even if loading fails
+                        this.navigateTo(`/projects/${project.id}`);
+                    }
+                },
+
+                toggleProjectExpansion(project) {
+                    // Initialize expanded property if it doesn't exist
+                    if (project.expanded === undefined) {
+                        project.expanded = false;
+                    }
+                    project.expanded = !project.expanded;
+                },
+
+                showCreateCollectionForm(project) {
+                    this.forms.createCollection.project_id = project.id;
+                    this.forms.createCollection.show = true;
+                    this.currentView = 'dashboard'; // Switch to a main view to show the form
+                },
+
+                showCreatePlanForm(project) {
+                    this.forms.createPlan.project_id = project.id;
+                    this.forms.createPlan.show = true;
+                    this.currentView = 'dashboard'; // Switch to a main view to show the form
+                },
+
+                getViewTitle() {
+                    const titles = {
+                        dashboard: 'Dashboard',
+                        projects: 'Projects',
+                        collections: 'Collections',
+                        plans: 'Plans',
+                        monitoring: 'Monitoring',
+                        'project-detail': `Project: ${this.selectedProject?.name || ''}`
+                    };
+                    return titles[this.currentView] || 'Setagaya';
+                },
+
+                // Data loading methods
+                async loadProjects() {
+                    this.loading.projects = true;
+                    try {
+                        const response = await axios.get('/api/projects?include_collections=true&include_plans=true');
+                        
+                        // Preserve expanded state when reloading
+                        const expandedStates = {};
+                        this.projects.forEach(project => {
+                            expandedStates[project.id] = project.expanded;
+                        });
+                        
+                        this.projects = (response.data || []).map(project => ({
+                            ...project,
+                            expanded: expandedStates[project.id] || false // Preserve or default to collapsed
+                        }));
+                        
+                        // Update selectedProject if it exists to ensure it has the latest data
+                        if (this.selectedProject) {
+                            const updatedProject = this.projects.find(p => p.id === this.selectedProject.id);
+                            if (updatedProject) {
+                                this.selectedProject = {
+                                    ...updatedProject,
+                                    // Preserve any additional properties that might exist on selectedProject
+                                    ...this.selectedProject
+                                };
+                            }
+                        }
+                        
+                        this.stats.totalProjects = this.projects.length;
+                    } catch (error) {
+                        console.error('Failed to load projects:', error);
+                        this.showNotification('Error', 'Failed to load projects', 'error');
+                    } finally {
+                        this.loading.projects = false;
+                    }
+                },
+
+                async loadProjectDetail(projectId) {
+                    try {
+                        const response = await axios.get(`/api/projects/${projectId}?include_collections=true&include_plans=true`);
+                        this.selectedProject = response.data;
+                    } catch (error) {
+                        console.error('Failed to load project details:', error);
+                        this.showNotification('Error', 'Failed to load project details', 'error');
+                    }
+                },
+
+                async loadCollections() {
+                    this.loading.collections = true;
+                    try {
+                        const response = await axios.get('/api/collections?include_project=true');
+                        this.collections = response.data || [];
+                        this.stats.activeCollections = this.collections.filter(c => c.status === 'running').length;
+                    } catch (error) {
+                        console.error('Failed to load collections:', error);
+                        this.showNotification('Error', 'Failed to load collections', 'error');
+                    } finally {
+                        this.loading.collections = false;
+                    }
+                },
+
+                async loadPlans() {
+                    this.loading.plans = true;
+                    try {
+                        const response = await axios.get('/api/plans?include_project=true');
+                        this.plans = response.data || [];
+                        this.stats.totalPlans = this.plans.length;
+                    } catch (error) {
+                        console.error('Failed to load plans:', error);
+                        this.showNotification('Error', 'Failed to load plans', 'error');
+                    } finally {
+                        this.loading.plans = false;
+                    }
+                },
+
+                async loadMonitoring() {
+                    try {
+                        const response = await axios.get('/api/collections?status=running');
+                        this.runningCollections = response.data || [];
+                    } catch (error) {
+                        console.error('Failed to load monitoring data:', error);
+                    }
+                },
+
+                async loadStats() {
+                    try {
+                        const response = await axios.get('/api/admin/stats').catch(() => ({ data: {} }));
+                        Object.assign(this.stats, response.data);
+                    } catch (error) {
+                        console.error('Failed to load stats:', error);
+                    }
+                },
+
+                // CRUD Operations
+                async createProject() {
+                    if (!this.forms.createProject.name.trim()) {
+                        this.showNotification('Error', 'Project name is required', 'error');
+                        return;
+                    }
+
+                    try {
+                        const params = new URLSearchParams();
+                        params.append('name', this.forms.createProject.name.trim());
+                        params.append('owner', this.user.name);
+                        if (this.forms.createProject.description) {
+                            params.append('description', this.forms.createProject.description);
+                        }
+
+                        const response = await axios.post('/api/projects', params);
+                        // Add the new project with expanded property for tree navigation
+                        const newProject = { ...response.data, expanded: false };
+                        this.projects.push(newProject);
+                        this.resetForm('createProject');
+                        this.showNotification('Success', 'Project created successfully', 'success');
+                    } catch (error) {
+                        console.error('Failed to create project:', error);
+                        this.showNotification('Error', 'Failed to create project', 'error');
+                    }
+                },
+
+                async deleteProject(project) {
+                    if (!confirm(`Are you sure you want to delete "${project.name}"?`)) return;
+
+                    try {
+                        await axios.delete(`/api/projects/${project.id}`);
+                        this.projects = this.projects.filter(p => p.id !== project.id);
+                        this.showNotification('Success', 'Project deleted successfully', 'success');
+                    } catch (error) {
+                        console.error('Failed to delete project:', error);
+                        this.showNotification('Error', 'Failed to delete project', 'error');
+                    }
+                },
+
+                async createCollection() {
+                    if (!this.forms.createCollection.name.trim() || !this.forms.createCollection.project_id) {
+                        this.showNotification('Error', 'Collection name and project are required', 'error');
+                        return;
+                    }
+
+                    try {
+                        const params = new URLSearchParams();
+                        params.append('name', this.forms.createCollection.name.trim());
+                        params.append('project_id', this.forms.createCollection.project_id);
+                        if (this.forms.createCollection.description) {
+                            params.append('description', this.forms.createCollection.description);
+                        }
+                        if (this.forms.createCollection.max_engines) {
+                            params.append('max_engines', this.forms.createCollection.max_engines);
+                        }
+                        if (this.forms.createCollection.timeout) {
+                            params.append('timeout', this.forms.createCollection.timeout);
+                        }
+
+                        const response = await axios.post('/api/collections', params);
+                        
+                        // Update the project's collections list if we have selectedProject
+                        if (this.selectedProject && this.selectedProject.id == this.forms.createCollection.project_id) {
+                            if (!this.selectedProject.collections) {
+                                this.selectedProject.collections = [];
+                            }
+                            this.selectedProject.collections.push(response.data);
+                        }
+                        
+                        // Also update the projects array
+                        const project = this.projects.find(p => p.id == this.forms.createCollection.project_id);
+                        if (project) {
+                            if (!project.collections) {
+                                project.collections = [];
+                            }
+                            project.collections.push(response.data);
+                            // Ensure the project is expanded so user can see the new collection
+                            project.expanded = true;
+                        }
+
+                        this.resetForm('createCollection');
+                        this.showNotification('Success', 'Collection created successfully', 'success');
+                        
+                        // Reload projects to ensure data consistency
+                        await this.loadProjects();
+                    } catch (error) {
+                        console.error('Failed to create collection:', error);
+                        this.showNotification('Error', 'Failed to create collection: ' + (error.response?.data?.message || error.message), 'error');
+                    }
+                },
+
+                async createPlan() {
+                    if (!this.forms.createPlan.name.trim() || !this.forms.createPlan.project_id) {
+                        this.showNotification('Error', 'Plan name and project are required', 'error');
+                        return;
+                    }
+
+                    try {
+                        const params = new URLSearchParams();
+                        params.append('name', this.forms.createPlan.name.trim());
+                        params.append('project_id', this.forms.createPlan.project_id);
+                        if (this.forms.createPlan.description) {
+                            params.append('description', this.forms.createPlan.description);
+                        }
+                        // Only add these fields if they exist and have values
+                        if (this.forms.createPlan.engines) {
+                            params.append('engines', this.forms.createPlan.engines);
+                        }
+                        if (this.forms.createPlan.duration) {
+                            params.append('duration', this.forms.createPlan.duration);
+                        }
+                        if (this.forms.createPlan.ramp_up) {
+                            params.append('ramp_up', this.forms.createPlan.ramp_up);
+                        }
+
+                        const response = await axios.post('/api/plans', params);
+                        
+                        // Update the project's plans list if we have selectedProject
+                        if (this.selectedProject && this.selectedProject.id == this.forms.createPlan.project_id) {
+                            if (!this.selectedProject.plans) {
+                                this.selectedProject.plans = [];
+                            }
+                            this.selectedProject.plans.push(response.data);
+                        }
+                        
+                        // Also update the projects array
+                        const project = this.projects.find(p => p.id == this.forms.createPlan.project_id);
+                        if (project) {
+                            if (!project.plans) {
+                                project.plans = [];
+                            }
+                            project.plans.push(response.data);
+                            // Ensure the project is expanded so user can see the new plan
+                            project.expanded = true;
+                        }
+
+                        this.resetForm('createPlan');
+                        this.showNotification('Success', 'Plan created successfully', 'success');
+                        
+                        // Reload projects to ensure data consistency
+                        await this.loadProjects();
+                    } catch (error) {
+                        console.error('Failed to create plan:', error);
+                        this.showNotification('Error', 'Failed to create plan: ' + (error.response?.data?.message || error.message), 'error');
+                    }
+                },
+
+                // Collection Operations
+                async deployCollection(collection) {
+                    try {
+                        await axios.post(`/api/collections/${collection.id}/deploy`);
+                        this.showNotification('Success', 'Collection deployment started', 'success');
+                        await this.loadCollections();
+                    } catch (error) {
+                        console.error('Failed to deploy collection:', error);
+                        this.showNotification('Error', 'Failed to deploy collection', 'error');
+                    }
+                },
+
+                async stopCollection(collection) {
+                    try {
+                        await axios.post(`/api/collections/${collection.id}/stop`);
+                        this.showNotification('Success', 'Collection stopped', 'success');
+                        await this.loadCollections();
+                    } catch (error) {
+                        console.error('Failed to stop collection:', error);
+                        this.showNotification('Error', 'Failed to stop collection', 'error');
+                    }
+                },
+
+                // File Management
+                async loadPlanFiles(planId) {
+                    try {
+                        const response = await axios.get(`/api/plans/${planId}/files`);
+                        this.fileManager.files = response.data || [];
+                    } catch (error) {
+                        console.error('Failed to load files:', error);
+                    }
+                },
+
+                async uploadFile(planId, file) {
+                    try {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        
+                        await axios.post(`/api/plans/${planId}/files`, formData, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+                        
+                        this.showNotification('Success', 'File uploaded successfully', 'success');
+                        await this.loadPlanFiles(planId);
+                    } catch (error) {
+                        console.error('Failed to upload file:', error);
+                        this.showNotification('Error', 'Failed to upload file', 'error');
+                    }
+                },
+
+                async deleteFile(planId, fileName) {
+                    if (!confirm(`Are you sure you want to delete "${fileName}"?`)) return;
+                    
+                    try {
+                        await axios.delete(`/api/plans/${planId}/files/${fileName}`);
+                        this.fileManager.files = this.fileManager.files.filter(f => f.name !== fileName);
+                        this.showNotification('Success', 'File deleted successfully', 'success');
+                    } catch (error) {
+                        console.error('Failed to delete file:', error);
+                        this.showNotification('Error', 'Failed to delete file', 'error');
+                    }
+                },
+
+                // Utility methods
+                showForm(formName) {
+                    this.forms[formName].show = true;
+                },
+
+                hideForm(formName) {
+                    this.forms[formName].show = false;
+                },
+
+                resetForm(formName) {
+                    const defaults = {
+                        createProject: { show: false, name: '', description: '' },
+                        createCollection: { show: false, name: '', description: '', project_id: '', max_engines: 5, timeout: 3600 },
+                        createPlan: { show: false, name: '', description: '', project_id: '', engines: 1, duration: 300, ramp_up: 30 }
+                    };
+                    this.forms[formName] = { ...defaults[formName] };
+                },
+
+                showNotification(title, message, type = 'info') {
+                    this.notification = { show: true, title, message, type };
+                    setTimeout(() => this.hideNotification(), 5000);
+                },
+
+                hideNotification() {
+                    this.notification.show = false;
+                },
+
+                formatDate(date) {
+                    if (!date) return 'Never';
+                    return new Date(date).toLocaleDateString();
+                },
+
+                getStatusClass(status) {
+                    const classes = {
+                        running: 'badge-success',
+                        deployed: 'badge-info', 
+                        stopped: 'badge-secondary',
+                        pending: 'badge-warning',
+                        error: 'badge-danger'
+                    };
+                    return classes[status] || 'badge-secondary';
+                },
+
+                getStatusBadgeClass(status) {
+                    const classes = {
+                        running: 'bg-success',
+                        deployed: 'bg-info',
+                        idle: 'bg-secondary',
+                        pending: 'bg-warning',
+                        error: 'bg-danger',
+                        stopped: 'bg-secondary'
+                    };
+                    return classes[status] || 'bg-secondary';
+                },
+
+                // Plan operations
+                async editPlan(plan) {
+                    // For now, just show notification
+                    this.showNotification('Info', 'Plan editing will be implemented soon', 'info');
+                },
+
+                async deletePlan(plan) {
+                    if (!confirm(`Are you sure you want to delete plan "${plan.name}"?`)) {
+                        return;
+                    }
+
+                    try {
+                        await axios.delete(`/api/plans/${plan.id}`);
+                        this.showNotification('Success', 'Plan deleted successfully', 'success');
+                        await this.loadProjectDetails(this.selectedProject.id);
+                    } catch (error) {
+                        console.error('Failed to delete plan:', error);
+                        this.showNotification('Error', 'Failed to delete plan', 'error');
+                    }
+                },
+
+                // Load project details with plans and collections
+                async loadProjectDetails(projectId) {
+                    try {
+                        const response = await axios.get(`/api/projects/${projectId}`);
+                        const project = response.data;
+                        
+                        // Also load plans and collections for this project
+                        const [plansResponse, collectionsResponse] = await Promise.all([
+                            axios.get(`/api/plans?project_id=${projectId}`).catch(() => ({ data: [] })),
+                            axios.get(`/api/collections?project_id=${projectId}`).catch(() => ({ data: [] }))
+                        ]);
+                        
+                        project.plans = plansResponse.data || [];
+                        project.collections = collectionsResponse.data || [];
+                        
+                        // Update selectedProject
+                        this.selectedProject = project;
+                        
+                        // Also update in projects array
+                        const index = this.projects.findIndex(p => p.id === projectId);
+                        if (index !== -1) {
+                            this.projects[index] = project;
+                        }
+                        
+                        return project;
+                    } catch (error) {
+                        console.error('Failed to load project details:', error);
+                        this.showNotification('Error', 'Failed to load project details', 'error');
+                        return null;
+                    }
+                },
+
+                // Collection operations  
+                async configureCollection(collection) {
+                    // For now, navigate to collection page
+                    this.navigateTo(`/collections/${collection.id}`);
+                },
+
+                isAdmin() {
+                    return this.user.isAdmin;
+                }
+            }
+        }
     </script>
-    
-    <!-- RBAC Components -->
-    <script src="/static/js/rbac-components.js"></script>
-    
-    <!-- Authentication Manager -->
-    <script src="/static/js/auth.js"></script>
-    
-    <!-- Project Components -->
-    <script src="/static/js/project.js"></script>
-    <script src="/static/js/collection.js"></script>
-    <script src="/static/js/plan.js"></script>
-    
-    <!-- Admin Components -->
-    <script src="/static/js/admin.js"></script>
-    
-    <!-- Main App -->
-    <script src="/static/js/app.js"></script>
 </head>
 
-<body style="background-color: {{ .BackgroundColour }}" x-data="shibuyaApp()" x-init="init()">
-    <!-- Top Navigation Bar -->
-    <header id="top-nav" class="bg-white shadow-sm border-b">
-        <div class="max-w-7xl mx-auto">
-            <div class="flex justify-between items-center py-4 px-6">
-                <!-- Brand -->
-                <div class="flex items-center">
-                    <h1 class="text-xl font-semibold text-gray-900">
-                        <a href="/" class="text-blue-600 hover:text-blue-800">
-                            <i class="fas fa-bolt mr-2"></i>Setagaya
+<body style="background-color: {{ .BackgroundColour }}" x-data="setagayaApp()" x-init="init()" x-cloak>
+    <!-- Notification Toast -->
+    <div x-show="notification.show" 
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 transform translate-y-2"
+         x-transition:enter-end="opacity-100 transform translate-y-0"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 transform translate-y-0"
+         x-transition:leave-end="opacity-0 transform translate-y-2"
+         class="notification">
+        <div class="alert alert-dismissible"
+             :class="{
+                 'alert-success': notification.type === 'success',
+                 'alert-info': notification.type === 'info',
+                 'alert-warning': notification.type === 'warning',
+                 'alert-danger': notification.type === 'error'
+             }">
+            <strong x-text="notification.title"></strong>
+            <span x-text="notification.message"></span>
+            <button type="button" class="close" @click="hideNotification()">
+                <span>&times;</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar p-0" :class="{ 'd-none': sidebarCollapsed }">
+                <div class="p-3">
+                    <h4 class="text-white mb-4">
+                        <i class="fas fa-bolt me-2"></i>Setagaya
+                        <br><small class="text-light">{{ .Context }}</small>
+                    </h4>
+                    
+                    <nav class="nav flex-column">
+                        <a href="#" class="nav-link" 
+                           :class="{ 'active': currentView === 'dashboard' }" 
+                           @click.prevent="setView('dashboard')">
+                            <i class="fas fa-tachometer-alt me-2"></i>Dashboard
                         </a>
-                        <span class="text-sm text-gray-500 ml-2">({{ .Context }})</span>
-                    </h1>
+                        
+                        <!-- Projects Tree -->
+                        <div class="nav-link d-flex justify-content-between align-items-center" 
+                             @click="toggleProjectsTree()" style="cursor: pointer;">
+                            <div>
+                                <i class="fas fa-folder me-2"></i>Projects
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <span class="badge bg-light text-dark me-2" x-text="projects.length"></span>
+                                <i class="fas" :class="projectsTreeExpanded ? 'fa-chevron-down' : 'fa-chevron-right'"></i>
+                            </div>
+                        </div>
+                        
+                        <!-- Project Tree Items -->
+                        <div x-show="projectsTreeExpanded" class="ms-3">
+                            <!-- New Project Button -->
+                            <a href="#" class="nav-link text-success" 
+                               @click.prevent="showForm('createProject')" 
+                               style="font-size: 0.9rem;">
+                                <i class="fas fa-plus me-2"></i>New Project
+                            </a>
+                            
+                            <!-- Project List -->
+                            <template x-for="project in projects" :key="project.id">
+                                <div class="project-item">
+                                    <div class="nav-link d-flex justify-content-between align-items-center" 
+                                         :class="{ 'active': selectedProject && selectedProject.id === project.id }" 
+                                         @click="selectProject(project)" 
+                                         style="cursor: pointer; font-size: 0.9rem;">
+                                        <div class="d-flex align-items-center">
+                                            <i class="fas fa-folder-open me-2"></i>
+                                            <span x-text="project.name" class="text-truncate" 
+                                                  style="max-width: 120px;" :title="project.name"></span>
+                                        </div>
+                                        <i class="fas" 
+                                           :class="project.expanded ? 'fa-chevron-down' : 'fa-chevron-right'"
+                                           @click.stop="toggleProjectExpansion(project)"></i>
+                                    </div>
+                                    
+                                    <!-- Project Children -->
+                                    <div x-show="project.expanded" class="ms-3">
+                                        <!-- Collections -->
+                                        <template x-if="project.collections && project.collections.length > 0">
+                                            <div>
+                                                <div class="nav-link tree-level-1">
+                                                    <i class="fas fa-tasks me-2"></i>Collections
+                                                </div>
+                                                <template x-for="collection in project.collections" :key="collection.id">
+                                                    <a href="#" class="nav-link tree-level-2" 
+                                                       @click.prevent="navigateTo(`/collections/${collection.id}`)">
+                                                        <i class="fas fa-layer-group me-2"></i>
+                                                        <span x-text="collection.name" class="text-truncate" 
+                                                              style="max-width: 80px;" :title="collection.name"></span>
+                                                    </a>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        
+                                        <!-- Plans -->
+                                        <template x-if="project.plans && project.plans.length > 0">
+                                            <div>
+                                                <div class="nav-link tree-level-1">
+                                                    <i class="fas fa-file-alt me-2"></i>Plans
+                                                </div>
+                                                <template x-for="plan in project.plans" :key="plan.id">
+                                                    <a href="#" class="nav-link tree-level-2" 
+                                                       @click.prevent="navigateTo(`/plans/${plan.id}`)">
+                                                        <i class="fas fa-file me-2"></i>
+                                                        <span x-text="plan.name" class="text-truncate" 
+                                                              style="max-width: 80px;" :title="plan.name"></span>
+                                                    </a>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        
+                                        <!-- Add Collection/Plan buttons -->
+                                        <div class="ms-2">
+                                            <a href="#" class="nav-link text-info tree-level-3" 
+                                               @click.prevent="showCreateCollectionForm(project)">
+                                                <i class="fas fa-plus me-2"></i>Add Collection
+                                            </a>
+                                            <a href="#" class="nav-link text-warning tree-level-3" 
+                                               @click.prevent="showCreatePlanForm(project)">
+                                                <i class="fas fa-plus me-2"></i>Add Plan
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        
+                        <a href="#" class="nav-link" 
+                           :class="{ 'active': currentView === 'monitoring' }" 
+                           @click.prevent="setView('monitoring')">
+                            <i class="fas fa-chart-line me-2"></i>Monitoring
+                        </a>
+                        
+                        <hr class="my-3" style="border-color: rgba(255,255,255,0.2);">
+                        
+                        <template x-if="isAdmin()">
+                            <a href="/admin" class="nav-link">
+                                <i class="fas fa-cog me-2"></i>Admin
+                            </a>
+                        </template>
+                        
+                        <a href="/docs" target="_blank" class="nav-link">
+                            <i class="fas fa-book me-2"></i>API Docs
+                        </a>
+                        
+                        {{ if .ProjectHome }}
+                        <a href="{{ .ProjectHome }}" target="_blank" class="nav-link">
+                            <i class="fas fa-question-circle me-2"></i>Help
+                        </a>
+                        {{ end }}
+                    </nav>
                 </div>
                 
-                <!-- Navigation -->
-                <nav class="flex items-center space-x-4">
-                    <!-- Main Navigation Links -->
-                    <a href="#/projects" 
-                       x-show-if-permission="'projects:read'"
-                       class="p-2 text-gray-600 hover:text-blue-600 transition-colors"
-                       :class="{ 'text-blue-600 font-medium': currentRoute.startsWith('/projects') }">
-                        <i class="fas fa-project-diagram mr-1"></i>Projects
-                    </a>
-                    
-                    <a href="#/monitoring" 
-                       x-show-if-permission="'monitoring:read'"
-                       class="p-2 text-gray-600 hover:text-blue-600 transition-colors"
-                       :class="{ 'text-blue-600 font-medium': currentRoute.startsWith('/monitoring') }">
-                        <i class="fas fa-chart-line mr-1"></i>Monitoring
-                    </a>
-                    
-                    <!-- Admin Link -->
-                    <a href="#/admin" 
-                       x-show-if-admin
-                       class="p-2 text-gray-600 hover:text-blue-600 transition-colors"
-                       :class="{ 'text-blue-600 font-medium': currentRoute.startsWith('/admin') }">
-                        <i class="fas fa-cog mr-1"></i>Admin
-                    </a>
-                    
-                    <!-- External Links -->
-                    <a href="{{ .ProjectHome }}" 
-                       target="_blank" 
-                       class="p-2 text-gray-600 hover:text-blue-600">
-                        <i class="fas fa-question-circle mr-1"></i>Help
-                    </a>
-                    
-                    <!-- User Menu -->
-                    <div class="flex items-center space-x-3">
-                        <span class="text-sm text-gray-700">
-                            <i class="fas fa-user mr-1"></i>{{ .Account }}
-                        </span>
-                        <form method="POST" action="/logout" class="inline">
-                            <button type="submit" 
-                                    class="text-sm text-red-600 hover:text-red-800 transition-colors">
-                                <i class="fas fa-sign-out-alt mr-1"></i>Logout
-                            </button>
-                        </form>
+                <!-- User Info -->
+                <div class="mt-auto p-3 border-top" style="border-color: rgba(255,255,255,0.2) !important;">
+                    <div class="text-light">
+                        <small class="d-block"><i class="fas fa-user me-1"></i><span x-text="user.name"></span></small>
+                        <small class="d-block">
+                            <span class="badge" 
+                                  :class="isAdmin() ? 'badge-warning' : 'badge-info'"
+                                  x-text="isAdmin() ? 'Admin' : 'User'"></span>
+                        </small>
                     </div>
-                </nav>
+                    <form method="POST" action="/logout" class="mt-2">
+                        <button type="submit" class="btn btn-outline-light btn-sm">
+                            <i class="fas fa-sign-out-alt me-1"></i>Logout
+                        </button>
+                    </form>
+                </div>
             </div>
-        </div>
-    </header>
-    
-    <!-- Main Content Area -->
-    <main class="max-w-7xl mx-auto py-6 px-6">
-        <!-- Loading State -->
-        <div x-show="!initialized" class="text-center py-12">
-            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p class="mt-4 text-gray-500">Loading Setagaya...</p>
-        </div>
-        
-        <!-- Main Application Content -->
-        <div x-show="initialized" class="min-h-screen">
-            <!-- Projects Section -->
-            <section id="main-content" class="space-y-6">
-                <!-- Welcome Banner -->
-                <div x-show="currentRoute === '/' || currentRoute === '/projects'" 
-                     class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h2 class="text-2xl font-bold text-gray-900">Welcome to Setagaya</h2>
-                            <p class="mt-2 text-gray-600">Distributed load testing platform with JMeter orchestration</p>
+
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10 main-content">
+                <!-- Header -->
+                <div class="bg-white shadow-sm p-3 mb-4">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <button class="btn btn-outline-secondary d-md-none me-3" 
+                                    @click="sidebarCollapsed = !sidebarCollapsed">
+                                <i class="fas fa-bars"></i>
+                            </button>
+                            <h1 class="h4 mb-0" x-text="getViewTitle()"></h1>
                         </div>
-                        <div class="text-right">
-                            <div class="text-sm text-gray-500">Context: <span class="font-medium">{{ .Context }}</span></div>
-                            {{ if .EnableSid }}
-                            <div class="text-sm text-gray-500 mt-1">Session ID: Enabled</div>
+                        
+                        <div class="d-flex align-items-center">
+                            <span class="text-muted me-3">Welcome, <span x-text="user.name"></span></span>
+                            {{ if .ResultDashboard }}
+                            <a href="{{ .ResultDashboard }}" target="_blank" class="btn btn-outline-primary btn-sm me-2">
+                                <i class="fas fa-chart-bar me-1"></i>Results
+                            </a>
+                            {{ end }}
+                            {{ if .EngineHealthDashboard }}
+                            <a href="{{ .EngineHealthDashboard }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                                <i class="fas fa-heartbeat me-1"></i>Health
+                            </a>
                             {{ end }}
                         </div>
                     </div>
                 </div>
-                
-                <!-- Dynamic Content Area -->
-                <div id="dynamic-content">
-                    <!-- Content will be injected here by Alpine.js router -->
-                </div>
-            </section>
-            
-            <!-- Admin Section -->
-            <section id="admin-content" x-show="currentRoute.startsWith('/admin')" class="space-y-6">
-                <!-- Admin content will be injected here -->
-            </section>
-        </div>
-    </main>
-    
-    <!-- Footer -->
-    <footer class="bg-gray-50 border-t mt-12">
-        <div class="max-w-7xl mx-auto py-6 px-6">
-            <div class="flex justify-between items-center text-sm text-gray-500">
-                <div>
-                    <span>Setagaya Load Testing Platform</span>
-                    {{ if .GCDuration }}
-                    <span class="ml-4">GC Interval: {{ .GCDuration }}s</span>
-                    {{ end }}
-                </div>
-                <div class="flex space-x-4">
-                    {{ if .ResultDashboard }}
-                    <a href="{{ .ResultDashboard }}" 
-                       target="_blank" 
-                       class="text-blue-600 hover:text-blue-800">
-                        <i class="fas fa-chart-bar mr-1"></i>Results Dashboard
-                    </a>
-                    {{ end }}
-                    {{ if .EngineHealthDashboard }}
-                    <a href="{{ .EngineHealthDashboard }}" 
-                       target="_blank" 
-                       class="text-blue-600 hover:text-blue-800">
-                        <i class="fas fa-heartbeat mr-1"></i>Engine Health
-                    </a>
-                    {{ end }}
+
+                <!-- Content Area -->
+                <div class="container-fluid">
+                    <!-- Dashboard View -->
+                    <div x-show="currentView === 'dashboard'">
+                        <div class="row">
+                            <div class="col-md-3 mb-4">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h2 class="text-primary" x-text="stats.totalProjects"></h2>
+                                        <p class="mb-0">Total Projects</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-4">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h2 class="text-success" x-text="stats.activeCollections"></h2>
+                                        <p class="mb-0">Active Collections</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-4">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h2 class="text-info" x-text="stats.totalPlans"></h2>
+                                        <p class="mb-0">Total Plans</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-4">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h2 class="text-warning" x-text="stats.totalRuns"></h2>
+                                        <p class="mb-0">Total Runs</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Create Project Form -->
+                        <div x-show="forms.createProject.show" class="row mb-4">
+                            <div class="col-lg-8">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Create New Project</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Project Name</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createProject.name" 
+                                                       placeholder="Enter project name"
+                                                       @keyup.enter="createProject()">
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Description (Optional)</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createProject.description" 
+                                                       placeholder="Project description">
+                                            </div>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-success" @click="createProject()">
+                                                <i class="fas fa-check me-1"></i>Create Project
+                                            </button>
+                                            <button class="btn btn-secondary" @click="resetForm('createProject')">
+                                                <i class="fas fa-times me-1"></i>Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Create Collection Form -->
+                        <div x-show="forms.createCollection.show" class="row mb-4">
+                            <div class="col-lg-8">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Create New Collection</h5>
+                                        <small x-show="forms.createCollection.project_id" class="text-muted">
+                                            Project: <span x-text="projects.find(p => p.id == forms.createCollection.project_id)?.name || 'Unknown'"></span>
+                                        </small>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <!-- Project Selection -->
+                                            <div class="col-md-12 mb-3" x-show="!forms.createCollection.project_id">
+                                                <label class="form-label">Select Project</label>
+                                                <select class="form-control" x-model="forms.createCollection.project_id">
+                                                    <option value="">Choose a project...</option>
+                                                    <template x-for="project in projects" :key="project.id">
+                                                        <option :value="project.id" x-text="project.name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Collection Name</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createCollection.name" 
+                                                       placeholder="Enter collection name"
+                                                       @keyup.enter="createCollection()">
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Description (Optional)</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createCollection.description" 
+                                                       placeholder="Collection description">
+                                            </div>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-success" @click="createCollection()" 
+                                                    :disabled="!forms.createCollection.name.trim() || !forms.createCollection.project_id">
+                                                <i class="fas fa-check me-1"></i>Create Collection
+                                            </button>
+                                            <button class="btn btn-secondary" @click="resetForm('createCollection')">
+                                                <i class="fas fa-times me-1"></i>Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Create Plan Form -->
+                        <div x-show="forms.createPlan.show" class="row mb-4">
+                            <div class="col-lg-8">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Create New Plan</h5>
+                                        <small x-show="forms.createPlan.project_id" class="text-muted">
+                                            Project: <span x-text="projects.find(p => p.id == forms.createPlan.project_id)?.name || 'Unknown'"></span>
+                                        </small>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <!-- Project Selection -->
+                                            <div class="col-md-12 mb-3" x-show="!forms.createPlan.project_id">
+                                                <label class="form-label">Select Project</label>
+                                                <select class="form-control" x-model="forms.createPlan.project_id">
+                                                    <option value="">Choose a project...</option>
+                                                    <template x-for="project in projects" :key="project.id">
+                                                        <option :value="project.id" x-text="project.name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Plan Name</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createPlan.name" 
+                                                       placeholder="Enter plan name"
+                                                       @keyup.enter="createPlan()">
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Description (Optional)</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createPlan.description" 
+                                                       placeholder="Plan description">
+                                            </div>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-success" @click="createPlan()" 
+                                                    :disabled="!forms.createPlan.name.trim() || !forms.createPlan.project_id">
+                                                <i class="fas fa-check me-1"></i>Create Plan
+                                            </button>
+                                            <button class="btn btn-secondary" @click="resetForm('createPlan')">
+                                                <i class="fas fa-times me-1"></i>Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-lg-8 mb-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Quick Actions</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-4 mb-3">
+                                                <button class="btn btn-primary w-100" @click="showForm('createProject')">
+                                                    <i class="fas fa-plus me-2"></i>New Project
+                                                </button>
+                                            </div>
+                                            <div class="col-md-4 mb-3">
+                                                <button class="btn btn-outline-primary w-100" @click="setView('collections')">
+                                                    <i class="fas fa-tasks me-2"></i>View Collections
+                                                </button>
+                                            </div>
+                                            <div class="col-md-4 mb-3">
+                                                <button class="btn btn-outline-primary w-100" @click="setView('plans')">
+                                                    <i class="fas fa-file-alt me-2"></i>View Plans
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-lg-4 mb-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">System Info</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Context:</strong> {{ .Context }}</p>
+                                        <p><strong>User:</strong> <span x-text="user.name"></span></p>
+                                        <p><strong>Role:</strong> 
+                                            <span class="badge" 
+                                                  :class="isAdmin() ? 'badge-warning' : 'badge-info'"
+                                                  x-text="isAdmin() ? 'Administrator' : 'User'"></span>
+                                        </p>
+                                        {{ if .GCDuration }}
+                                        <p><strong>GC Interval:</strong> {{ .GCDuration }}s</p>
+                                        {{ end }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Project Detail View -->
+                    <div x-show="currentView === 'project-detail' && selectedProject">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <div>
+                                <h3 x-text="selectedProject?.name"></h3>
+                                <p class="text-muted mb-0">Owner: <span x-text="selectedProject?.owner"></span></p>
+                            </div>
+                            <button class="btn btn-outline-secondary" @click="navigateTo('/')">
+                                <i class="fas fa-arrow-left me-1"></i>Back to Projects
+                            </button>
+                        </div>
+
+                        <!-- Tabs -->
+                        <ul class="nav nav-tabs mb-4">
+                            <li class="nav-item">
+                                <a class="nav-link active" data-bs-toggle="tab" href="#plans-tab">
+                                    <i class="fas fa-file-alt me-1"></i>Test Plans
+                                    <span class="badge bg-secondary ms-1" 
+                                          x-text="(selectedProject?.plans || []).length"></span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" data-bs-toggle="tab" href="#collections-tab">
+                                    <i class="fas fa-layer-group me-1"></i>Collections
+                                    <span class="badge bg-secondary ms-1" 
+                                          x-text="(selectedProject?.collections || []).length"></span>
+                                </a>
+                            </li>
+                        </ul>
+
+                        <!-- Tab Content -->
+                        <div class="tab-content">
+                            <!-- Plans Tab -->
+                            <div class="tab-pane fade show active" id="plans-tab">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h5>Test Plans</h5>
+                                    <button class="btn btn-primary" @click="showForm('createPlan'); forms.createPlan.project_id = selectedProject?.id">
+                                        <i class="fas fa-plus me-2"></i>New Test Plan
+                                    </button>
+                                </div>
+
+                                <!-- Plan Help Text -->
+                                <div class="alert alert-info mb-3">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    <strong>Test Plans</strong> define individual test configurations (JMX files, settings). 
+                                    Create plans first, then group them into Collections for execution.
+                                </div>
+
+                                <!-- Create Plan Form -->
+                                <div x-show="forms.createPlan.show" class="card mb-4">
+                                    <div class="card-body">
+                                        <h6>Create New Test Plan</h6>
+                                        <div class="row">
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Plan Name *</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createPlan.name" 
+                                                       placeholder="Enter test plan name">
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Description</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createPlan.description" 
+                                                       placeholder="Optional description">
+                                            </div>
+                                            <div class="col-12 mb-3">
+                                                <div class="d-flex gap-2">
+                                                    <button class="btn btn-success" @click="createPlan()">Create Plan</button>
+                                                    <button class="btn btn-secondary" @click="resetForm('createPlan')">Cancel</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h5>Collections</h5>
+                                    <button class="btn btn-primary" @click="showForm('createCollection'); forms.createCollection.project_id = selectedProject?.id">
+                                        <i class="fas fa-plus me-2"></i>New Collection
+                                    </button>
+                                </div>
+
+                                <!-- Create Collection Form -->
+                                <div x-show="forms.createCollection.show" class="card mb-4">
+                                    <div class="card-body">
+                                        <h6>Create New Collection</h6>
+                                        <div class="row">
+                                            <div class="col-md-4 mb-3">
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createCollection.name" 
+                                                       placeholder="Collection name">
+                                            </div>
+                                            <div class="col-md-4 mb-3">
+                                                <input type="number" class="form-control" 
+                                                       x-model="forms.createCollection.max_engines" 
+                                                       placeholder="Max engines" min="1" max="100">
+                                            </div>
+                                            <div class="col-md-4 mb-3">
+                                                <div class="d-flex gap-2">
+                                                    <button class="btn btn-success" @click="createCollection()">Create</button>
+                                                    <button class="btn btn-secondary" @click="resetForm('createCollection')">Cancel</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Collections List -->
+                                <div class="row">
+                                    <div x-show="!selectedProject?.collections || selectedProject.collections.length === 0" 
+                                         class="col-12 text-center py-5">
+                                        <i class="fas fa-tasks fa-3x text-muted mb-3"></i>
+                                        <p class="text-muted">No collections in this project yet</p>
+                                    </div>
+                                    
+                                    <template x-for="collection in (selectedProject?.collections || [])" :key="collection.id">
+                                        <div class="col-md-6 col-lg-4 mb-3">
+                                            <div class="card">
+                                                <div class="card-body">
+                                                    <h6 class="card-title" x-text="collection.name"></h6>
+                                                    <p class="mb-2">
+                                                        <span class="badge" 
+                                                              :class="getStatusClass(collection.status)"
+                                                              x-text="collection.status || 'Ready'"></span>
+                                                    </p>
+                                                    <small class="text-muted">
+                                                        Created: <span x-text="formatDate(collection.created_at)"></span>
+                                                    </small>
+                                                </div>
+                                                <div class="card-footer bg-transparent">
+                                                    <div class="btn-group btn-group-sm w-100">
+                                                        <button class="btn btn-outline-success" 
+                                                                @click="deployCollection(collection)"
+                                                                :disabled="collection.status === 'running'">
+                                                            <i class="fas fa-play"></i>
+                                                        </button>
+                                                        <button class="btn btn-outline-danger" 
+                                                                @click="stopCollection(collection)"
+                                                                :disabled="collection.status !== 'running'">
+                                                            <i class="fas fa-stop"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Plans Tab -->
+                            <div class="tab-pane fade" id="plans-tab">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h5>Plans</h5>
+                                    <button class="btn btn-primary" @click="showForm('createPlan'); forms.createPlan.project_id = selectedProject?.id">
+                                        <i class="fas fa-plus me-2"></i>New Plan
+                                    </button>
+                                </div>
+
+                                <!-- Create Plan Form -->
+                                <div x-show="forms.createPlan.show" class="card mb-4">
+                                    <div class="card-body">
+                                        <h6>Create New Plan</h6>
+                                        <div class="row">
+                                            <div class="col-md-3 mb-3">
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createPlan.name" 
+                                                       placeholder="Plan name">
+                                            </div>
+                                            <div class="col-md-2 mb-3">
+                                                <input type="number" class="form-control" 
+                                                       x-model="forms.createPlan.engines" 
+                                                       placeholder="Engines" min="1">
+                                            </div>
+                                            <div class="col-md-2 mb-3">
+                                                <input type="number" class="form-control" 
+                                                       x-model="forms.createPlan.duration" 
+                                                       placeholder="Duration (s)">
+                                            </div>
+                                            <div class="col-md-2 mb-3">
+                                                <input type="number" class="form-control" 
+                                                       x-model="forms.createPlan.ramp_up" 
+                                                       placeholder="Ramp-up (s)">
+                                            </div>
+                                            <div class="col-md-3 mb-3">
+                                                <div class="d-flex gap-2">
+                                                    <button class="btn btn-success" @click="createPlan()">Create</button>
+                                                    <button class="btn btn-secondary" @click="resetForm('createPlan')">Cancel</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Plans List -->
+                                <div class="row">
+                                    <div x-show="!selectedProject?.plans || selectedProject.plans.length === 0" 
+                                         class="col-12 text-center py-5">
+                                        <i class="fas fa-file-alt fa-3x text-muted mb-3"></i>
+                                        <p class="text-muted">No test plans in this project yet</p>
+                                        <p class="text-sm text-muted">Test plans define individual JMeter test configurations</p>
+                                    </div>
+                                    
+                                    <template x-for="plan in (selectedProject?.plans || [])" :key="plan.id">
+                                        <div class="col-md-6 col-lg-4 mb-3">
+                                            <div class="card h-100">
+                                                <div class="card-body">
+                                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                                        <h6 class="card-title mb-0" x-text="plan.name"></h6>
+                                                        <div class="dropdown">
+                                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" 
+                                                                    data-bs-toggle="dropdown">
+                                                                <i class="fas fa-ellipsis-v"></i>
+                                                            </button>
+                                                            <ul class="dropdown-menu">
+                                                                <li><a class="dropdown-item" href="#" @click="editPlan(plan)">
+                                                                    <i class="fas fa-edit me-2"></i>Edit</a></li>
+                                                                <li><hr class="dropdown-divider"></li>
+                                                                <li><a class="dropdown-item text-danger" href="#" @click="deletePlan(plan)">
+                                                                    <i class="fas fa-trash me-2"></i>Delete</a></li>
+                                                            </ul>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <p class="card-text text-muted small mb-2" x-text="plan.description || 'No description'"></p>
+                                                    
+                                                    <div class="row text-center mb-3">
+                                                        <div class="col-6">
+                                                            <div class="border rounded p-2">
+                                                                <div class="fw-bold text-primary">
+                                                                    <i class="fas fa-file-code"></i>
+                                                                </div>
+                                                                <small class="text-muted">JMX File</small>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="border rounded p-2">
+                                                                <div class="fw-bold text-success" x-text="(plan.data_files || []).length"></div>
+                                                                <small class="text-muted">Data Files</small>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <small class="text-muted">
+                                                        Created: <span x-text="formatDate(plan.created_time)"></span>
+                                                    </small>
+                                                </div>
+                                                <div class="card-footer bg-transparent">
+                                                    <div class="btn-group w-100">
+                                                        <button class="btn btn-outline-primary btn-sm" 
+                                                                @click="fileManager.show = true; fileManager.planId = plan.id; loadPlanFiles(plan.id)">
+                                                            <i class="fas fa-folder me-1"></i>Manage Files
+                                                        </button>
+                                                        <button class="btn btn-outline-success btn-sm" 
+                                                                @click="navigateTo('/plans/' + plan.id)">
+                                                            <i class="fas fa-eye me-1"></i>View
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Collections Tab -->
+                            <div class="tab-pane fade" id="collections-tab">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h5>Collections</h5>
+                                    <button class="btn btn-primary" @click="showForm('createCollection'); forms.createCollection.project_id = selectedProject?.id">
+                                        <i class="fas fa-plus me-2"></i>New Collection
+                                    </button>
+                                </div>
+
+                                <!-- Collection Help Text -->
+                                <div class="alert alert-warning mb-3">
+                                    <i class="fas fa-lightbulb me-2"></i>
+                                    <strong>Collections</strong> group multiple test plans for coordinated execution. 
+                                    You need at least one test plan to create a collection.
+                                </div>
+
+                                <!-- Create Collection Form -->
+                                <div x-show="forms.createCollection.show" class="card mb-4">
+                                    <div class="card-body">
+                                        <h6>Create New Collection</h6>
+                                        <div class="row">
+                                            <div class="col-md-4 mb-3">
+                                                <label class="form-label">Collection Name *</label>
+                                                <input type="text" class="form-control" 
+                                                       x-model="forms.createCollection.name" 
+                                                       placeholder="Enter collection name">
+                                            </div>
+                                            <div class="col-md-4 mb-3">
+                                                <label class="form-label">Max Engines</label>
+                                                <input type="number" class="form-control" 
+                                                       x-model="forms.createCollection.max_engines" 
+                                                       placeholder="100" min="1" max="1000">
+                                            </div>
+                                            <div class="col-md-4 mb-3">
+                                                <label class="form-label">Timeout (minutes)</label>
+                                                <input type="number" class="form-control" 
+                                                       x-model="forms.createCollection.timeout" 
+                                                       placeholder="60" min="1">
+                                            </div>
+                                            <div class="col-12 mb-3">
+                                                <div class="d-flex gap-2">
+                                                    <button class="btn btn-success" @click="createCollection()">Create Collection</button>
+                                                    <button class="btn btn-secondary" @click="resetForm('createCollection')">Cancel</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Collections List -->
+                                <div class="row">
+                                    <div x-show="!selectedProject?.collections || selectedProject.collections.length === 0" 
+                                         class="col-12 text-center py-5">
+                                        <i class="fas fa-layer-group fa-3x text-muted mb-3"></i>
+                                        <p class="text-muted">No collections in this project yet</p>
+                                        <p class="text-sm text-muted">Collections group test plans for coordinated execution</p>
+                                    </div>
+                                    
+                                    <template x-for="collection in (selectedProject?.collections || [])" :key="collection.id">
+                                        <div class="col-md-6 col-lg-4 mb-3">
+                                            <div class="card h-100">
+                                                <div class="card-body">
+                                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                                        <h6 class="card-title mb-0" x-text="collection.name"></h6>
+                                                        <span class="badge" 
+                                                              :class="getStatusBadgeClass(collection.status)"
+                                                              x-text="collection.status || 'idle'"></span>
+                                                    </div>
+                                                    
+                                                    <p class="card-text text-muted small mb-2" x-text="collection.description || 'No description'"></p>
+                                                    
+                                                    <div class="row text-center mb-3">
+                                                        <div class="col-4">
+                                                            <div class="border rounded p-2">
+                                                                <div class="fw-bold text-primary" x-text="(collection.execution_plans || []).length"></div>
+                                                                <small class="text-muted">Plans</small>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-4">
+                                                            <div class="border rounded p-2">
+                                                                <div class="fw-bold text-warning" x-text="collection.max_engines || 100"></div>
+                                                                <small class="text-muted">Max Engines</small>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-4">
+                                                            <div class="border rounded p-2">
+                                                                <div class="fw-bold text-info">0</div>
+                                                                <small class="text-muted">Runs</small>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <small class="text-muted">
+                                                        Created: <span x-text="formatDate(collection.created_time)"></span>
+                                                    </small>
+                                                </div>
+                                                <div class="card-footer bg-transparent">
+                                                    <div class="btn-group w-100 mb-2">
+                                                        <button class="btn btn-outline-success btn-sm" 
+                                                                @click="navigateTo('/collections/' + collection.id)">
+                                                            <i class="fas fa-eye me-1"></i>View
+                                                        </button>
+                                                        <button class="btn btn-outline-primary btn-sm" 
+                                                                @click="configureCollection(collection)">
+                                                            <i class="fas fa-cog me-1"></i>Configure
+                                                        </button>
+                                                    </div>
+                                                    <div class="btn-group w-100">
+                                                        <button class="btn btn-outline-success btn-sm" 
+                                                                @click="deployCollection(collection)"
+                                                                :disabled="collection.status === 'running'">
+                                                            <i class="fas fa-play me-1"></i>Deploy
+                                                        </button>
+                                                        <button class="btn btn-outline-danger btn-sm" 
+                                                                @click="stopCollection(collection)"
+                                                                :disabled="collection.status !== 'running'">
+                                                            <i class="fas fa-stop me-1"></i>Stop
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Collections View -->
+                    <div x-show="currentView === 'collections'">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h3>Collections</h3>
+                            <button class="btn btn-primary" @click="showForm('createCollection')">
+                                <i class="fas fa-plus me-2"></i>New Collection
+                            </button>
+                        </div>
+
+                        <!-- Collections Table -->
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Project</th>
+                                                <th>Status</th>
+                                                <th>Max Engines</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="collection in collections" :key="collection.id">
+                                                <tr>
+                                                    <td>
+                                                        <div class="fw-bold" x-text="collection.name"></div>
+                                                        <small class="text-muted" x-text="collection.description || 'No description'"></small>
+                                                    </td>
+                                                    <td x-text="collection.project_name || 'Unknown'"></td>
+                                                    <td>
+                                                        <span class="badge" 
+                                                              :class="getStatusClass(collection.status)"
+                                                              x-text="collection.status || 'Ready'"></span>
+                                                    </td>
+                                                    <td x-text="collection.max_engines || 'N/A'"></td>
+                                                    <td>
+                                                        <div class="btn-group btn-group-sm">
+                                                            <button class="btn btn-outline-success" 
+                                                                    @click="deployCollection(collection)"
+                                                                    :disabled="collection.status === 'running'">
+                                                                <i class="fas fa-play"></i>
+                                                            </button>
+                                                            <button class="btn btn-outline-danger" 
+                                                                    @click="stopCollection(collection)"
+                                                                    :disabled="collection.status !== 'running'">
+                                                                <i class="fas fa-stop"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Plans View -->
+                    <div x-show="currentView === 'plans'">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h3>Plans</h3>
+                            <button class="btn btn-primary" @click="showForm('createPlan')">
+                                <i class="fas fa-plus me-2"></i>New Plan
+                            </button>
+                        </div>
+
+                        <!-- Plans Grid -->
+                        <div class="row">
+                            <template x-for="plan in plans" :key="plan.id">
+                                <div class="col-md-6 col-lg-4 mb-4">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h5 class="card-title" x-text="plan.name"></h5>
+                                            <p class="text-muted mb-3">
+                                                <small>Project: <span x-text="plan.project_name || 'Unknown'"></span></small>
+                                            </p>
+                                            <div class="d-flex justify-content-between mb-3">
+                                                <span class="badge bg-info">
+                                                    <i class="fas fa-server me-1"></i><span x-text="plan.engines || 1"></span> engines
+                                                </span>
+                                                <span class="badge bg-secondary" x-show="plan.duration">
+                                                    <i class="fas fa-clock me-1"></i><span x-text="plan.duration"></span>s
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="card-footer bg-transparent">
+                                            <button class="btn btn-outline-primary btn-sm" 
+                                                    @click="fileManager.show = true; fileManager.planId = plan.id; loadPlanFiles(plan.id)">
+                                                <i class="fas fa-file me-1"></i>Files
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Monitoring View -->
+                    <div x-show="currentView === 'monitoring'">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h3>Monitoring</h3>
+                            <button class="btn btn-outline-primary" @click="loadMonitoring()">
+                                <i class="fas fa-sync me-2"></i>Refresh
+                            </button>
+                        </div>
+
+                        <!-- Running Collections -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Running Collections</h5>
+                            </div>
+                            <div class="card-body">
+                                <div x-show="runningCollections.length === 0" class="text-center text-muted py-4">
+                                    <i class="fas fa-play-circle fa-3x mb-3"></i>
+                                    <p>No collections are currently running</p>
+                                </div>
+                                
+                                <template x-for="collection in runningCollections" :key="collection.id">
+                                    <div class="card mb-3">
+                                        <div class="card-body">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <h6 class="mb-1" x-text="collection.name"></h6>
+                                                    <small class="text-muted">Project: <span x-text="collection.project_name"></span></small>
+                                                </div>
+                                                <div class="text-end">
+                                                    <span class="badge bg-success">Running</span>
+                                                    <button class="btn btn-outline-danger btn-sm ms-2" 
+                                                            @click="stopCollection(collection)">
+                                                        <i class="fas fa-stop me-1"></i>Stop
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-    </footer>
-    
-    <!-- Hidden data for auth initialization -->
-    <div class="hidden" 
-         data-account="{{ .Account }}" 
-         data-is-admin="{{ .IsAdmin }}"></div>
+    </div>
+
+    <!-- File Manager Modal -->
+    <div x-show="fileManager.show" 
+         x-cloak 
+         class="modal" 
+         style="display: none; background: rgba(0,0,0,0.5);" 
+         x-bind:style="fileManager.show ? 'display: block;' : 'display: none;'" 
+         @click.self="fileManager.show = false">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">File Manager</h5>
+                    <button type="button" class="btn-close" @click="fileManager.show = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Upload Files</h6>
+                            <div class="file-upload-area mb-3">
+                                <i class="fas fa-cloud-upload-alt fa-2x text-muted mb-2"></i>
+                                <p>Drag & drop files here or</p>
+                                <input type="file" id="fileInput" multiple class="d-none" 
+                                       @change="Array.from($event.target.files).forEach(file => uploadFile(fileManager.planId, file))">
+                                <button class="btn btn-primary" @click="document.getElementById('fileInput').click()">
+                                    Browse Files
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Files</h6>
+                            <div class="list-group">
+                                <template x-for="file in fileManager.files" :key="file.name">
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <i class="fas fa-file me-2"></i>
+                                            <span x-text="file.name"></span>
+                                        </div>
+                                        <button class="btn btn-outline-danger btn-sm" 
+                                                @click="deleteFile(fileManager.planId, file.name)">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </template>
+                                <div x-show="fileManager.files.length === 0" class="text-center text-muted py-3">
+                                    No files uploaded yet
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @click="fileManager.show = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

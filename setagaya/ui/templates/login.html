@@ -1,25 +1,56 @@
+<!DOCTYPE html>
 <html>
+<head>
+    <title>Setagaya - Login</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/static/css/bootstrap.min.css">
-    <body>
-        <div class="container">
-            <div class="col-md-6 offset-md-3 mt-3">
-                <form action="/login" method="POST">
-                    <div class="form-group">
-                        <label for="exampleInputEmail1">Windows account</label>
-                        <input name="username" type="text" class="form-control" placeholder="Enter windows account">
+</head>
+<body style="background-color: #f8f9fa;">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-6 col-lg-4">
+                <div class="card mt-5">
+                    <div class="card-header text-center">
+                        <h4>Setagaya Login</h4>
+                        <small class="text-muted">Load Testing Platform</small>
                     </div>
-                    <div class="form-group">
-                        <label for="exampleInputPassword1">Password</label>
-                        <input type="password" class="form-control" placeholder="Password" name="password">
-                        {{ if .ErrorMsg }}
-                            <div class="invalid-feedback" style="display:block">
-                                {{ .ErrorMsg }}
+                    <div class="card-body">
+                        <form action="/login" method="POST">
+                            <div class="form-group">
+                                <label for="username">Username</label>
+                                <input name="username" type="text" class="form-control" 
+                                       placeholder="Enter username" required>
+                                <small class="form-text text-muted">
+                                    Use 'admin' for admin access
+                                </small>
                             </div>
-                        {{end}}
+                            <div class="form-group">
+                                <label for="password">Password</label>
+                                <input type="password" class="form-control" 
+                                       placeholder="Password" name="password" required>
+                                <small class="form-text text-muted">
+                                    Use 'admin' for admin users or 'password' for regular users
+                                </small>
+                                {{ if .ErrorMsg }}
+                                    <div class="invalid-feedback" style="display:block">
+                                        {{ .ErrorMsg }}
+                                    </div>
+                                {{end}}
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block">
+                                <i class="fas fa-sign-in-alt mr-2"></i>Login
+                            </button>
+                        </form>
                     </div>
-                    <button type="submit" class="btn btn-primary">Submit</button>
-                </form>
+                    <div class="card-footer text-center">
+                        <small class="text-muted">
+                            Local Development Environment
+                        </small>
+                    </div>
+                </div>
             </div>
         </div>
-    </body>
+    </div>
+</body>
 </html>

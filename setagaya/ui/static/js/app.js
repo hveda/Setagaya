@@ -803,30 +803,43 @@ class AlpineRouter {
 function shibuyaApp() {
   return {
     // Application state
-    user: null,
+    user: { name: 'setagaya', username: 'setagaya' }, // Default user for testing
     initialized: false,
     router: null,
     currentRoute: '/',
     
     // Initialize the app
     async init() {
+      console.log('Starting Setagaya app initialization...');
+      
       try {
-        // Initialize auth manager
-        await window.authManager.init();
-        this.user = window.authManager.user;
-        
-        // Initialize router
-        this.router = new AlpineRouter();
-        this.router.app = this; // Reference for updating currentRoute
-        
-        // Set initial route
+        // Simple initialization without complex auth logic for now
+        this.user = { name: 'setagaya', username: 'setagaya' };
         this.currentRoute = window.location.hash.slice(1) || '/';
-        
         this.initialized = true;
-        console.log('Setagaya app initialized with user:', this.user);
+        
+        console.log('Setagaya app initialized successfully');
+        console.log('User:', this.user);
+        console.log('Route:', this.currentRoute);
+        console.log('Initialized:', this.initialized);
+        
+        // Initialize router after a short delay to ensure DOM is ready
+        setTimeout(() => {
+          try {
+            this.router = new AlpineRouter();
+            this.router.app = this;
+            console.log('Router initialized');
+          } catch (routerError) {
+            console.error('Router initialization failed:', routerError);
+          }
+        }, 100);
+        
       } catch (error) {
         console.error('Failed to initialize app:', error);
-        this.initialized = true; // Still mark as initialized to show UI
+        // Ensure we still show the UI even if initialization fails
+        this.user = { name: 'setagaya', username: 'setagaya' };
+        this.initialized = true;
+        console.log('App marked as initialized despite errors');
       }
     },
     

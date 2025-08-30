@@ -49,14 +49,14 @@ runtime:
   upload_file_help: ""
   distributed_mode: true
   auth_config:
-    admin_users: []
+    admin_users: ["admin"]
     ldap_server: ""
     ldap_port: ""
     system_user: ""
     system_password: ""
     base_dn: ""
-    no_auth: true
-    session_key: ""
+    no_auth: false
+    session_key: "setagaya-session"
   http_config:
     proxy: ""
   db:
@@ -64,7 +64,7 @@ runtime:
     user: "root"
     password: "root"
     database: "setagaya"
-    keypairs: ""
+    keypairs: "my-secret-key-very-very-secretive,my-second-secret-key-also-very-secretive"
   executors:
     cluster:
       project: ""

@@ -203,18 +203,58 @@ AND p.name IN (
     'files:download'
 );
 
--- Insert initial test user for local development
--- Note: This is used when "no_auth": true in config_env.json
+-- Insert initial test users for local development
+-- Note: These are used for testing and demonstration purposes
 INSERT INTO users (username, email, full_name, is_active) VALUES
-('setagaya', 'setagaya@localhost', 'Setagaya Local Test User', TRUE);
+('setagaya', 'setagaya@localhost', 'Setagaya Local Test User', TRUE),
+('admin', 'admin@setagaya.local', 'System Administrator', TRUE),
+('manager', 'manager@setagaya.local', 'Load Test Project Manager', TRUE),
+('tester', 'tester@setagaya.local', 'Load Test User', TRUE),
+('monitor', 'monitor@setagaya.local', 'Monitor User', TRUE);
 
--- Assign administrator role to the local test user
+-- Assign roles to users
+-- Administrator roles
 INSERT INTO user_roles (username, role_id, granted_by) 
 SELECT 'setagaya', r.id, 'system' 
 FROM roles r 
 WHERE r.name = 'administrator';
 
--- Update the user's primary role to administrator
+INSERT INTO user_roles (username, role_id, granted_by) 
+SELECT 'admin', r.id, 'system' 
+FROM roles r 
+WHERE r.name = 'administrator';
+
+-- Project Manager role
+INSERT INTO user_roles (username, role_id, granted_by) 
+SELECT 'manager', r.id, 'system' 
+FROM roles r 
+WHERE r.name = 'loadtest_project_manager';
+
+-- Load Test User role
+INSERT INTO user_roles (username, role_id, granted_by) 
+SELECT 'tester', r.id, 'system' 
+FROM roles r 
+WHERE r.name = 'loadtest_user';
+
+-- Monitor User role
+INSERT INTO user_roles (username, role_id, granted_by) 
+SELECT 'monitor', r.id, 'system' 
+FROM roles r 
+WHERE r.name = 'monitor_user';
+
+-- Update users' primary roles
 UPDATE users 
 SET primary_role_id = (SELECT id FROM roles WHERE name = 'administrator') 
-WHERE username = 'setagaya';
+WHERE username IN ('setagaya', 'admin');
+
+UPDATE users 
+SET primary_role_id = (SELECT id FROM roles WHERE name = 'loadtest_project_manager') 
+WHERE username = 'manager';
+
+UPDATE users 
+SET primary_role_id = (SELECT id FROM roles WHERE name = 'loadtest_user') 
+WHERE username = 'tester';
+
+UPDATE users 
+SET primary_role_id = (SELECT id FROM roles WHERE name = 'monitor_user') 
+WHERE username = 'monitor';

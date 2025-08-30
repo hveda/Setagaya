@@ -1,0 +1,736 @@
+openapi: 3.0.3
+info:
+  title: Setagaya Load Testing Platform API
+  description: |
+    Setagaya is a distributed load testing platform that orchestrates JMeter engines in Kubernetes clusters.
+    It provides comprehensive APIs for managing projects, collections, plans, and monitoring test executions.
+  version: 1.0.0
+  contact:
+    name: Setagaya Project
+    url: https://github.com/hveda/setagaya
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://setagaya.example.com
+    description: Production server
+
+security:
+  - sessionAuth: []
+  - bearerAuth: []
+
+paths:
+  # Project Management
+  /api/projects:
+    get:
+      summary: Get all projects
+      tags: [Projects]
+      parameters:
+        - name: include_collections
+          in: query
+          schema:
+            type: boolean
+          description: Include collections in response
+        - name: include_plans
+          in: query
+          schema:
+            type: boolean
+          description: Include plans in response
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+    post:
+      summary: Create a new project
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Project name
+              required:
+                - name
+      responses:
+        '201':
+          description: Project created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+
+  /api/projects/{project_id}:
+    get:
+      summary: Get project by ID
+      tags: [Projects]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          description: Project not found
+    delete:
+      summary: Delete project
+      tags: [Projects]
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Project deleted successfully
+        '404':
+          description: Project not found
+
+  # Collection Management
+  /api/collections:
+    post:
+      summary: Create a new collection
+      tags: [Collections]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                project_id:
+                  type: integer
+                  format: int64
+              required:
+                - name
+                - project_id
+      responses:
+        '201':
+          description: Collection created successfully
+
+  /api/collections/{collection_id}:
+    get:
+      summary: Get collection by ID
+      tags: [Collections]
+      parameters:
+        - name: collection_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Collection details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+    delete:
+      summary: Delete collection
+      tags: [Collections]
+      parameters:
+        - name: collection_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Collection deleted successfully
+
+  /api/collections/{collection_id}/launch:
+    post:
+      summary: Launch collection execution
+      tags: [Collections]
+      parameters:
+        - name: collection_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Collection launched successfully
+
+  /api/collections/{collection_id}/terminate:
+    post:
+      summary: Terminate collection execution
+      tags: [Collections]
+      parameters:
+        - name: collection_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Collection terminated successfully
+
+  # Plan Management
+  /api/plans:
+    post:
+      summary: Create a new plan
+      tags: [Plans]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                project_id:
+                  type: integer
+                  format: int64
+              required:
+                - name
+                - project_id
+      responses:
+        '201':
+          description: Plan created successfully
+
+  /api/plans/{plan_id}:
+    get:
+      summary: Get plan by ID
+      tags: [Plans]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Plan details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+    delete:
+      summary: Delete plan
+      tags: [Plans]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Plan deleted successfully
+
+  # File Management
+  /api/plans/{plan_id}/files:
+    post:
+      summary: Upload files to plan
+      tags: [Files]
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: File uploaded successfully
+
+  /api/collections/{collection_id}/files:
+    post:
+      summary: Upload files to collection
+      tags: [Files]
+      parameters:
+        - name: collection_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: File uploaded successfully
+
+  /api/files/{kind}/{id}/{name}:
+    get:
+      summary: Download file
+      tags: [Files]
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [plan, collection]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  # Admin Endpoints
+  /api/admin/collections:
+    get:
+      summary: Get all collections (admin only)
+      tags: [Admin]
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Admin collection view
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCollectionResponse'
+
+  /api/admin/stats:
+    get:
+      summary: Get system statistics
+      tags: [Admin]
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: System statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStats'
+
+  /api/admin/activity:
+    get:
+      summary: Get recent system activity
+      tags: [Admin]
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminActivity'
+
+  /api/admin/health:
+    get:
+      summary: Get system health metrics
+      tags: [Admin]
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: System health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminHealth'
+
+  # RBAC Endpoints
+  /api/rbac/me:
+    get:
+      summary: Get current user info
+      tags: [RBAC]
+      responses:
+        '200':
+          description: Current user information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+
+  /api/rbac/roles:
+    get:
+      summary: Get all roles
+      tags: [RBAC]
+      responses:
+        '200':
+          description: List of roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+    post:
+      summary: Create a new role
+      tags: [RBAC]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleCreate'
+      responses:
+        '201':
+          description: Role created successfully
+
+  /api/rbac/users:
+    get:
+      summary: Get all users
+      tags: [RBAC]
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  # Monitoring Endpoints
+  /api/collections/{collection_id}/logs/{plan_id}:
+    get:
+      summary: Get plan execution logs
+      tags: [Monitoring]
+      parameters:
+        - name: collection_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Plan execution logs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # Usage Endpoints
+  /api/usage/summary:
+    get:
+      summary: Get usage summary
+      tags: [Usage]
+      responses:
+        '200':
+          description: Usage statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummary'
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: setagaya-session
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Project ID
+        name:
+          type: string
+          description: Project name
+        owner:
+          type: string
+          description: Project owner
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Collection'
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plan'
+
+    Collection:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        project_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [idle, running, completed, failed]
+        created_at:
+          type: string
+          format: date-time
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plan'
+
+    Plan:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        project_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        engines:
+          type: integer
+          description: Number of JMeter engines
+        duration:
+          type: integer
+          description: Test duration in seconds
+
+    AdminCollectionResponse:
+      type: object
+      properties:
+        running_collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunningPlan'
+        node_pools:
+          type: object
+
+    RunningPlan:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        status:
+          type: string
+        engines:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+
+    AdminStats:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        activeCollections:
+          type: integer
+        totalProjects:
+          type: integer
+        systemLoad:
+          type: string
+
+    AdminActivity:
+      type: object
+      properties:
+        activities:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              user:
+                type: string
+              action:
+                type: string
+              details:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+
+    AdminHealth:
+      type: object
+      properties:
+        cpu:
+          type: string
+          description: CPU usage percentage
+        memory:
+          type: string
+          description: Memory usage percentage
+        disk:
+          type: string
+          description: Disk usage percentage
+
+    CurrentUser:
+      type: object
+      properties:
+        name:
+          type: string
+        username:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+
+    RoleCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+        active:
+          type: boolean
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        last_login:
+          type: string
+          format: date-time
+
+    UsageSummary:
+      type: object
+      properties:
+        total_executions:
+          type: integer
+        total_duration:
+          type: integer
+          description: Total execution time in seconds
+        by_project:
+          type: object
+          additionalProperties:
+            type: object
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message
+        code:
+          type: integer
+          description: Error code
+      required:
+        - message
+
+tags:
+  - name: Projects
+    description: Project management operations
+  - name: Collections
+    description: Collection management and execution
+  - name: Plans
+    description: Test plan management
+  - name: Files
+    description: File upload and download operations
+  - name: Admin
+    description: Administrative operations (admin access required)
+  - name: RBAC
+    description: Role-based access control
+  - name: Monitoring
+    description: Monitoring and logging
+  - name: Usage
+    description: Usage statistics and reporting
