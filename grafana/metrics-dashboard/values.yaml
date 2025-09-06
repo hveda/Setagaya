@@ -4,18 +4,18 @@
 
 replicaCount: 1
 
-namespace: "shibuya-executors"
+namespace: "setagaya-executors"
 datasource: "http://prometheus:9090"
 
 image:
-  repository: metrics-dashboard
+  repository: localhost/grafana
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "local"
 
 imagePullSecrets: []
 nameOverride: ""
-fullnameOverride: "shibuya-metrics-dashboard"
+fullnameOverride: "setagaya-metrics-dashboard"
 
 
 
@@ -97,7 +97,7 @@ autoscaling:
 volumes:
 - name: datasource
   configMap:
-    name: shibuya-metrics-dashboard
+    name: setagaya-metrics-dashboard
 
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts:

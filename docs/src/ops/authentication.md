@@ -2,11 +2,11 @@
 
 ## Basic
 
-Currently, Shibuya supports LDAP based authentication and no authentication. No authentication is mostly used by Shibuya developers. 
+Currently, Setagaya supports LDAP based authentication and no authentication. No authentication is mostly used by Setagaya developers. 
 
-Please bear in mind, a more robust authentication is still WIP. It's not recommended to run Shibuya in a public network.
+Please bear in mind, a more robust authentication is still WIP. It's not recommended to run Setagaya in a public network.
 
-If you choose to disable authentication, that also disables multi tenancy. All the resources will be belong to a hardcoded user name `shibuya`.
+If you choose to disable authentication, that also disables multi tenancy. All the resources will be belong to a hardcoded user name `setagaya`.
 
 ## LDAP authentication
 

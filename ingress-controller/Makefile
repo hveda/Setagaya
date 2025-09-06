@@ -8,4 +8,4 @@ docker:
 
 docker-local:
 	docker build -t ${IMG} .
-	kind load docker-image ${IMG} --name shibuya
+	kind load docker-image ${IMG} --name setagaya

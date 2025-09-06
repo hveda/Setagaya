@@ -1,0 +1,105 @@
+# Set JMeter version and build method
+ARG jmeter_ver=5.6.3
+ARG USE_PREBUILT=false
+
+# Build stage for Go application (default approach)
+FROM golang:1.25.1-alpine AS go-builder
+
+# Install required packages and create directory
+RUN apk update && apk upgrade && \
+    apk add --no-cache git ca-certificates tzdata && \
+    mkdir -p /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy Go modules files
+COPY setagaya/go.mod setagaya/go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy all source code needed for building
+COPY setagaya/ ./
+
+# Build the application with security flags
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s -extldflags=-static" \
+    -a -installsuffix cgo \
+    -o setagaya-agent ./engines/jmeter/setagaya-agent.go
+
+# Build stage for JMeter download
+FROM alpine:3.20 AS jmeter-builder
+ARG jmeter_ver
+ENV JMETER_VERSION=$jmeter_ver
+
+# Install security updates and required packages
+RUN apk update && apk upgrade && \
+    apk add --no-cache wget unzip ca-certificates
+
+# Download and verify JMeter
+RUN wget --progress=bar:force:noscroll \
+    https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz && \
+    tar -xzf apache-jmeter-${JMETER_VERSION}.tgz && \
+    rm apache-jmeter-${JMETER_VERSION}.tgz
+
+# Runtime stage
+FROM eclipse-temurin:21-jre-alpine
+
+# Build arguments
+ARG USE_PREBUILT=false
+
+# Install security updates and create non-root user
+RUN apk update && apk upgrade && \
+    apk add --no-cache ca-certificates tzdata && \
+    addgroup -g 1001 setagaya && \
+    adduser -D -u 1001 -G setagaya setagaya
+
+# Set JMeter version and paths
+ARG jmeter_ver=5.6.3
+ENV JMETER_VERSION=$jmeter_ver
+ENV JMETER_HOME=/opt/apache-jmeter-${JMETER_VERSION}
+ENV JMETER_BIN=${JMETER_HOME}/bin
+ENV PATH=${JMETER_BIN}:${PATH}
+
+# Create directories with proper permissions
+RUN mkdir -p /test-conf /test-result ${JMETER_HOME} && \
+    chown -R setagaya:setagaya /test-conf /test-result ${JMETER_HOME}
+
+# Copy JMeter from builder stage
+COPY --from=jmeter-builder --chown=setagaya:setagaya /apache-jmeter-${JMETER_VERSION} ${JMETER_HOME}
+
+# Copy setagaya-agent binary 
+# Default approach: Use source-built binary (recommended)
+COPY --from=go-builder --chmod=755 /app/setagaya-agent /usr/local/bin/setagaya-agent
+
+# Ensure proper ownership
+RUN chown setagaya:setagaya /usr/local/bin/setagaya-agent
+
+# Legacy support notice
+RUN if [ "$USE_PREBUILT" = "true" ]; then \
+        echo ""; \
+        echo "🔄 Legacy mode requested (USE_PREBUILT=true)"; \
+        echo "📝 To use pre-built binaries:"; \
+        echo "   1. Run: ./build.sh jmeter"; \
+        echo "   2. Temporarily modify this Dockerfile to copy from build/"; \
+        echo "   3. Or use the legacy build process"; \
+        echo "✅ Currently using modern source-built binary"; \
+        echo ""; \
+    fi
+
+# Copy configuration files
+COPY --chmod=644 --chown=setagaya:setagaya setagaya/engines/jmeter/setagaya.properties /test-conf/setagaya.properties
+COPY --chmod=755 --chown=setagaya:setagaya setagaya/engines/jmeter/jmeter.sh ${JMETER_BIN}/jmeter
+
+# Switch to non-root user
+USER setagaya
+
+# Set working directory
+WORKDIR /test-result
+
+# Expose JMeter ports
+EXPOSE 1099 50000
+
+# Run the agent
+ENTRYPOINT ["/usr/local/bin/setagaya-agent"]

@@ -1,6 +1,6 @@
 # Object Storage
 
-In Shibuya, we support two types of object storage:
+In Setagaya, we support two types of object storage:
 
 1. Nexus(REST based)
 2. GCP bucket

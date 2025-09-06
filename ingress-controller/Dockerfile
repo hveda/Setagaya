@@ -1,18 +1,43 @@
-FROM gcr.io/shibuya-214807/golang:1.20.2-buster AS builder
+# Build stage
+FROM golang:1.25.1-alpine AS builder
 
-WORKDIR /go/src/shibuya-ingress-controller
+# Install security updates and required packages
+RUN apk update && apk upgrade && apk add --no-cache git ca-certificates tzdata && \
+    addgroup -g 1001 setagaya && \
+    adduser -D -u 1001 -G setagaya setagaya
 
-ENV GO111MODULE on
-ADD go.mod .
-ADD go.sum .
-RUN go mod download
+# Set working directory
+WORKDIR /build
 
-COPY . /go/src/shibuya-ingress-controller
+# Enable Go modules
+ENV GO111MODULE=on
 
-RUN GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /go/bin/sic
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
 
-FROM gcr.io/shibuya-214807/ubuntu:18.04
+# Copy source code
+COPY . .
 
-COPY --from=builder /go/bin/sic /usr/local/bin/sic
+# Build the binary with security flags
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o sic .
 
-CMD ["sic"]
+# Final stage
+FROM scratch
+
+# Import from builder
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/passwd /etc/passwd
+
+# Copy the binary
+COPY --from=builder /build/sic /sic
+
+# Use non-root user
+USER setagaya
+
+# Run the binary
+ENTRYPOINT ["/sic"]

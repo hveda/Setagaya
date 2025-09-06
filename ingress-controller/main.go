@@ -22,7 +22,7 @@ import (
 	_ "go.uber.org/automaxprocs"
 )
 
-type ShibuyaIngressController struct {
+type SetagayaIngressController struct {
 	client          *kubernetes.Clientset
 	engineInventory sync.Map
 	namespace       string
@@ -67,12 +67,12 @@ func makeK8sClient() (*kubernetes.Clientset, error) {
 	return client, err
 }
 
-func (sic *ShibuyaIngressController) findCollectionIDFromPath(path string) string {
+func (sic *SetagayaIngressController) findCollectionIDFromPath(path string) string {
 	items := strings.Split(path, "-")
 	return items[2]
 }
 
-func (sic *ShibuyaIngressController) getPlanEnginesCount(projectID, collectionID, planID string) (int, error) {
+func (sic *SetagayaIngressController) getPlanEnginesCount(projectID, collectionID, planID string) (int, error) {
 	planName := fmt.Sprintf("engine-%s-%s-%s", projectID, collectionID, planID)
 	resp, err := sic.client.AppsV1().StatefulSets(sic.namespace).Get(context.TODO(), planName, metav1.GetOptions{})
 	if err != nil {
@@ -81,7 +81,7 @@ func (sic *ShibuyaIngressController) getPlanEnginesCount(projectID, collectionID
 	return int(*resp.Spec.Replicas), nil
 }
 
-func (sic *ShibuyaIngressController) updateInventory(inventoryByCollection map[string][]EngineEndPoint) {
+func (sic *SetagayaIngressController) updateInventory(inventoryByCollection map[string][]EngineEndPoint) {
 	log.Debugf("Going to update inventory with following states %v", inventoryByCollection)
 	for _, ep := range inventoryByCollection {
 		for _, ee := range ep {
@@ -100,7 +100,7 @@ func (sic *ShibuyaIngressController) updateInventory(inventoryByCollection map[s
 	})
 }
 
-func (sic *ShibuyaIngressController) makeInventory() {
+func (sic *SetagayaIngressController) makeInventory() {
 	labelSelector := fmt.Sprintf("project=%s", sic.projectID)
 	for {
 		time.Sleep(3 * time.Second)
@@ -111,7 +111,7 @@ func (sic *ShibuyaIngressController) makeInventory() {
 			log.Error(err)
 			continue
 		}
-		// can we have the race condition that the inventory we make could make the shibuya controller mistakenly thinks the engines are ready?
+		// can we have the race condition that the inventory we make could make the setagaya controller mistakenly thinks the engines are ready?
 		// controller is already checking whether all the engines within one collection are in running state
 		// How can ensure the atomicity?
 		inventoryByCollection := make(map[string][]EngineEndPoint)
@@ -173,7 +173,7 @@ func (sic *ShibuyaIngressController) makeInventory() {
 	}
 }
 
-func (sic *ShibuyaIngressController) findPodIPFromInventory(url string) (string, error) {
+func (sic *SetagayaIngressController) findPodIPFromInventory(url string) (string, error) {
 	item, ok := sic.engineInventory.Load(url)
 	if !ok {
 		return "", fmt.Errorf("Could not find the mapping with url %s", url)
@@ -189,7 +189,7 @@ func makeAccessLogEntry(statusCode int, path string) string {
 // 1. It rewrites ingress ip to engine ip.
 // 2. It rewrites path by removing engine id info.
 // Usage of this func is guided by code here: https://github.com/golang/go/blob/go1.20.2/src/net/http/httputil/reverseproxy.go#L42
-func (sic *ShibuyaIngressController) rewriteURL(r *httputil.ProxyRequest) {
+func (sic *SetagayaIngressController) rewriteURL(r *httputil.ProxyRequest) {
 	// When we encoutered an error, the rewrite won't happen. Controller side should see 502
 	// Which is the expected behaviour from reverse proxy POV.
 	in := r.In
@@ -255,7 +255,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	sic := &ShibuyaIngressController{client: client, namespace: cc.namespace, projectID: cc.projectID}
+	sic := &SetagayaIngressController{client: client, namespace: cc.namespace, projectID: cc.projectID}
 	go sic.makeInventory()
 	if cc.listenAddr == "" {
 		cc.listenAddr = ":8080"

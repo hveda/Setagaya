@@ -15,7 +15,7 @@ spec:
         app: storage
     spec:
       containers:
-      - image: shibuya:storage
+      - image: setagaya:storage
         name: storage
         ports:
           - containerPort: 8080

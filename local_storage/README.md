@@ -1,4 +1,4 @@
-This is a very simple http based file storage program. Only meant to be used for local testing and demo purpose of Shibuya. **Do not use in production**
+This is a very simple http based file storage program. Only meant to be used for local testing and demo purpose of Setagaya. **Do not use in production**
 
 # Usage
 

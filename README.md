@@ -1,81 +1,236 @@
-## Introduction
+# Setagaya Load Testing Platform
 
-Shibuya is a scheduler for load generator (Currently, Jmeter) that can deploy these executors in a kubernetes cluster and generate the results for you on the fly. Shibuya can scale quickly and to a higher capacity than distributed Jmeter mode. It also provides real time test results. Shibuya can be run on-prem or in public cloud.
+[![Go Version](https://img.shields.io/badge/Go-1.25.1-blue.svg)](https://golang.org)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-Compatible-brightgreen.svg)](https://kubernetes.io)
+[![JMeter](https://img.shields.io/badge/JMeter-3.3%20%7C%205.6.3-orange.svg)](https://jmeter.apache.org)
 
-Tests(Plans) are organised into collections. One collection belongs to one project. All these resources can be managed by an onwer based on LDAP information.
-Collection is the unit where the actual tests are managed. Therefore, multiple test plans can be triggered simultaneounsly. The results of these plans will be converged and demostrated at a central place.
+Setagaya is a cloud-native, distributed load testing platform that orchestrates Apache JMeter engines across Kubernetes clusters. It provides enterprise-grade scalability, real-time metrics, and centralized management for performance testing at scale.
 
+## 🚀 Key Features
 
-## Getting started
+- **Kubernetes-Native**: Deploy and scale load generators across K8s clusters
+- **Real-Time Monitoring**: Live metrics streaming with Grafana dashboards
+- **Multi-Version Support**: JMeter 3.3 (legacy) and 5.6.3 (modern) compatibility
+- **Enterprise Authentication**: LDAP integration with group-based access control
+- **Flexible Storage**: Multiple backends (Local, GCP Buckets, Nexus)
+- **Container Security**: Non-root execution, minimal attack surface
+- **High Scalability**: Horizontal scaling with configurable resource allocation
 
-### Local setup
+## 📚 Documentation
 
-*Tested primarily on Ubuntu and OSX*
+- **[Technical Specifications](TECHNICAL_SPECS.md)** - Comprehensive technical documentation
+- **[JMeter Build Options](setagaya/JMETER_BUILD_OPTIONS.md)** - JMeter version compatibility guide
+- **[Development Guidelines](.github/copilot-instructions.md)** - AI coding guidelines and patterns
 
-Pre-requisites:
-1. Kind (https://kind.sigs.k8s.io)
-2. kubectl (https://kubernetes.io/docs/tasks/tools/install-kubectl)
-3. Helm (https://helm.sh/docs/intro/install/)
-4. Docker (https://docs.docker.com/install) *On OSX please increase your docker machine's spec or you may face performance issues*
+## 🏗️ Architecture
 
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Web UI    │◄──►│ API Server  │◄──►│ Controller  │
+└─────────────┘    └─────────────┘    └─────────────┘
+                           │                   │
+                           ▼                   ▼
+                   ┌─────────────┐    ┌─────────────┐
+                   │  Scheduler  │◄──►│   Engines   │
+                   └─────────────┘    └─────────────┘
+                           │                   │
+                           ▼                   ▼
+                   ┌─────────────┐    ┌─────────────┐
+                   │ Kubernetes  │    │   JMeter    │
+                   └─────────────┘    └─────────────┘
+```
 
-Run `make` to start local cluster
+**Domain Model**: `Project → Collection → Plan → ExecutionPlan`
 
-`make expose` to expose the Shibuya and Grafana pods on port 8080 and 3000 of your localhost respectively
+- **Collections** are the execution unit containing multiple plans running simultaneously
+- **Plans** define test configurations; **ExecutionPlans** specify engines/concurrency per plan
+- **Results** converge at collection level for unified reporting via Grafana dashboards
 
-Then you can go to http://localhost:8080 to check.
+## 🚀 Quick Start
 
-`make clean` to destroy the local cluster (nothing wil be saved)
+### Prerequisites
 
-`make shibuya` to build and deploy changes to shibuya controller
+- [Kind](https://kind.sigs.k8s.io) - Kubernetes in Docker
+- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl) - Kubernetes CLI
+- [Helm](https://helm.sh/docs/intro/install/) - Package manager for Kubernetes
+- [Docker](https://docs.docker.com/install) or [Podman](https://podman.io) - Container runtime
 
-note: Local Shibuya does not have authentication. So you need to put `shibuya` as the ownership of the project. This is the same if you turn off authentication in the config file.
+### Local Development Setup
 
-## Distributed mode(WIP)
+1. **Start local cluster:**
+   ```bash
+   make              # Creates kind cluster, deploys all components
+   ```
 
-In order to improve the scalibility of Shibuya, we are going to split the single Shibuya process into three components:
+2. **Expose services:**
+   ```bash
+   make expose       # Port-forwards Setagaya (8080) and Grafana (3000)
+   ```
 
-- apiserver
-- controller.
-- Engine metric streamer(Not existing yet)
+3. **Access the platform:**
+   - **Setagaya UI**: http://localhost:8080
+   - **Grafana Dashboards**: http://localhost:3000
 
-By default, at locall, it will be run as non-distributed mode. You can enable to by set the `runtime.distributed_mode` to `true`.
+4. **Development workflow:**
+   ```bash
+   make setagaya     # Rebuilds and redeploys controller changes
+   make clean        # Destroys local cluster
+   ```
 
+### Authentication Note
+Local Setagaya runs without authentication. Use `setagaya` as the project owner when creating resources.
 
-### Production setup
+## 🐳 Container Images
 
-Please read the makefile to understand what components are needed and how to set them up in detail.
+The platform uses modern, security-hardened container images:
 
-1. Kubeconfig file:
-   - Incluster config: You can deploy engines to same cluster the controller is running in. All you need is to specify a service account in your shibuya-controller deployment that has enough permissions (read `kuberenetes/roles.yaml`). Specify `"in_cluster": true` in your config_env.json
-   - Out of cluster config: Shibuya can also deploy engines to a cluster other than the one it is running in. You need to generate the kubeconfig manually and place it in `shibuya/config/kube_configs/config` file. Specify `"in_cluster": false` in your config_env.json
-2. GCP Token (optional):
-   In case you want to automatically scale nodes in GCP you need to pass GCP token which has permissions to create, scale and delete node pools in your project. Place it at `shibuya/shibuya-gcp.json`
-3. Prometheus:
-   Create Prometheus with configs that can scrape `http://your-shibuya-controller/metrics` endpoint to fetch the results.
-4. Grafana:
-   Setup your Grafana with dashboards specified in `grafana/dashboards` folder. Point the data source to your prometheus. Specify this Grafana endpoint with correct dashboards in your config_env.json
-5. MySQL:
-   We use mariaDB v10.0.23 to store our metadata. So anything that is compatible with this spec of mariaDB can be used in place.
-6. Nexus:
-   We use Nexus to store the test plans and their data. If you want to use some other kind of storage you can implement the storage interface for your data source and use it in place of Nexus. As an alternative to Nexus, we also support GCP Bucket.
-7. LDAP:
-   We use this for Authentication purpose.
+| Component | JMeter Version | Build Method | Usage |
+|-----------|----------------|--------------|-------|
+| **Modern Engine** | 5.6.3 | Source build | `docker build -f setagaya/Dockerfile.engines.jmeter .` |
+| **Legacy Engine** | 3.3 | Pre-built binary | `./setagaya/build.sh jmeter && docker build -f setagaya/Dockerfile.engines.jmeter.legacy .` |
+| **API Server** | N/A | Source build | `docker build -f setagaya/Dockerfile .` |
+| **Controller** | N/A | Source build | `docker build -f setagaya/Dockerfile.controller .` |
+
+All images run as non-root user (`setagaya`, UID 1001) with security-first design.
+
+## 🔧 Configuration
+
+The platform uses a centralized configuration system:
+
+- **Development**: `setagaya/config_tmpl.json` (template)
+- **Production**: `config.json` with environment-specific settings
+- **Key Areas**: Executors, storage, authentication, monitoring
+
+Example configuration structure:
+```json
+{
+  "executor_config": {
+    "jmeter": {
+      "image": "setagaya:jmeter",
+      "cpu": "1000m",
+      "memory": "2Gi"
+    }
+  },
+  "storage": {
+    "type": "local|gcp|nexus"
+  },
+  "auth": {
+    "no_auth": false,
+    "ldap_config": { /* LDAP settings */ }
+  }
+}
+```
+
+## 🏢 Production Deployment
+
+### Required Components
+
+1. **Kubernetes Cluster** - Any CNCF-compliant distribution
+2. **MySQL Database** - MariaDB v10.0.23+ compatible
+3. **Prometheus** - Metrics collection and storage
+4. **Grafana** - Visualization with pre-built dashboards
+5. **Storage Backend** - Nexus, GCP Buckets, or local storage
+6. **LDAP Server** - Authentication and authorization (optional)
+
+### Deployment Options
+
+- **In-cluster**: Deploy engines to the same cluster as the controller
+- **Cross-cluster**: Deploy engines to external Kubernetes clusters
+- **Multi-cloud**: Support for different cloud providers
+
+### Security Configuration
+
+- **RBAC**: Kubernetes role-based access control (see `kubernetes/roles.yaml`)
+- **Service Accounts**: Proper isolation and permissions
+- **Network Policies**: Kubernetes-native network isolation
+- **Authentication**: LDAP integration with group-based ownership
+
+## 🔄 Distributed Mode
+
+The platform supports distributed architecture for improved scalability:
+
+- **API Server**: REST endpoints and UI serving
+- **Controller**: Test orchestration and metrics aggregation
+- **Scheduler**: Kubernetes resource management
+- **Engines**: Distributed load generation
+
+Enable distributed mode by setting `runtime.distributed_mode: true` in configuration.
+
+## 📊 Monitoring & Metrics
+
+### Real-time Metrics Pipeline
+```
+JMeter Engines → setagaya-agent → Controller → Prometheus → Grafana
+```
+
+### Pre-built Dashboards
+- **Platform Overview**: `grafana/dashboards/setagaya.json`
+- **Performance Metrics**: `grafana/dashboards/setagaya_perf.json`
+- **Engine Details**: `grafana/dashboards/setagaya_engine.json`
+
+### Live Updates
+- Server-sent events for real-time dashboard updates
+- Collection-level metrics aggregation
+- Configurable retention and alerting
+
+## 🧪 Testing Lifecycle
+
+1. **Deploy**: Create Kubernetes resources, engines come online
+2. **Trigger**: Start load generation across all engines in collection
+3. **Terminate**: Stop tests, keep engines deployed for result collection
+4. **Purge**: Remove all Kubernetes resources and clean up storage
+
+## 🛠️ Development
+
+### Code Organization
+```
+setagaya/                 # Main application
+├── api/                 # REST API server
+├── controller/          # Test orchestration
+├── scheduler/           # Kubernetes management
+├── engines/             # Load generation engines
+├── model/               # Domain models
+├── config/              # Configuration system
+└── object_storage/      # Storage abstraction
+```
+
+### Extension Points
+- **New Schedulers**: Implement `scheduler.EngineScheduler` interface
+- **Storage Backends**: Implement `object_storage.Storage` interface
+- **Engine Types**: Follow agent sidecar pattern with metrics reporting
+
+## 📈 Scalability & Performance
+
+- **Horizontal Scaling**: Multiple engine pods per test plan
+- **Resource Isolation**: Kubernetes namespace separation
+- **Load Distribution**: Configurable engine placement and affinity
+- **Efficient Metrics**: Streaming aggregation and collection
+
+## 🚧 Current Limitations
+
+- One controller manages one Kubernetes cluster (multi-cluster support planned)
+- Sequential context execution (parallel execution planned)
+- JMeter-focused (additional executors like Gatling planned)
+
+## 🗺️ Roadmap
+
+- **Multi-Executor Support**: Gatling, K6, custom executors
+- **Multi-Context Management**: Single controller, multiple clusters
+- **Enhanced Authentication**: OAuth2, SAML integration
+- **Advanced Scheduling**: Time-based triggers, dependency chains
+- **Cloud Integration**: Native cloud provider integrations
+
+## 🤝 Contributing
+
+1. Read the [Technical Specifications](TECHNICAL_SPECS.md)
+2. Follow [Development Guidelines](.github/copilot-instructions.md)
+3. Ensure documentation updates for any changes
+4. Test with both JMeter versions (3.3 and 5.6.3)
+
+## 📄 License
+
+See [LICENSE](LICENSE) file for details.
 
 ---
-## Terminology
-- Controller - The main Shibuya process which works as a scheduler of engines, shows the UI and collects the metrics from engines to create a comprehensive report
-- Engine/executor - The actual load generating pod (Jmeter + Agent)
-- Agent - a sidecar process that runs alongside Jmeter which communicates with the controller to start/stop Jmeter and read the report from it's Jmeter process and stream it back to controller.
-- Context - The k8s cluster that Shibuya controller is managing
 
-## Limitation
-
-- Currently, one controller can only manage one k8s cluster. If you need to send the traffic from multiple k8s clusters, you need to have multiple controllers.
-- Currently, Shibuya does not support executing test from multiple contexts at the same time.
-
-## Future roadmap
-
-- Adding more executor type support. For example, Gatling. Technically speaking, Shibuya can support any executor as long as the executor can provide real time metrics data in some way.
-- Manage muliple contexts in one controller.
-- Better Authentication
+**Setagaya** - Scalable, Cloud-Native Load Testing Platform

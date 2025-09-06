@@ -1,0 +1,60 @@
+# Include only necessary files for building
+!go.mod
+!go.sum
+!main.go
+!**/*.go
+!ui/
+
+# Exclude build artifacts
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Exclude development files
+.git/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Exclude documentation
+README.md
+CHANGELOG.md
+LICENSE
+*.md
+docs/
+
+# Exclude test files
+*_test.go
+coverage.out
+
+# Exclude config files
+config.json
+config_tmpl.json
+
+# Exclude installation files
+install/
+
+# Exclude Kubernetes manifests
+kubernetes/
+helm/
+*.yaml
+*.yml
+
+# Exclude logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+.tmp/
+
+# Exclude OS files
+.DS_Store
+Thumbs.db
+
+# Exclude environment files
+.env
+.env.*

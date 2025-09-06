@@ -1,0 +1,68 @@
+# Legacy JMeter Engine Dockerfile - Uses pre-built binaries with JMeter 3.3
+# This file maintains backward compatibility with the original build process
+# 
+# Usage:
+#   1. Build the binary: ./build.sh jmeter
+#   2. Build the image: docker build -f Dockerfile.engines.jmeter.legacy .
+
+# Set JMeter version to legacy 3.3
+ARG jmeter_ver=3.3
+
+# Build stage for JMeter download
+FROM alpine:3.20 AS jmeter-builder
+ARG jmeter_ver
+ENV JMETER_VERSION=$jmeter_ver
+
+# Install security updates and required packages
+RUN apk update && apk upgrade && \
+    apk add --no-cache wget unzip ca-certificates
+
+# Download and verify JMeter
+RUN wget --progress=bar:force:noscroll \
+    https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz && \
+    tar -xzf apache-jmeter-${JMETER_VERSION}.tgz && \
+    rm apache-jmeter-${JMETER_VERSION}.tgz
+
+# Runtime stage
+FROM eclipse-temurin:21-jre-alpine
+
+# Install security updates and create non-root user
+RUN apk update && apk upgrade && \
+    apk add --no-cache ca-certificates tzdata && \
+    addgroup -g 1001 setagaya && \
+    adduser -D -u 1001 -G setagaya setagaya
+
+# Set JMeter version and paths (legacy 3.3)
+ARG jmeter_ver=3.3
+ENV JMETER_VERSION=$jmeter_ver
+ENV JMETER_HOME=/opt/apache-jmeter-${JMETER_VERSION}
+ENV JMETER_BIN=${JMETER_HOME}/bin
+ENV PATH=${JMETER_BIN}:${PATH}
+
+# Create directories with proper permissions
+RUN mkdir -p /test-conf /test-result ${JMETER_HOME} && \
+    chown -R setagaya:setagaya /test-conf /test-result ${JMETER_HOME}
+
+# Copy JMeter from builder stage
+COPY --from=jmeter-builder --chown=setagaya:setagaya /apache-jmeter-${JMETER_VERSION} ${JMETER_HOME}
+
+# Copy pre-built binary (legacy approach)
+# Make sure to run ./build.sh jmeter before building this image
+COPY --chmod=755 build/setagaya-agent /usr/local/bin/setagaya-agent
+RUN chown setagaya:setagaya /usr/local/bin/setagaya-agent
+
+# Copy configuration files
+COPY --chmod=644 --chown=setagaya:setagaya setagaya/engines/jmeter/setagaya.properties /test-conf/setagaya.properties
+COPY --chmod=755 --chown=setagaya:setagaya setagaya/engines/jmeter/jmeter.sh ${JMETER_BIN}/jmeter
+
+# Switch to non-root user
+USER setagaya
+
+# Set working directory
+WORKDIR /test-result
+
+# Expose JMeter ports
+EXPOSE 1099 50000
+
+# Run the agent
+ENTRYPOINT ["/usr/local/bin/setagaya-agent"]

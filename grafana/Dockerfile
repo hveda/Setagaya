@@ -1,10 +1,32 @@
-FROM asia-northeast1-docker.pkg.dev/shibuya-214807/shibuya/grafana:5.3.2
-ENV GF_SECURITY_ADMIN_USER=shibuya
-ENV GF_SECURITY_ADMIN_PASSWORD=shibuya
+# Use latest stable Grafana with security updates
+FROM grafana/grafana:11.2.1
+
+# Security environment variables
+ENV GF_SECURITY_ADMIN_USER=setagaya
+ENV GF_SECURITY_ADMIN_PASSWORD=setagaya
 ENV GF_AUTH_ANONYMOUS_ENABLED=true
 ENV GF_AUTH_ANONYMOUS_ORG_NAME="Main Org."
 ENV GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-COPY ./provisioning /etc/grafana/provisioning
-COPY config.ini /etc/grafana/config.ini
-COPY ./dashboards /var/lib/grafana/dashboards
-COPY --chown=grafana:grafana ./plugins /var/lib/grafana/plugins
+
+# Additional security settings
+ENV GF_SECURITY_DISABLE_GRAVATAR=true
+ENV GF_SECURITY_COOKIE_SECURE=true
+ENV GF_SECURITY_COOKIE_SAMESITE=strict
+ENV GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+ENV GF_SECURITY_CONTENT_TYPE_PROTECTION=true
+ENV GF_SECURITY_X_CONTENT_TYPE_OPTIONS=nosniff
+ENV GF_SECURITY_X_XSS_PROTECTION=true
+ENV GF_LOG_MODE=console
+ENV GF_LOG_LEVEL=info
+
+# Copy configuration files with proper permissions
+COPY --chmod=644 ./provisioning /etc/grafana/provisioning
+COPY --chmod=644 config.ini /etc/grafana/config.ini
+COPY --chmod=644 ./dashboards /var/lib/grafana/dashboards
+COPY --chmod=755 ./plugins /var/lib/grafana/plugins
+
+# Use non-root grafana user
+USER grafana:grafana
+
+# Expose Grafana port
+EXPOSE 3000

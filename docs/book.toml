@@ -1,6 +1,6 @@
 [book]
-authors = ["iandyh"]
+authors = ["setagaya-dev"]
 language = "en"
 multilingual = false
 src = "src"
-title = "Shibuya Documentation"
+title = "Setagaya"

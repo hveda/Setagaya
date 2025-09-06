@@ -1,5 +1,5 @@
 registry=$(GAR_LOCATION)-docker.pkg.dev/$(GCP_PROJECT)
-repository = shibuya
+repository = setagaya
 tag=$(tag_name)
 img=$(registry)/$(repository)/metrics-dashboard:$(tag)
 upstream = rakutentech

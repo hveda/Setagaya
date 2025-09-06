@@ -22,7 +22,7 @@ permissions:
 
 env:
   GAR_LOCATION: asia-northeast1 # TODO: update region of the Artifact Registry
-  IMAGE: shibuya
+  IMAGE: setagaya
 
 jobs:
   release-please:
@@ -85,9 +85,9 @@ jobs:
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |-
-        cd shibuya
+        cd setagaya
         make helm_charts
-        sh ../helm_utils/chart_releaser.sh install/shibuya
+        sh ../helm_utils/chart_releaser.sh install/setagaya
 
     - name: build metrics dashboard chart
       env:
@@ -108,13 +108,13 @@ jobs:
       env:
         tag_name: ${{ needs.release-please.outputs.tag_name }}
       run: |-
-        cd shibuya && make api_image component=api
+        cd setagaya && make api_image component=api
 
     - name: Build controller
       env:
         tag_name: ${{ needs.release-please.outputs.tag_name }}
       run: |-
-        cd shibuya && make controller_image component=controller
+        cd setagaya && make controller_image component=controller
 
     - name: build jmeter agent
       env:
@@ -122,7 +122,7 @@ jobs:
       # we specify the jmeter version we are using in the component name
       # So we can cleary know which jmeter version we are using
       run: |-
-        cd shibuya && make jmeter_agent_image component=jmeter-3.3
+        cd setagaya && make jmeter_agent_image component=jmeter-3.3
 
 
 
