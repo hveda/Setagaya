@@ -7,8 +7,8 @@ require (
 	github.com/beevik/etree v1.1.0
 	github.com/go-sql-driver/mysql v1.4.1
 	github.com/gorilla/context v1.1.1
-	github.com/gorilla/securecookie v1.1.1
-	github.com/gorilla/sessions v1.2.0
+	github.com/gorilla/securecookie v1.1.2
+	github.com/gorilla/sessions v1.4.0
 	github.com/guregu/null v4.0.0+incompatible
 	github.com/hpcloud/tail v1.0.0
 	github.com/iandyh/eventsource v0.0.0-20180323060413-3ff7f3849c03
@@ -37,7 +37,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/google/gofuzz v1.1.0 // indirect
+	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
 	github.com/googleapis/gnostic v0.4.1 // indirect
 	github.com/imdario/mergo v0.3.7 // indirect
