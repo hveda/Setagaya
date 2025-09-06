@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/hveda/Setagaya/setagaya/model"
 )
 
@@ -136,9 +137,9 @@ func TestEngineDataConfigDeepCopies(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name         string
-		size         int
-		expectedLen  int
+		name        string
+		size        int
+		expectedLen int
 	}{
 		{
 			name:        "zero copies",
@@ -165,7 +166,7 @@ func TestEngineDataConfigDeepCopies(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			copies := original.DeepCopies(tc.size)
-			
+
 			assert.Len(t, copies, tc.expectedLen)
 
 			// Test each copy
@@ -182,14 +183,14 @@ func TestEngineDataConfigDeepCopies(t *testing.T) {
 
 				// Test that each copy is independent
 				assert.NotSame(t, original.EngineData, copy.EngineData)
-				
+
 				// Test that files in the copy are deep copied
 				copiedFile1 := copy.EngineData["file1.csv"]
 				copiedFile2 := copy.EngineData["file2.csv"]
-				
+
 				assert.NotSame(t, originalFile1, copiedFile1)
 				assert.NotSame(t, originalFile2, copiedFile2)
-				
+
 				assert.Equal(t, originalFile1.Filename, copiedFile1.Filename)
 				assert.Equal(t, originalFile2.Filename, copiedFile2.Filename)
 

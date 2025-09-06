@@ -1,4 +1,5 @@
-/* Gorilla Sessions backend for MySQL.
+/*
+	Gorilla Sessions backend for MySQL.
 
 Copyright (c) 2013 Contributors. See the list of contributors in the CONTRIBUTORS file for details.
 
@@ -19,8 +20,9 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
-	"github.com/hveda/Setagaya/setagaya/config"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 type MySQLStore struct {

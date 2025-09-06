@@ -7,10 +7,11 @@ import (
 	"github.com/gorilla/context"
 	"github.com/julienschmidt/httprouter"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/hveda/Setagaya/setagaya/api"
-	"github.com/hveda/Setagaya/setagaya/ui"
 	log "github.com/sirupsen/logrus"
 	_ "go.uber.org/automaxprocs"
+
+	"github.com/hveda/Setagaya/setagaya/api"
+	"github.com/hveda/Setagaya/setagaya/ui"
 )
 
 func main() {

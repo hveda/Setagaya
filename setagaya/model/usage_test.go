@@ -1,60 +1,60 @@
 package model
 
 import (
+	"math"
 	"testing"
 	"time"
-	"math"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCalBillingHours(t *testing.T) {
 	testCases := []struct {
-		name        string
-		startTime   time.Time
-		endTime     time.Time
+		name          string
+		startTime     time.Time
+		endTime       time.Time
 		expectedHours float64
 	}{
 		{
-			name:        "exactly one hour",
-			startTime:   time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			endTime:     time.Date(2023, 1, 1, 11, 0, 0, 0, time.UTC),
+			name:          "exactly one hour",
+			startTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2023, 1, 1, 11, 0, 0, 0, time.UTC),
 			expectedHours: 1,
 		},
 		{
-			name:        "less than one hour - should round up",
-			startTime:   time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			endTime:     time.Date(2023, 1, 1, 10, 30, 0, 0, time.UTC),
+			name:          "less than one hour - should round up",
+			startTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2023, 1, 1, 10, 30, 0, 0, time.UTC),
 			expectedHours: 1,
 		},
 		{
-			name:        "slightly over one hour - should round up",
-			startTime:   time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			endTime:     time.Date(2023, 1, 1, 11, 0, 1, 0, time.UTC),
+			name:          "slightly over one hour - should round up",
+			startTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2023, 1, 1, 11, 0, 1, 0, time.UTC),
 			expectedHours: 2,
 		},
 		{
-			name:        "two and half hours - should round up",
-			startTime:   time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			endTime:     time.Date(2023, 1, 1, 12, 30, 0, 0, time.UTC),
+			name:          "two and half hours - should round up",
+			startTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2023, 1, 1, 12, 30, 0, 0, time.UTC),
 			expectedHours: 3,
 		},
 		{
-			name:        "exactly zero duration",
-			startTime:   time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			endTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			name:          "exactly zero duration",
+			startTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
 			expectedHours: 0,
 		},
 		{
-			name:        "very small duration - should round up to 1",
-			startTime:   time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			endTime:     time.Date(2023, 1, 1, 10, 0, 1, 0, time.UTC),
+			name:          "very small duration - should round up to 1",
+			startTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2023, 1, 1, 10, 0, 1, 0, time.UTC),
 			expectedHours: 1,
 		},
 		{
-			name:        "multiple days",
-			startTime:   time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			endTime:     time.Date(2023, 1, 3, 10, 0, 0, 0, time.UTC),
+			name:          "multiple days",
+			startTime:     time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2023, 1, 3, 10, 0, 0, 0, time.UTC),
 			expectedHours: 48,
 		},
 	}
@@ -129,43 +129,43 @@ func TestFindOwner(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name         string
-		owner        string
-		project      Project
+		name          string
+		owner         string
+		project       Project
 		expectedOwner string
 	}{
 		{
-			name:         "numeric owner - return SID",
-			owner:        "12345",
-			project:      testProject,
+			name:          "numeric owner - return SID",
+			owner:         "12345",
+			project:       testProject,
 			expectedOwner: "project-sid",
 		},
 		{
-			name:         "non-numeric owner - return owner",
-			owner:        "user@example.com",
-			project:      testProject,
+			name:          "non-numeric owner - return owner",
+			owner:         "user@example.com",
+			project:       testProject,
 			expectedOwner: "user@example.com",
 		},
 		{
-			name:         "alphabetic owner - return owner",
-			owner:        "username",
-			project:      testProject,
+			name:          "alphabetic owner - return owner",
+			owner:         "username",
+			project:       testProject,
 			expectedOwner: "username",
 		},
 		{
-			name:         "mixed alphanumeric owner - return owner",
-			owner:        "user123",
-			project:      testProject,
+			name:          "mixed alphanumeric owner - return owner",
+			owner:         "user123",
+			project:       testProject,
 			expectedOwner: "user123",
 		},
 		{
-			name:         "empty owner with SID",
-			owner:        "",
-			project:      testProject,
+			name:          "empty owner with SID",
+			owner:         "",
+			project:       testProject,
 			expectedOwner: "",
 		},
 		{
-			name: "numeric owner with empty SID",
+			name:  "numeric owner with empty SID",
 			owner: "12345",
 			project: Project{
 				ID:    1,
@@ -287,7 +287,7 @@ func TestUsageEdgeCases(t *testing.T) {
 		// End time before start time
 		startTime := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
 		endTime := time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC)
-		
+
 		result := calBillingHours(startTime, endTime)
 		// Should handle negative duration (ceil of negative number)
 		expected := math.Ceil(-2.0) // -2 hours

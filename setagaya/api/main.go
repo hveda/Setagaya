@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/julienschmidt/httprouter"
+	log "github.com/sirupsen/logrus"
+	yaml "gopkg.in/yaml.v2"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/controller"
 	"github.com/hveda/Setagaya/setagaya/model"
@@ -19,8 +22,6 @@ import (
 	"github.com/hveda/Setagaya/setagaya/scheduler"
 	smodel "github.com/hveda/Setagaya/setagaya/scheduler/model"
 	utils "github.com/hveda/Setagaya/setagaya/utils"
-	log "github.com/sirupsen/logrus"
-	yaml "gopkg.in/yaml.v2"
 )
 
 type SetagayaAPI struct {

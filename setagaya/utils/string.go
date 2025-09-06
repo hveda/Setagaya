@@ -2,7 +2,6 @@ package utils
 
 import (
 	"math/rand"
-	"time"
 )
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -16,5 +15,6 @@ func RandStringRunes(n int) string {
 }
 
 func init() {
-	rand.Seed(time.Now().UnixNano())
+	// Note: rand.Seed() is deprecated since Go 1.20
+	// The global random generator is automatically seeded since Go 1.20
 }

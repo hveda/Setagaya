@@ -126,12 +126,12 @@ David,40,Houston
 Eve,45,Phoenix`
 
 	testCases := []struct {
-		name           string
-		csvData        string
-		totalSplits    int
-		currentSplit   int
-		expectedLines  int
-		shouldError    bool
+		name          string
+		csvData       string
+		totalSplits   int
+		currentSplit  int
+		expectedLines int
+		shouldError   bool
 	}{
 		{
 			name:          "split into 2 parts - first part",
@@ -206,14 +206,14 @@ Eve,45,Phoenix`
 				assert.Nil(t, result)
 			} else {
 				assert.NoError(t, err)
-				
+
 				// For empty CSV, result might be non-nil but empty
 				if tc.csvData == "" {
 					// Empty CSV may return empty byte slice, not nil
 					assert.Equal(t, 0, tc.expectedLines)
 				} else {
 					assert.NotNil(t, result)
-					
+
 					// Count lines in the result
 					if len(result) > 0 {
 						lines := strings.Split(strings.TrimSpace(string(result)), "\n")
@@ -243,7 +243,7 @@ Bob,30
 Charlie,35
 David,40`
 
-	// With 5 total rows, split into 2 parts: 
+	// With 5 total rows, split into 2 parts:
 	// First part gets rows 0-1 (name,age and Alice,25)
 	// Second part gets rows 2-3 (Bob,30 and Charlie,35)
 	// Note: David,40 is at index 4, which would be in a third chunk if it existed
@@ -251,7 +251,7 @@ David,40`
 	// Split into 2 parts
 	firstPart, err := SplitCSV([]byte(csvContent), 2, 0)
 	assert.NoError(t, err)
-	
+
 	secondPart, err := SplitCSV([]byte(csvContent), 2, 1)
 	assert.NoError(t, err)
 
@@ -305,7 +305,7 @@ func TestSplitCSVEdgeCases(t *testing.T) {
 	t.Run("zero splits", func(t *testing.T) {
 		csvContent := "name,age\nAlice,25"
 		result, err := SplitCSV([]byte(csvContent), 0, 0)
-		
+
 		// This should either error or handle gracefully
 		// The current implementation might divide by zero
 		// Let's check if it errors appropriately
@@ -321,15 +321,15 @@ func TestSplitCSVEdgeCases(t *testing.T) {
 		for i := 0; i < 10000; i++ {
 			csvBuilder.WriteString(fmt.Sprintf("%d,value%d\n", i, i))
 		}
-		
+
 		largeCSV := csvBuilder.String()
 		result, err := SplitCSV([]byte(largeCSV), 4, 0)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
-		
+
 		// Should contain roughly 1/4 of the data
 		resultLines := strings.Count(string(result), "\n")
-		expectedLines := 10001 / 4 // Total lines / splits
+		expectedLines := 10001 / 4                        // Total lines / splits
 		assert.InDelta(t, expectedLines, resultLines, 50) // Allow some variance
 	})
 }

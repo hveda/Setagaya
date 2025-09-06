@@ -341,7 +341,7 @@ func TestMakeIngressLabel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := makeIngressLabel(tc.projectID, tc.collectionID)
 			baseResult := makeBaseLabel(tc.projectID, tc.collectionID)
-			
+
 			// makeIngressLabel should return the same as makeBaseLabel
 			assert.Equal(t, baseResult, result)
 		})
@@ -483,20 +483,20 @@ func TestLabelConsistency(t *testing.T) {
 	projectID := int64(123)
 	collectionID := int64(456)
 	planID := int64(789)
-	
+
 	baseLabel := makeBaseLabel(projectID, collectionID)
 	engineLabel := makeEngineLabel(projectID, collectionID, planID, "test-engine")
 	planLabel := makePlanLabel(projectID, collectionID, planID)
-	
+
 	// All labels should have consistent base fields
 	assert.Equal(t, baseLabel["collection"], engineLabel["collection"])
 	assert.Equal(t, baseLabel["project"], engineLabel["project"])
 	assert.Equal(t, baseLabel["collection"], planLabel["collection"])
 	assert.Equal(t, baseLabel["project"], planLabel["project"])
-	
+
 	// Engine and plan labels should have consistent plan field
 	assert.Equal(t, engineLabel["plan"], planLabel["plan"])
-	
+
 	// Engine and plan labels should both be "executor" kind
 	assert.Equal(t, "executor", engineLabel["kind"])
 	assert.Equal(t, "executor", planLabel["kind"])

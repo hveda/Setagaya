@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/hveda/Setagaya/setagaya/controller"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/hveda/Setagaya/setagaya/controller"
 )
 
 // This func keep tracks of all the running engines. They should just rely on the data in the db

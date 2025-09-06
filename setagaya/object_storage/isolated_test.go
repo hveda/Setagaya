@@ -2,7 +2,7 @@ package object_storage
 
 import (
 	"io"
-	"strings" 
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,9 +25,9 @@ func TestFileNotFoundError_Isolated(t *testing.T) {
 func TestFileNotFoundStruct_Isolated(t *testing.T) {
 	// Test FileNotFound struct directly
 	fnf := FileNotFound{err: "custom error message"}
-	
+
 	assert.Equal(t, "custom error message", fnf.Error())
-	
+
 	// Test empty error message
 	emptyFnf := FileNotFound{err: ""}
 	assert.Equal(t, "", emptyFnf.Error())
@@ -36,23 +36,23 @@ func TestFileNotFoundStruct_Isolated(t *testing.T) {
 func TestStorageInterfaceContract(t *testing.T) {
 	// Test that our interface is well-defined
 	// This is a compile-time test - if the interface changes, this will fail to compile
-	
+
 	var storage StorageInterface
-	
+
 	// These should compile but will panic at runtime since storage is nil
 	// We're just testing the interface contract
 	assert.Panics(t, func() {
 		storage.Upload("test", nil)
 	})
-	
+
 	assert.Panics(t, func() {
 		storage.Delete("test")
 	})
-	
+
 	assert.Panics(t, func() {
 		storage.Download("test")
 	})
-	
+
 	assert.Panics(t, func() {
 		storage.GetUrl("test")
 	})
@@ -60,10 +60,10 @@ func TestStorageInterfaceContract(t *testing.T) {
 
 // MockStorage for isolated testing
 type TestMockStorage struct {
-	files       map[string][]byte
-	baseURL     string
-	uploadError error
-	deleteError error
+	files         map[string][]byte
+	baseURL       string
+	uploadError   error
+	deleteError   error
 	downloadError error
 }
 
@@ -78,13 +78,13 @@ func (m *TestMockStorage) Upload(filename string, content io.ReadCloser) error {
 	if m.uploadError != nil {
 		return m.uploadError
 	}
-	
+
 	data, err := io.ReadAll(content)
 	if err != nil {
 		return err
 	}
 	content.Close()
-	
+
 	m.files[filename] = data
 	return nil
 }
@@ -93,11 +93,11 @@ func (m *TestMockStorage) Delete(filename string) error {
 	if m.deleteError != nil {
 		return m.deleteError
 	}
-	
+
 	if _, exists := m.files[filename]; !exists {
 		return FileNotFoundError()
 	}
-	
+
 	delete(m.files, filename)
 	return nil
 }
@@ -110,12 +110,12 @@ func (m *TestMockStorage) Download(filename string) ([]byte, error) {
 	if m.downloadError != nil {
 		return nil, m.downloadError
 	}
-	
+
 	data, exists := m.files[filename]
 	if !exists {
 		return nil, FileNotFoundError()
 	}
-	
+
 	return data, nil
 }
 
@@ -215,7 +215,7 @@ func TestStorageProviderConstants_Isolated(t *testing.T) {
 	assert.Equal(t, "nexus", nexusStorageProvider)
 	assert.Equal(t, "gcp", gcpStorageProvider)
 	assert.Equal(t, "local", localStorageProvider)
-	
+
 	// Test the slice
 	expected := []string{"nexus", "gcp", "local"}
 	assert.Equal(t, expected, allStorageProvidder)

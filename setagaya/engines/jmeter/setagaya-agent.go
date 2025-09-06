@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -199,7 +198,7 @@ func (sw *SetagayaWrapper) listen() {
 			// We got a new event from the outside!
 			// Send event to all connected clients
 			sw.makePromMetrics(event)
-			for clientMessageChan, _ := range sw.clients {
+			for clientMessageChan := range sw.clients {
 				clientMessageChan <- event
 			}
 		}
@@ -342,7 +341,7 @@ func cleanTestData() error {
 func saveToDisk(filename string, file []byte) error {
 	filePath := filepath.Join(TEST_DATA_FOLDER, filepath.Base(filename))
 	log.Println(filePath)
-	if err := ioutil.WriteFile(filePath, file, 0777); err != nil {
+	if err := os.WriteFile(filePath, file, 0777); err != nil {
 		return err
 	}
 	return nil
@@ -471,7 +470,7 @@ func (sw *SetagayaWrapper) startHandler(w http.ResponseWriter, r *http.Request) 
 			w.WriteHeader(http.StatusConflict)
 			return
 		}
-		file, err := ioutil.ReadAll(r.Body)
+		file, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusBadRequest)

@@ -71,7 +71,7 @@ func TestRandStringRunesRandomness(t *testing.T) {
 		results[result] = true
 	}
 
-	// With 20 character strings from 52 possible characters, 
+	// With 20 character strings from 52 possible characters,
 	// we should get many unique results
 	uniqueResults := len(results)
 	assert.Greater(t, uniqueResults, attempts/2, "Should generate mostly unique strings")
@@ -132,10 +132,10 @@ func TestLetterRunesConstant(t *testing.T) {
 	// Test that the letterRunes constant contains expected characters
 	expectedChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	actualChars := string(letterRunes)
-	
+
 	assert.Equal(t, expectedChars, actualChars)
 	assert.Equal(t, 52, len(letterRunes))
-	
+
 	// Verify no duplicates
 	charSet := make(map[rune]bool)
 	for _, char := range letterRunes {
@@ -151,7 +151,7 @@ func isValidCharacter(char byte) bool {
 
 func BenchmarkRandStringRunes(b *testing.B) {
 	lengths := []int{1, 10, 100, 1000}
-	
+
 	for _, length := range lengths {
 		b.Run(fmt.Sprintf("length_%d", length), func(b *testing.B) {
 			b.ResetTimer()

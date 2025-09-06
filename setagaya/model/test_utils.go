@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hveda/Setagaya/setagaya/config"
 	_ "github.com/go-sql-driver/mysql"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 func setupTestConfig() error {
@@ -146,8 +147,8 @@ func CreateTestConfigFile(t *testing.T) (string, func()) {
 	configPath := filepath.Join(tempDir, "config.json")
 
 	testConfig := map[string]interface{}{
-		"bg_color":      "#fff",
-		"project_home":  "test-project-home",
+		"bg_color":         "#fff",
+		"project_home":     "test-project-home",
 		"upload_file_help": "test-upload-help",
 		"auth_config": map[string]interface{}{
 			"admin_users":     []string{},
@@ -181,20 +182,20 @@ func CreateTestConfigFile(t *testing.T) (string, func()) {
 				"cpu":   "0.1",
 				"mem":   "512Mi",
 			},
-			"pull_secret":                 "",
-			"pull_policy":                 "IfNotPresent",
-			"max_engines_in_collection":   10,
+			"pull_secret":               "",
+			"pull_policy":               "IfNotPresent",
+			"max_engines_in_collection": 10,
 		},
 		"ingress": map[string]interface{}{
-			"image":      "setagaya:ingress-controller-test",
-			"cpu":        "0.1",
-			"lifespan":   "30m",
-			"gc_period":  "30s",
+			"image":     "setagaya:ingress-controller-test",
+			"cpu":       "0.1",
+			"lifespan":  "30m",
+			"gc_period": "30s",
 		},
 		"dashboard": map[string]interface{}{
-			"url":               "http://localhost:3000",
-			"run_dashboard":     "/d/test/setagaya",
-			"engine_dashboard":  "/d/test/setagaya-engine-health",
+			"url":              "http://localhost:3000",
+			"run_dashboard":    "/d/test/setagaya",
+			"engine_dashboard": "/d/test/setagaya-engine-health",
 		},
 		"object_storage": map[string]interface{}{
 			"provider": "local",

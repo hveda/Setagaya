@@ -4,8 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hveda/Setagaya/setagaya/config"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 type jmeterEngine struct {

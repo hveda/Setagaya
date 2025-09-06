@@ -38,7 +38,7 @@ func TestGetStorageOfType(t *testing.T) {
 			expectedType: "nexusStorage",
 		},
 		{
-			name:         "gcp provider", 
+			name:         "gcp provider",
 			provider:     "gcp",
 			expectError:  false,
 			expectedType: "gcpStorage",
@@ -72,7 +72,7 @@ func TestGetStorageOfType(t *testing.T) {
 			if tc.provider == "gcp" && os.Getenv("SETAGAYA_TEST_MODE") == "true" {
 				t.Skip("Skipping GCP test in test mode (no credentials available)")
 			}
-			
+
 			storage, err := getStorageOfType(tc.provider)
 
 			if tc.expectError {
@@ -85,10 +85,10 @@ func TestGetStorageOfType(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, storage)
-				
+
 				// Verify the storage implements the interface
 				assert.Implements(t, (*StorageInterface)(nil), storage)
-				
+
 				// Check that we got the expected type without relying on exact type assertions
 				// since some types return pointers and others return values
 				switch tc.provider {
@@ -110,7 +110,7 @@ func TestGetStorageOfType(t *testing.T) {
 func TestGetStorageOfTypeErrorMessage(t *testing.T) {
 	// Test that error message includes all valid providers
 	_, err := getStorageOfType("invalid")
-	
+
 	assert.Error(t, err)
 	errMsg := err.Error()
 	assert.Contains(t, errMsg, "Unknown storage type invalid")
@@ -124,14 +124,14 @@ func TestStorageTypeInstances(t *testing.T) {
 	if os.Getenv("SETAGAYA_TEST_MODE") == "true" {
 		t.Skip("Skipping GCP test in test mode (no credentials available)")
 	}
-	
+
 	// Test that we get different instances for different types
 	nexus, err := getStorageOfType("nexus")
 	assert.NoError(t, err)
-	
+
 	gcp, err := getStorageOfType("gcp")
 	assert.NoError(t, err)
-	
+
 	local, err := getStorageOfType("local")
 	assert.NoError(t, err)
 
@@ -159,7 +159,7 @@ func TestPlatformConfig(t *testing.T) {
 	assert.Implements(t, (*StorageInterface)(nil), config.Storage)
 }
 
-// Note: We can't easily test factoryConfig() and IsProviderGCP() without 
+// Note: We can't easily test factoryConfig() and IsProviderGCP() without
 // mocking the global config, as they depend on config.SC which is initialized
 // at package load time. In a real-world scenario, we'd want to refactor these
 // to be more testable by accepting config as a parameter.
@@ -178,7 +178,7 @@ func TestFactoryConfigIntegration(t *testing.T) {
 func TestProviderCheckLogic(t *testing.T) {
 	// Test the logic that would be used in IsProviderGCP()
 	// This tests the concept without relying on global config
-	
+
 	testCases := []struct {
 		provider string
 		isGCP    bool
@@ -204,25 +204,25 @@ func TestStorageInterfaceCompliance(t *testing.T) {
 	if os.Getenv("SETAGAYA_TEST_MODE") == "true" {
 		t.Skip("Skipping interface compliance test in test mode (requires network/credentials)")
 	}
-	
+
 	// Test that all storage types implement the interface properly
 	providers := []string{"nexus", "gcp", "local"}
-	
+
 	for _, provider := range providers {
 		t.Run(provider+" interface compliance", func(t *testing.T) {
 			storage, err := getStorageOfType(provider)
 			assert.NoError(t, err)
-			
+
 			// Verify all interface methods exist and can be called
 			// (though they might fail due to missing config/network)
 			assert.NotPanics(t, func() {
 				storage.GetUrl("test.txt")
 			})
-			
+
 			// These might fail, but they shouldn't panic
 			// We're mainly testing that the methods exist
 			storage.Upload("test.txt", nil) // Will likely fail but shouldn't panic
-			storage.Download("test.txt")    // Will likely fail but shouldn't panic  
+			storage.Download("test.txt")    // Will likely fail but shouldn't panic
 			storage.Delete("test.txt")      // Will likely fail but shouldn't panic
 		})
 	}
@@ -233,15 +233,15 @@ func TestStorageErrorHandling(t *testing.T) {
 	if os.Getenv("SETAGAYA_TEST_MODE") == "true" {
 		t.Skip("Skipping error handling test in test mode (requires network/credentials)")
 	}
-	
+
 	// Test consistent error handling across storage types
 	providers := []string{"nexus", "gcp", "local"}
-	
+
 	for _, provider := range providers {
 		t.Run(provider+" error handling", func(t *testing.T) {
 			storage, err := getStorageOfType(provider)
 			assert.NoError(t, err)
-			
+
 			// Test that operations on non-existent files return errors
 			// rather than panicking
 			assert.NotPanics(t, func() {
@@ -249,7 +249,7 @@ func TestStorageErrorHandling(t *testing.T) {
 				// Error is expected, but we shouldn't panic
 				_ = err
 			})
-			
+
 			assert.NotPanics(t, func() {
 				err := storage.Delete("nonexistent.txt")
 				// Error is expected, but we shouldn't panic

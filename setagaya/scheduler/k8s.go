@@ -4,18 +4,19 @@ import (
 	"context"
 	e "errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	model "github.com/hveda/Setagaya/setagaya/model"
 	"github.com/hveda/Setagaya/setagaya/object_storage"
 	smodel "github.com/hveda/Setagaya/setagaya/scheduler/model"
-	log "github.com/sirupsen/logrus"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
@@ -158,8 +159,8 @@ func prepareTolerations() []apiv1.Toleration {
 
 func (kcm *K8sClientManager) makeHostAliases() []apiv1.HostAlias {
 	if kcm.ExecutorConfig != nil && kcm.ExecutorConfig.HostAliases != nil {
-			hostAliases := []apiv1.HostAlias{}
-			for _, ha := range kcm.ExecutorConfig.HostAliases {
+		hostAliases := []apiv1.HostAlias{}
+		for _, ha := range kcm.ExecutorConfig.HostAliases {
 			hostAliases = append(hostAliases, apiv1.HostAlias{
 				Hostnames: []string{ha.Hostname},
 				IP:        ha.IP,
@@ -661,7 +662,7 @@ func (kcm *K8sClientManager) FetchLogFromPod(pod apiv1.Pod) (string, error) {
 		return "", err
 	}
 	defer readCloser.Close()
-	c, err := ioutil.ReadAll(readCloser)
+	c, err := io.ReadAll(readCloser)
 	if err != nil {
 		return "", err
 	}

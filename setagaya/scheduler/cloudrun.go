@@ -3,16 +3,17 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	apiv1 "k8s.io/api/core/v1"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	model "github.com/hveda/Setagaya/setagaya/model"
 	smodel "github.com/hveda/Setagaya/setagaya/scheduler/model"
-	log "github.com/sirupsen/logrus"
-	apiv1 "k8s.io/api/core/v1"
 
 	"google.golang.org/api/option"
 	runv1 "google.golang.org/api/run/v1"
@@ -388,6 +389,6 @@ func (cr *CloudRun) DownloadPodLog(collectionID, planID int64) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
-	r, _ := ioutil.ReadAll(resp.Body)
+	r, _ := io.ReadAll(resp.Body)
 	return string(r), nil
 }

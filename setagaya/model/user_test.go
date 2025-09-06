@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 )
 
@@ -44,11 +45,11 @@ func TestAccount_IsAdmin(t *testing.T) {
 	defer cleanup()
 
 	testCases := []struct {
-		name           string
-		account        *Account
-		adminUsers     []string
-		systemUser     string
-		expectedAdmin  bool
+		name          string
+		account       *Account
+		adminUsers    []string
+		systemUser    string
+		expectedAdmin bool
 	}{
 		{
 			name: "admin user in ML",
@@ -156,7 +157,7 @@ func TestAccount_MLMap(t *testing.T) {
 
 	assert.NotNil(t, account.MLMap)
 	assert.Contains(t, account.MLMap, "setagaya")
-	
+
 	// Test that the map contains the expected value type
 	for key, value := range account.MLMap {
 		assert.Equal(t, "setagaya", key)
@@ -189,7 +190,7 @@ func TestGetAccountBySession_EdgeCases(t *testing.T) {
 
 	t.Run("nil request", func(t *testing.T) {
 		config.SC.AuthConfig.NoAuth = true
-		
+
 		// This should not panic
 		account := GetAccountBySession(nil)
 		assert.NotNil(t, account)
@@ -202,7 +203,7 @@ func TestGetAccountBySession_EdgeCases(t *testing.T) {
 
 		req := httptest.NewRequest("GET", "/test", nil)
 		account := GetAccountBySession(req)
-		
+
 		// Should handle empty session key gracefully
 		assert.Nil(t, account)
 	})

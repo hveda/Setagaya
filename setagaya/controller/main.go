@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/model"
 	"github.com/hveda/Setagaya/setagaya/scheduler"
 	smodel "github.com/hveda/Setagaya/setagaya/scheduler/model"
 	"github.com/hveda/Setagaya/setagaya/utils"
-	log "github.com/sirupsen/logrus"
 )
 
 type Controller struct {

@@ -6,11 +6,12 @@ import (
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/api"
 	"github.com/hveda/Setagaya/setagaya/auth"
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/model"
-	log "github.com/sirupsen/logrus"
 )
 
 type UI struct {

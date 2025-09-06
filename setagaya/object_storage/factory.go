@@ -3,8 +3,9 @@ package object_storage
 import (
 	"fmt"
 
-	"github.com/hveda/Setagaya/setagaya/config"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 const (

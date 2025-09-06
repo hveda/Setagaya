@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/julienschmidt/httprouter"
-	"github.com/hveda/Setagaya/setagaya/model"
 	yaml "gopkg.in/yaml.v2"
+
+	"github.com/hveda/Setagaya/setagaya/model"
 )
 
 func getCollection(collectionID string) (*model.Collection, error) {

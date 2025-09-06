@@ -23,9 +23,9 @@ func TestFileNotFoundError(t *testing.T) {
 func TestFileNotFoundStruct(t *testing.T) {
 	// Test FileNotFound struct directly
 	fnf := FileNotFound{err: "custom error message"}
-	
+
 	assert.Equal(t, "custom error message", fnf.Error())
-	
+
 	// Test empty error message
 	emptyFnf := FileNotFound{err: ""}
 	assert.Equal(t, "", emptyFnf.Error())
@@ -34,7 +34,7 @@ func TestFileNotFoundStruct(t *testing.T) {
 func TestFileNotFoundErrorType(t *testing.T) {
 	// Test that FileNotFoundError returns correct type
 	err := FileNotFoundError()
-	
+
 	// Check if we can type assert to FileNotFound
 	fnf, ok := err.(FileNotFound)
 	assert.True(t, ok)
@@ -43,10 +43,10 @@ func TestFileNotFoundErrorType(t *testing.T) {
 
 // MockStorage implements StorageInterface for testing
 type MockStorage struct {
-	files       map[string][]byte
-	baseURL     string
-	uploadError error
-	deleteError error
+	files         map[string][]byte
+	baseURL       string
+	uploadError   error
+	deleteError   error
 	downloadError error
 }
 
@@ -61,13 +61,13 @@ func (m *MockStorage) Upload(filename string, content io.ReadCloser) error {
 	if m.uploadError != nil {
 		return m.uploadError
 	}
-	
+
 	data, err := io.ReadAll(content)
 	if err != nil {
 		return err
 	}
 	content.Close()
-	
+
 	m.files[filename] = data
 	return nil
 }
@@ -76,11 +76,11 @@ func (m *MockStorage) Delete(filename string) error {
 	if m.deleteError != nil {
 		return m.deleteError
 	}
-	
+
 	if _, exists := m.files[filename]; !exists {
 		return FileNotFoundError()
 	}
-	
+
 	delete(m.files, filename)
 	return nil
 }
@@ -93,12 +93,12 @@ func (m *MockStorage) Download(filename string) ([]byte, error) {
 	if m.downloadError != nil {
 		return nil, m.downloadError
 	}
-	
+
 	data, exists := m.files[filename]
 	if !exists {
 		return nil, FileNotFoundError()
 	}
-	
+
 	return data, nil
 }
 
@@ -129,7 +129,7 @@ func TestMockStorageUpload(t *testing.T) {
 	// Test successful upload
 	content := io.NopCloser(strings.NewReader(testData))
 	err := storage.Upload(filename, content)
-	
+
 	assert.NoError(t, err)
 	assert.Equal(t, []byte(testData), storage.files[filename])
 }
@@ -212,7 +212,7 @@ func TestMockStorageErrorConditions(t *testing.T) {
 func TestStorageInterfaceUsage(t *testing.T) {
 	// Test that we can use MockStorage through the interface
 	var storage StorageInterface = NewMockStorage("http://test.com")
-	
+
 	testData := "interface test content"
 	filename := "interface_test.txt"
 

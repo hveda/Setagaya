@@ -49,10 +49,10 @@ func TestMakeSchedulerIngressError(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := makeSchedulerIngressError(tc.inputError)
-			
+
 			assert.Error(t, result)
 			assert.Equal(t, tc.expectedMsg, result.Error())
-			
+
 			if tc.shouldWrapErr {
 				// Test that the original error is wrapped
 				assert.True(t, errors.Is(result, IngressError))
@@ -63,10 +63,10 @@ func TestMakeSchedulerIngressError(t *testing.T) {
 
 func TestMakeIPNotAssignedError(t *testing.T) {
 	result := makeIPNotAssignedError()
-	
+
 	assert.Error(t, result)
 	assert.Equal(t, "Error with Ingress-IP is not assigned yet", result.Error())
-	
+
 	// Test that it wraps IngressError
 	assert.True(t, errors.Is(result, IngressError))
 }
@@ -215,7 +215,7 @@ func TestIngressErrorConstants(t *testing.T) {
 func TestErrorMessages(t *testing.T) {
 	// Test specific error message formats
 	testErr := errors.New("test failure")
-	
+
 	t.Run("scheduler ingress error format", func(t *testing.T) {
 		err := makeSchedulerIngressError(testErr)
 		expected := "Error with Ingress-test failure"

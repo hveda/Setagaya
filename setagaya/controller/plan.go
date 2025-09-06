@@ -6,12 +6,13 @@ import (
 	"strconv"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	enginesModel "github.com/hveda/Setagaya/setagaya/engines/model"
 	"github.com/hveda/Setagaya/setagaya/model"
 	"github.com/hveda/Setagaya/setagaya/scheduler"
 	_ "github.com/hveda/Setagaya/setagaya/utils"
-	log "github.com/sirupsen/logrus"
 )
 
 type PlanController struct {

@@ -3,7 +3,7 @@ package config
 import (
 	"database/sql"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -200,7 +200,7 @@ func setupLogging() {
 func loadConfig() *SetagayaConfig {
 	sc := new(SetagayaConfig)
 	sc.IngressConfig = &defaultIngressConfig
-	
+
 	// Check if we're in test mode and allow fallback
 	if os.Getenv("SETAGAYA_TEST_MODE") == "true" {
 		// Return a minimal config for testing
@@ -221,12 +221,12 @@ func loadConfig() *SetagayaConfig {
 		sc.ObjectStorage = &ObjectStorage{Provider: "local"}
 		return sc
 	}
-	
+
 	f, err := os.Open(ConfigFilePath)
 	if err != nil {
 		log.Fatal("Cannot find config file")
 	}
-	raw, err := ioutil.ReadAll(f)
+	raw, err := io.ReadAll(f)
 	if err != nil {
 		log.Fatalf("Cannot read json file %v", err)
 	}

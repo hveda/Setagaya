@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 
@@ -106,7 +105,7 @@ func (n nexusStorage) Download(filename string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, errors.New("Bad response from Nexus")
 	}
-	bytes, err := ioutil.ReadAll(resp.Body)
+	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

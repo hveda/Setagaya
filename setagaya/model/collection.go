@@ -30,7 +30,7 @@ type Collection struct {
 	ExecutionPlans []*ExecutionPlan `json:"execution_plans"`
 	RunHistories   []*RunHistory    `json:"run_history"`
 	CreatedTime    time.Time        `json:"created_time"`
-	Data           []*SetagayaFile   `json:"data"`
+	Data           []*SetagayaFile  `json:"data"`
 	CSVSplit       bool             `json:"csv_split"`
 }
 

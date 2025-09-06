@@ -5,10 +5,11 @@ import (
 	"log"
 	"time"
 
+	apiv1 "k8s.io/api/core/v1"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/model"
 	smodel "github.com/hveda/Setagaya/setagaya/scheduler/model"
-	apiv1 "k8s.io/api/core/v1"
 )
 
 type EngineScheduler interface {

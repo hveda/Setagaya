@@ -5,10 +5,11 @@ import (
 	"strconv"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	enginesModel "github.com/hveda/Setagaya/setagaya/engines/model"
 	"github.com/hveda/Setagaya/setagaya/model"
-	log "github.com/sirupsen/logrus"
 )
 
 func prepareCollection(collection *model.Collection) []*enginesModel.EngineDataConfig {
