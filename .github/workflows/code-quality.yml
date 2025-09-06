@@ -57,7 +57,7 @@ jobs:
     - name: Run Tests
       run: |
         cd setagaya
-        go test -v -race -coverprofile=coverage.out ./...
+        SETAGAYA_TEST_MODE=true go test -v -race -coverprofile=coverage.out ./...
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4

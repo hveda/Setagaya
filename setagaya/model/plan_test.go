@@ -4,11 +4,18 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hveda/Setagaya/setagaya/config"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCreateAndGetPlan(t *testing.T) {
+	// Skip database tests in test mode (when no real DB connection available)
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping database test in test mode")
+		return
+	}
+
 	name := "testplan"
 	projectID := int64(1)
 	planID, err := CreatePlan(name, projectID)
@@ -29,6 +36,12 @@ func TestCreateAndGetPlan(t *testing.T) {
 }
 
 func TestGetRunningPlans(t *testing.T) {
+	// Skip database tests in test mode (when no real DB connection available)
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping database test in test mode")
+		return
+	}
+
 	collectionID := int64(1)
 	planID := int64(1)
 	if err := AddRunningPlan(collectionID, planID); err != nil {

@@ -2,6 +2,7 @@ package model
 
 import (
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +28,12 @@ func TestGetAccountBySession_NoAuth(t *testing.T) {
 }
 
 func TestGetAccountBySession_WithAuth_NoSession(t *testing.T) {
+	// Skip database/session tests in test mode
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping session test in test mode")
+		return
+	}
+
 	cleanup := SetupTestEnvironment(t)
 	defer cleanup()
 
@@ -185,6 +192,12 @@ func TestAccountStruct(t *testing.T) {
 
 // Test edge cases for session handling
 func TestGetAccountBySession_EdgeCases(t *testing.T) {
+	// Skip database/session tests in test mode
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping session test in test mode")
+		return
+	}
+
 	cleanup := SetupTestEnvironment(t)
 	defer cleanup()
 

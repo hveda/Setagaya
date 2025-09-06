@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,6 +36,12 @@ func TestCreateAndGetCollection(t *testing.T) {
 	assert.Nil(t, c)
 }
 func TestAddPlanAndGet(t *testing.T) {
+	// Skip database tests in test mode (when no real DB connection available)
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping database test in test mode")
+		return
+	}
+
 	projectID := int64(1)
 	planName := "test"
 	planID, err := CreatePlan(planName, projectID)
@@ -87,6 +94,12 @@ func TestAddPlanAndGet(t *testing.T) {
 	assert.Equal(t, len(eps), 0)
 }
 func TestStorePlans(t *testing.T) {
+	// Skip database tests in test mode (when no real DB connection available)
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping database test in test mode")
+		return
+	}
+
 	projectID := int64(1)
 	planID1, err := CreatePlan("test1", projectID)
 	if err != nil {
@@ -145,6 +158,12 @@ func TestStorePlans(t *testing.T) {
 }
 
 func TestCollectionRuns(t *testing.T) {
+	// Skip database tests in test mode (when no real DB connection available)
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping database test in test mode")
+		return
+	}
+
 	collectionName := "collection"
 	collectionID, err := CreateCollection(collectionName, 1)
 	if err != nil {
@@ -175,6 +194,12 @@ func TestCollectionRuns(t *testing.T) {
 }
 
 func TestCollectionRun(t *testing.T) {
+	// Skip database tests in test mode (when no real DB connection available)
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" || config.SC.DBC == nil {
+		t.Skip("Skipping database test in test mode")
+		return
+	}
+
 	collectionName := "collection"
 	collectionID, err := CreateCollection(collectionName, 1)
 	if err != nil {
