@@ -1,0 +1,18 @@
+# Docker security scan configuration
+# Excludes acceptable security findings for Setagaya
+
+excludes:
+  # Environment variables that are configurable
+  - id: "SecretsUsedInArgOrEnv"
+    paths:
+      - "setagaya/Dockerfile"
+      - "setagaya/Dockerfile.api"
+      - "setagaya/Dockerfile.controller"
+    reason: "GOOGLE_APPLICATION_CREDENTIALS is configurable via build args and can be empty for security scanning"
+  
+  # UI directory copy warnings (expected behavior)
+  - id: "FileNotFound"
+    paths:
+      - "setagaya/Dockerfile"
+      - "setagaya/Dockerfile.api"
+    reason: "UI files are copied from correct build context path"

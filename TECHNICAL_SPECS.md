@@ -4,7 +4,7 @@
 
 **Setagaya** is a distributed load testing platform that orchestrates JMeter engines across Kubernetes clusters. The system follows a controller-scheduler-engine pattern designed for scalable, enterprise-grade load testing.
 
-- **Version:** 2025.1
+- **Version:** 2.0.0-rc
 - **Language:** Go 1.25.1
 - **Runtime:** Kubernetes-native with Docker/Podman support
 - **License:** See [LICENSE](LICENSE) file
@@ -425,5 +425,5 @@ Follow `setagaya/engines/jmeter/` structure:
 ---
 
 **Last Updated:** September 6, 2025
-**Document Version:** 1.0
+**Document Version:** 2.0
 **Next Review:** Quarterly or on major releases

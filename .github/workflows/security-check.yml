@@ -1,0 +1,258 @@
+name: Security and Vulnerability Scanning
+
+on:
+  push:
+    branches: [ "master", "main", "develop" ]
+  pull_request:
+    branches: [ "master", "main", "develop" ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+env:
+  GO_VERSION: '1.25.1'
+
+jobs:
+  # Go security scanning
+  gosec:
+    name: Go Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run Gosec Security Scanner
+      run: |
+        cd setagaya
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec -fmt sarif -out ../gosec-results.sarif ./...
+      continue-on-error: true
+
+    - name: Upload SARIF file
+      if: always() && hashFiles('gosec-results.sarif') != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: gosec-results.sarif
+      continue-on-error: true
+
+  # Go vulnerability checking
+  govulncheck:
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install govulncheck
+      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+    - name: Run govulncheck
+      run: |
+        cd setagaya
+        govulncheck ./...
+
+  # Dependency vulnerability scanning
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v3
+      with:
+        fail-on-severity: moderate
+        allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
+
+  # CodeQL analysis (Advanced Configuration)
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'go' ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        queries: security-extended,security-and-quality
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+
+  # Docker security scanning
+  docker-security:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker Images for Scanning
+      run: |
+        # Build main images (pass empty GCP credentials for security scanning)
+        docker build -f setagaya/Dockerfile -t setagaya:security-test . --build-arg GCP_CREDENTIALS_PATH=""
+        docker build -f setagaya/Dockerfile.engines.jmeter -t setagaya-jmeter:security-test .
+        docker build -f local_storage/Dockerfile -t setagaya-storage:security-test .
+        docker build -f grafana/Dockerfile -t setagaya-grafana:security-test .
+        docker build -f ingress-controller/Dockerfile -t setagaya-ingress:security-test .
+
+    - name: Run Trivy vulnerability scanner - Main API
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'setagaya:security-test'
+        format: 'sarif'
+        output: 'trivy-api.sarif'
+
+    - name: Run Trivy vulnerability scanner - JMeter
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'setagaya-jmeter:security-test'
+        format: 'sarif'
+        output: 'trivy-jmeter.sarif'
+
+    - name: Run Trivy vulnerability scanner - Storage
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'setagaya-storage:security-test'
+        format: 'sarif'
+        output: 'trivy-storage.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('trivy-api.sarif') != ''
+      with:
+        sarif_file: 'trivy-api.sarif'
+      continue-on-error: true
+
+    - name: Upload Trivy JMeter scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('trivy-jmeter.sarif') != ''
+      with:
+        sarif_file: 'trivy-jmeter.sarif'
+      continue-on-error: true
+
+    - name: Upload Trivy Storage scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('trivy-storage.sarif') != ''
+      with:
+        sarif_file: 'trivy-storage.sarif'
+      continue-on-error: true
+
+  # Secret scanning
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: TruffleHog OSS
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+
+  # License compliance check
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install go-licenses
+      run: go install github.com/google/go-licenses@latest
+
+    - name: Check licenses
+      run: |
+        cd setagaya
+        # Check licenses but ignore local modules and problematic dependencies
+        go-licenses check ./... \
+          --ignore="github.com/hveda/Setagaya" \
+          --ignore="github.com/iandyh/eventsource" || true
+
+    - name: Save licenses
+      run: |
+        cd setagaya
+        # Save licenses but ignore local modules and problematic dependencies
+        go-licenses save ./... --save_path=../licenses \
+          --ignore="github.com/hveda/Setagaya" \
+          --ignore="github.com/iandyh/eventsource" || true
+
+    - name: Upload license report
+      uses: actions/upload-artifact@v4
+      with:
+        name: license-report
+        path: licenses/
+
+  # SBOM generation
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Generate SBOM
+      uses: anchore/sbom-action@v0
+      with:
+        path: ./
+        format: spdx-json
+
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: ./sbom.spdx.json

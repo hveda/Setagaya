@@ -14,6 +14,16 @@ Welcome to the Setagaya Load Testing Platform documentation. This index helps yo
 - **Audience**: Developers, system administrators, architects
 - **Contents**: Detailed architecture, configuration, deployment, APIs
 
+### [🔒 Security Documentation](SECURITY.md)
+- **Purpose**: Security policies and vulnerability disclosure
+- **Audience**: Security teams, operators, researchers
+- **Contents**: Vulnerability reporting, security measures, best practices
+
+### [📋 Security Checklist](.github/SECURITY_CHECKLIST.md)
+- **Purpose**: Release security validation checklist
+- **Audience**: Release managers, security officers
+- **Contents**: 100+ security checkpoints for releases
+
 ## 🚀 Getting Started
 
 ### Quick Start Path
@@ -31,11 +41,17 @@ Welcome to the Setagaya Load Testing Platform documentation. This index helps yo
 #### 🏢 **Operations Teams**
 - [README.md](README.md) - Production deployment overview
 - [Technical Specifications](TECHNICAL_SPECS.md) - Infrastructure requirements
+- [Security Documentation](SECURITY.md) - Security policies and procedures
 - [Kubernetes Configs](kubernetes/) - RBAC and deployment manifests
 
 #### 🧪 **Test Engineers**
 - [README.md](README.md) - Platform capabilities and workflow
 - [Technical Specifications](TECHNICAL_SPECS.md) - Test lifecycle and monitoring
+
+#### 🔒 **Security Teams**
+- [Security Policy](SECURITY.md) - Vulnerability disclosure and security measures
+- [Security Checklist](.github/SECURITY_CHECKLIST.md) - Release security validation
+- [Security Workflows](.github/workflows/) - Automated security scanning and monitoring
 
 ## 📁 Component-Specific Documentation
 
@@ -47,7 +63,7 @@ Welcome to the Setagaya Load Testing Platform documentation. This index helps yo
 ### Configuration & Deployment
 - **[Config Template](setagaya/config_tmpl.json)** - Example configuration structure
 - **[Kubernetes Manifests](kubernetes/)** - Production deployment configs
-- **[Grafana Dashboards](grafana/dashboards/)** - Pre-built monitoring dashboards
+- **[Grafana Configuration](grafana/)** - Pre-built monitoring dashboards and configuration
 
 ### Development & Extensions
 - **[Copilot Instructions](.github/copilot-instructions.md)** - AI coding guidelines
@@ -103,10 +119,16 @@ Testing: TECHNICAL_SPECS.md → Development Workflow
 → See [Technical Specifications](TECHNICAL_SPECS.md) → Extension Points
 
 **Q: What are the security considerations?**
-→ See [Technical Specifications](TECHNICAL_SPECS.md) → Security Considerations
+→ See [Security Policy](SECURITY.md) and [Technical Specifications](TECHNICAL_SPECS.md) → Security Considerations
+
+**Q: How do I report a security vulnerability?**
+→ See [Security Policy](SECURITY.md) → Reporting a Vulnerability
 
 **Q: How do I set up monitoring?**
 → See [Technical Specifications](TECHNICAL_SPECS.md) → Metrics and Monitoring
+
+**Q: What security automation is available?**
+→ See [GitHub Actions Workflows](.github/workflows/) and [Security Checklist](.github/SECURITY_CHECKLIST.md)
 
 ## 📝 Documentation Standards
 

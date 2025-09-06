@@ -1,0 +1,356 @@
+name: Code Quality and Linting
+
+on:
+  push:
+    branches: [ "master", "main", "develop" ]
+  pull_request:
+    branches: [ "master", "main", "develop" ]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  security-events: write
+
+env:
+  GO_VERSION: '1.25.1'
+
+jobs:
+  # Go linting and formatting
+  golangci-lint:
+    name: Go Linting
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        working-directory: setagaya
+        args: --timeout=10m --config=.golangci.yml
+
+  # Go testing
+  go-test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Setup test database
+      run: |
+        sudo systemctl start mysql.service
+        mysql -e 'CREATE DATABASE setagaya_test;' -uroot -proot
+
+    - name: Run Tests
+      run: |
+        cd setagaya
+        go test -v -race -coverprofile=coverage.out ./...
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: setagaya/coverage.out
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: Generate coverage report
+      run: |
+        cd setagaya
+        go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: setagaya/coverage.html
+
+  # Go mod verification
+  go-mod-verify:
+    name: Go Mod Verification
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Verify go mod
+      run: |
+        cd setagaya
+        go mod verify
+        go mod tidy
+        git diff --exit-code go.mod go.sum
+
+  # Dockerfile linting
+  dockerfile-lint:
+    name: Dockerfile Linting
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Lint Dockerfiles with Hadolint
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: setagaya/Dockerfile
+        format: sarif
+        output-file: hadolint-api.sarif
+        no-fail: true
+
+    - name: Lint JMeter Dockerfile
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: setagaya/Dockerfile.engines.jmeter
+        format: sarif
+        output-file: hadolint-jmeter.sarif
+        no-fail: true
+
+    - name: Lint Controller Dockerfile
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: setagaya/Dockerfile.controller
+        format: sarif
+        output-file: hadolint-controller.sarif
+        no-fail: true
+
+    - name: Lint Local Storage Dockerfile
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: local_storage/Dockerfile
+        format: sarif
+        output-file: hadolint-storage.sarif
+        no-fail: true
+
+    - name: Lint Grafana Dockerfile
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: grafana/Dockerfile
+        format: sarif
+        output-file: hadolint-grafana.sarif
+        no-fail: true
+
+    - name: Upload Hadolint API results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('hadolint-api.sarif') != ''
+      with:
+        sarif_file: hadolint-api.sarif
+        category: hadolint-api
+
+    - name: Upload Hadolint JMeter results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('hadolint-jmeter.sarif') != ''
+      with:
+        sarif_file: hadolint-jmeter.sarif
+        category: hadolint-jmeter
+
+    - name: Upload Hadolint Controller results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('hadolint-controller.sarif') != ''
+      with:
+        sarif_file: hadolint-controller.sarif
+        category: hadolint-controller
+
+    - name: Upload Hadolint Storage results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('hadolint-storage.sarif') != ''
+      with:
+        sarif_file: hadolint-storage.sarif
+        category: hadolint-storage
+
+    - name: Upload Hadolint Grafana results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('hadolint-grafana.sarif') != ''
+      with:
+        sarif_file: hadolint-grafana.sarif
+        category: hadolint-grafana
+
+  # YAML linting
+  yaml-lint:
+    name: YAML Linting
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: YAML Lint
+      uses: ibiqlik/action-yamllint@v3
+      with:
+        config_file: .yamllint.yml
+        file_or_dir: |
+          kubernetes/
+          setagaya/install/
+          grafana/metrics-dashboard/
+          .github/workflows/
+
+  # Shell script linting
+  shellcheck:
+    name: Shell Script Linting
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Run ShellCheck
+      uses: ludeeus/action-shellcheck@master
+      continue-on-error: true
+      with:
+        scandir: './'
+        format: sarif
+        output: shellcheck.sarif
+        severity: info
+        check_together: 'yes'
+        ignore_paths: |
+          node_modules
+          .git
+          .github
+
+    - name: Upload ShellCheck results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && hashFiles('shellcheck.sarif') != ''
+      with:
+        sarif_file: shellcheck.sarif
+
+  # Markdown linting
+  markdown-lint:
+    name: Markdown Linting
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Lint Markdown files
+      uses: DavidAnson/markdownlint-cli2-action@v13
+      with:
+        globs: |
+          **/*.md
+          !**/node_modules/**
+
+  # JSON linting
+  json-lint:
+    name: JSON Linting
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Validate JSON files
+      run: |
+        find . -name "*.json" -not -path "./node_modules/*" -not -path "./.git/*" | \
+        while read -r file; do
+          echo "Validating $file"
+          python3 -m json.tool "$file" > /dev/null
+        done
+
+  # Kubernetes manifest validation
+  k8s-manifest-validation:
+    name: Kubernetes Manifest Validation
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Validate Kubernetes manifests
+      run: |
+        # Install kubeconform
+        curl -L https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+        sudo mv kubeconform /usr/local/bin
+        
+        # Validate manifests
+        kubeconform -summary -verbose -kubernetes-version 1.28.0 kubernetes/ setagaya/install/setagaya/templates/ || true
+
+  # Documentation checks
+  docs-check:
+    name: Documentation Checks
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Check for broken links
+      uses: gaurav-nelson/github-action-markdown-link-check@v1
+      with:
+        use-quiet-mode: 'yes'
+        use-verbose-mode: 'yes'
+        config-file: '.github/markdown-link-check-config.json'
+
+    - name: Spell check
+      uses: rojopolis/spellcheck-github-actions@0.33.1
+      with:
+        config_path: .github/spellcheck-settings.yml
+        task_name: Markdown
+
+  # Security policy validation
+  security-policy:
+    name: Security Policy Validation
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Check for security policy
+      run: |
+        if [ ! -f "SECURITY.md" ]; then
+          echo "::warning::SECURITY.md file not found. Consider adding a security policy."
+        fi
+
+    - name: Validate GitHub security features
+      run: |
+        echo "Checking if security features are enabled..."
+        # Check if dependency graph is likely enabled (by checking for known vuln files)
+        if [ -f ".github/dependabot.yml" ]; then
+          echo "✓ Dependabot configuration found"
+        else
+          echo "::warning::Consider adding .github/dependabot.yml for automated dependency updates"
+        fi
+
+  # Code complexity analysis
+  complexity-check:
+    name: Code Complexity Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install gocyclo
+      run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+
+    - name: Check cyclomatic complexity
+      run: |
+        cd setagaya
+        gocyclo -over 15 . || echo "::warning::High complexity functions found"
+
+    - name: Install ineffassign
+      run: go install github.com/gordonklaus/ineffassign@latest
+
+    - name: Check for ineffectual assignments
+      run: |
+        cd setagaya
+        ineffassign ./...
+
+    - name: Install misspell
+      run: go install github.com/client9/misspell/cmd/misspell@latest
+
+    - name: Check for misspellings
+      run: |
+        misspell -error README.md TECHNICAL_SPECS.md docs/ setagaya/

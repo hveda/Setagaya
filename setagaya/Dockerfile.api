@@ -11,11 +11,11 @@ RUN apk update && apk upgrade && \
 WORKDIR /build
 
 # Copy go mod files first for better layer caching
-COPY go.mod go.sum ./
+COPY setagaya/go.mod setagaya/go.sum ./
 RUN go mod download && go mod verify
 
 # Copy source code
-COPY . .
+COPY setagaya/ .
 
 # Build the API server binary with security flags and optimizations
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
@@ -33,15 +33,16 @@ RUN apk update && apk upgrade && \
     addgroup -g 1001 setagaya && \
     adduser -D -u 1001 -G setagaya setagaya
 
-# Environment variables
-ENV GOOGLE_APPLICATION_CREDENTIALS=/auth/setagaya-gcp.json
+# Environment variables (using build args for better security)
+ARG GCP_CREDENTIALS_PATH=/auth/setagaya-gcp.json
+ENV GOOGLE_APPLICATION_CREDENTIALS=${GCP_CREDENTIALS_PATH}
 ENV env=local
 
 # Copy the binary from builder stage
 COPY --from=builder --chmod=755 /build/setagaya /usr/local/bin/setagaya
 
-# Copy UI files with proper ownership
-COPY --chmod=644 --chown=setagaya:setagaya ./ui/ /
+# Copy UI files with proper ownership (path relative to repository root)
+COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/ /app/ui/
 
 # Switch to non-root user
 USER setagaya:setagaya

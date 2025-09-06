@@ -1,0 +1,26 @@
+# Spellcheck configuration for GitHub Actions
+# https://github.com/rojopolis/spellcheck-github-actions
+
+matrix:
+- name: Markdown
+  sources:
+  - '**/*.md'
+  expect_match: true
+  apsell:
+    lang: en
+    d: en_US
+  dictionary:
+    wordlists:
+    - .github/wordlist.txt
+    output: wordlist.dic
+  pipeline:
+  - pyspelling.filters.markdown:
+  - pyspelling.filters.html:
+      comments: false
+      attributes:
+      - title
+      - alt
+      ignores:
+      - code
+      - pre
+  - pyspelling.filters.url:

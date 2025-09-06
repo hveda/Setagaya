@@ -19,15 +19,23 @@ When making any changes to the codebase, you MUST update relevant documentation:
    - Update feature lists and badges
    - Update roadmap items when completed
 
-3. **Component-Specific Documentation**:
+3. **Security Documentation**:
+   - Update `SECURITY.md` for security policy changes
+   - Update `.github/SECURITY_CHECKLIST.md` for release procedures
+   - Update GitHub Actions workflows for security automation changes
+   - Update security issue templates for new vulnerability types
+
+4. **Component-Specific Documentation**:
    - Update `setagaya/JMETER_BUILD_OPTIONS.md` for JMeter-related changes
    - Update inline code comments for complex logic changes
    - Update configuration templates (`config_tmpl.json`) for new config options
+   - Update `CHANGELOG.md` for all significant changes
 
-4. **Version Information**:
+5. **Version Information**:
    - Update version numbers in both TECHNICAL_SPECS.md and README.md
    - Update "Last Updated" timestamps in technical documentation
    - Update compatibility matrices for supported versions
+   - Update security policy timestamps and version support matrices
 
 ### Documentation Update Checklist
 Before completing any task, verify:
@@ -37,6 +45,8 @@ Before completing any task, verify:
 - [ ] New configuration options are documented
 - [ ] Breaking changes are clearly noted
 - [ ] Security changes are properly documented
+- [ ] GitHub Actions workflows are updated for security/linting changes
+- [ ] CHANGELOG.md includes all significant changes
 
 ## Architecture Overview
 
@@ -140,6 +150,29 @@ All Dockerfiles use security-hardened, multi-stage builds:
 - **Build Method**: Source compilation with Go 1.25.1 during Docker build
 - **Security Flags**: CGO_ENABLED=0 with static linking (`-w -s -extldflags=-static`)
 - **No HEALTHCHECK**: Eliminated to prevent OCI format warnings
+
+### Security Automation (2025)
+The platform includes comprehensive security automation:
+- **GitHub Actions Security Suite**: 3 main workflows for security, quality, and PR validation
+- **Continuous Monitoring**: Weekly security scans with multi-tool coverage (Gosec, CodeQL, Trivy, TruffleHog)
+- **Dependency Management**: Automated security updates with Dependabot
+- **Security Documentation**: Comprehensive security policies and incident response procedures
+- **Emergency Response**: Automated critical vulnerability detection and escalation
+
+### GitHub Actions Workflows
+Located in `.github/workflows/`:
+- `security-check.yml` - Comprehensive security scanning and SBOM generation
+- `code-quality.yml` - Go linting, testing, Dockerfile validation, YAML checking  
+- `pr-validation.yml` - PR title validation, diff analysis, security impact assessment
+- `security-monitoring.yml` - Continuous security monitoring with automated issue creation
+- `security-advisory.yml` - Security advisory management and emergency response
+
+### Security Configuration Files
+Supporting configuration files for security automation:
+- `.golangci.yml` - Comprehensive Go linting configuration
+- `.yamllint.yml` - YAML linting standards
+- `.github/dependabot.yml` - Automated dependency updates
+- `.github/SECURITY_CHECKLIST.md` - 100+ point security release checklist
 
 ### JMeter Version Compatibility
 The platform supports both legacy and modern JMeter versions:
