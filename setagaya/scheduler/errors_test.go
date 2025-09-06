@@ -176,7 +176,7 @@ func TestNoResourcesFoundErrEdgeCases(t *testing.T) {
 	t.Run("nil struct", func(t *testing.T) {
 		var noResourcesErr *NoResourcesFoundErr
 		assert.Panics(t, func() {
-			noResourcesErr.Error()
+			_ = noResourcesErr.Error()
 		})
 	})
 

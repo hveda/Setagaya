@@ -3,7 +3,7 @@ package model
 import (
 	"testing"
 	"encoding/json"
-	"gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v2"
 
 	"github.com/stretchr/testify/assert"
 )

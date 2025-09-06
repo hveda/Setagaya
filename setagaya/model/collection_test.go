@@ -1,12 +1,21 @@
 package model
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCreateAndGetCollection(t *testing.T) {
+	cleanup := SetupTestEnvironment(t)
+	defer cleanup()
+	
+	// Skip database operations in test mode when using mock database
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" {
+		t.Skip("Skipping database test in test mode")
+	}
+	
 	name := "testcollection"
 	projectID := int64(1)
 	collectionID, err := CreateCollection(name, projectID)

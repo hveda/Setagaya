@@ -111,9 +111,9 @@ func (u *UI) loginPageHandler(w http.ResponseWriter, r *http.Request, params htt
 
 func (u *UI) InitRoutes() api.Routes {
 	return api.Routes{
-		&api.Route{"home", "GET", "/", u.homeHandler},
-		&api.Route{"login", "POST", "/login", u.loginHandler},
-		&api.Route{"login", "GET", "/login", u.loginPageHandler},
-		&api.Route{"logout", "POST", "/logout", u.logoutHandler},
+		&api.Route{Name: "home", Method: "GET", Path: "/", HandlerFunc: u.homeHandler},
+		&api.Route{Name: "login", Method: "POST", Path: "/login", HandlerFunc: u.loginHandler},
+		&api.Route{Name: "login", Method: "GET", Path: "/login", HandlerFunc: u.loginPageHandler},
+		&api.Route{Name: "logout", Method: "POST", Path: "/logout", HandlerFunc: u.logoutHandler},
 	}
 }

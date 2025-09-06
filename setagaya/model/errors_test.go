@@ -96,9 +96,13 @@ func TestDBErrorComparison(t *testing.T) {
 		Message: "test message",
 	}
 
-	// Different instances with same content should not be equal
-	assert.NotEqual(t, err1, err2)
+	// Different pointer instances should not be equal (they are different pointers)
+	assert.False(t, err1 == err2, "Different pointer instances should not be equal")
 
 	// Same instance should be equal to itself
-	assert.Equal(t, err1, err1)
+	assert.True(t, err1 == err1, "Same instance should be equal to itself")
+	
+	// Check that the content is similar (but instances are different)
+	assert.Equal(t, err1.Message, err2.Message)
+	assert.Equal(t, err1.Error(), err2.Error())
 }

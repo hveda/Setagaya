@@ -9,7 +9,7 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/hveda/Setagaya/setagaya/model"
-	"gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v2"
 )
 
 func getCollection(collectionID string) (*model.Collection, error) {

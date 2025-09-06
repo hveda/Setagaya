@@ -29,6 +29,13 @@ func setupTestConfig() error {
 			AdminUsers: []string{"test-admin"},
 			NoAuth:     true,
 			SessionKey: "test-session-key",
+			LdapConfig: &config.LdapConfig{
+				BaseDN:         "dc=test,dc=local",
+				SystemUser:     "test",
+				SystemPassword: "test",
+				LdapServer:     "localhost",
+				LdapPort:       "389",
+			},
 		},
 		ObjectStorage: &config.ObjectStorage{
 			Provider: "local",
