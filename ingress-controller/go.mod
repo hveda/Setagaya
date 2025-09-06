@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/sirupsen/logrus v1.9.0
-	go.uber.org/automaxprocs v1.5.1
+	go.uber.org/automaxprocs v1.6.0
 	k8s.io/api v0.20.0
 	k8s.io/apimachinery v0.20.0
 	k8s.io/client-go v0.20.0
