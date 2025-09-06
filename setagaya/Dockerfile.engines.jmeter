@@ -29,7 +29,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o setagaya-agent ./engines/jmeter/setagaya-agent.go
 
 # Build stage for JMeter download
-FROM alpine:3.20 AS jmeter-builder
+FROM alpine:3.22 AS jmeter-builder
 ARG jmeter_ver
 ENV JMETER_VERSION=$jmeter_ver
 
