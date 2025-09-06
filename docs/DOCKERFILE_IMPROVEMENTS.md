@@ -4,11 +4,13 @@ This document outlines the security improvements and best practices implemented 
 
 ## Overview of Changes
 
-All Dockerfiles have been modernized to follow current security best practices and use the latest stable versions of base images and tools.
+All Dockerfiles have been modernized to follow current security best practices and use the latest stable versions of
+base images and tools.
 
 ## Key Improvements Applied
 
 ### 1. Updated Base Images
+
 - **Go**: Upgraded from `golang:1.20` to `golang:1.25.1` (latest stable)
 - **Alpine**: Upgraded to `alpine:3.20` (latest stable)
 - **Ubuntu**: Upgraded from `18.04` to `22.04`
@@ -17,6 +19,7 @@ All Dockerfiles have been modernized to follow current security best practices a
 - **Java**: Upgraded from `openjdk:8` to `eclipse-temurin:21-jre-alpine` (latest LTS)
 
 ### 2. Multi-Stage Builds
+
 - Implemented multi-stage builds for all Go applications
 - Separates build environment from runtime environment
 - Reduces final image size and attack surface
@@ -25,29 +28,34 @@ All Dockerfiles have been modernized to follow current security best practices a
 ### 3. Security Hardening
 
 #### Non-Root Users
+
 - All containers run as non-root users
 - Created dedicated users with minimal privileges
 - Used consistent UID/GID (1001) across applications
 
 #### Build Security
+
 - Enabled static compilation with `CGO_ENABLED=0`
 - Added security flags: `-ldflags='-w -s -extldflags "-static"'`
 - Used `go mod verify` to ensure dependency integrity
 - Implemented proper file permissions with `--chmod`
 
 #### Runtime Security
+
 - Removed unnecessary tools and packages from runtime images
 - Used minimal base images (Alpine/scratch when possible)
 - Added proper file ownership with `--chown`
 - Implemented health checks for monitoring
 
 ### 4. Latest Go Features and Optimizations
+
 - Updated to Go 1.25.1 with latest performance improvements
 - Used `go mod download && go mod verify` for secure dependency management
 - Optimized build flags for smaller, faster binaries
 - Implemented proper Go module handling
 
 ### 5. Grafana Security Enhancements
+
 ```dockerfile
 # Security-focused environment variables
 ENV GF_SECURITY_DISABLE_GRAVATAR=true
@@ -60,6 +68,7 @@ ENV GF_SECURITY_X_XSS_PROTECTION=true
 ```
 
 ### 6. Build Context Optimization
+
 - Added comprehensive `.dockerignore` files
 - Minimized build context for faster builds
 - Excluded sensitive files and unnecessary artifacts
@@ -67,6 +76,7 @@ ENV GF_SECURITY_X_XSS_PROTECTION=true
 ## File Structure
 
 ### Updated Dockerfiles
+
 - `setagaya/Dockerfile` - Main API server (multi-stage build from source)
 - `setagaya/Dockerfile.api` - Specific API server build
 - `setagaya/Dockerfile.controller` - Controller service build
@@ -76,6 +86,7 @@ ENV GF_SECURITY_X_XSS_PROTECTION=true
 - `grafana/Dockerfile` - Grafana with security enhancements
 
 ### Build Context Files
+
 - `.dockerignore` - Global exclusions
 - `setagaya/.dockerignore` - Setagaya-specific exclusions
 - `local_storage/.dockerignore` - Storage-specific exclusions
@@ -128,4 +139,5 @@ podman build -t setagaya:grafana grafana/
 
 ## Testing
 
-All Dockerfiles have been tested and verified to build successfully with the new improvements while maintaining functionality.
+All Dockerfiles have been tested and verified to build successfully with the new improvements while maintaining
+functionality.

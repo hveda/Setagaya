@@ -71,7 +71,7 @@ All authentication related logic is configured by this block
 ```
     "auth_config": {
         "admin_users": [], # admin mailing list. A admin will have a dedicated page to view all the running collections
-        "ldap_server": "", 
+        "ldap_server": "",
         "ldap_port": "",
         "system_user": "", # ldap system user
         "system_password": "", # ldap system pwd
@@ -80,7 +80,7 @@ All authentication related logic is configured by this block
     }
 ```
 
-## HTTP client 
+## HTTP client
 
 Once this is configured, all the traffic will pass through proxy. Including metrics streaming and requests to k8s cluster.
 
@@ -105,10 +105,10 @@ Once this is configured, all the traffic will pass through proxy. Including metr
 
 Setagaya supports two types of clusters:
 
-1. on demand, specifically, GKE in Google Cloud Platform. 
+1. on demand, specifically, GKE in Google Cloud Platform.
 2. on-premise cluster.
 
-With on demand mode, Setagaya is able to automatically create nodes and clean resources after usage. In most cases, the GKE cluster used by Setagaya has 0 worker nodes(to save money). 
+With on demand mode, Setagaya is able to automatically create nodes and clean resources after usage. In most cases, the GKE cluster used by Setagaya has 0 worker nodes(to save money).
 
 Setagaya controller can be run outside of a k8s cluster, which usually is the cluster where the generators are deployed. If this is the case, `in_cluster` should be set to `false`, `true` for otherwise.
 
@@ -120,8 +120,8 @@ Setagaya controller can be run outside of a k8s cluster, which usually is the cl
         "in_cluster": true,
         "namespace": "setagaya-executors", # this is the namespace where generators are deployed
         "jmeter": {
-            "image": "setagaya:jmeter", 
-            "cpu": "1", # resoures(requests) for the generator pod in a k8s cluster.
+            "image": "setagaya:jmeter",
+            "cpu": "1", # resources(requests) for the generator pod in a k8s cluster.
             "mem": "512Mi"
         },
         "pull_secret": "",
@@ -131,7 +131,7 @@ Setagaya controller can be run outside of a k8s cluster, which usually is the cl
 
 ## Metrics dashboard
 
-Setagaya uses external Grafana dashboard to visualise the metrics. 
+Setagaya uses external Grafana dashboard to visualise the metrics.
 
 ```
     "dashboard": {
@@ -145,8 +145,8 @@ Setagaya uses external Grafana dashboard to visualise the metrics.
 
 Setagaya uses object storage to store all the test plans. It supports two types storage:
 
-1. HTTP based storage service, like, Nexus. 
-2. GCP bucket. 
+1. HTTP based storage service, like, Nexus.
+2. GCP bucket.
 
 ```
     "object_storage": {
@@ -157,7 +157,7 @@ Setagaya uses object storage to store all the test plans. It supports two types 
     },
 ```
 
-Please bear in mind, `local` should be only used by Setagaya developers. 
+Please bear in mind, `local` should be only used by Setagaya developers.
 
 ## Logging support
 

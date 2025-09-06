@@ -45,7 +45,7 @@ func init() {
 	} else {
 		log.Println("setagaya-agent: Using JMETER_BIN from environment:", jmeterBinFolder)
 	}
-	
+
 	// Set up dynamic paths
 	JMETER_EXECUTABLE = path.Join(jmeterBinFolder, JMETER_BIN)
 	JMETER_SHUTDOWN = path.Join(jmeterBinFolder, "stoptest.sh")
@@ -252,11 +252,11 @@ func (sw *SetagayaWrapper) streamHandler(w http.ResponseWriter, r *http.Request)
 
 	// Signal the sw that we have a new connection
 	sw.newClients <- messageChan
-	// Listen to connection close and un-register messageChan
-	notify := w.(http.CloseNotifier).CloseNotify()
+	// Listen to connection close and un-register messageChan using context
+	ctx := r.Context()
 
 	go func() {
-		<-notify
+		<-ctx.Done()
 		sw.closingClients <- messageChan
 	}()
 

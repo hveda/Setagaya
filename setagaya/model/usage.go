@@ -35,6 +35,9 @@ func GetHistory(startedTime, endTime string) ([]*CollectionLaunchHistory, error)
 		return nil, err
 	}
 	rs, err := q.Query(startedTime, endTime)
+	if err != nil {
+		return nil, err
+	}
 	defer rs.Close()
 
 	history := []*CollectionLaunchHistory{}

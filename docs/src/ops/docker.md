@@ -1,6 +1,6 @@
 # Dockerfile
 
-Setagaya controller runs inside a Docker container. In order to sucessfully build a Docker image for your own controller, you will need these files:
+Setagaya controller runs inside a Docker container. In order to successfully build a Docker image for your own controller, you will need these files:
 
 1. kubeconfig
 2. GCP config JSON (only if you are using GCP)

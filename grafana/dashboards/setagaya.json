@@ -36,11 +36,7 @@
       "cacheTimeout": null,
       "colorBackground": false,
       "colorValue": false,
-      "colors": [
-        "#d44a3a",
-        "rgba(237, 129, 40, 0.89)",
-        "#299c46"
-      ],
+      "colors": ["#d44a3a", "rgba(237, 129, 40, 0.89)", "#299c46"],
       "datasource": null,
       "format": "percent",
       "gauge": {
@@ -263,11 +259,7 @@
       "cacheTimeout": null,
       "colorBackground": false,
       "colorValue": false,
-      "colors": [
-        "#299c46",
-        "rgba(237, 129, 40, 0.89)",
-        "#d44a3a"
-      ],
+      "colors": ["#299c46", "rgba(237, 129, 40, 0.89)", "#d44a3a"],
       "datasource": null,
       "format": "none",
       "gauge": {
@@ -345,11 +337,7 @@
       "cacheTimeout": null,
       "colorBackground": false,
       "colorValue": false,
-      "colors": [
-        "#7eb26d",
-        "#3f2b5b",
-        "#dedaf7"
-      ],
+      "colors": ["#7eb26d", "#3f2b5b", "#dedaf7"],
       "datasource": null,
       "format": "none",
       "gauge": {
@@ -635,11 +623,7 @@
         {
           "alias": "",
           "colorMode": null,
-          "colors": [
-            "rgba(245, 54, 54, 0.9)",
-            "rgba(237, 129, 40, 0.89)",
-            "rgba(50, 172, 45, 0.97)"
-          ],
+          "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"],
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 2,
           "mappingType": 1,
@@ -651,11 +635,7 @@
         {
           "alias": "",
           "colorMode": null,
-          "colors": [
-            "rgba(245, 54, 54, 0.9)",
-            "rgba(237, 129, 40, 0.89)",
-            "rgba(50, 172, 45, 0.97)"
-          ],
+          "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"],
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 2,
           "mappingType": 1,
@@ -667,11 +647,7 @@
         {
           "alias": "",
           "colorMode": null,
-          "colors": [
-            "rgba(245, 54, 54, 0.9)",
-            "rgba(237, 129, 40, 0.89)",
-            "rgba(50, 172, 45, 0.97)"
-          ],
+          "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"],
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 2,
           "mappingType": 1,
@@ -683,11 +659,7 @@
         {
           "alias": "",
           "colorMode": null,
-          "colors": [
-            "rgba(245, 54, 54, 0.9)",
-            "rgba(237, 129, 40, 0.89)",
-            "rgba(50, 172, 45, 0.97)"
-          ],
+          "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"],
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 2,
           "mappingType": 1,
@@ -699,11 +671,7 @@
         {
           "alias": "",
           "colorMode": null,
-          "colors": [
-            "rgba(245, 54, 54, 0.9)",
-            "rgba(237, 129, 40, 0.89)",
-            "rgba(50, 172, 45, 0.97)"
-          ],
+          "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"],
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 2,
           "mappingType": 1,
@@ -715,11 +683,7 @@
         {
           "alias": "Count",
           "colorMode": null,
-          "colors": [
-            "rgba(245, 54, 54, 0.9)",
-            "rgba(237, 129, 40, 0.89)",
-            "rgba(50, 172, 45, 0.97)"
-          ],
+          "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"],
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 0,
           "mappingType": 1,
@@ -731,11 +695,7 @@
         {
           "alias": "",
           "colorMode": null,
-          "colors": [
-            "rgba(245, 54, 54, 0.9)",
-            "rgba(237, 129, 40, 0.89)",
-            "rgba(50, 172, 45, 0.97)"
-          ],
+          "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"],
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 2,
           "mappingType": 1,
@@ -868,11 +828,7 @@
           "cacheTimeout": null,
           "colorBackground": false,
           "colorValue": false,
-          "colors": [
-            "#d44a3a",
-            "rgba(237, 129, 40, 0.89)",
-            "#299c46"
-          ],
+          "colors": ["#d44a3a", "rgba(237, 129, 40, 0.89)", "#299c46"],
           "datasource": null,
           "format": "percent",
           "gauge": {
@@ -1089,11 +1045,7 @@
           "cacheTimeout": null,
           "colorBackground": false,
           "colorValue": false,
-          "colors": [
-            "#299c46",
-            "rgba(237, 129, 40, 0.89)",
-            "#d44a3a"
-          ],
+          "colors": ["#299c46", "rgba(237, 129, 40, 0.89)", "#d44a3a"],
           "datasource": null,
           "format": "none",
           "gauge": {
@@ -1171,11 +1123,7 @@
           "cacheTimeout": null,
           "colorBackground": false,
           "colorValue": false,
-          "colors": [
-            "#7eb26d",
-            "#3f2b5b",
-            "#dedaf7"
-          ],
+          "colors": ["#7eb26d", "#3f2b5b", "#dedaf7"],
           "datasource": null,
           "format": "none",
           "gauge": {
@@ -1547,11 +1495,7 @@
           "cacheTimeout": null,
           "colorBackground": false,
           "colorValue": false,
-          "colors": [
-            "#d44a3a",
-            "rgba(237, 129, 40, 0.89)",
-            "#299c46"
-          ],
+          "colors": ["#d44a3a", "rgba(237, 129, 40, 0.89)", "#299c46"],
           "datasource": null,
           "format": "percent",
           "gauge": {
@@ -1769,11 +1713,7 @@
           "cacheTimeout": null,
           "colorBackground": false,
           "colorValue": false,
-          "colors": [
-            "#299c46",
-            "rgba(237, 129, 40, 0.89)",
-            "#d44a3a"
-          ],
+          "colors": ["#299c46", "rgba(237, 129, 40, 0.89)", "#d44a3a"],
           "datasource": null,
           "format": "none",
           "gauge": {
@@ -2054,28 +1994,8 @@
     "to": "2020-04-01T07:51:45.000Z"
   },
   "timepicker": {
-    "refresh_intervals": [
-      "1s",
-      "3s",
-      "5s",
-      "30s",
-      "1m",
-      "5m",
-      "10m",
-      "30m",
-      "1h"
-    ],
-    "time_options": [
-      "5m",
-      "15m",
-      "1h",
-      "6h",
-      "12h",
-      "24h",
-      "2d",
-      "7d",
-      "30d"
-    ]
+    "refresh_intervals": ["1s", "3s", "5s", "30s", "1m", "5m", "10m", "30m", "1h"],
+    "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
   },
   "timezone": "",
   "title": "setagaya",

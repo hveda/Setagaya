@@ -1,0 +1,338 @@
+name: Pull Request Validation
+
+on:
+  pull_request:
+    branches: [ "master", "main", "develop" ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  security-events: write
+
+env:
+  GO_VERSION: '1.25.1'
+
+jobs:
+  # Skip if PR is draft
+  check-pr-ready:
+    name: Check if PR is ready
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+    - name: Check PR status
+      id: check
+      run: |
+        if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+          echo "ready=false" >> $GITHUB_OUTPUT
+          echo "PR is in draft mode, skipping checks"
+        else
+          echo "ready=true" >> $GITHUB_OUTPUT
+          echo "PR is ready for review"
+        fi
+
+  # PR title and description validation
+  pr-validation:
+    name: PR Title and Description Check
+    runs-on: ubuntu-latest
+    needs: check-pr-ready
+    if: needs.check-pr-ready.outputs.ready == 'true'
+    steps:
+    - name: Validate PR title
+      uses: amannn/action-semantic-pull-request@v5
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        types: |
+          feat
+          fix
+          docs
+          style
+          refactor
+          perf
+          test
+          build
+          ci
+          chore
+          revert
+        requireScope: false
+        disallowScopes: |
+          release
+        subjectPattern: ^(?![A-Z]).+$
+        subjectPatternError: |
+          The subject "{subject}" found in the pull request title "{title}"
+          didn't match the configured pattern. Please ensure that the subject
+          doesn't start with an uppercase character.
+
+    - name: Check PR description
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const prBody = context.payload.pull_request.body;
+          if (!prBody || prBody.trim().length < 10) {
+            core.setFailed('PR description is too short. Please provide a meaningful description.');
+          }
+          
+          // Check for breaking changes indicator
+          const hasBreakingChanges = prBody.includes('BREAKING CHANGE') || 
+                                   prBody.includes('breaking change') ||
+                                   context.payload.pull_request.title.includes('!');
+          
+          if (hasBreakingChanges) {
+            core.notice('This PR contains breaking changes. Make sure to update documentation and version.');
+          }
+
+  # Code diff analysis
+  code-diff-analysis:
+    name: Code Diff Analysis
+    runs-on: ubuntu-latest
+    needs: check-pr-ready
+    if: needs.check-pr-ready.outputs.ready == 'true'
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Analyze changed files
+      id: changes
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          go:
+            - 'setagaya/**/*.go'
+          docker:
+            - '**/Dockerfile*'
+          k8s:
+            - 'kubernetes/**/*.yaml'
+            - 'setagaya/install/**/*.yaml'
+          docs:
+            - '**/*.md'
+            - 'docs/**/*'
+          configs:
+            - '**/*.json'
+            - '**/*.yml'
+            - '**/*.yaml'
+          security:
+            - '.github/workflows/security-*.yml'
+            - '.golangci.yml'
+            - 'SECURITY.md'
+
+    - name: Set up Go
+      if: steps.changes.outputs.go == 'true'
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Check Go code formatting
+      if: steps.changes.outputs.go == 'true'
+      run: |
+        cd setagaya
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "The following files are not properly formatted:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+    - name: Validate Docker changes
+      if: steps.changes.outputs.docker == 'true'
+      run: |
+        echo "Docker files changed, validating..."
+        # Check for security best practices
+        for dockerfile in $(find . -name "Dockerfile*" -type f); do
+          echo "Checking $dockerfile"
+          # Check if running as non-root
+          if ! grep -q "USER.*[^0]" "$dockerfile"; then
+            echo "Warning: $dockerfile may not specify a non-root user"
+          fi
+          # Check for HEALTHCHECK removal (our standard)
+          if grep -q "HEALTHCHECK" "$dockerfile"; then
+            echo "Warning: $dockerfile contains HEALTHCHECK (should be removed per our standards)"
+          fi
+        done
+
+    - name: Validate Kubernetes changes
+      if: steps.changes.outputs.k8s == 'true'
+      run: |
+        echo "Kubernetes manifests changed, validating..."
+        # Check for proper resource limits
+        for file in $(find kubernetes/ setagaya/install/ -name "*.yaml" -type f); do
+          if grep -q "kind: Deployment\|kind: StatefulSet" "$file"; then
+            if ! grep -q "resources:" "$file"; then
+              echo "Warning: $file missing resource specifications"
+            fi
+          fi
+        done
+
+    - name: Documentation impact assessment
+      if: steps.changes.outputs.docs == 'true'
+      run: |
+        echo "Documentation changes detected"
+        echo "Please ensure:"
+        echo "- Technical specifications are updated if architecture changed"
+        echo "- README badges and version info are current"  
+        echo "- API documentation reflects any endpoint changes"
+
+  # Size and complexity checks
+  pr-size-check:
+    name: PR Size and Complexity Check
+    runs-on: ubuntu-latest
+    needs: check-pr-ready
+    if: needs.check-pr-ready.outputs.ready == 'true'
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check PR size
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const additions = pr.additions;
+          const deletions = pr.deletions;
+          const changes = additions + deletions;
+          const files = pr.changed_files;
+          
+          console.log(`PR Statistics:`);
+          console.log(`- Files changed: ${files}`);
+          console.log(`- Lines added: ${additions}`);
+          console.log(`- Lines deleted: ${deletions}`);
+          console.log(`- Total changes: ${changes}`);
+          
+          // Warning thresholds
+          if (changes > 1000) {
+            core.warning(`Large PR: ${changes} lines changed. Consider breaking into smaller PRs.`);
+          }
+          
+          if (files > 50) {
+            core.warning(`Many files changed: ${files}. Consider breaking into smaller PRs.`);
+          }
+          
+          // Large PR requires extra review
+          if (changes > 2000 || files > 100) {
+            core.setFailed(`PR is too large (${changes} lines, ${files} files). Please break into smaller PRs.`);
+          }
+
+  # Security impact assessment
+  security-impact:
+    name: Security Impact Assessment
+    runs-on: ubuntu-latest
+    needs: check-pr-ready
+    if: needs.check-pr-ready.outputs.ready == 'true'
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for security-sensitive changes
+      id: security-check
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          auth:
+            - 'setagaya/auth/**'
+            - '**/auth.go'
+          crypto:
+            - '**/*crypt*'
+            - '**/*security*'
+            - '**/*auth*'
+          network:
+            - '**/network*'
+            - '**/middleware*'
+          config:
+            - '**/config*'
+            - '**/*secret*'
+            - '**/*password*'
+
+    - name: Security review reminder
+      if: |
+        steps.security-check.outputs.auth == 'true' ||
+        steps.security-check.outputs.crypto == 'true' ||
+        steps.security-check.outputs.network == 'true' ||
+        steps.security-check.outputs.config == 'true'
+      run: |
+        echo "🔒 Security-sensitive files changed!"
+        echo "Please ensure:"
+        echo "- Security review by senior team member"
+        echo "- Input validation is proper"
+        echo "- No hardcoded secrets or credentials"
+        echo "- Proper error handling (no information leakage)"
+        echo "- Access controls are maintained"
+
+  # Test coverage requirement
+  test-coverage:
+    name: Test Coverage Check
+    runs-on: ubuntu-latest
+    needs: check-pr-ready
+    if: needs.check-pr-ready.outputs.ready == 'true'
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Setup test database
+      run: |
+        sudo systemctl start mysql.service
+        mysql -e 'CREATE DATABASE setagaya_test;' -uroot -proot
+
+    - name: Run tests with coverage
+      run: |
+        cd setagaya
+        go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "Coverage: ${coverage}%"
+        
+        # Fail if coverage is below threshold
+        if (( $(echo "$coverage < 70" | bc -l) )); then
+          echo "Coverage ${coverage}% is below required 70%"
+          exit 1
+        fi
+
+  # Dependency and license check
+  dependency-check:
+    name: Dependency and License Check
+    runs-on: ubuntu-latest
+    needs: check-pr-ready
+    if: needs.check-pr-ready.outputs.ready == 'true'
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+
+    - name: Check for dependency changes
+      id: deps
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          go_deps:
+            - 'setagaya/go.mod'
+            - 'setagaya/go.sum'
+
+    - name: Set up Go
+      if: steps.deps.outputs.go_deps == 'true'
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Check for new dependencies
+      if: steps.deps.outputs.go_deps == 'true'
+      run: |
+        cd setagaya
+        echo "Checking for new dependencies..."
+        git diff HEAD~1 go.mod | grep "^+" | grep -E "^\+[^+]" | head -20
+        echo "Please ensure new dependencies are:"
+        echo "- From trusted sources"
+        echo "- Have compatible licenses"
+        echo "- Are actively maintained"
+        echo "- Security reviewed if critical"

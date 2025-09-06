@@ -1,0 +1,27 @@
+{
+  "name": "setagaya-dev-tools",
+  "version": "1.0.0",
+  "description": "Development tools for Setagaya load testing platform",
+  "private": true,
+  "scripts": {
+    "format": "prettier --write .",
+    "format:yaml": "prettier --write '**/*.{yml,yaml}'",
+    "format:md": "prettier --write '**/*.md'",
+    "lint:yaml": "yamllint --config-file .yamllint.yml .",
+    "check": "npm run lint:yaml",
+    "fix": "npm run format",
+    "install-tools": "npm install && echo 'Also install: brew install yamllint'"
+  },
+  "devDependencies": {
+    "prettier": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "formatting",
+    "linting",
+    "yaml",
+    "prettier"
+  ]
+}

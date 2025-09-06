@@ -16,20 +16,20 @@ spec:
         app: db
     spec:
       containers:
-      - image: mariadb:10.11
-        name: db
-        ports:
-          - containerPort: 3306
-        env:
-          - name: MYSQL_ROOT_PASSWORD
-            value: root
-        volumeMounts:
-          - mountPath: /docker-entrypoint-initdb.d
-            name: schema
+        - image: mariadb:10.11
+          name: db
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: root
+          volumeMounts:
+            - mountPath: /docker-entrypoint-initdb.d
+              name: schema
       volumes:
-      - name: schema
-        configMap:
-          name: database
+        - name: schema
+          configMap:
+            name: database
 ---
 apiVersion: v1
 kind: Service
@@ -39,8 +39,8 @@ metadata:
   name: db
 spec:
   ports:
-  - port: 3306
-    protocol: TCP
-    targetPort: 3306
+    - port: 3306
+      protocol: TCP
+      targetPort: 3306
   selector:
     app: db

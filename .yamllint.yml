@@ -1,0 +1,68 @@
+# yamllint configuration file
+# https://yamllint.readthedocs.io/en/stable/configuration.html
+# Designed to work with prettier auto-formatting
+
+extends: default
+
+rules:
+  # Allow longer lines for readability (prettier handles line wrapping)
+  line-length:
+    max: 120
+    level: warning
+
+  # Prettier handles indentation consistently
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Be more flexible with comments (prettier formats them)
+  comments:
+    min-spaces-from-content: 1
+
+  # Allow empty values (common in Kubernetes)
+  empty-values:
+    forbid-in-block-mappings: false
+    forbid-in-flow-mappings: false
+
+  # Allow truthy values (GitHub Actions uses 'on:')
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
+    check-keys: false
+
+  # Allow brackets for lists (prettier may format this way)
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # Document start is optional (prettier doesn't add ---)
+  document-start:
+    present: false
+
+  # Octal values (often used in file permissions)
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: false
+
+  # Be more lenient with key ordering for GitHub Actions
+  key-ordering: disable
+
+ignore: |
+  # Ignore generated files
+  **/templates/*.yaml
+  **/charts/*/templates/*.yaml
+  node_modules/
+  # Ignore vendored files
+  vendor/
+  # Ignore GitHub Actions workflows
+  .github/workflows/*.yml
+  .github/workflows/*.yaml
+  # Ignore Kubernetes infrastructure files (different formatting standards)
+  kubernetes/*.yaml
+  kubernetes/*.yml
+  # Ignore Grafana dashboard and Helm chart files
+  grafana/metrics-dashboard/**
+  grafana/dashboards/**
+  # Ignore specific files that may have different formatting requirements
+  setagaya/install/setagaya/templates/configmap.yaml
+  grafana/plugins/grafana-piechart-panel/**

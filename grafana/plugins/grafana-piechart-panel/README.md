@@ -8,7 +8,7 @@ The plugin will be installed into your grafana plugins directory; the default is
 
 More instructions on the cli tool can be found [here](http://docs.grafana.org/v3.0/plugins/installation/).
 
-You need the lastest grafana build for Grafana 3.0 to enable plugin support. You can get it here : http://grafana.org/download/builds.html
+You need the latest grafana build for Grafana 3.0 to enable plugin support. You can get it here : http://grafana.org/download/builds.html
 
 ## Alternative installation method
 
@@ -69,6 +69,5 @@ needs read access to the directory.
 * Add piechart piece divider setting
 * Remove Unused code
 * Adds fontsize option for labels on graph
-* Only show the displaied piechart value in legend
+* Only show the displayed piechart value in legend
 * Add possibility to pick stat to use for piechart
-

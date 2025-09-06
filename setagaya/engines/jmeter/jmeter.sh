@@ -28,10 +28,10 @@
 MINIMAL_VERSION=1.8.0
 
 # Check if Java is present and the minimal version requirement
-_java=`type java | awk '{ print $ NF }'`
-CURRENT_VERSION=`"$_java" -version 2>&1 | awk -F'"' '/version/ {print $2}'`
-minimal_version=`echo $MINIMAL_VERSION | awk -F'.' '{ print $2 }'`
-current_version=`echo $CURRENT_VERSION | awk -F'.' '{ print $2 }'`
+_java=$(type java | awk '{ print $ NF }')
+CURRENT_VERSION=$("$_java" -version 2>&1 | awk -F'"' '/version/ {print $2}')
+minimal_version=$(echo $MINIMAL_VERSION | awk -F'.' '{ print $2 }')
+current_version=$(echo $CURRENT_VERSION | awk -F'.' '{ print $2 }')
 if [ $current_version ]; then
         if [ $current_version -lt $minimal_version ]; then
                  echo "Error: Java version is too low to run JMeter. Needs at least Java >= ${MINIMAL_VERSION}."
@@ -43,10 +43,10 @@ if [ $current_version ]; then
 fi
 
 JMETER_OPTS=""
-case `uname` in
+case $(uname) in
    Darwin*)
    # Add Mac-specific property - should be ignored elsewhere (Bug 47064)
-   JMETER_OPTS="-Xdock:name=JMeter -Xdock:icon="`dirname $0`/../docs/images/jmeter_square.png" -Dapple.laf.useScreenMenuBar=true -Dapple.eawt.quitStrategy=CLOSE_ALL_WINDOWS"
+   JMETER_OPTS="-Xdock:name=JMeter -Xdock:icon=$(dirname "$0")/../docs/images/jmeter_square.png -Dapple.laf.useScreenMenuBar=true -Dapple.eawt.quitStrategy=CLOSE_ALL_WINDOWS"
    ;;
 esac
 
@@ -56,16 +56,16 @@ esac
 PRG="$0"
 
 while [ -h "$PRG" ]; do
-  ls=`ls -ld "$PRG"`
-  link=`expr "$ls" : '.*-> \(.*\)$'`
+  ls=$(ls -ld "$PRG")
+  link=$(expr "$ls" : '.*-> \(.*\)$')
   if expr "$link" : '/.*' > /dev/null; then
     PRG="$link"
   else
-    PRG=`dirname "$PRG"`/"$link"
+    PRG=$(dirname "$PRG")/"$link"
   fi
 done
 
-PRGDIR=`dirname "$PRG"`
+PRGDIR=$(dirname "$PRG")
 
 #
 # Original page has disappeared, it is now only available at:

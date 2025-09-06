@@ -12,7 +12,7 @@ We will discuss each of this dependencies separately.
 
 ## Architecture Overview
 
-![image](../images/setagaya-architecture.png)
+![image](../images/shibuya-architecture.png)
 
 ## Setagaya-controller
 
@@ -24,7 +24,7 @@ Current supported versions should work well with Setagaya.
 
 Please follow below steps to setup the k8s cluster:
 
-1. `kubect create ns setagaya-executors`
+1. `kubectl create ns setagaya-executors`
 
 ## Load generators
 
@@ -52,4 +52,3 @@ All the schema files are stored under db folder. You just need to load the schem
 ## Grafana
 
 ## Prometheus
-

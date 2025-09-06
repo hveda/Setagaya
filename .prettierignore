@@ -1,0 +1,43 @@
+# Prettier ignore patterns
+
+# Dependencies
+node_modules/
+vendor/
+
+# Generated files
+*.min.js
+*.min.css
+dist/
+build/
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Git
+.git/
+
+# Specific files that should not be auto-formatted
+CHANGELOG.md
+LICENSE
+
+# Helm charts (may have specific formatting requirements)
+**/charts/*/templates/*.yaml
+**/templates/*.yaml
+
+# Grafana plugins (third-party)
+grafana/plugins/grafana-piechart-panel/**
+
+# Documentation that may have special formatting
+docs/src/**/*.md

@@ -1,0 +1,132 @@
+# Dependabot configuration for automated dependency updates
+# https://docs.github.com/en/github/administering-a-repository/configuration-options-for-dependency-updates
+
+version: 2
+updates:
+  # Go dependencies in setagaya
+  - package-ecosystem: "gomod"
+    directory: "/setagaya"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "hveda"
+    assignees:
+      - "hveda"
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    ignore:
+      # Ignore major version updates for stability
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Go dependencies in local_storage
+  - package-ecosystem: "gomod"
+    directory: "/local_storage"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "hveda"
+    labels:
+      - "dependencies"
+      - "go"
+      - "local-storage"
+    commit-message:
+      prefix: "deps"
+
+  # Go dependencies in ingress-controller
+  - package-ecosystem: "gomod"
+    directory: "/ingress-controller"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "hveda"
+    labels:
+      - "dependencies"
+      - "go"
+      - "ingress-controller"
+    commit-message:
+      prefix: "deps"
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/setagaya"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "hveda"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: "docker"
+    directory: "/local_storage"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/grafana"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/ingress-controller"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "hveda"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

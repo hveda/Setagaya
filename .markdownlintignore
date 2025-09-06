@@ -1,0 +1,16 @@
+# Dependencies and vendor directories
+node_modules/
+vendor/
+
+# Version control and CI/CD
+.git/
+.github/
+
+# Specific files that should not be linted
+CHANGELOG.md
+
+# Third-party Grafana plugin files
+grafana/plugins/grafana-piechart-panel/
+
+# Documentation source files (processed differently)
+docs/src/

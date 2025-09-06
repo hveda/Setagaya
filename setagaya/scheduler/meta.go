@@ -40,8 +40,7 @@ func makeIngressControllerLabel(projectID int64) map[string]string {
 }
 
 func makeIngressLabel(projectID, collectionID int64) map[string]string {
-	base := map[string]string{}
-	base = makeBaseLabel(projectID, collectionID)
+	base := makeBaseLabel(projectID, collectionID)
 	return base
 }
 
