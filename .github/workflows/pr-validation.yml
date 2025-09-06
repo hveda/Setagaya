@@ -67,7 +67,7 @@ jobs:
           doesn't start with an uppercase character.
 
     - name: Check PR description
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const prBody = context.payload.pull_request.body;
@@ -189,7 +189,7 @@ jobs:
         fetch-depth: 0
 
     - name: Check PR size
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const pr = context.payload.pull_request;

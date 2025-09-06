@@ -283,7 +283,7 @@ jobs:
 
     - name: Create security issue
       if: steps.check-findings.outputs.SECURITY_ISSUES_FOUND == 'true'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const title = '🚨 Security Alert - Automated Scan Results';

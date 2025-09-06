@@ -36,7 +36,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Process Security Issue
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const { issue } = context.payload;
@@ -88,7 +88,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Check for relevant advisories
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           console.log('🔍 Checking for security advisories...');
@@ -263,7 +263,7 @@ jobs:
     if: github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'critical') && contains(github.event.issue.labels.*.name, 'security')
     steps:
     - name: Trigger emergency notification
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const { issue } = context.payload;
