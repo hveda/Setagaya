@@ -3,8 +3,12 @@
 [![Go Version](https://img.shields.io/badge/Go-1.25.1-blue.svg)](https://golang.org)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Compatible-brightgreen.svg)](https://kubernetes.io)
 [![JMeter](https://img.shields.io/badge/JMeter-3.3%20%7C%205.6.3-orange.svg)](https://jmeter.apache.org)
+[![Security](https://img.shields.io/badge/Security-Hardened-red.svg)](SECURITY.md)
+[![Automation](https://img.shields.io/badge/CI%2FCD-Automated-purple.svg)](.github/workflows/)
 
-Setagaya is a cloud-native, distributed load testing platform that orchestrates Apache JMeter engines across Kubernetes clusters. It provides enterprise-grade scalability, real-time metrics, and centralized management for performance testing at scale.
+Setagaya is a cloud-native, distributed load testing platform that orchestrates Apache JMeter engines across Kubernetes
+clusters. It provides enterprise-grade scalability, real-time metrics, and centralized management for performance
+testing at scale.
 
 ## 🚀 Key Features
 
@@ -15,12 +19,16 @@ Setagaya is a cloud-native, distributed load testing platform that orchestrates 
 - **Flexible Storage**: Multiple backends (Local, GCP Buckets, Nexus)
 - **Container Security**: Non-root execution, minimal attack surface
 - **High Scalability**: Horizontal scaling with configurable resource allocation
+- **Security Automation**: Comprehensive security scanning and monitoring
+- **CI/CD Integration**: GitHub Actions workflows for security and quality
 
 ## 📚 Documentation
 
 - **[Technical Specifications](TECHNICAL_SPECS.md)** - Comprehensive technical documentation
+- **[Security Policy](SECURITY.md)** - Security measures and vulnerability disclosure
 - **[JMeter Build Options](setagaya/JMETER_BUILD_OPTIONS.md)** - JMeter version compatibility guide
-- **[Development Guidelines](.github/copilot-instructions.md)** - AI coding guidelines and patterns
+- **[Development Guidelines](.github/instructions/copilot.instructions.md)** - AI coding guidelines and patterns
+- **[Security Checklist](.github/SECURITY_CHECKLIST.md)** - Release security validation
 
 ## 🏗️ Architecture
 
@@ -58,11 +66,13 @@ Setagaya is a cloud-native, distributed load testing platform that orchestrates 
 ### Local Development Setup
 
 1. **Start local cluster:**
+
    ```bash
    make              # Creates kind cluster, deploys all components
    ```
 
 2. **Expose services:**
+
    ```bash
    make expose       # Port-forwards Setagaya (8080) and Grafana (3000)
    ```
@@ -72,24 +82,26 @@ Setagaya is a cloud-native, distributed load testing platform that orchestrates 
    - **Grafana Dashboards**: http://localhost:3000
 
 4. **Development workflow:**
+
    ```bash
    make setagaya     # Rebuilds and redeploys controller changes
    make clean        # Destroys local cluster
    ```
 
 ### Authentication Note
+
 Local Setagaya runs without authentication. Use `setagaya` as the project owner when creating resources.
 
 ## 🐳 Container Images
 
 The platform uses modern, security-hardened container images:
 
-| Component | JMeter Version | Build Method | Usage |
-|-----------|----------------|--------------|-------|
-| **Modern Engine** | 5.6.3 | Source build | `docker build -f setagaya/Dockerfile.engines.jmeter .` |
-| **Legacy Engine** | 3.3 | Pre-built binary | `./setagaya/build.sh jmeter && docker build -f setagaya/Dockerfile.engines.jmeter.legacy .` |
-| **API Server** | N/A | Source build | `docker build -f setagaya/Dockerfile .` |
-| **Controller** | N/A | Source build | `docker build -f setagaya/Dockerfile.controller .` |
+| Component         | JMeter Version | Build Method     | Usage                                                                                       |
+| ----------------- | -------------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| **Modern Engine** | 5.6.3          | Source build     | `docker build -f setagaya/Dockerfile.engines.jmeter .`                                      |
+| **Legacy Engine** | 3.3            | Pre-built binary | `./setagaya/build.sh jmeter && docker build -f setagaya/Dockerfile.engines.jmeter.legacy .` |
+| **API Server**    | N/A            | Source build     | `docker build -f setagaya/Dockerfile .`                                                     |
+| **Controller**    | N/A            | Source build     | `docker build -f setagaya/Dockerfile.controller .`                                          |
 
 All images run as non-root user (`setagaya`, UID 1001) with security-first design.
 
@@ -102,6 +114,7 @@ The platform uses a centralized configuration system:
 - **Key Areas**: Executors, storage, authentication, monitoring
 
 Example configuration structure:
+
 ```json
 {
   "executor_config": {
@@ -116,7 +129,10 @@ Example configuration structure:
   },
   "auth": {
     "no_auth": false,
-    "ldap_config": { /* LDAP settings */ }
+    "ldap_config": {
+      "host": "ldap.example.com",
+      "port": 389
+    }
   }
 }
 ```
@@ -159,16 +175,19 @@ Enable distributed mode by setting `runtime.distributed_mode: true` in configura
 ## 📊 Monitoring & Metrics
 
 ### Real-time Metrics Pipeline
+
 ```
 JMeter Engines → setagaya-agent → Controller → Prometheus → Grafana
 ```
 
 ### Pre-built Dashboards
+
 - **Platform Overview**: `grafana/dashboards/setagaya.json`
 - **Performance Metrics**: `grafana/dashboards/setagaya_perf.json`
 - **Engine Details**: `grafana/dashboards/setagaya_engine.json`
 
 ### Live Updates
+
 - Server-sent events for real-time dashboard updates
 - Collection-level metrics aggregation
 - Configurable retention and alerting
@@ -183,6 +202,7 @@ JMeter Engines → setagaya-agent → Controller → Prometheus → Grafana
 ## 🛠️ Development
 
 ### Code Organization
+
 ```
 setagaya/                 # Main application
 ├── api/                 # REST API server
@@ -194,7 +214,44 @@ setagaya/                 # Main application
 └── object_storage/      # Storage abstraction
 ```
 
+### Auto-Formatting Infrastructure
+
+Setagaya includes comprehensive auto-formatting tools for consistent code quality:
+
+- **Prettier**: Auto-formats YAML, Markdown, JSON, and JavaScript files
+- **yamllint**: YAML validation with formatter-friendly rules
+- **Git Hooks**: Pre-commit hooks with automatic formatting
+- **npm Scripts**: Convenient formatting and linting commands
+
+#### Available Commands
+
+```bash
+# Install development tools
+./scripts/setup-dev-tools.sh
+
+# Format all files automatically
+npm run format
+
+# Lint and auto-fix markdown
+npm run lint:md
+
+# Validate YAML files
+npm run lint:yaml
+
+# Fix all linting issues
+npm run fix
+```
+
+#### Git Hook Integration
+
+The platform automatically formats files on commit via pre-commit hooks that:
+
+- Run prettier for YAML, Markdown, and JSON formatting
+- Validate YAML syntax with yamllint
+- Provide clear error reporting and fallback handling
+
 ### Extension Points
+
 - **New Schedulers**: Implement `scheduler.EngineScheduler` interface
 - **Storage Backends**: Implement `object_storage.Storage` interface
 - **Engine Types**: Follow agent sidecar pattern with metrics reporting
@@ -214,18 +271,42 @@ setagaya/                 # Main application
 
 ## 🗺️ Roadmap
 
+### ✅ Completed (v2.0.0-rc)
+
+- **Security Automation**: Comprehensive security scanning and monitoring
+- **Container Modernization**: Security-hardened multi-stage Docker builds
+- **JMeter Compatibility**: Support for multiple JMeter versions (3.3 and 5.6.3)
+- **CI/CD Integration**: GitHub Actions workflows for security and quality
+- **Documentation Overhaul**: Complete technical specifications and security policies
+- **Auto-Formatting Infrastructure**: Prettier, yamllint with git hooks
+
+### 🚧 In Progress
+
 - **Multi-Executor Support**: Gatling, K6, custom executors
 - **Multi-Context Management**: Single controller, multiple clusters
 - **Enhanced Authentication**: OAuth2, SAML integration
+
+### 🔮 Planned
+
 - **Advanced Scheduling**: Time-based triggers, dependency chains
 - **Cloud Integration**: Native cloud provider integrations
+- **Performance Optimization**: Enhanced metrics aggregation and storage
 
 ## 🤝 Contributing
 
 1. Read the [Technical Specifications](TECHNICAL_SPECS.md)
-2. Follow [Development Guidelines](.github/copilot-instructions.md)
-3. Ensure documentation updates for any changes
-4. Test with both JMeter versions (3.3 and 5.6.3)
+2. Follow [Development Guidelines](.github/instructions/copilot.instructions.md)
+3. Review [Security Policy](SECURITY.md) for security considerations
+4. Ensure documentation updates for any changes
+5. Test with both JMeter versions (3.3 and 5.6.3)
+6. Run auto-formatting and linting before commits
+7. Run security checks via GitHub Actions workflows
+
+### Security Contributions
+
+- Security vulnerabilities should be reported privately via [Security Policy](SECURITY.md)
+- Security improvements and hardening are welcome via standard PR process
+- All PRs undergo automated security scanning and validation
 
 ## 📄 License
 

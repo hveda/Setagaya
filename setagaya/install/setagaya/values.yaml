@@ -2,7 +2,7 @@ namespace: setagaya-executors
 context: local
 cluster_name: local
 tag: local
-repository: "localhost/"
+repository: 'localhost/'
 image_pull_secrets: []
 
 controller:
@@ -44,58 +44,58 @@ apiserver:
     tag: local
 
 runtime:
-  bg_color: "#fff"
-  project_home: "https://docs.example.com/setagaya/project-home"
-  upload_file_help: "https://docs.example.com/setagaya/file-upload-guide"
+  bg_color: '#fff'
+  project_home: 'https://docs.example.com/setagaya/project-home'
+  upload_file_help: 'https://docs.example.com/setagaya/file-upload-guide'
   distributed_mode: true
   auth_config:
     admin_users: []
-    ldap_server: ""
-    ldap_port: ""
-    system_user: ""
-    system_password: ""
-    base_dn: ""
+    ldap_server: ''
+    ldap_port: ''
+    system_user: ''
+    system_password: ''
+    base_dn: ''
     no_auth: true
-    session_key: ""
+    session_key: ''
   http_config:
-    proxy: ""
+    proxy: ''
   db:
-    host: "db"
-    user: "root"
-    password: "root"
-    database: "setagaya"
-    keypairs: ""
+    host: 'db'
+    user: 'root'
+    password: 'root'
+    database: 'setagaya'
+    keypairs: ''
   executors:
     cluster:
-      project: ""
-      zone: ""
-      cluster_id: ""
+      project: ''
+      zone: ''
+      cluster_id: ''
       gc_duration: 30
-      service_type: ""
+      service_type: ''
     in_cluster: true
-    namespace: "setagaya-executors"
+    namespace: 'setagaya-executors'
     jmeter:
       image: setagaya:jmeter
       cpu: 0.1
       mem: 512Mi
-    pull_secret: ""
-    pull_policy: "IfNotPresent"
+    pull_secret: ''
+    pull_policy: 'IfNotPresent'
     node_affinity: []
     tolerations: []
   ingress:
-    image: "setagaya:ingress-controller"
+    image: 'setagaya:ingress-controller'
     cpu: 0.1
     replicas: 1
   dashboard:
-    url: "http://localhost:3000"
-    run_dashboard: "/d/RXY8nM1mk2/setagaya"
-    engine_dashboard: "/d/9EH6xqTZz/setagaya-engine-health"
+    url: 'http://localhost:3000'
+    run_dashboard: '/d/RXY8nM1mk2/setagaya'
+    engine_dashboard: '/d/9EH6xqTZz/setagaya-engine-health'
   object_storage:
     provider: local
-    url: "http://storage:8080"
-    user: ""
-    password: ""
-    bucket: ""
-    secret_name: ""
-    auth_file_name: ""
-    config_map_name: "setagaya-config-local"
+    url: 'http://storage:8080'
+    user: ''
+    password: ''
+    bucket: ''
+    secret_name: ''
+    auth_file_name: ''
+    config_map_name: 'setagaya-config-local'

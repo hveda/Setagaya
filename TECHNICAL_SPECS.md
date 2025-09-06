@@ -2,9 +2,10 @@
 
 ## Project Overview
 
-**Setagaya** is a distributed load testing platform that orchestrates JMeter engines across Kubernetes clusters. The system follows a controller-scheduler-engine pattern designed for scalable, enterprise-grade load testing.
+**Setagaya** is a distributed load testing platform that orchestrates JMeter engines across Kubernetes clusters. The
+system follows a controller-scheduler-engine pattern designed for scalable, enterprise-grade load testing.
 
-- **Version:** 2025.1
+- **Version:** 2.0.0-rc
 - **Language:** Go 1.25.1
 - **Runtime:** Kubernetes-native with Docker/Podman support
 - **License:** See [LICENSE](LICENSE) file
@@ -33,6 +34,7 @@
 ### Component Details
 
 #### 1. **Controller** (`setagaya/controller/`)
+
 - **Purpose:** Main orchestration service managing test execution lifecycle
 - **Binary:** `setagaya-controller`
 - **Entry Point:** `./controller/cmd/main.go`
@@ -43,6 +45,7 @@
   - Prometheus metrics exposition
 
 #### 2. **API Server** (`setagaya/api/`)
+
 - **Purpose:** REST API for web UI and external integrations
 - **Binary:** `setagaya` (main binary)
 - **Entry Point:** `./main.go`
@@ -53,6 +56,7 @@
   - File upload handling for test plans
 
 #### 3. **Scheduler** (`setagaya/scheduler/`)
+
 - **Purpose:** Kubernetes resource management
 - **Key Features:**
   - Pod, service, and ingress lifecycle management
@@ -61,6 +65,7 @@
   - Multi-cloud Kubernetes support
 
 #### 4. **Engines** (`setagaya/engines/`)
+
 - **Purpose:** Load generation executors
 - **Supported Types:**
   - **JMeter Engine** (`jmeter/`): Apache JMeter with agent sidecar
@@ -70,26 +75,31 @@
 ## Domain Model
 
 ### Hierarchy Structure
+
 ```
 Project → Collection → Plan → ExecutionPlan
 ```
 
 #### **Project**
+
 - Top-level organizational unit
 - Owner-based access control via LDAP groups
 - Contains multiple collections
 
 #### **Collection**
+
 - Execution unit containing multiple plans running simultaneously
 - Results converge at collection level for unified reporting
 - States: Deploy → Trigger → Terminate → Purge
 
 #### **Plan**
+
 - Individual test configuration (JMX file)
 - Defines test scenarios and parameters
 - Can be executed across multiple engines
 
 #### **ExecutionPlan**
+
 - Specifies engines and concurrency per plan
 - Maps plans to specific engine configurations
 - Controls resource allocation and scaling
@@ -98,18 +108,19 @@ Project → Collection → Plan → ExecutionPlan
 
 ### Docker Images
 
-| Component | Dockerfile | Base Image | Purpose |
-|-----------|------------|------------|---------|
-| API Server | `Dockerfile` | `alpine:3.20` | Main API and UI server |
-| API Server (Alt) | `Dockerfile.api` | `alpine:3.20` | Dedicated API build |
-| Controller | `Dockerfile.controller` | `alpine:3.20` | Controller daemon |
-| JMeter Engine (Modern) | `Dockerfile.engines.jmeter` | `eclipse-temurin:21-jre-alpine` | JMeter 5.6.3 + source build |
+| Component              | Dockerfile                         | Base Image                      | Purpose                       |
+| ---------------------- | ---------------------------------- | ------------------------------- | ----------------------------- |
+| API Server             | `Dockerfile`                       | `alpine:3.20`                   | Main API and UI server        |
+| API Server (Alt)       | `Dockerfile.api`                   | `alpine:3.20`                   | Dedicated API build           |
+| Controller             | `Dockerfile.controller`            | `alpine:3.20`                   | Controller daemon             |
+| JMeter Engine (Modern) | `Dockerfile.engines.jmeter`        | `eclipse-temurin:21-jre-alpine` | JMeter 5.6.3 + source build   |
 | JMeter Engine (Legacy) | `Dockerfile.engines.jmeter.legacy` | `eclipse-temurin:21-jre-alpine` | JMeter 3.3 + pre-built binary |
-| Local Storage | `local_storage/Dockerfile` | `scratch` | Storage service |
-| Ingress Controller | `ingress-controller/Dockerfile` | `scratch` | Ingress management |
-| Grafana | `grafana/Dockerfile` | `grafana/grafana:latest` | Metrics visualization |
+| Local Storage          | `local_storage/Dockerfile`         | `scratch`                       | Storage service               |
+| Ingress Controller     | `ingress-controller/Dockerfile`    | `scratch`                       | Ingress management            |
+| Grafana                | `grafana/Dockerfile`               | `grafana/grafana:latest`        | Metrics visualization         |
 
 ### Security Features
+
 - **Multi-stage builds:** Separate build and runtime environments
 - **Non-root users:** All containers run as `setagaya` user (UID 1001)
 - **Static compilation:** CGO_ENABLED=0 with security flags
@@ -119,6 +130,7 @@ Project → Collection → Plan → ExecutionPlan
 ## Technology Stack
 
 ### Core Technologies
+
 - **Language:** Go 1.25.1 (latest stable)
 - **Container Runtime:** Docker/Podman compatible
 - **Orchestration:** Kubernetes (any CNCF-compliant distribution)
@@ -126,6 +138,7 @@ Project → Collection → Plan → ExecutionPlan
 - **Package Management:** Go modules
 
 ### Dependencies
+
 - **Web Framework:** Native Go HTTP server
 - **Metrics:** Prometheus client
 - **Database:** MySQL (configurable)
@@ -134,6 +147,7 @@ Project → Collection → Plan → ExecutionPlan
 - **Load Testing:** Apache JMeter 3.3/5.6.3
 
 ### Monitoring Stack
+
 - **Metrics Collection:** Prometheus
 - **Visualization:** Grafana
 - **Dashboards:** Pre-configured for Setagaya metrics
@@ -142,6 +156,7 @@ Project → Collection → Plan → ExecutionPlan
 ## Configuration System
 
 ### Configuration Structure (`setagaya/config/`)
+
 - **File:** `config.json` (runtime configuration)
 - **Template:** `config_tmpl.json` (example configuration)
 - **Environment:** `env=local` for development mode
@@ -149,19 +164,23 @@ Project → Collection → Plan → ExecutionPlan
 - **Documentation Links:** Configurable URLs for project documentation and help guides
 
 ### Documentation Integration
+
 The platform includes configurable documentation links that appear in the UI:
+
 - **`project_home`**: Link to project documentation or wiki
 - **`upload_file_help`**: Link to file upload instructions
 - **Default Values**: Generic placeholder URLs that can be customized per deployment
 
 Example customization in Helm values:
+
 ```yaml
 runtime:
-  project_home: "https://your-org.com/setagaya/docs"
-  upload_file_help: "https://your-org.com/setagaya/upload-guide"
+  project_home: 'https://your-org.com/setagaya/docs'
+  upload_file_help: 'https://your-org.com/setagaya/upload-guide'
 ```
 
 ### Key Configuration Areas
+
 ```json
 {
   "project_home": "https://docs.example.com/setagaya/project-home",
@@ -175,11 +194,18 @@ runtime:
   },
   "storage": {
     "type": "local|gcp|nexus",
-    "config": { /* storage-specific */ }
+    "config": {
+      "bucket": "setagaya-storage",
+      "region": "us-central1"
+    }
   },
   "auth": {
     "no_auth": false,
-    "ldap_config": { /* LDAP settings */ }
+    "ldap_config": {
+      "host": "ldap.example.com",
+      "port": 389,
+      "base_dn": "dc=example,dc=com"
+    }
   }
 }
 ```
@@ -187,19 +213,23 @@ runtime:
 ## Storage System
 
 ### Object Storage Interface (`setagaya/object_storage/`)
+
 Abstracted storage system supporting multiple backends:
 
 #### Supported Backends
+
 - **Local Storage:** File system storage for development
 - **GCP Buckets:** Google Cloud Storage for production
 - **Nexus:** Artifact repository integration
 
 #### Storage Operations
+
 - **Test Plans:** Upload JMX files
 - **Collections:** Upload YAML execution configurations
 - **Results:** Store test output and metrics
 
 #### Usage Pattern
+
 ```go
 storage := object_storage.Client.Storage
 storage.Upload(bucket, key, data)
@@ -209,12 +239,14 @@ data := storage.Download(bucket, key)
 ## Authentication & Authorization
 
 ### LDAP Integration (`setagaya/auth/`)
+
 - **User Authentication:** LDAP directory services
 - **Group Membership:** Project ownership via LDAP groups
 - **Admin Users:** Bypass ownership checks
 - **Development Mode:** `no_auth: true` for local testing
 
 ### Authorization Model
+
 - **Project Ownership:** Based on LDAP group membership
 - **Admin Override:** Admin users have full access
 - **API Validation:** All endpoints validate ownership
@@ -223,19 +255,23 @@ data := storage.Download(bucket, key)
 ## Kubernetes Integration
 
 ### Resource Management
+
 - **Namespaced Deployments:** Per collection/plan combination
 - **Service Exposure:** Ingress controllers for engine metrics
 - **Resource Constraints:** CPU/memory limits and requests
 - **Node Affinity:** Configurable placement policies
 
 ### Deployment Lifecycle
+
 1. **Deploy:** Create K8s resources, engines come online
 2. **Trigger:** Start load generation across all engines
 3. **Terminate:** Stop tests, keep engines for result collection
 4. **Purge:** Remove all K8s resources and clean up storage
 
 ### RBAC Configuration
+
 Located in `kubernetes/` directory:
+
 - `clusterrole.yaml` - Cluster-level permissions
 - `roles.yaml` - Namespace-specific roles
 - `serviceaccount.yaml` - Service account definitions
@@ -243,6 +279,7 @@ Located in `kubernetes/` directory:
 ## Development Workflow
 
 ### Local Development Setup
+
 ```bash
 make              # Creates kind cluster, deploys all components
 make expose       # Port-forwards Setagaya (8080) and Grafana (3000)
@@ -250,18 +287,60 @@ make setagaya     # Rebuilds and redeploys controller changes
 make clean        # Destroys local cluster
 ```
 
+### Auto-Formatting Infrastructure
+
+The platform includes comprehensive development tooling for code quality:
+
+#### Tools and Configuration
+
+- **Prettier** (`.prettierrc.json`): Auto-formats YAML, Markdown, JSON, and JavaScript
+- **yamllint** (`.yamllint.yml`): YAML validation with formatter-friendly rules
+- **Git Hooks** (`.git/hooks/pre-commit`): Automatic formatting on commit
+- **npm Scripts** (`package.json`): Development tool management
+
+#### Development Commands
+
+```bash
+# Install all development tools
+./scripts/setup-dev-tools.sh
+
+# Format all files automatically
+npm run format
+
+# Lint and fix Markdown files
+npm run lint:md
+npm run lint:md:fix
+
+# Validate YAML files
+npm run lint:yaml
+
+# Run all fixes
+npm run fix
+```
+
+#### Git Hook Integration
+
+The pre-commit hook automatically:
+
+1. Runs prettier on staged YAML, Markdown, and JSON files
+2. Validates YAML syntax with yamllint
+3. Reports errors clearly with tool availability checking
+4. Falls back gracefully when tools are unavailable
+
 ### Build Process
+
 ```bash
 # Multi-stage Docker builds (recommended)
 docker build -f setagaya/Dockerfile .
 
 # Legacy pre-built binary approach
 ./setagaya/build.sh api        # API server binary
-./setagaya/build.sh controller # Controller daemon binary  
+./setagaya/build.sh controller # Controller daemon binary
 ./setagaya/build.sh jmeter     # JMeter agent sidecar binary
 ```
 
 ### Testing
+
 - **Unit Tests:** `*_test.go` files in model packages
 - **Integration Tests:** Full deployment testing via kind
 - **Database Tests:** Using `test_utils.go` utilities
@@ -271,19 +350,21 @@ docker build -f setagaya/Dockerfile .
 
 ### Version Support Matrix
 
-| JMeter Version | Dockerfile | Build Method | Status |
-|----------------|------------|--------------|--------|
-| **5.6.3** | `Dockerfile.engines.jmeter` | Source build | ✅ Modern (Recommended) |
-| **3.3** | `Dockerfile.engines.jmeter.legacy` | Pre-built binary | ✅ Legacy Support |
-| **Future versions** | Custom build with version ARG | Source build | ✅ Compatible |
+| JMeter Version      | Dockerfile                         | Build Method     | Status                  |
+| ------------------- | ---------------------------------- | ---------------- | ----------------------- |
+| **5.6.3**           | `Dockerfile.engines.jmeter`        | Source build     | ✅ Modern (Recommended) |
+| **3.3**             | `Dockerfile.engines.jmeter.legacy` | Pre-built binary | ✅ Legacy Support       |
+| **Future versions** | Custom build with version ARG      | Source build     | ✅ Compatible           |
 
 ### Agent Architecture
+
 - **Binary:** `setagaya-agent` (version-agnostic)
 - **Path Detection:** Automatic via `JMETER_BIN` environment variable
 - **Fallback:** Hardcoded JMeter 3.3 paths for backward compatibility
 - **Executables:** `jmeter` and `stoptest.sh` discovery
 
 ### Environment Variables
+
 ```dockerfile
 ENV JMETER_HOME=/opt/apache-jmeter-${JMETER_VERSION}
 ENV JMETER_BIN=${JMETER_HOME}/bin
@@ -293,18 +374,22 @@ ENV PATH=${JMETER_BIN}:${PATH}
 ## Metrics and Monitoring
 
 ### Metrics Pipeline
+
 ```
 Engine → Controller → API → WebUI/Grafana
 ```
 
 ### Real-time Metrics Flow
+
 1. **Engines** stream metrics via HTTP to controller endpoints
 2. **Controller** aggregates and forwards to Prometheus
 3. **API** provides server-sent events for live dashboard updates
 4. **Collection Metrics** identified by `collection_id` + `plan_id` labels
 
 ### Grafana Dashboards
+
 Pre-configured dashboards in `grafana/dashboards/`:
+
 - `setagaya.json` - Main platform dashboard
 - `setagaya_perf.json` - Performance metrics
 - `setagaya_engine.json` - Engine-specific metrics
@@ -312,6 +397,7 @@ Pre-configured dashboards in `grafana/dashboards/`:
 ## Error Handling
 
 ### Error Types
+
 ```go
 // Typed errors from model package
 var dbe *model.DBError
@@ -321,6 +407,7 @@ if errors.As(err, &dbe) {
 ```
 
 ### API Error Mapping
+
 - `s.handleErrors(w, err)` - Maps internal errors to HTTP status codes
 - Consistent error responses across all endpoints
 - Detailed logging for debugging
@@ -328,12 +415,14 @@ if errors.As(err, &dbe) {
 ## Database Integration
 
 ### MySQL Configuration
+
 - **Migrations:** Stored in `setagaya/db/` with timestamp prefixes
 - **Connection:** Global access via `config.SC.DBC`
 - **Patterns:** Active record pattern in `setagaya/model/`
 - **Testing:** Isolated test database setup
 
 ### Model Architecture
+
 - **Base Models:** Common functionality in `model/common.go`
 - **Validation:** Built-in validation for all models
 - **Relationships:** Proper foreign key management
@@ -342,12 +431,14 @@ if errors.As(err, &dbe) {
 ## Performance Characteristics
 
 ### Scalability
+
 - **Horizontal Scaling:** Multiple engine pods per plan
 - **Resource Isolation:** Kubernetes namespace separation
 - **Load Distribution:** Configurable engine placement
 - **Metrics Aggregation:** Efficient collection and storage
 
 ### Resource Requirements
+
 - **Minimum:** 2 CPU cores, 4GB RAM for control plane
 - **Engine Resources:** Configurable per test plan
 - **Storage:** Dependent on test data and result retention
@@ -355,13 +446,45 @@ if errors.As(err, &dbe) {
 
 ## Security Considerations
 
+### GitHub Actions Security Automation (2025)
+
+The platform includes comprehensive security automation via GitHub Actions workflows:
+
+#### Security Workflows
+
+Located in `.github/workflows/`:
+
+- **`security-check.yml`**: Comprehensive security scanning including Gosec, CodeQL, Trivy, TruffleHog
+- **`security-monitoring.yml`**: Continuous security monitoring with automated issue creation
+- **`security-advisory.yml`**: Security advisory management and emergency response procedures
+- **`code-quality.yml`**: Go linting, testing, Dockerfile validation, YAML checking
+- **`pr-validation.yml`**: PR title validation, diff analysis, security impact assessment
+
+#### GitHub Actions Security Features
+
+- **Multi-tool Security Scanning**: Gosec, CodeQL, Trivy, TruffleHog integration
+- **SBOM Generation**: Software Bill of Materials for supply chain security
+- **Automated Vulnerability Detection**: Weekly scans with critical issue escalation
+- **Dependency Management**: Dependabot integration for automated security updates
+- **Container Security**: Image vulnerability scanning and hardening validation
+- **Emergency Response**: Automated security advisory creation and notification
+
+#### Security Configuration Files
+
+- `.golangci.yml`: Comprehensive Go linting with security rules
+- `.yamllint.yml`: YAML validation standards
+- `.github/dependabot.yml`: Automated dependency update configuration
+- `.github/SECURITY_CHECKLIST.md`: 100+ point security release validation
+
 ### Container Security
+
 - **Non-root Execution:** All containers run as UID 1001
 - **Minimal Images:** Reduced attack surface
 - **Static Binaries:** No dynamic dependencies
 - **Network Policies:** Kubernetes-native isolation
 
 ### Data Security
+
 - **Authentication:** LDAP integration
 - **Authorization:** Group-based access control
 - **Data Isolation:** Owner-based resource separation
@@ -370,11 +493,13 @@ if errors.As(err, &dbe) {
 ## Deployment Options
 
 ### Development
+
 - **Local Kind Cluster:** Full stack deployment
 - **Hot Reloading:** Fast iteration via `make setagaya`
 - **Port Forwarding:** Direct access to services
 
 ### Production
+
 - **Kubernetes Cluster:** Any CNCF-compliant distribution
 - **Helm Charts:** Available in `helm_utils/`
 - **High Availability:** Multi-replica deployments
@@ -383,7 +508,9 @@ if errors.As(err, &dbe) {
 ## Extension Points
 
 ### Adding New Schedulers
+
 Implement `scheduler.EngineScheduler` interface:
+
 ```go
 type EngineScheduler interface {
     Deploy(collection *model.Collection) error
@@ -394,7 +521,9 @@ type EngineScheduler interface {
 ```
 
 ### Adding Storage Backends
+
 Implement `object_storage.Storage` interface:
+
 ```go
 type Storage interface {
     Upload(bucket, key string, data []byte) error
@@ -404,7 +533,9 @@ type Storage interface {
 ```
 
 ### Adding Engine Types
+
 Follow `setagaya/engines/jmeter/` structure:
+
 - Agent sidecar pattern
 - Metrics reporting endpoint
 - Configuration file management
@@ -413,17 +544,17 @@ Follow `setagaya/engines/jmeter/` structure:
 ## Migration and Upgrade
 
 ### Database Migrations
+
 - **Automated:** Run on startup
 - **Versioned:** Timestamp-based naming
 - **Rollback:** Manual process via SQL scripts
 
 ### Container Updates
+
 - **Rolling Updates:** Kubernetes-native
 - **Zero Downtime:** Service mesh compatibility
 - **Health Checks:** Kubernetes liveness/readiness probes
 
 ---
 
-**Last Updated:** September 6, 2025
-**Document Version:** 1.0
-**Next Review:** Quarterly or on major releases
+**Last Updated:** September 6, 2025 **Document Version:** 2.0 **Next Review:** Quarterly or on major releases

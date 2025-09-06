@@ -6,10 +6,10 @@ export GO111MODULE=on
 go mod download
 
 case "$target" in
-    "jmeter") GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/setagaya-agent $(pwd)/engines/jmeter
+    "jmeter") GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/setagaya-agent "$(pwd)/engines/jmeter"
     ;;
-    "controller") GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/setagaya-controller $(pwd)/controller/cmd
+    "controller") GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/setagaya-controller "$(pwd)/controller/cmd"
     ;;
     *)
-    GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/setagaya
+    GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/setagaya .
 esac

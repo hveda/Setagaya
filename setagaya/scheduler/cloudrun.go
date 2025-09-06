@@ -15,11 +15,11 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 
 	"google.golang.org/api/option"
-	"google.golang.org/api/run/v1"
+	runv1 "google.golang.org/api/run/v1"
 )
 
 type CloudRun struct {
-	rs          *run.APIService
+	rs          *runv1.APIService
 	projectID   string
 	nsProjectID string
 	region      string
@@ -34,7 +34,7 @@ type CloudRun struct {
 func NewCloudRun(cfg *config.ClusterConfig) *CloudRun {
 	ctx := context.Background()
 	//opts := option.ClientOption{}
-	rs, err := run.NewService(ctx, option.WithEndpoint(cfg.APIEndpoint))
+	rs, err := runv1.NewService(ctx, option.WithEndpoint(cfg.APIEndpoint))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,16 +68,16 @@ func (cr *CloudRun) makeLabels(projectID, collectionID, planID int64, engineID i
 	return m
 }
 
-func (cr *CloudRun) makeService(projectID, collectionID, planID int64, engineID int, ec *config.ExecutorContainer) *run.Service {
+func (cr *CloudRun) makeService(projectID, collectionID, planID int64, engineID int, ec *config.ExecutorContainer) *runv1.Service {
 	m := cr.makeLabels(projectID, collectionID, planID, engineID)
 	requests := map[string]string{
 		"cpu":    ec.CPU,
 		"memory": ec.Mem,
 	}
-	return &run.Service{
+	return &runv1.Service{
 		ApiVersion: "serving.knative.dev/v1",
 		Kind:       "Service",
-		Metadata: &run.ObjectMeta{
+		Metadata: &runv1.ObjectMeta{
 			Name:      cr.MakeName(projectID, collectionID, planID, engineID),
 			Namespace: cr.projectID,
 			Labels:    m,
@@ -85,24 +85,24 @@ func (cr *CloudRun) makeService(projectID, collectionID, planID int64, engineID 
 				"run.googleapis.com/launch-stage": "BETA",
 			},
 		},
-		Spec: &run.ServiceSpec{
-			Template: &run.RevisionTemplate{
-				Metadata: &run.ObjectMeta{
+		Spec: &runv1.ServiceSpec{
+			Template: &runv1.RevisionTemplate{
+				Metadata: &runv1.ObjectMeta{
 					Annotations: map[string]string{
 						"autoscaling.knative.dev/maxScale": "1",
 						"autoscaling.knative.dev/minScale": "1",
 					},
 				},
-				Spec: &run.RevisionSpec{
-					Containers: []*run.Container{
+				Spec: &runv1.RevisionSpec{
+					Containers: []*runv1.Container{
 						{
 							Image: ec.Image,
-							Ports: []*run.ContainerPort{
+							Ports: []*runv1.ContainerPort{
 								{
 									ContainerPort: 8080,
 								},
 							},
-							Resources: &run.ResourceRequirements{
+							Resources: &runv1.ResourceRequirements{
 								Requests: requests,
 								Limits:   requests,
 							},
@@ -154,8 +154,8 @@ func (cr *CloudRun) sendCreateServiceReq(projectID, collectionID, planID int64, 
 	}
 	// This is required by cloud run as we need to allow our engines to be triggered by all users
 	// https://cloud.google.com/run/docs/reference/rest/v1/projects.locations.services/setIamPolicy
-	policy := &run.Policy{
-		Bindings: []*run.Binding{
+	policy := &runv1.Policy{
+		Bindings: []*runv1.Binding{
 			{
 				Members: []string{"allUsers"},
 				Role:    "roles/run.invoker",
@@ -163,7 +163,7 @@ func (cr *CloudRun) sendCreateServiceReq(projectID, collectionID, planID int64, 
 		},
 	}
 	name := fmt.Sprintf("projects/%s/locations/%s/services/%s", cr.projectID, cr.region, svc.Metadata.Name)
-	iamRequest := &run.SetIamPolicyRequest{
+	iamRequest := &runv1.SetIamPolicyRequest{
 		Policy: policy,
 	}
 	_, err = cr.rs.Projects.Locations.Services.SetIamPolicy(name, iamRequest).Do()
@@ -213,30 +213,30 @@ func (cr *CloudRun) PurgeCollection(collectionID int64) error {
 	return nil
 }
 
-func (cr *CloudRun) getEnginesByCollection(collectionID int64) ([]*run.Service, error) {
+func (cr *CloudRun) getEnginesByCollection(collectionID int64) ([]*runv1.Service, error) {
 	label := makeCollectionLabel(collectionID)
 	resp, err := cr.rs.Namespaces.Services.List(cr.nsProjectID).LabelSelector(label).Do()
 	if err != nil {
-		return []*run.Service{}, err
+		return []*runv1.Service{}, err
 	}
 	return resp.Items, nil
 }
 
-func (cr *CloudRun) getEnginesByCollectionPlan(collectionID, planID int64) ([]*run.Service, error) {
+func (cr *CloudRun) getEnginesByCollectionPlan(collectionID, planID int64) ([]*runv1.Service, error) {
 	label := fmt.Sprintf("collection=%d, plan=%d", collectionID, planID)
 	resp, err := cr.rs.Namespaces.Services.List(cr.nsProjectID).LabelSelector(label).Do()
 	if err != nil {
-		return []*run.Service{}, err
+		return []*runv1.Service{}, err
 	}
 	return resp.Items, nil
 }
 
-func (cr *CloudRun) getReadyEnginesByCollection(collectionID int64) ([]*run.Service, error) {
+func (cr *CloudRun) getReadyEnginesByCollection(collectionID int64) ([]*runv1.Service, error) {
 	items, err := cr.getEnginesByCollection(collectionID)
 	if err != nil {
 		return items, err
 	}
-	r := []*run.Service{}
+	r := []*runv1.Service{}
 	for _, item := range items {
 		ready := true
 		for _, c := range item.Status.Conditions {

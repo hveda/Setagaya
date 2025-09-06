@@ -1,0 +1,42 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Setagaya Controller",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/setagaya",
+      "env": {
+        "env": "local"
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}/setagaya"
+    },
+    {
+      "name": "Debug Setagaya API",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/setagaya/api",
+      "env": {
+        "env": "local"
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}/setagaya"
+    },
+    {
+      "name": "Run Tests",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/setagaya",
+      "env": {
+        "env": "test"
+      },
+      "args": [
+        "-test.v"
+      ]
+    }
+  ]
+}

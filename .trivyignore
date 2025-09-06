@@ -1,0 +1,18 @@
+# Trivy ignore file for Setagaya security scanning
+# This file contains security findings that are acceptable for our use case
+
+# GOOGLE_APPLICATION_CREDENTIALS is now configurable via build args
+# and can be set to empty in security scanning contexts
+DS002
+
+# Allow HEALTHCHECK absence - we rely on Kubernetes health checks
+DKL-DI-0005
+
+# Allow latest tag in development contexts (not production)
+DKL-DI-0001
+
+# Allow privileged operations in build stage only
+DKL-DI-0002
+
+# Allow ADD instead of COPY for remote URLs in JMeter download
+DKL-DI-0010

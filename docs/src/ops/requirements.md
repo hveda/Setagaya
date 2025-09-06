@@ -12,7 +12,7 @@ We will discuss each of this dependencies separately.
 
 ## Architecture Overview
 
-![image](../images/setagaya-architecture.png)
+![image](../images/shibuya-architecture.png)
 
 ## Setagaya-controller
 
@@ -52,4 +52,3 @@ All the schema files are stored under db folder. You just need to load the schem
 ## Grafana
 
 ## Prometheus
-

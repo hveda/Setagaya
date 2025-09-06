@@ -1,5 +1,76 @@
 # Changelog
 
+## [2.0.0-rc](https://github.com/hveda/Setagaya/compare/v1.1.2...v2.0.0-rc) (2025-09-06)
+
+### 🚀 Major Platform Modernization Release Candidate
+
+#### ✨ Features
+* **Complete Container Modernization**: Security-hardened Docker builds with Go 1.25.1
+* **Multi-Stage Docker Builds**: Alpine 3.20 base images with minimal attack surface
+* **JMeter Version Compatibility**: Support for both JMeter 3.3 (legacy) and 5.6.3 (modern)
+* **GitHub Actions Security Suite**: Comprehensive security scanning and linting automation
+* **Enterprise Documentation**: Complete technical specifications and security policies
+* **Security-First Design**: All containers run as non-root user (UID 1001)
+* **Auto-Formatting Infrastructure**: Prettier, yamllint with git hooks integration
+
+#### 🔐 Security Enhancements
+* **Container Security**: Multi-stage builds with static compilation and security flags
+* **Automated Security Scanning**: Gosec, CodeQL, Trivy, secret scanning, SBOM generation
+* **Security Policy Framework**: Comprehensive vulnerability disclosure and incident response
+* **Continuous Monitoring**: Weekly security scans and dependency auditing
+* **License Compliance**: Automated open source license verification
+
+#### 🐳 Container Architecture Updates
+* **Modern Dockerfiles**: 5 security-hardened Dockerfiles with Alpine 3.20
+* **Version Agnostic Agent**: Dynamic JMeter path detection for version compatibility
+* **Static Compilation**: CGO_ENABLED=0 with security linker flags
+* **No HEALTHCHECK**: Eliminated OCI format warnings, Kubernetes-native health monitoring
+
+#### 📚 Documentation Overhaul
+* **Technical Specifications**: 430-line comprehensive technical documentation
+* **Security Documentation**: SECURITY.md with disclosure procedures and best practices
+* **AI Coding Guidelines**: Updated development patterns and modernization guidelines
+* **JMeter Compatibility Guide**: Clear migration path between JMeter versions
+* **Release Security Checklist**: 100+ security validation checkpoints
+
+#### 🛠️ Development Tools & Quality
+* **Auto-Formatting**: Prettier integration for YAML, Markdown, JSON, JavaScript
+* **YAML Validation**: yamllint with formatter-friendly configuration
+* **Git Hooks**: Pre-commit hooks with automatic formatting and validation
+* **Development Scripts**: npm-based tool management and setup automation
+
+#### 🤖 CI/CD Automation
+* **Security Workflows**: Multi-tool security scanning with automated issue creation
+* **Code Quality**: Comprehensive linting, testing, and validation automation
+* **PR Validation**: Semantic validation, security impact assessment, coverage requirements
+* **Dependency Management**: Automated dependency updates with Dependabot
+* **Emergency Response**: Critical security advisory automation and escalation
+
+#### 🔧 Configuration Enhancements
+* **Organization Agnostic**: Configurable documentation links for any organization
+* **Environment Detection**: Improved local development vs production configuration
+* **Storage Flexibility**: Enhanced support for multiple storage backends
+* **Security Configuration**: Comprehensive security settings and validation
+
+### 🛠️ Technical Improvements
+* **Go 1.25.1**: Latest stable Go version with security updates
+* **Kubernetes Compatibility**: Enhanced RBAC and security policies
+* **Metrics Pipeline**: Improved real-time metrics aggregation and streaming
+* **Error Handling**: Enhanced error types and consistent API responses
+* **Database Patterns**: Refined active record pattern with better validation
+
+### 📦 Build System Updates
+* **Component Builds**: Improved build.sh script with multiple targets
+* **Kind Integration**: Enhanced local development with kind cluster automation
+* **Image Management**: Efficient multi-platform builds and deployment
+* **Security Scanning**: Integrated security scanning in build pipeline
+
+### 🔄 Migration & Compatibility
+* **Backward Compatibility**: Maintains compatibility with existing JMeter 3.3 deployments
+* **Version Detection**: Automatic JMeter version detection and path configuration
+* **Legacy Support**: Dedicated legacy Dockerfile for JMeter 3.3 environments
+* **Smooth Migration**: Clear upgrade path from previous versions
+
 ## [1.1.2](https://github.com/hveda/Setagaya/compare/v1.1.1...v1.1.2) (2024-12-16)
 
 
