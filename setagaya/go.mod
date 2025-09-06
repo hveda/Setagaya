@@ -15,8 +15,8 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/prometheus/client_golang v1.11.1
 	github.com/sirupsen/logrus v1.6.0
-	github.com/stretchr/testify v1.7.0
-	go.uber.org/automaxprocs v1.4.0
+	github.com/stretchr/testify v1.7.1
+	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/oauth2 v0.0.0-20201208152858-08078c50e5b5
 	google.golang.org/api v0.36.0
 	gopkg.in/ldap.v2 v2.5.1
@@ -73,7 +73,7 @@ require (
 	gopkg.in/fsnotify.v1 v1.4.7 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
-	gopkg.in/yaml.v3 v3.0.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/klog/v2 v2.60.1 // indirect
 	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
