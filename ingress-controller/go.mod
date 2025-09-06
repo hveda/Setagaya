@@ -3,7 +3,7 @@ module ingress-controller
 go 1.20
 
 require (
-	github.com/sirupsen/logrus v1.9.0
+	github.com/sirupsen/logrus v1.9.3
 	go.uber.org/automaxprocs v1.5.1
 	k8s.io/api v0.20.0
 	k8s.io/apimachinery v0.20.0
