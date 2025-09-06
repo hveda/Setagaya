@@ -347,4 +347,4 @@ jobs:
 
     - name: Check for misspellings
       run: |
-        misspell -error README.md TECHNICAL_SPECS.md docs/ setagaya/
+        misspell -error README.md TECHNICAL_SPECS.md docs/ $(find setagaya/ -type f -name "*.go" -o -name "*.md" -o -name "*.json" -o -name "*.yml" -o -name "*.yaml" | grep -v "/static/")

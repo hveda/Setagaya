@@ -40,7 +40,9 @@ func SplitCSV(file []byte, totalSplits, currentSplit int) ([]byte, error) {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 	for _, s := range splittedCSV {
-		w.Write(s)
+		if err := w.Write(s); err != nil {
+			return nil, err
+		}
 	}
 	w.Flush()
 	if err := w.Error(); err != nil {

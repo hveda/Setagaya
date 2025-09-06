@@ -58,7 +58,9 @@ func newStorageClient(ctx context.Context) *storage.Client {
 		if err != nil {
 			log.Fatal(err)
 		}
-		hc.Transport.(*oauth2.Transport).Base = baseTransportWithProxy
+		if transport, ok := hc.Transport.(*oauth2.Transport); ok {
+			transport.Base = baseTransportWithProxy
+		}
 	}
 	client, err := storage.NewClient(ctx, option.WithHTTPClient(hc))
 	if err != nil {
@@ -105,7 +107,11 @@ func (gs *gcpStorage) Download(filename string) ([]byte, error) {
 	if err != nil {
 		return nil, gs.IfFileNotFoundWrapper(err)
 	}
-	defer rc.Close()
+	defer func() {
+		if cerr := rc.Close(); cerr != nil {
+			log.Printf("Failed to close reader: %v", cerr)
+		}
+	}()
 	data, err := ioutil.ReadAll(rc)
 	if err != nil {
 		return nil, err

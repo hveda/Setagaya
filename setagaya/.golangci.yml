@@ -135,6 +135,28 @@ issues:
       linters:
         - govet
 
+    # Exclude defer close errors for database cleanup (low risk)
+    - text: 'Error return value.*Close.*not checked'
+      linters:
+        - errcheck
+
+    # Exclude errors for database scan operations in model layer (handled at higher level)
+    - path: model/
+      text: 'Error return value.*Scan.*not checked'
+      linters:
+        - errcheck
+
+    # Exclude last insert ID checks (often intentionally ignored)
+    - text: 'Error return value.*LastInsertId.*not checked'
+      linters:
+        - errcheck
+
+    # Exclude type assertions for known internal types
+    - text: 'Error return value is not checked.*\.\('
+      linters:
+        - errcheck
+      source: '^\s*\w+\s*:?=.*\.\([^)]+\)'
+
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0

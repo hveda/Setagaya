@@ -35,6 +35,9 @@ func GetHistory(startedTime, endTime string) ([]*CollectionLaunchHistory, error)
 		return nil, err
 	}
 	rs, err := q.Query(startedTime, endTime)
+	if err != nil {
+		return nil, err
+	}
 	defer rs.Close()
 
 	history := []*CollectionLaunchHistory{}
@@ -100,7 +103,7 @@ func GetUsageSummary(startedTime, endTime string) (*TotalUsageSummary, error) {
 	for _, p := range collectionsToProjects {
 		sid := p.SID
 		if sid == "" {
-			sid = "unknwon"
+			sid = "unknown"
 		}
 		contacts := s.Contacts[sid]
 		if !inArray(contacts, p.Owner) {

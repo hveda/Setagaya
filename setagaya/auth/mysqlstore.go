@@ -132,11 +132,21 @@ func NewMySQLStoreFromConnection(db *sql.DB, tableName string, path string, maxA
 }
 
 func (m *MySQLStore) Close() {
-	m.stmtSelect.Close()
-	m.stmtUpdate.Close()
-	m.stmtDelete.Close()
-	m.stmtInsert.Close()
-	m.db.Close()
+	if err := m.stmtSelect.Close(); err != nil {
+		log.Printf("Failed to close select statement: %v", err)
+	}
+	if err := m.stmtUpdate.Close(); err != nil {
+		log.Printf("Failed to close update statement: %v", err)
+	}
+	if err := m.stmtDelete.Close(); err != nil {
+		log.Printf("Failed to close delete statement: %v", err)
+	}
+	if err := m.stmtInsert.Close(); err != nil {
+		log.Printf("Failed to close insert statement: %v", err)
+	}
+	if err := m.db.Close(); err != nil {
+		log.Printf("Failed to close database connection: %v", err)
+	}
 }
 
 func (m *MySQLStore) Get(r *http.Request, name string) (*sessions.Session, error) {

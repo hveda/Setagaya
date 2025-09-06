@@ -698,9 +698,11 @@ func (s *SetagayaAPI) streamCollectionMetrics(w http.ResponseWriter, r *http.Req
 		ClientID:     fmt.Sprintf("%s-%s", clientIP, utils.RandStringRunes(6)),
 	}
 	s.ctr.ApiNewClients <- item
-	notify := w.(http.CloseNotifier).CloseNotify()
+
+	// Use context for connection closure detection (safer than deprecated CloseNotifier)
+	ctx := r.Context()
 	go func() {
-		<-notify
+		<-ctx.Done()
 		s.ctr.ApiClosingClients <- item
 	}()
 	for event := range item.StreamClient {

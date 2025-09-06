@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"mime/multipart"
 	"net/http"
 
@@ -28,7 +29,11 @@ func (l localStorage) GetUrl(filename string) string {
 }
 
 func (l localStorage) Upload(filename string, content io.ReadCloser) error {
-	defer content.Close()
+	defer func() {
+		if cerr := content.Close(); cerr != nil {
+			log.Printf("Failed to close content reader: %v", cerr)
+		}
+	}()
 
 	var b bytes.Buffer
 	var err error
@@ -40,7 +45,9 @@ func (l localStorage) Upload(filename string, content io.ReadCloser) error {
 	if _, err = io.Copy(fw, content); err != nil {
 		return err
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		return err
+	}
 
 	url := l.GetUrl(filename)
 	req, err := http.NewRequest("PUT", url, &b)
@@ -70,7 +77,11 @@ func (l localStorage) Delete(filename string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log.Printf("Failed to close response body: %v", cerr)
+		}
+	}()
 	if resp.StatusCode == 204 {
 		return nil
 	}
@@ -88,7 +99,11 @@ func (l localStorage) Download(filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log.Printf("Failed to close response body: %v", cerr)
+		}
+	}()
 	if resp.StatusCode == 404 {
 		return nil, FileNotFoundError()
 	}

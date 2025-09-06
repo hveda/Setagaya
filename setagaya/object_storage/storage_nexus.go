@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 
 	"github.com/hveda/Setagaya/setagaya/config"
@@ -30,7 +31,11 @@ func (n nexusStorage) GetUrl(filename string) string {
 }
 
 func (n nexusStorage) Upload(filename string, content io.ReadCloser) error {
-	defer content.Close()
+	defer func() {
+		if cerr := content.Close(); cerr != nil {
+			log.Printf("Failed to close content reader: %v", cerr)
+		}
+	}()
 
 	url := n.GetUrl(filename)
 	req, err := http.NewRequest("PUT", url, content)
@@ -44,7 +49,11 @@ func (n nexusStorage) Upload(filename string, content io.ReadCloser) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log.Printf("Failed to close response body: %v", cerr)
+		}
+	}()
 	if resp.StatusCode == 201 {
 		return nil
 	}
@@ -63,7 +72,11 @@ func (n nexusStorage) Delete(filename string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log.Printf("Failed to close response body: %v", cerr)
+		}
+	}()
 	if resp.StatusCode == 204 {
 		return nil
 	}
@@ -82,7 +95,11 @@ func (n nexusStorage) Download(filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log.Printf("Failed to close response body: %v", cerr)
+		}
+	}()
 	if resp.StatusCode == 404 {
 		return nil, FileNotFoundError()
 	}

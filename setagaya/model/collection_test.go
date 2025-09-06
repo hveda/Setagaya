@@ -124,12 +124,14 @@ func TestStorePlans(t *testing.T) {
 	ec = &ExecutionCollection{}
 	ec.Tests = []*ExecutionPlan{ep1, ep2}
 	err = c.Store(ec)
+	assert.NoError(t, err)
 	eps, _ = c.GetExecutionPlans()
 	assert.Equal(t, 2, eps[0].Duration)
 
 	ec = &ExecutionCollection{}
 	ec.Tests = []*ExecutionPlan{ep1}
 	err = c.Store(ec)
+	assert.NoError(t, err)
 	assert.Equal(t, 1, len(eps))
 }
 
@@ -194,5 +196,6 @@ func TestCollectionRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	runID, err = c.GetCurrentRun()
+	assert.NoError(t, err)
 	assert.Equal(t, int64(0), runID)
 }

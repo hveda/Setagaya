@@ -41,13 +41,16 @@ func NewK8sClientManager(cfg *config.ClusterConfig) *K8sClientManager {
 		log.Warning(err)
 	}
 	metricsc, err := config.GetMetricsClient()
-	
+	if err != nil {
+		log.Warning(err)
+	}
+
 	// Get the executor config
 	var executorConfig *config.ExecutorConfig
 	if config.SC != nil {
 		executorConfig = config.SC.ExecutorConfig
 	}
-	
+
 	return &K8sClientManager{
 		ExecutorConfig: executorConfig,
 		client:         c,
@@ -591,9 +594,12 @@ func (kcm *K8sClientManager) CollectionStatus(projectID, collectionID int64, eps
 		}
 	}
 	// if it's unrechable, we can assume it's not in progress as well
-	fieldSelector := fmt.Sprintf("status.phase=Running")
-	ingressPods := kcm.GetPodsByCollection(collectionID, fieldSelector)
-	ingressControllerDeployed = len(ingressPods) >= 1
+	// If we didn't find an ingress controller in the main pod list, check specifically for running ingress pods
+	if !ingressControllerDeployed {
+		fieldSelector := fmt.Sprintf("status.phase=Running")
+		ingressPods := kcm.GetPodsByCollection(collectionID, fieldSelector)
+		ingressControllerDeployed = len(ingressPods) >= 1
+	}
 	if !ingressControllerDeployed || !enginesReady {
 		for _, ps := range planStatuses {
 			cs.Plans = append(cs.Plans, ps)

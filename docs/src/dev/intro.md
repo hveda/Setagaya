@@ -2,7 +2,7 @@
 
 If we split the work of Setagaya into two big categories, these are the two:
 
-1. Frontend(UI). They are mainly based on Boostrap and Vue.js.
+1. Frontend(UI). They are mainly based on Bootstrap and Vue.js.
 2. Backend(API, controller, setagaya-agent). All of them are written in Go.
 
 ## Backend
@@ -13,7 +13,7 @@ Setagaya follows RESTful API standard. They can be found in `setagaya/api/main.g
 
 ### Controller
 
-This is where the core Setagaya functionality is. Below is the core functionaties of the controller:
+This is where the core Setagaya functionality is. Below is the core functionalities of the controller:
 
 1. Engines lifecycle management with the scheduler, Kubernetes is the only scheduler we are supporting. Lifecycle management includes launch/purge/healthcheck the engines.
 2. Trigger engines and stop the tests engines. This will essentially start and stop the tests.
