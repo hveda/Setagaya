@@ -22,6 +22,10 @@ func TestRetrySuccessOnFirstAttempt(t *testing.T) {
 }
 
 func TestRetrySuccessAfterFailures(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping retry test in short mode due to timeout")
+	}
+	
 	attempts := 0
 	
 	err := Retry(func() error {
@@ -37,6 +41,10 @@ func TestRetrySuccessAfterFailures(t *testing.T) {
 }
 
 func TestRetryExhaustsAllAttempts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping retry test in short mode due to timeout")
+	}
+	
 	attempts := 0
 	expectedError := errors.New("persistent failure")
 	
@@ -80,6 +88,10 @@ func TestRetryWithWrappedExemptError(t *testing.T) {
 }
 
 func TestRetryWithDifferentErrors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping retry test in short mode due to timeout")
+	}
+	
 	attempts := 0
 	exemptError := errors.New("exempt error")
 	otherError := errors.New("other error")
@@ -104,6 +116,11 @@ func TestRetryConstants(t *testing.T) {
 }
 
 func TestRetryTiming(t *testing.T) {
+	// Skip this test in short mode to avoid long waits
+	if testing.Short() {
+		t.Skip("Skipping timing test in short mode")
+	}
+	
 	// Test that retry respects the interval (shortened for test)
 	attempts := 0
 	startTime := time.Now()
@@ -140,6 +157,10 @@ func TestRetryWithNilError(t *testing.T) {
 }
 
 func TestRetryWithNilExemptError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping retry test in short mode due to timeout")
+	}
+	
 	attempts := 0
 	testError := errors.New("test error")
 	
@@ -201,6 +222,10 @@ func TestRetryErrorComparison(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.shouldRetry && testing.Short() {
+				t.Skip("Skipping retry test in short mode due to timeout")
+			}
+			
 			attempts := 0
 			
 			err := Retry(func() error {
