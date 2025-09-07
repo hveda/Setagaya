@@ -98,7 +98,7 @@ jobs:
 
     - name: Analyze changed files
       id: changes
-      uses: dorny/paths-filter@v2
+      uses: dorny/paths-filter@v3
       with:
         filters: |
           go:
@@ -232,7 +232,7 @@ jobs:
 
     - name: Check for security-sensitive changes
       id: security-check
-      uses: dorny/paths-filter@v2
+      uses: dorny/paths-filter@v3
       with:
         filters: |
           auth:
@@ -314,7 +314,7 @@ jobs:
 
     - name: Check for dependency changes
       id: deps
-      uses: dorny/paths-filter@v2
+      uses: dorny/paths-filter@v3
       with:
         filters: |
           go_deps:
