@@ -43,7 +43,9 @@ type JSONMessage struct {
 func (s *SetagayaAPI) jsonise(w http.ResponseWriter, status int, content interface{}) {
 	w.WriteHeader(status)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(content)
+	if err := json.NewEncoder(w).Encode(content); err != nil {
+		log.Printf("Failed to encode JSON response: %v", err)
+	}
 }
 
 func (s *SetagayaAPI) makeRespMessage(message string) *JSONMessage {
@@ -91,7 +93,11 @@ func (s *SetagayaAPI) handleErrors(w http.ResponseWriter, err error) {
 }
 
 func (s *SetagayaAPI) projectsGetHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	account := r.Context().Value(accountKey).(*model.Account)
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
 	qs := r.URL.Query()
 	var includeCollections, includePlans bool
 	var err error
@@ -113,17 +119,25 @@ func (s *SetagayaAPI) projectsGetHandler(w http.ResponseWriter, r *http.Request,
 	} else {
 		includePlans = false
 	}
-	projects, _ := model.GetProjectsByOwners(account.ML)
+	projects, err := model.GetProjectsByOwners(account.ML)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
 	if !includeCollections && !includePlans {
 		s.jsonise(w, http.StatusOK, projects)
 		return
 	}
 	for _, p := range projects {
 		if includeCollections {
-			p.Collections, _ = p.GetCollections()
+			if collections, err := p.GetCollections(); err == nil {
+				p.Collections = collections
+			}
 		}
 		if includePlans {
-			p.Plans, _ = p.GetPlans()
+			if plans, err := p.GetPlans(); err == nil {
+				p.Plans = plans
+			}
 		}
 	}
 	s.jsonise(w, http.StatusOK, projects)
@@ -143,8 +157,15 @@ func (s *SetagayaAPI) projectUpdateHandler(w http.ResponseWriter, _ *http.Reques
 }
 
 func (s *SetagayaAPI) projectCreateHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	account := r.Context().Value(accountKey).(*model.Account)
-	r.ParseForm()
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.handleErrors(w, makeInvalidRequestError("failed to parse form"))
+		return
+	}
 	name := r.Form.Get("name")
 	if name == "" {
 		s.handleErrors(w, makeInvalidRequestError("Project name cannot be empty"))
@@ -185,7 +206,11 @@ func (s *SetagayaAPI) projectCreateHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *SetagayaAPI) projectDeleteHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	account := r.Context().Value(accountKey).(*model.Account)
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
 	project, err := getProject(params.ByName("project_id"))
 	if err != nil {
 		s.handleErrors(w, err)
@@ -213,7 +238,11 @@ func (s *SetagayaAPI) projectDeleteHandler(w http.ResponseWriter, r *http.Reques
 		s.handleErrors(w, makeInvalidRequestError("You cannot delete a project that has plans"))
 		return
 	}
-	project.Delete()
+	if err := project.Delete(); err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+	s.jsonise(w, http.StatusOK, s.makeRespMessage("Project deleted successfully"))
 }
 
 func (s *SetagayaAPI) planGetHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
@@ -246,8 +275,15 @@ func (s *SetagayaAPI) collectionAdminGetHandler(w http.ResponseWriter, r *http.R
 }
 
 func (s *SetagayaAPI) planCreateHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	account := r.Context().Value(accountKey).(*model.Account)
-	r.ParseForm()
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.handleErrors(w, makeInvalidRequestError("failed to parse form"))
+		return
+	}
 	projectID := r.Form.Get("project_id")
 	project, err := getProject(projectID)
 	if err != nil {
@@ -276,7 +312,11 @@ func (s *SetagayaAPI) planCreateHandler(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *SetagayaAPI) planDeleteHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	account := r.Context().Value(accountKey).(*model.Account)
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
 	plan, err := getPlan(params.ByName("plan_id"))
 	if err != nil {
 		s.handleErrors(w, err)
@@ -301,7 +341,10 @@ func (s *SetagayaAPI) planDeleteHandler(w http.ResponseWriter, r *http.Request, 
 		s.handleErrors(w, makeInvalidRequestError("plan is being used"))
 		return
 	}
-	plan.Delete()
+	if err := plan.Delete(); err != nil {
+		s.handleErrors(w, err)
+		return
+	}
 }
 
 func (s *SetagayaAPI) planFilesUploadHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
@@ -310,7 +353,10 @@ func (s *SetagayaAPI) planFilesUploadHandler(w http.ResponseWriter, r *http.Requ
 		s.handleErrors(w, err)
 		return
 	}
-	r.ParseMultipartForm(100 << 20) //parse 100 MB of data
+	if err := r.ParseMultipartForm(100 << 20); err != nil { //parse 100 MB of data
+		s.handleErrors(w, makeInvalidRequestError("failed to parse multipart form"))
+		return
+	}
 	file, handler, err := r.FormFile("planFile")
 	if err != nil {
 		s.handleErrors(w, makeInvalidRequestError("Something wrong with file you uploaded"))
@@ -322,7 +368,9 @@ func (s *SetagayaAPI) planFilesUploadHandler(w http.ResponseWriter, r *http.Requ
 		s.handleErrors(w, err)
 		return
 	}
-	w.Write([]byte("success"))
+	if _, err := w.Write([]byte("success")); err != nil {
+		log.Printf("Error writing success response: %v", err)
+	}
 }
 
 func (s *SetagayaAPI) planFilesGetHandler(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
@@ -339,7 +387,10 @@ func (s *SetagayaAPI) collectionFilesUploadHandler(w http.ResponseWriter, r *htt
 		s.handleErrors(w, err)
 		return
 	}
-	r.ParseMultipartForm(100 << 20) //parse 100 MB of data
+	if err := r.ParseMultipartForm(100 << 20); err != nil { //parse 100 MB of data
+		s.handleErrors(w, makeInvalidRequestError("failed to parse multipart form"))
+		return
+	}
 	file, handler, err := r.FormFile("collectionFile")
 	if err != nil {
 		s.handleErrors(w, makeInvalidRequestError("Something wrong with file you uploaded"))
@@ -350,7 +401,9 @@ func (s *SetagayaAPI) collectionFilesUploadHandler(w http.ResponseWriter, r *htt
 		s.handleErrors(w, err)
 		return
 	}
-	w.Write([]byte("success"))
+	if _, err := w.Write([]byte("success")); err != nil {
+		log.Printf("Error writing success response: %v", err)
+	}
 }
 
 func (s *SetagayaAPI) collectionFilesDeleteHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
@@ -359,7 +412,10 @@ func (s *SetagayaAPI) collectionFilesDeleteHandler(w http.ResponseWriter, r *htt
 		s.handleErrors(w, err)
 		return
 	}
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		s.handleErrors(w, makeInvalidRequestError("failed to parse form"))
+		return
+	}
 	filename := r.Form.Get("filename")
 	if filename == "" {
 		s.handleErrors(w, makeInvalidRequestError("Collection file name cannot be empty"))
@@ -370,7 +426,9 @@ func (s *SetagayaAPI) collectionFilesDeleteHandler(w http.ResponseWriter, r *htt
 		s.handleErrors(w, makeInternalServerError("Deletion was unsuccessful"))
 		return
 	}
-	w.Write([]byte("Deleted successfully"))
+	if _, err := w.Write([]byte("Deleted successfully")); err != nil {
+		log.Printf("Error writing deletion response: %v", err)
+	}
 }
 
 func (s *SetagayaAPI) planFilesDeleteHandler(w http.ResponseWriter, r *http.Request, param httprouter.Params) {
@@ -379,7 +437,10 @@ func (s *SetagayaAPI) planFilesDeleteHandler(w http.ResponseWriter, r *http.Requ
 		s.handleErrors(w, err)
 		return
 	}
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		s.handleErrors(w, makeInvalidRequestError("failed to parse form"))
+		return
+	}
 	filename := r.Form.Get("filename")
 	if filename == "" {
 		s.handleErrors(w, makeInvalidRequestError("plan file name cannot be empty"))
@@ -390,12 +451,21 @@ func (s *SetagayaAPI) planFilesDeleteHandler(w http.ResponseWriter, r *http.Requ
 		s.handleErrors(w, makeInternalServerError("Deletetion was unsuccessful"))
 		return
 	}
-	w.Write([]byte("Deleted successfully"))
+	if _, err := w.Write([]byte("Deleted successfully")); err != nil {
+		log.Printf("Error writing deletion response: %v", err)
+	}
 }
 
 func (s *SetagayaAPI) collectionCreateHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	account := r.Context().Value(accountKey).(*model.Account)
-	r.ParseForm()
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.handleErrors(w, makeInvalidRequestError("failed to parse form"))
+		return
+	}
 	collectionName := r.Form.Get("name")
 	if collectionName == "" {
 		s.handleErrors(w, makeInvalidRequestError("collection name cannot be empty"))
@@ -443,7 +513,10 @@ func (s *SetagayaAPI) collectionDeleteHandler(w http.ResponseWriter, r *http.Req
 		s.handleErrors(w, makeInvalidRequestError("You cannot delete the collection during testing period"))
 		return
 	}
-	collection.Delete()
+	if err := collection.Delete(); err != nil {
+		s.handleErrors(w, err)
+		return
+	}
 }
 
 func (s *SetagayaAPI) collectionGetHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
@@ -453,8 +526,12 @@ func (s *SetagayaAPI) collectionGetHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// we ignore errors here as the front end will do the retry
-	collection.ExecutionPlans, _ = collection.GetExecutionPlans()
-	collection.RunHistories, _ = collection.GetRuns()
+	if executionPlans, err := collection.GetExecutionPlans(); err == nil {
+		collection.ExecutionPlans = executionPlans
+	}
+	if runHistories, err := collection.GetRuns(); err == nil {
+		collection.RunHistories = runHistories
+	}
 	s.jsonise(w, http.StatusOK, collection)
 }
 
@@ -492,7 +569,10 @@ func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 	e := new(model.ExecutionWrapper)
-	r.ParseMultipartForm(1 << 20) //parse 1 MB of data
+	if err := r.ParseMultipartForm(1 << 20); err != nil { //parse 1 MB of data
+		s.handleErrors(w, makeInvalidRequestError("form"))
+		return
+	}
 	file, _, err := r.FormFile("collectionYAML")
 	if err != nil {
 		s.handleErrors(w, makeInvalidResourceError("file"))

@@ -42,7 +42,10 @@ func (je *jmeterEngine) readMetrics() chan *setagayaMetric {
 				}
 				label := line[2]
 				status := line[3]
-				threads, _ := strconv.ParseFloat(line[9], 64)
+				threads, err := strconv.ParseFloat(line[9], 64)
+				if err != nil {
+					threads = 0 // default to 0 if parsing fails
+				}
 				latency, err := strconv.ParseFloat(line[10], 64)
 				if err != nil {
 					continue outer // no csv headers

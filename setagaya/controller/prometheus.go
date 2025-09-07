@@ -6,7 +6,6 @@ import (
 
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/model"
-
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 )
@@ -26,7 +25,11 @@ func syncMapInserter(sm *sync.Map, id int64, value string) {
 		syncMapInserter(sm, id, value)
 		return
 	}
-	nestedSyncMap := nestedSyncMapInterface.(*sync.Map)
+	nestedSyncMap, ok := nestedSyncMapInterface.(*sync.Map)
+	if !ok {
+		log.Printf("Error: nestedSyncMapInterface is not *sync.Map: %v", nestedSyncMapInterface)
+		return
+	}
 	nestedSyncMap.Store(value, struct{}{})
 }
 
@@ -80,33 +83,59 @@ func (c *Controller) deleteMetrics(runID string, collectionID string, planID str
 }
 
 func (c *Controller) deleteMetricsUsingLabelStore(runID string, collectionID string, planID string, engines int) {
-	runID_int, _ := strconv.ParseInt(runID, 10, 64)
+	runID_int, err := strconv.ParseInt(runID, 10, 64)
+	if err != nil {
+		log.Printf("Error parsing run ID %s: %v", runID, err)
+		return
+	}
 	labelInterface, ok := c.LabelStore.Load(runID_int)
 	if !ok {
 		return
 	}
-	labelMap := labelInterface.(*sync.Map)
+	labelMap, ok := labelInterface.(*sync.Map)
+	if !ok {
+		log.Printf("Error: labelInterface is not *sync.Map: %v", labelInterface)
+		return
+	}
 	labelMap.Range(func(label interface{}, _ interface{}) bool {
+		labelStr, ok := label.(string)
+		if !ok {
+			log.Printf("Error: label is not string: %v", label)
+			return true // continue iteration
+		}
 		config.LabelLatencySummary.Delete(prometheus.Labels{
 			"collection_id": collectionID,
 			"run_id":        runID,
-			"label":         label.(string),
+			"label":         labelStr,
 		})
 		c.deleteMetricsUsingStatusStore(runID, collectionID, planID,
-			engines, label.(string))
+			engines, labelStr)
 		return true
 	})
 }
 
 func (c *Controller) deleteMetricsUsingStatusStore(runID string, collectionID string,
 	planID string, engines int, label string) {
-	runID_int, _ := strconv.ParseInt(runID, 10, 64)
+	runID_int, err := strconv.ParseInt(runID, 10, 64)
+	if err != nil {
+		log.Printf("Error parsing run ID %s: %v", runID, err)
+		return
+	}
 	statusInterface, ok := c.StatusStore.Load(runID_int)
 	if !ok {
 		return
 	}
-	statusMap := statusInterface.(*sync.Map)
+	statusMap, ok := statusInterface.(*sync.Map)
+	if !ok {
+		log.Printf("Error: statusInterface is not *sync.Map: %v", statusInterface)
+		return
+	}
 	statusMap.Range(func(status interface{}, _ interface{}) bool {
+		statusStr, ok := status.(string)
+		if !ok {
+			log.Printf("Error: status is not string: %v", status)
+			return true // continue iteration
+		}
 		for i := 0; i < engines; i++ {
 			config.StatusCounter.Delete(prometheus.Labels{
 				"collection_id": collectionID,
@@ -114,7 +143,7 @@ func (c *Controller) deleteMetricsUsingStatusStore(runID string, collectionID st
 				"plan_id":       planID,
 				"engine_no":     strconv.Itoa(i),
 				"label":         label,
-				"status":        status.(string),
+				"status":        statusStr,
 			})
 		}
 		return true

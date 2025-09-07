@@ -57,7 +57,9 @@ func (c *Controller) TermAndPurgeCollection(collection *model.Collection) (err e
 			err = e
 		}
 	}()
-	c.TermCollection(collection, true)
+	if err := c.TermCollection(collection, true); err != nil {
+		return err
+	}
 	if err = c.Scheduler.PurgeCollection(collection.ID); err != nil {
 		return err
 	}
@@ -126,10 +128,14 @@ func (c *Controller) TriggerCollection(collection *model.Collection) error {
 			triggerErrors = append(triggerErrors, err)
 		}
 	}
-	collection.NewRun(runID)
+	if err := collection.NewRun(runID); err != nil {
+		log.Printf("Error creating new run: %v", err)
+	}
 	if len(triggerErrors) == len(collection.ExecutionPlans) {
 		// every plan in collection has error
-		c.TermCollection(collection, true)
+		if err := c.TermCollection(collection, true); err != nil {
+			log.Printf("Error terminating collection: %v", err)
+		}
 	}
 	if len(triggerErrors) > 0 {
 		return fmt.Errorf("triggering errors %v", triggerErrors)
@@ -160,7 +166,11 @@ func (c *Controller) TermCollection(collection *model.Collection, force bool) (e
 		}(ep)
 	}
 	wg.Wait()
-	collection.StopRun()
-	collection.RunFinish(currRunID)
+	if err := collection.StopRun(); err != nil {
+		log.Printf("Error stopping run: %v", err)
+	}
+	if err := collection.RunFinish(currRunID); err != nil {
+		log.Printf("Error finishing run: %v", err)
+	}
 	return e
 }

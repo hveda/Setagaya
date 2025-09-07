@@ -49,7 +49,11 @@ func validateJMeterPath(path string) bool {
 	}
 
 	// Allow paths that match the pattern /opt/apache-jmeter-X.X.X/bin
-	matched, _ := regexp.MatchString(`^/opt/apache-jmeter-\d+\.\d+\.\d+/bin$`, path)
+	matched, err := regexp.MatchString(`^/opt/apache-jmeter-\d+\.\d+\.\d+/bin$`, path)
+	if err != nil {
+		log.Printf("Error matching regex pattern: %v", err)
+		return false
+	}
 	return matched
 }
 
@@ -137,7 +141,11 @@ func NewServer() (sw *SetagayaWrapper) {
 		storageClient:  sos.Client.Storage,
 	}
 	sw.collectionID, sw.planID = findCollectionIDPlanID()
-	reader, writer, _ := os.Pipe()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		log.Printf("Error creating pipe: %v", err)
+		return
+	}
 	mw := io.MultiWriter(writer, os.Stderr)
 	sw.reader = reader
 	sw.writer = mw
@@ -173,7 +181,11 @@ func parseRawMetrics(rawLine string) (enginesModel.SetagayaMetric, error) {
 	}
 	label := line[2]
 	status := line[3]
-	threads, _ := strconv.ParseFloat(line[9], 64)
+	threads, err := strconv.ParseFloat(line[9], 64)
+	if err != nil {
+		threads = 0 // default to 0 if parsing fails
+		log.Printf("Error parsing threads from line[9] '%s': %v", line[9], err)
+	}
 	latency, err := strconv.ParseFloat(line[10], 64)
 	if err != nil {
 		return enginesModel.SetagayaMetric{}, err
@@ -260,7 +272,9 @@ func (sw *SetagayaWrapper) tailJemeter() {
 	for {
 		select {
 		case <-sw.closeSignal:
-			t.Stop()
+			if err := t.Stop(); err != nil {
+				log.Printf("Error stopping tail: %v", err)
+			}
 			return
 		case line := <-t.Lines:
 			sw.Bus <- line.Text
@@ -323,7 +337,9 @@ func (sw *SetagayaWrapper) stopHandler(w http.ResponseWriter, r *http.Request) {
 
 	// #nosec G204 - JMETER_SHUTDOWN is validated and controlled by container environment
 	cmd := exec.Command(JMETER_SHUTDOWN)
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		log.Printf("Error running JMeter shutdown command: %v", err)
+	}
 	for sw.getPid() != 0 {
 		time.Sleep(time.Second * 2)
 	}
@@ -373,7 +389,9 @@ func (sw *SetagayaWrapper) runCommand() int {
 	pid := cmd.Process.Pid
 	sw.setPid(pid)
 	go func() {
-		cmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			log.Printf("setagaya-agent: Error waiting for command: %v", err)
+		}
 		log.Printf("setagaya-agent: Shutdown is finished, resetting pid to zero")
 		sw.setPid(0)
 	}()
@@ -566,10 +584,14 @@ func (sw *SetagayaWrapper) startHandler(w http.ResponseWriter, r *http.Request) 
 		pid := sw.runCommand()
 		go sw.tailJemeter()
 		log.Printf("setagaya-agent: Start running Jmeter process with pid: %d", pid)
-		w.Write([]byte(strconv.Itoa(pid)))
+		if _, err := w.Write([]byte(strconv.Itoa(pid))); err != nil {
+			log.Printf("Error writing PID response: %v", err)
+		}
 		return
 	}
-	w.Write([]byte("hmm"))
+	if _, err := w.Write([]byte("hmm")); err != nil {
+		log.Printf("Error writing response: %v", err)
+	}
 }
 
 func (sw *SetagayaWrapper) progressHandler(w http.ResponseWriter, r *http.Request) {
@@ -582,7 +604,9 @@ func (sw *SetagayaWrapper) progressHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (sw *SetagayaWrapper) stdoutHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write(sw.buffer)
+	if _, err := w.Write(sw.buffer); err != nil {
+		log.Printf("Error writing stdout response: %v", err)
+	}
 }
 
 // This func reports the cpu/memory usage of the engine

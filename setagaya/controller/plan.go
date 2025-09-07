@@ -175,16 +175,25 @@ func (pc *PlanController) term(force bool, connectedEngines *sync.Map) error {
 		item, ok := connectedEngines.Load(key)
 		if ok {
 			wg.Add(1)
-			engine := item.(setagayaEngine)
+			engine, ok := item.(setagayaEngine)
+			if !ok {
+				log.Printf("Error: item is not setagayaEngine: %v", item)
+				wg.Done()
+				continue
+			}
 			go func(engine setagayaEngine) {
 				defer wg.Done()
-				engine.terminate(force)
+				if err := engine.terminate(force); err != nil {
+					log.Printf("Error terminating engine %s: %v", key, err)
+				}
 				connectedEngines.Delete(key)
 				log.Printf("Engine %s is terminated", key)
 			}(engine)
 		}
 	}
 	wg.Wait()
-	model.DeleteRunningPlan(pc.collection.ID, ep.PlanID)
+	if err := model.DeleteRunningPlan(pc.collection.ID, ep.PlanID); err != nil {
+		log.Printf("Error deleting running plan: %v", err)
+	}
 	return nil
 }

@@ -214,14 +214,22 @@ func (m *MySQLStore) insert(session *sessions.Session) error {
 	if crOn == nil {
 		createdOn = time.Now()
 	} else {
-		createdOn = crOn.(time.Time)
+		if crOnTime, ok := crOn.(time.Time); ok {
+			createdOn = crOnTime
+		} else {
+			createdOn = time.Now()
+		}
 	}
 	modifiedOn = createdOn
 	exOn := session.Values["expires_on"]
 	if exOn == nil {
 		expiresOn = time.Now().Add(time.Second * time.Duration(session.Options.MaxAge))
 	} else {
-		expiresOn = exOn.(time.Time)
+		if exOnTime, ok := exOn.(time.Time); ok {
+			expiresOn = exOnTime
+		} else {
+			expiresOn = time.Now().Add(time.Second * time.Duration(session.Options.MaxAge))
+		}
 	}
 	delete(session.Values, "created_on")
 	delete(session.Values, "expires_on")
@@ -271,14 +279,22 @@ func (m *MySQLStore) save(session *sessions.Session) error {
 	if crOn == nil {
 		createdOn = time.Now()
 	} else {
-		createdOn = crOn.(time.Time)
+		if crOnTime, ok := crOn.(time.Time); ok {
+			createdOn = crOnTime
+		} else {
+			createdOn = time.Now()
+		}
 	}
 
 	exOn := session.Values["expires_on"]
 	if exOn == nil {
 		expiresOn = time.Now().Add(time.Second * time.Duration(session.Options.MaxAge))
 	} else {
-		expiresOn = exOn.(time.Time)
+		if exOnTime, ok := exOn.(time.Time); ok {
+			expiresOn = exOnTime
+		} else {
+			expiresOn = time.Now().Add(time.Second * time.Duration(session.Options.MaxAge))
+		}
 		if expiresOn.Sub(time.Now().Add(time.Second*time.Duration(session.Options.MaxAge))) < 0 {
 			expiresOn = time.Now().Add(time.Second * time.Duration(session.Options.MaxAge))
 		}

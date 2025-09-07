@@ -22,7 +22,10 @@ func hasCollectionOwnership(r *http.Request, params httprouter.Params) (*model.C
 	if err != nil {
 		return nil, err
 	}
-	account := r.Context().Value(accountKey).(*model.Account)
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		return nil, makeInvalidRequestError("account")
+	}
 	project, err := model.GetProject(collection.ProjectID)
 	if err != nil {
 		return nil, err

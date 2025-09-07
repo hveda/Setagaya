@@ -22,7 +22,9 @@ func (c *Controller) CheckRunningThenTerminate() {
 					collection := j.collection
 					currRunID, err := collection.GetCurrentRun()
 					if currRunID != int64(0) {
-						pc.term(false, &c.connectedEngines)
+						if err := pc.term(false, &c.connectedEngines); err != nil {
+							log.Printf("Error terminating plan %d: %v", j.ep.PlanID, err)
+						}
 						log.Printf("Plan %d is terminated.", j.ep.PlanID)
 					}
 					if err != nil {
@@ -31,8 +33,12 @@ func (c *Controller) CheckRunningThenTerminate() {
 					if t, err := collection.HasRunningPlan(); t || err != nil {
 						continue jobLoop
 					}
-					collection.StopRun()
-					collection.RunFinish(currRunID)
+					if err := collection.StopRun(); err != nil {
+						log.Printf("Error stopping run: %v", err)
+					}
+					if err := collection.RunFinish(currRunID); err != nil {
+						log.Printf("Error finishing run: %v", err)
+					}
 				}
 			}
 		}(jobs)
@@ -74,7 +80,11 @@ func (c *Controller) cleanLocalStore() {
 	for {
 		// we can iterate any one of Labelstore or StatusStore because writes/deletes always happen at the same time on both
 		c.LabelStore.Range(func(runID interface{}, _ interface{}) bool {
-			runIDInt := runID.(int64)
+			runIDInt, ok := runID.(int64)
+			if !ok {
+				log.Printf("Error: runID is not int64: %v", runID)
+				return true // continue iteration
+			}
 			runProperty, err := model.GetRun(runIDInt)
 			if err != nil {
 				log.Error(err)
@@ -225,7 +235,9 @@ func (c *Controller) AutoPurgeProjectIngressController() {
 			projectLastUsedTime[projectID] = plu
 			if time.Since(plu) > ingressLifespan {
 				log.Println(fmt.Sprintf("Going to delete ingress for project %d. Last used time was %v", projectID, plu))
-				c.Scheduler.PurgeProjectIngress(projectID)
+				if err := c.Scheduler.PurgeProjectIngress(projectID); err != nil {
+					log.Printf("Error purging project ingress for project %d: %v", projectID, err)
+				}
 			}
 		}
 		// The interval should not be very long. For example, a collection has been launched for 30 minutes,

@@ -72,8 +72,13 @@ type baseEngine struct {
 
 func sendTriggerRequest(url string, edc *enginesModel.EngineDataConfig) (*http.Response, error) {
 	body := new(bytes.Buffer)
-	json.NewEncoder(body).Encode(&edc)
-	req, _ := http.NewRequest("POST", url, body)
+	if err := json.NewEncoder(body).Encode(&edc); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	return engineHttpClient.Do(req)
 }

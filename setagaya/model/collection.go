@@ -250,7 +250,9 @@ outer:
 		delPending = append(delPending, cp.PlanID)
 	}
 	for _, ep := range ec.Tests {
-		c.AddExecutionPlan(ep)
+		if err := c.AddExecutionPlan(ep); err != nil {
+			log.Printf("Error adding execution plan: %v", err)
+		}
 	}
 	//remove deleted plans
 	for _, pid := range delPending {
@@ -536,7 +538,11 @@ func (c *Collection) NewLaunchEntry(owner, cxt string, enginesCount, machinesCou
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf("Error rolling back transaction: %v", err)
+		}
+	}()
 	r, err := tx.Exec("insert into collection_launch (collection_id) values(?)", c.ID)
 	if err != nil {
 		if driverErr, ok := err.(*mysql.MySQLError); ok {
@@ -567,7 +573,11 @@ func (c *Collection) MarkUsageFinished(cxt string, vu int64) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf("Error rolling back transaction: %v", err)
+		}
+	}()
 
 	var launchID int64
 	if err = tx.QueryRow("select id from collection_launch where collection_id = ?", c.ID).Scan(&launchID); err != nil {

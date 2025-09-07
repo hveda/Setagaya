@@ -147,7 +147,9 @@ func (c *Controller) resumeRunningPlans() {
 			continue
 		}
 		pc := NewPlanController(ep, collection, c.Scheduler)
-		pc.subscribe(&c.connectedEngines, c.readingEngines)
+		if err := pc.subscribe(&c.connectedEngines, c.readingEngines); err != nil {
+			log.Printf("Error subscribing to plan controller: %v", err)
+		}
 	}
 }
 
@@ -175,7 +177,11 @@ func (c *Controller) readConnectedEngines() {
 				config.LabelLatencySummary.WithLabelValues(collectionID, label, runID).Observe(latency)
 				config.ThreadsGauge.WithLabelValues(collectionID, planID, runID, engineID).Set(threads)
 
-				rid, _ := strconv.ParseInt(runID, 10, 64)
+				rid, err := strconv.ParseInt(runID, 10, 64)
+				if err != nil {
+					log.Printf("Error parsing run ID %s: %v", runID, err)
+					rid = 0 // default to 0 if parsing fails
+				}
 				go c.storeLocally(rid, label, status)
 			}
 		}(engine)
@@ -218,9 +224,11 @@ func (c *Controller) DeployCollection(collection *model.Collection) error {
 			go func(ep *model.ExecutionPlan) {
 				defer wg.Done()
 				pc := NewPlanController(ep, collection, c.Scheduler)
-				utils.Retry(func() error {
+				if err := utils.Retry(func() error {
 					return pc.deploy()
-				}, nil)
+				}, nil); err != nil {
+					log.Printf("Error deploying plan controller: %v", err)
+				}
 			}(e)
 		}
 		wg.Wait()

@@ -55,13 +55,21 @@ func (u *UI) homeHandler(w http.ResponseWriter, r *http.Request, params httprout
 	template := u.tmpl.Lookup("app.html")
 	sc := config.SC
 	gcDuration := config.SC.ExecutorConfig.Cluster.GCDuration
-	template.Execute(w, &HomeResp{account.Name, sc.BackgroundColour, sc.Context,
+	if err := template.Execute(w, &HomeResp{account.Name, sc.BackgroundColour, sc.Context,
 		IsAdmin, resultDashboardURL, enableSid,
-		engineHealthDashboardURL, sc.ProjectHome, sc.UploadFileHelp, gcDuration})
+		engineHealthDashboardURL, sc.ProjectHome, sc.UploadFileHelp, gcDuration}); err != nil {
+		log.Printf("Error executing home template: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (u *UI) loginHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		log.Printf("Error parsing form: %v", err)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
 	ss := auth.SessionStore
 	session, err := ss.Get(r, config.SC.AuthConfig.SessionKey)
 	if err != nil {
@@ -91,7 +99,9 @@ func (u *UI) logoutHandler(w http.ResponseWriter, r *http.Request, params httpro
 	}
 	delete(session.Values, auth.MLKey)
 	delete(session.Values, auth.AccountKey)
-	session.Save(r, w)
+	if err := session.Save(r, w); err != nil {
+		log.Printf("Error saving session: %v", err)
+	}
 }
 
 type LoginResp struct {
@@ -107,7 +117,9 @@ func (u *UI) loginPageHandler(w http.ResponseWriter, r *http.Request, params htt
 	if len(errMsgs) > 0 {
 		e.ErrorMsg = errMsgs[0]
 	}
-	template.Execute(w, e)
+	if err := template.Execute(w, e); err != nil {
+		log.Printf("Error executing login template: %v", err)
+	}
 }
 
 func (u *UI) InitRoutes() api.Routes {

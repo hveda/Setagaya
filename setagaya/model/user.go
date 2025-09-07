@@ -5,6 +5,7 @@ import (
 
 	"github.com/hveda/Setagaya/setagaya/auth"
 	"github.com/hveda/Setagaya/setagaya/config"
+	log "github.com/sirupsen/logrus"
 )
 
 type Account struct {
@@ -32,8 +33,18 @@ func GetAccountBySession(r *http.Request) *Account {
 	if accountName == nil {
 		return nil
 	}
-	a.Name = accountName.(string)
-	a.ML = session.Values[auth.MLKey].([]string)
+	if name, ok := accountName.(string); ok {
+		a.Name = name
+	} else {
+		log.Printf("Error: accountName is not string: %v", accountName)
+		return nil
+	}
+	if ml, ok := session.Values[auth.MLKey].([]string); ok {
+		a.ML = ml
+	} else {
+		log.Printf("Error: ML value is not []string: %v", session.Values[auth.MLKey])
+		a.ML = []string{} // default to empty slice
+	}
 	for _, m := range a.ML {
 		a.MLMap[m] = es
 	}

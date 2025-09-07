@@ -124,7 +124,9 @@ func (cr *CloudRun) startWriteRequestWorker() {
 		}
 		switch item.method {
 		case "delete":
-			cr.deleteService(item.serviceID)
+			if err := cr.deleteService(item.serviceID); err != nil {
+				log.Printf("Error deleting service %s: %v", item.serviceID, err)
+			}
 			counter += 1
 		case "create":
 			if err := cr.sendCreateServiceReq(item.projectID, item.collectionID, item.planID, item.engineID, item.executorConfig); err != nil {
@@ -313,7 +315,11 @@ func (cr *CloudRun) GetDeployedCollections() (map[int64]time.Time, error) {
 		if err != nil {
 			return nil, err
 		}
-		t, _ := time.Parse(time.RFC3339, pod.Metadata.CreationTimestamp)
+		t, err := time.Parse(time.RFC3339, pod.Metadata.CreationTimestamp)
+		if err != nil {
+			log.Printf("Error parsing creation timestamp '%s': %v", pod.Metadata.CreationTimestamp, err)
+			t = time.Now() // fallback to current time
+		}
 		deployCollections[collectionID] = t
 	}
 	return deployCollections, nil
@@ -368,6 +374,9 @@ func (cr *CloudRun) DownloadPodLog(collectionID, planID int64) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
-	r, _ := io.ReadAll(resp.Body)
+	r, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
 	return string(r), nil
 }
