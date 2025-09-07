@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,26 @@ import (
 	"github.com/hpcloud/tail"
 )
 
+// validateJMeterPath ensures the JMeter path is safe and within expected boundaries
+func validateJMeterPath(path string) bool {
+	// Define allowed JMeter paths (container-safe)
+	allowedPaths := []string{
+		"/apache-jmeter-3.3/bin",       // Legacy JMeter 3.3
+		"/opt/apache-jmeter-5.6.3/bin", // Modern JMeter 5.6.3
+	}
+
+	// Check if path matches any allowed pattern
+	for _, allowedPath := range allowedPaths {
+		if path == allowedPath {
+			return true
+		}
+	}
+
+	// Allow paths that match the pattern /opt/apache-jmeter-X.X.X/bin
+	matched, _ := regexp.MatchString(`^/opt/apache-jmeter-\d+\.\d+\.\d+/bin$`, path)
+	return matched
+}
+
 // init sets up JMeter paths based on environment variables for version compatibility
 func init() {
 	// Get JMETER_BIN environment variable set by Dockerfile
@@ -45,9 +66,21 @@ func init() {
 		log.Println("setagaya-agent: Using JMETER_BIN from environment:", jmeterBinFolder)
 	}
 
-	// Set up dynamic paths
+	// Validate the JMeter path for security
+	if !validateJMeterPath(jmeterBinFolder) {
+		log.Printf("setagaya-agent: WARNING - Invalid JMeter path detected: %s", jmeterBinFolder)
+		// Fall back to safe default
+		jmeterBinFolder = "/apache-jmeter-3.3/bin"
+		log.Println("setagaya-agent: Using safe fallback path:", jmeterBinFolder)
+	}
+
+	// Set up dynamic paths using path.Join for security
 	JMETER_EXECUTABLE = path.Join(jmeterBinFolder, JMETER_BIN)
 	JMETER_SHUTDOWN = path.Join(jmeterBinFolder, "stoptest.sh")
+
+	// Log final paths for debugging
+	log.Printf("setagaya-agent: JMeter executable path: %s", JMETER_EXECUTABLE)
+	log.Printf("setagaya-agent: JMeter shutdown path: %s", JMETER_SHUTDOWN)
 }
 
 const (
@@ -282,6 +315,14 @@ func (sw *SetagayaWrapper) stopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("setagaya-agent: Shutting down Jmeter process %d", sw.getPid())
+
+	// Validate shutdown command path for security
+	if _, err := os.Stat(JMETER_SHUTDOWN); os.IsNotExist(err) {
+		log.Printf("setagaya-agent: ERROR - JMeter shutdown script not found: %s", JMETER_SHUTDOWN)
+		return
+	}
+
+	// #nosec G204 - JMETER_SHUTDOWN is validated and controlled by container environment
 	cmd := exec.Command(JMETER_SHUTDOWN)
 	cmd.Run()
 	for {
@@ -309,7 +350,22 @@ func (sw *SetagayaWrapper) getPid() int {
 
 func (sw *SetagayaWrapper) runCommand() int {
 	log.Printf("setagaya-agent: Start to run plan")
+
+	// Validate JMeter executable exists for security
+	if _, err := os.Stat(JMETER_EXECUTABLE); os.IsNotExist(err) {
+		log.Printf("setagaya-agent: ERROR - JMeter executable not found: %s", JMETER_EXECUTABLE)
+		return 0
+	}
+
+	// Validate required files exist
+	if _, err := os.Stat(JMX_FILEPATH); os.IsNotExist(err) {
+		log.Printf("setagaya-agent: ERROR - JMX test plan not found: %s", JMX_FILEPATH)
+		return 0
+	}
+
 	logFile := sw.makeLogFile()
+
+	// #nosec G204 - JMETER_EXECUTABLE and arguments are validated and controlled by container environment
 	cmd := exec.Command(JMETER_EXECUTABLE, "-n", "-t", JMX_FILEPATH, "-l", logFile,
 		"-q", PROPERTY_FILE, "-G", PROPERTY_FILE, "-j", STDERR)
 	cmd.Stderr = sw.writer
@@ -341,7 +397,8 @@ func cleanTestData() error {
 func saveToDisk(filename string, file []byte) error {
 	filePath := filepath.Join(TEST_DATA_FOLDER, filepath.Base(filename))
 	log.Println(filePath)
-	if err := os.WriteFile(filePath, file, 0777); err != nil {
+	// Use secure file permissions instead of 0777
+	if err := os.WriteFile(filePath, file, 0644); err != nil {
 		return err
 	}
 	return nil
