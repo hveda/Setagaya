@@ -4,8 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 func TestCreateAndGetProject(t *testing.T) {

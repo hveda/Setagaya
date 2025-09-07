@@ -4,9 +4,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hveda/Setagaya/setagaya/config"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 func TestCreateAndGetPlan(t *testing.T) {
