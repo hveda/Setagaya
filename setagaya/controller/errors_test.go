@@ -10,7 +10,7 @@ import (
 func TestErrEngine(t *testing.T) {
 	// Test that the engine error constant is properly defined
 	assert.NotNil(t, ErrEngine)
-	assert.Contains(t, ErrEngine.Error(), "Error with Engine-")
+	assert.Contains(t, ErrEngine.Error(), "error with Engine-")
 }
 
 func TestMakeWrongEngineTypeError(t *testing.T) {
@@ -18,7 +18,7 @@ func TestMakeWrongEngineTypeError(t *testing.T) {
 
 	// Test error creation
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Wrong Engine type requested")
+	assert.Contains(t, err.Error(), "wrong engine type requested")
 
 	// Test error wrapping
 	assert.True(t, errors.Is(err, ErrEngine))
@@ -41,8 +41,8 @@ func TestErrEngineContent(t *testing.T) {
 	errMsg := err.Error()
 
 	// Test that the error message contains both the base error and the specific message
-	assert.Contains(t, errMsg, "Error with Engine-")
-	assert.Contains(t, errMsg, "Wrong Engine type requested")
+	assert.Contains(t, errMsg, "error with Engine-")
+	assert.Contains(t, errMsg, "wrong engine type requested")
 }
 
 func TestErrEngineType(t *testing.T) {
@@ -73,7 +73,7 @@ func TestMultipleErrEngines(t *testing.T) {
 
 func TestErrEngineConstants(t *testing.T) {
 	// Test that error constants remain stable
-	assert.Equal(t, "Error with Engine-", ErrEngine.Error())
+	assert.Equal(t, "error with Engine-", ErrEngine.Error())
 
 	// Test that the constant cannot be accidentally modified (it's a read-only check)
 	originalErr := ErrEngine

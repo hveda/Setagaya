@@ -79,7 +79,7 @@ func TestGetStorageOfType(t *testing.T) {
 				assert.Error(t, err)
 				assert.Nil(t, storage)
 				if tc.provider != "" {
-					assert.Contains(t, err.Error(), "Unknown storage type")
+					assert.Contains(t, err.Error(), "unknown storage type")
 					assert.Contains(t, err.Error(), tc.provider)
 				}
 			} else {
@@ -113,7 +113,7 @@ func TestGetStorageOfTypeErrorMessage(t *testing.T) {
 
 	assert.Error(t, err)
 	errMsg := err.Error()
-	assert.Contains(t, errMsg, "Unknown storage type invalid")
+	assert.Contains(t, errMsg, "unknown storage type invalid")
 	assert.Contains(t, errMsg, "nexus")
 	assert.Contains(t, errMsg, "gcp")
 	assert.Contains(t, errMsg, "local")

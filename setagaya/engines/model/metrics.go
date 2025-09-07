@@ -20,16 +20,20 @@ func (edc *EngineDataConfig) deepCopy() *EngineDataConfig {
 		Duration:    edc.Duration,
 		Concurrency: edc.Concurrency,
 		Rampup:      edc.Rampup,
+		RunID:       edc.RunID,
+		EngineID:    edc.EngineID,
 	}
 	for filename, ed := range edc.EngineData {
-		sf := model.SetagayaFile{
-			Filename:     ed.Filename,
-			Filepath:     ed.Filepath,
-			Filelink:     ed.Filelink,
-			TotalSplits:  ed.TotalSplits,
-			CurrentSplit: ed.CurrentSplit,
+		if ed != nil {
+			sf := model.SetagayaFile{
+				Filename:     ed.Filename,
+				Filepath:     ed.Filepath,
+				Filelink:     ed.Filelink,
+				TotalSplits:  ed.TotalSplits,
+				CurrentSplit: ed.CurrentSplit,
+			}
+			edcCopy.EngineData[filename] = &sf
 		}
-		edcCopy.EngineData[filename] = &sf
 	}
 	return &edcCopy
 }
