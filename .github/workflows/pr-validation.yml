@@ -41,7 +41,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Validate PR title
-      uses: amannn/action-semantic-pull-request@v5
+      uses: amannn/action-semantic-pull-request@v6
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
@@ -67,19 +67,19 @@ jobs:
           doesn't start with an uppercase character.
 
     - name: Check PR description
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const prBody = context.payload.pull_request.body;
           if (!prBody || prBody.trim().length < 10) {
             core.setFailed('PR description is too short. Please provide a meaningful description.');
           }
-          
+
           // Check for breaking changes indicator
-          const hasBreakingChanges = prBody.includes('BREAKING CHANGE') || 
+          const hasBreakingChanges = prBody.includes('BREAKING CHANGE') ||
                                    prBody.includes('breaking change') ||
                                    context.payload.pull_request.title.includes('!');
-          
+
           if (hasBreakingChanges) {
             core.notice('This PR contains breaking changes. Make sure to update documentation and version.');
           }
@@ -92,7 +92,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -173,7 +173,7 @@ jobs:
         echo "Documentation changes detected"
         echo "Please ensure:"
         echo "- Technical specifications are updated if architecture changed"
-        echo "- README badges and version info are current"  
+        echo "- README badges and version info are current"
         echo "- API documentation reflects any endpoint changes"
 
   # Size and complexity checks
@@ -184,12 +184,12 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
     - name: Check PR size
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const pr = context.payload.pull_request;
@@ -197,22 +197,22 @@ jobs:
           const deletions = pr.deletions;
           const changes = additions + deletions;
           const files = pr.changed_files;
-          
+
           console.log(`PR Statistics:`);
           console.log(`- Files changed: ${files}`);
           console.log(`- Lines added: ${additions}`);
           console.log(`- Lines deleted: ${deletions}`);
           console.log(`- Total changes: ${changes}`);
-          
+
           // Warning thresholds
           if (changes > 1000) {
             core.warning(`Large PR: ${changes} lines changed. Consider breaking into smaller PRs.`);
           }
-          
+
           if (files > 50) {
             core.warning(`Many files changed: ${files}. Consider breaking into smaller PRs.`);
           }
-          
+
           // Large PR requires extra review
           if (changes > 2000 || files > 100) {
             core.setFailed(`PR is too large (${changes} lines, ${files} files). Please break into smaller PRs.`);
@@ -226,7 +226,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -273,7 +273,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -293,7 +293,7 @@ jobs:
         go test -race -coverprofile=coverage.out -covermode=atomic ./...
         coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
         echo "Coverage: ${coverage}%"
-        
+
         # Fail if coverage is below threshold
         if (( $(echo "$coverage < 70" | bc -l) )); then
           echo "Coverage ${coverage}% is below required 70%"
@@ -308,7 +308,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Check for dependency changes
       id: deps

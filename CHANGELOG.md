@@ -6,7 +6,7 @@
 
 #### ✨ Features
 * **Complete Container Modernization**: Security-hardened Docker builds with Go 1.25.1
-* **Multi-Stage Docker Builds**: Alpine 3.20 base images with minimal attack surface
+* **Multi-Stage Docker Builds**: Alpine 3.22 base images with minimal attack surface
 * **JMeter Version Compatibility**: Support for both JMeter 3.3 (legacy) and 5.6.3 (modern)
 * **GitHub Actions Security Suite**: Comprehensive security scanning and linting automation
 * **Enterprise Documentation**: Complete technical specifications and security policies
@@ -21,7 +21,7 @@
 * **License Compliance**: Automated open source license verification
 
 #### 🐳 Container Architecture Updates
-* **Modern Dockerfiles**: 5 security-hardened Dockerfiles with Alpine 3.20
+* **Modern Dockerfiles**: 5 security-hardened Dockerfiles with Alpine 3.22
 * **Version Agnostic Agent**: Dynamic JMeter path detection for version compatibility
 * **Static Compilation**: CGO_ENABLED=0 with security linker flags
 * **No HEALTHCHECK**: Eliminated OCI format warnings, Kubernetes-native health monitoring

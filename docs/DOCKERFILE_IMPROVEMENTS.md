@@ -1,4 +1,8 @@
-# Dockerfile Security and Best Practices Improvements
+# Dockerfil### 1. Updated Base Images
+
+- **Go**: Upgraded from `golang:1.20` to `golang:1.25.1` (latest stable)
+- **Alpine**: Upgraded to `alpine:3.22` (latest stable)
+- **Ubuntu**: Upgraded from `18.04` to `22.04`urity and Best Practices Improvements
 
 This document outlines the security improvements and best practices implemented in the Setagaya project Dockerfiles.
 
@@ -12,7 +16,7 @@ base images and tools.
 ### 1. Updated Base Images
 
 - **Go**: Upgraded from `golang:1.20` to `golang:1.25.1` (latest stable)
-- **Alpine**: Upgraded to `alpine:3.20` (latest stable)
+- **Alpine**: Upgraded to `alpine:3.22` (latest stable)
 - **Ubuntu**: Upgraded from `18.04` to `22.04`
 - **Grafana**: Upgraded from `8.5.27` to `11.2.1` (latest stable)
 - **JMeter**: Upgraded from `3.3` to `5.6.3` (latest stable)

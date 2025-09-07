@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -73,7 +73,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Dependency Review
       uses: actions/dependency-review-action@v3
@@ -98,7 +98,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
@@ -125,25 +125,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
     - name: Build Docker Images for Scanning
       run: |
-        # Build main images (pass empty GCP credentials for security scanning)
-        docker build -f setagaya/Dockerfile -t setagaya:security-test . --build-arg GCP_CREDENTIALS_PATH=""
-        docker build -f setagaya/Dockerfile.engines.jmeter -t setagaya-jmeter:security-test .
-        
+        # Build main images with platform parameter (pass empty GCP credentials for security scanning)
+        docker build --platform linux/amd64 -f setagaya/Dockerfile -t setagaya:security-test . --build-arg GCP_CREDENTIALS_PATH=""
+        docker build --platform linux/amd64 -f setagaya/Dockerfile.engines.jmeter -t setagaya-jmeter:security-test .
+
         # Build storage service from correct context
-        cd local_storage && docker build -f Dockerfile -t setagaya-storage:security-test . && cd ..
-        
+        docker build --platform linux/amd64 -f local_storage/Dockerfile -t setagaya-storage:security-test ./local_storage
+
         # Build grafana service from correct context
-        cd grafana && docker build -f Dockerfile -t setagaya-grafana:security-test . && cd ..
-        
+        docker build --platform linux/amd64 -f grafana/Dockerfile -t setagaya-grafana:security-test ./grafana
+
         # Build ingress controller from correct context
-        cd ingress-controller && docker build -f Dockerfile -t setagaya-ingress:security-test . && cd ..
+        docker build --platform linux/amd64 -f ingress-controller/Dockerfile -t setagaya-ingress:security-test ./ingress-controller
 
     - name: Run Trivy vulnerability scanner - Main API
       uses: aquasecurity/trivy-action@master
@@ -193,7 +193,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -211,7 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -249,7 +249,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Generate SBOM
       uses: anchore/sbom-action@v0

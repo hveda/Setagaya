@@ -9,7 +9,7 @@ datasource: "http://prometheus:9090"
 
 image:
   repository: localhost/grafana
-  pullPolicy: IfNotPresent
+  pullPolicy: Never
   # Overrides the image tag whose default is the chart appVersion.
   tag: "local"
 
@@ -81,10 +81,18 @@ livenessProbe:
   httpGet:
     path: /
     port: 3000
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 5
 readinessProbe:
   httpGet:
     path: /
     port: 3000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 10
 
 autoscaling:
   enabled: false

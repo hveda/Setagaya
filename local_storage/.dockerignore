@@ -1,8 +1,5 @@
-# Only include necessary files for local storage
-!go.mod
-!go.sum
-!main.go
-!*.go
-
-# Exclude everything else
-*
+# Exclude development files
+.git
+.gitignore
+README.md
+Makefile

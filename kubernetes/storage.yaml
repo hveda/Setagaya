@@ -15,7 +15,8 @@ spec:
         app: storage
     spec:
       containers:
-        - image: setagaya:storage
+        - image: localhost/setagaya:storage
+          imagePullPolicy: Never
           name: storage
           ports:
             - containerPort: 8080
