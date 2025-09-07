@@ -30,9 +30,9 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
 
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v7
       with:
-        version: latest
+        version: v2.4.0
         working-directory: setagaya
         args: --timeout=10m --config=.golangci.yml
 

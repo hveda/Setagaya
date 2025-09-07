@@ -402,7 +402,7 @@ func GetRun(runID int64) (*RunHistory, error) {
 	defer q.Close()
 
 	r := new(RunHistory)
-	var endTime mysql.NullTime
+	var endTime sql.NullTime
 	err = q.QueryRow(runID).Scan(&r.ID, &r.CollectionID, &r.StartedTime, &endTime)
 	if err != nil {
 		return nil, err
@@ -495,7 +495,7 @@ func (c *Collection) GetLastRun() (*RunHistory, error) {
 	}
 	defer q.Close()
 	rh := RunHistory{CollectionID: c.ID}
-	var endTime mysql.NullTime
+	var endTime sql.NullTime
 	err = q.QueryRow(c.ID).Scan(&rh.ID, &rh.StartedTime, &endTime)
 	if err != nil {
 		if err == sql.ErrNoRows {

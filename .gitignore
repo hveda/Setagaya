@@ -7,3 +7,22 @@ setagaya/build
 setagaya/config.json
 .DS_Store
 debug.yaml
+
+# Binaries and executables
+*.exe
+**/ingress-controller
+**/*-controller
+**/setagaya
+*/setagaya-*
+local_storage/v0
+ingress-controller/ingress-controller
+
+# Go build artifacts
+*/coverage.out
+*/coverage.html
+**/go.sum~
+**/go.mod~
+
+# Temporary files
+*.tmp
+*.temp

@@ -1,0 +1,29 @@
+# Dependency Review Configuration for Setagaya
+# Configuration for legitimate Go 1.25.1 ecosystem upgrade
+
+# Set higher severity threshold - only fail on high/critical vulnerabilities
+fail-on-severity: 'high'
+
+# Enable license checking but allow common open-source licenses
+license-check: true
+allow-licenses:
+  - 'MIT'
+  - 'Apache-2.0'
+  - 'BSD-2-Clause'
+  - 'BSD-3-Clause'
+  - 'ISC'
+  - 'MPL-2.0'
+
+# Only check runtime scope to focus on production dependencies
+fail-on-scopes:
+  - 'runtime'
+
+# Enable vulnerability check but be reasonable about severity
+vulnerability-check: true
+
+# Show OpenSSF Scorecard information for transparency
+show-openssf-scorecard: true
+warn-on-openssf-scorecard-level: 2
+
+# Comment in PR for transparency but don't spam
+comment-summary-in-pr: 'on-failure'

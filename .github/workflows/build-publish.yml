@@ -51,75 +51,75 @@ jobs:
     environment: production
     if: ${{ needs.release-please.outputs.tag_name != '' }}
     steps:
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.23.4'
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.25.1'
 
-    - id: 'auth'
-      uses: 'google-github-actions/auth@v3'
-      with:
-        credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
-        token_format: 'access_token'
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v3'
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+          token_format: 'access_token'
 
-    - name: Docker configuration
-      run: |-
-        echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://$GAR_LOCATION-docker.pkg.dev
+      - name: Docker configuration
+        run: |-
+          echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://$GAR_LOCATION-docker.pkg.dev
 
-    - name: Checkout
-      uses: actions/checkout@v5
-      with:
-        fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-    - name: Configure Git
-      run: |
-        git config user.name "$GITHUB_ACTOR"
-        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
-    - name: Install Helm
-      uses: azure/setup-helm@v3
-      with:
-        version: "v3.13.3"
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "v3.13.3"
 
-    - name: build app chart
-      env:
+      - name: build app chart
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |-
+          cd setagaya
+          make helm_charts
+          sh ../helm_utils/chart_releaser.sh install/setagaya
+
+      - name: build metrics dashboard chart
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |-
-        cd setagaya
-        make helm_charts
-        sh ../helm_utils/chart_releaser.sh install/setagaya
+        run: |-
+          cd grafana
+          helm package metrics-dashboard
+          sh ../helm_utils/chart_releaser.sh metrics-dashboard
 
-    - name: build metrics dashboard chart
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |-
-        cd grafana
-        helm package metrics-dashboard
-        sh ../helm_utils/chart_releaser.sh metrics-dashboard
+      - name: build metrics dashboard image
+        env:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+        run: |-
+          cd grafana && make metrics_dashboard_image
 
-    - name: build metrics dashboard image
-      env:
-        tag_name: ${{ needs.release-please.outputs.tag_name }}
-      run: |-
-        cd grafana && make metrics_dashboard_image
+      # Build the Docker image
+      - name: Build api
+        env:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+        run: |-
+          cd setagaya && make api_image component=api
 
-    # Build the Docker image
-    - name: Build api
-      env:
-        tag_name: ${{ needs.release-please.outputs.tag_name }}
-      run: |-
-        cd setagaya && make api_image component=api
+      - name: Build controller
+        env:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+        run: |-
+          cd setagaya && make controller_image component=controller
 
-    - name: Build controller
-      env:
-        tag_name: ${{ needs.release-please.outputs.tag_name }}
-      run: |-
-        cd setagaya && make controller_image component=controller
-
-    - name: build jmeter agent
-      env:
-        tag_name: ${{ needs.release-please.outputs.tag_name }}
-      # we specify the jmeter version we are using in the component name
-      # So we can cleary know which jmeter version we are using
-      run: |-
-        cd setagaya && make jmeter_agent_image component=jmeter-3.3
+      - name: build jmeter agent
+        env:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+        # we specify the jmeter version we are using in the component name
+        # So we can cleary know which jmeter version we are using
+        run: |-
+          cd setagaya && make jmeter_agent_image component=jmeter-3.3

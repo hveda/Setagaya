@@ -1,5 +1,5 @@
 # Use latest stable Grafana with security updates
-FROM grafana/grafana:11.2.1
+FROM grafana/grafana:12.1.1
 
 # Security environment variables
 ENV GF_SECURITY_ADMIN_USER=setagaya
@@ -20,13 +20,20 @@ ENV GF_LOG_MODE=console
 ENV GF_LOG_LEVEL=info
 
 # Copy configuration files with proper permissions
-COPY --chmod=644 ./provisioning /etc/grafana/provisioning
+COPY --chmod=755 ./provisioning /etc/grafana/provisioning
+COPY --chmod=644 ./datasources /etc/grafana/provisioning/datasources
 COPY --chmod=644 config.ini /etc/grafana/config.ini
 COPY --chmod=644 ./dashboards /var/lib/grafana/dashboards
 COPY --chmod=755 ./plugins /var/lib/grafana/plugins
 
+# Ensure proper ownership and permissions after copying
+USER root
+RUN chown -R 472:0 /etc/grafana/provisioning /var/lib/grafana/dashboards /var/lib/grafana/plugins && \
+    find /etc/grafana/provisioning -type d -exec chmod 755 {} \; && \
+    find /etc/grafana/provisioning -type f -exec chmod 644 {} \;
+
 # Use non-root grafana user
-USER grafana:grafana
+USER grafana
 
 # Expose Grafana port
 EXPOSE 3000

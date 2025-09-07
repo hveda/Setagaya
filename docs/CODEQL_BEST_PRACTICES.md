@@ -9,7 +9,7 @@ This document outlines the CodeQL optimization strategy implemented for the Seta
 ### Multi-Module Go Project
 ```
 Setagaya/
-├── setagaya/          # Main platform (go 1.23.4)
+├── setagaya/          # Main platform (go 1.25.1)
 ├── ingress-controller/ # K8s ingress controller (go 1.20)
 └── local_storage/     # Storage service (go 1.13)
 ```
