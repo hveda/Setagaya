@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -57,7 +57,7 @@ jobs:
     - name: Run Tests
       run: |
         cd setagaya
-        go test -v -race -coverprofile=coverage.out ./...
+        SETAGAYA_TEST_MODE=true go test -v -race -coverprofile=coverage.out ./...
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Lint Dockerfiles with Hadolint
       uses: hadolint/hadolint-action@v3.1.0
@@ -186,7 +186,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: YAML Lint
       uses: ibiqlik/action-yamllint@v3
@@ -204,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Run ShellCheck
       uses: ludeeus/action-shellcheck@master
@@ -232,7 +232,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Validate JSON files
       run: |
@@ -253,7 +253,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Validate Kubernetes manifests
       run: |
@@ -270,7 +270,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Check for broken links
       run: |
@@ -295,7 +295,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Check for security policy
       run: |
@@ -319,7 +319,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -347,4 +347,4 @@ jobs:
 
     - name: Check for misspellings
       run: |
-        misspell -error README.md TECHNICAL_SPECS.md docs/ setagaya/
+        misspell -error README.md TECHNICAL_SPECS.md docs/ $(find setagaya/ -type f -name "*.go" -o -name "*.md" -o -name "*.json" -o -name "*.yml" -o -name "*.yaml" | grep -v "/static/")

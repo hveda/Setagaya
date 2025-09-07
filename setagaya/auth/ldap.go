@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/hveda/Setagaya/setagaya/config"
 	ldap "gopkg.in/ldap.v2"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 var (

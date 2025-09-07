@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25.1-alpine AS builder
+FROM golang:1.25.1-alpine3.22@sha256:546671046d6f9f786c24b83111ba1801b736ee4b01b23db33e4f3eb41d4f8883 AS builder
 
 # Install build dependencies and security updates
 RUN apk update && apk upgrade && \
@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     ./main.go
 
 # Runtime stage
-FROM alpine:3.20
+FROM alpine:3.22@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d
 
 # Install security updates and create non-root user
 RUN apk update && apk upgrade && \
@@ -42,7 +42,8 @@ ENV env=local
 COPY --from=builder --chmod=755 /build/setagaya /usr/local/bin/setagaya
 
 # Copy UI files with proper ownership (path relative to repository root)
-COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/ /app/ui/
+COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/templates/ /templates/
+COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/static/ /static/
 
 # Switch to non-root user
 USER setagaya:setagaya

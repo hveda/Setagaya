@@ -171,7 +171,7 @@ s.handleErrors(w, err) // Maps internal errors to HTTP status codes
 
 All Dockerfiles use security-hardened, multi-stage builds:
 
-- **Base Images**: Alpine 3.20, scratch, or eclipse-temurin:21-jre-alpine
+- **Base Images**: `golang:1.25.1-alpine3.22@sha256:546...`, `alpine:3.22@sha256:beefd...`, scratch, or eclipse-temurin:21-jre-alpine
 - **User Security**: All containers run as `setagaya` user (UID 1001)
 - **Build Method**: Source compilation with Go 1.25.1 during Docker build
 - **Security Flags**: CGO_ENABLED=0 with static linking (`-w -s -extldflags=-static`)
@@ -236,7 +236,7 @@ The `setagaya-agent` automatically detects JMeter paths:
 ## Common Development Patterns
 
 When adding new schedulers: Implement `scheduler.EngineScheduler` interface When adding storage backends: Implement
-`object_storage.Storage` interface  
+`object_storage.Storage` interface
 When adding engine types: Follow `setagaya/engines/jmeter/` structure with agent sidecar pattern When modifying API
 endpoints: Update both `api/main.go` routes and ownership validation middleware When updating container builds: Ensure
 both README.md and TECHNICAL_SPECS.md reflect changes

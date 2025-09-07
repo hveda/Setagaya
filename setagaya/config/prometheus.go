@@ -7,7 +7,7 @@ import (
 
 var (
 	// Average latency is not a good metric, percentile latency is the way to go
-	// But percentiles cannot be aggregated, so we need seperate latency vector for individual observations
+	// But percentiles cannot be aggregated, so we need separate latency vector for individual observations
 	CollectionLatencySummary = promauto.NewSummaryVec(prometheus.SummaryOpts{
 		Namespace:  "setagaya",
 		Name:       "latency_collection",
@@ -27,7 +27,7 @@ var (
 		Objectives: map[float64]float64{0.9: 0.01, 0.99: 0.001},
 	}, []string{"collection_id", "label", "run_id"})
 
-	// This is similar to Latency but cannot use histogram here because we need a very accurate count of every status error that occured.
+	// This is similar to Latency but cannot use histogram here because we need a very accurate count of every status error that occurred.
 	// So 200s are different bucket than 201s responses.
 	StatusCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "setagaya",

@@ -44,7 +44,7 @@ endif
 
 .PHONY: local_api
 local_api:
-	$(CONTAINER_RUNTIME) build -f setagaya/Dockerfile.api -t api:local setagaya
+	$(CONTAINER_RUNTIME) build -f setagaya/Dockerfile.api -t api:local .
 ifeq ($(CONTAINER_RUNTIME),podman)
 	podman save localhost/api:local -o /tmp/api-local.tar
 	kind load image-archive /tmp/api-local.tar --name setagaya
@@ -55,7 +55,7 @@ endif
 
 .PHONY: local_controller
 local_controller:
-	$(CONTAINER_RUNTIME) build -f setagaya/Dockerfile.controller -t controller:local setagaya
+	$(CONTAINER_RUNTIME) build -f setagaya/Dockerfile.controller -t controller:local .
 ifeq ($(CONTAINER_RUNTIME),podman)
 	podman save localhost/controller:local -o /tmp/controller-local.tar
 	kind load image-archive /tmp/controller-local.tar --name setagaya
@@ -72,7 +72,7 @@ setagaya: local_api local_controller grafana
 .PHONY: jmeter
 jmeter: setagaya/engines/jmeter
 	cd setagaya && sh build.sh jmeter
-	$(CONTAINER_RUNTIME) build -t setagaya:jmeter -f setagaya/Dockerfile.engines.jmeter setagaya
+	$(CONTAINER_RUNTIME) build -t setagaya:jmeter -f setagaya/Dockerfile.engines.jmeter .
 ifeq ($(CONTAINER_RUNTIME),podman)
 	podman save localhost/setagaya:jmeter -o /tmp/setagaya-jmeter.tar
 	kind load image-archive /tmp/setagaya-jmeter.tar --name setagaya

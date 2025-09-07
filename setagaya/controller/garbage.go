@@ -5,9 +5,10 @@ import (
 	"strconv"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/model"
-	log "github.com/sirupsen/logrus"
 )
 
 func (c *Controller) CheckRunningThenTerminate() {

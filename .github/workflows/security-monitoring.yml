@@ -34,7 +34,7 @@ jobs:
     if: github.event.inputs.scan_type == 'dependencies' || github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -62,7 +62,7 @@ jobs:
         if [ -f setagaya/vulns.json ] && [ -s setagaya/vulns.json ]; then
           echo "Vulnerabilities found:"
           cat setagaya/vulns.json | jq '.message' 2>/dev/null || echo "JSON parsing failed"
-          
+
           # Check for vulnerability findings and exit with error if found
           vulnerability_count=$(cat setagaya/vulns.json | jq '[.calls[]?, .requires[]?] | length' 2>/dev/null || echo "0")
           if [ "$vulnerability_count" -gt "0" ]; then
@@ -78,7 +78,7 @@ jobs:
     if: github.event.inputs.scan_type == 'containers' || github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -100,10 +100,10 @@ jobs:
         if [ -f trivy-results.json ]; then
           high_count=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' 2>/dev/null || echo "0")
           critical_count=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' 2>/dev/null || echo "0")
-          
+
           echo "High severity vulnerabilities: $high_count"
           echo "Critical severity vulnerabilities: $critical_count"
-          
+
           if [ "$critical_count" -gt "0" ] || [ "$high_count" -gt "5" ]; then
             echo "::error::Found $critical_count critical and $high_count high severity vulnerabilities"
             exit 1
@@ -117,7 +117,7 @@ jobs:
     if: github.event.inputs.scan_type == 'secrets' || github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -134,27 +134,27 @@ jobs:
       run: |
         # Additional patterns to check
         echo "Scanning for common secret patterns..."
-        
+
         exit_code=0
-        
+
         # Check for potential AWS keys
         if grep -r "AKIA[0-9A-Z]\{16\}" . --exclude-dir=.git; then
           echo "::error::Potential AWS access key found!"
           exit_code=1
         fi
-        
+
         # Check for potential private keys
         if grep -r "BEGIN.*PRIVATE KEY" . --exclude-dir=.git; then
           echo "::error::Potential private key found!"
           exit_code=1
         fi
-        
+
         # Check for hardcoded passwords
         if grep -ri "password.*=" . --include="*.go" --include="*.yaml" --include="*.json" | grep -v "password_hash\|password_file\|_test.go\|example\|template"; then
           echo "::error::Potential hardcoded password found!"
           exit_code=1
         fi
-        
+
         exit $exit_code
 
   # License compliance monitoring
@@ -164,7 +164,7 @@ jobs:
     if: github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -202,7 +202,7 @@ jobs:
     if: github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Generate SBOM
       uses: anchore/sbom-action@v0
@@ -237,12 +237,12 @@ jobs:
       actions: read
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         persist-credentials: false
 
     - name: Run analysis
-      uses: ossf/scorecard-action@v2.4.0
+      uses: ossf/scorecard-action@v2.4.2
       with:
         results_file: results.sarif
         results_format: sarif
@@ -266,15 +266,15 @@ jobs:
       id: check-findings
       run: |
         echo "Checking for security findings from previous jobs..."
-        
+
         # Check job results and outputs
         echo "dependency-audit result: ${{ needs.dependency-audit.result }}"
         echo "container-security-monitoring result: ${{ needs.container-security-monitoring.result }}"
         echo "secret-monitoring result: ${{ needs.secret-monitoring.result }}"
-        
+
         # Set flag if any security issues found
-        if [[ "${{ needs.dependency-audit.result }}" == "failure" || 
-              "${{ needs.container-security-monitoring.result }}" == "failure" || 
+        if [[ "${{ needs.dependency-audit.result }}" == "failure" ||
+              "${{ needs.container-security-monitoring.result }}" == "failure" ||
               "${{ needs.secret-monitoring.result }}" == "failure" ]]; then
           echo "SECURITY_ISSUES_FOUND=true" >> $GITHUB_OUTPUT
         else
@@ -283,38 +283,38 @@ jobs:
 
     - name: Create security issue
       if: steps.check-findings.outputs.SECURITY_ISSUES_FOUND == 'true'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const title = '🚨 Security Alert - Automated Scan Results';
           const labels = ['security', 'automated-scan'];
-          
+
           let body = '# Security Scan Results\n\n';
           body += 'Automated security monitoring has detected potential issues:\n\n';
-          
+
           // Check job results
           const dependencyResult = '${{ needs.dependency-audit.result }}';
           const containerResult = '${{ needs.container-security-monitoring.result }}';
           const secretResult = '${{ needs.secret-monitoring.result }}';
-          
+
           if (dependencyResult === 'failure') {
             body += '- � **Dependencies**: Vulnerabilities detected in dependency scan\n';
           }
-          
+
           if (containerResult === 'failure') {
             body += '- � **Containers**: Vulnerabilities found in container security scan\n';
           }
-          
+
           if (secretResult === 'failure') {
             body += '- � **Secrets**: Potential secrets or credentials detected\n';
           }
-          
+
           body += '\n## Action Required\n';
           body += 'Please review the security scan results and take appropriate action.\n';
           body += 'Check the workflow logs for detailed information.\n\n';
           body += `Scan run: ${context.runId}\n`;
           body += `Workflow: ${context.workflow}\n`;
-          
+
           // Check if issue already exists
           const existingIssues = await github.rest.issues.listForRepo({
             owner: context.repo.owner,
@@ -322,7 +322,7 @@ jobs:
             labels: 'security,automated-scan',
             state: 'open'
           });
-          
+
           if (existingIssues.data.length === 0) {
             await github.rest.issues.create({
               owner: context.repo.owner,

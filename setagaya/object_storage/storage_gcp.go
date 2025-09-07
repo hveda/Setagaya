@@ -4,17 +4,18 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strings"
 	"time"
-	"golang.org/x/oauth2/google"
+
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	htransport "google.golang.org/api/transport/http"
 
 	"cloud.google.com/go/storage"
-	"github.com/hveda/Setagaya/setagaya/config"
-	"google.golang.org/api/option"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/api/option"
+
+	"github.com/hveda/Setagaya/setagaya/config"
 )
 
 type gcpStorage struct {
@@ -112,7 +113,7 @@ func (gs *gcpStorage) Download(filename string) ([]byte, error) {
 			log.Printf("Failed to close reader: %v", cerr)
 		}
 	}()
-	data, err := ioutil.ReadAll(rc)
+	data, err := io.ReadAll(rc)
 	if err != nil {
 		return nil, err
 	}

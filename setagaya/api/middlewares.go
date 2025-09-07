@@ -6,11 +6,14 @@ import (
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
+
 	"github.com/hveda/Setagaya/setagaya/model"
 )
 
+type contextKey string
+
 const (
-	accountKey = "account"
+	accountKey contextKey = "account"
 )
 
 func authWithSession(r *http.Request) (*model.Account, error) {

@@ -6,7 +6,7 @@ on:
   schedule:
     # Run daily at 6 AM UTC to check for new advisories
     - cron: '0 6 * * *'
-  
+
   workflow_dispatch:
     inputs:
       action:
@@ -33,18 +33,18 @@ jobs:
     if: github.event_name == 'issues' && (contains(github.event.issue.labels.*.name, 'security') || contains(github.event.issue.title, 'security') || contains(github.event.issue.title, 'vulnerability'))
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Process Security Issue
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const { issue } = context.payload;
-          
+
           console.log(`Processing security issue: ${issue.number}`);
           console.log(`Title: ${issue.title}`);
           console.log(`Labels: ${issue.labels.map(l => l.name).join(', ')}`);
-          
+
           // Add security label if not present
           const hasSecurityLabel = issue.labels.some(label => label.name === 'security');
           if (!hasSecurityLabel) {
@@ -55,22 +55,22 @@ jobs:
               labels: ['security']
             });
           }
-          
+
           // Add comment with security guidelines
           const comment = `
           ## 🔒 Security Issue Detected
-          
+
           Thank you for reporting this security-related issue. Please ensure:
-          
+
           1. **Do not include sensitive information** in public comments
           2. **Follow responsible disclosure** practices
           3. **Review our [Security Policy](${context.payload.repository.html_url}/blob/develop/SECURITY.md)**
-          
+
           If this is a vulnerability report, please consider using our private security advisory process.
-          
+
           **Security Team Notification**: @maintainers - security issue requires attention
           `;
-          
+
           await github.rest.issues.createComment({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -85,19 +85,19 @@ jobs:
     if: github.event_name == 'schedule' || github.event.inputs.action == 'notify'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Check for relevant advisories
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           console.log('🔍 Checking for security advisories...');
-          
+
           // Check for Go-related advisories
           const searchQuery = 'ecosystem:go';
-          
+
           try {
-            // Note: GitHub API doesn't have direct advisory search, 
+            // Note: GitHub API doesn't have direct advisory search,
             // so we'll create a placeholder for manual review
             const advisoryCheck = {
               timestamp: new Date().toISOString(),
@@ -105,32 +105,32 @@ jobs:
               query: searchQuery,
               action: 'manual-review-required'
             };
-            
+
             console.log('Advisory check completed:', JSON.stringify(advisoryCheck, null, 2));
-            
+
             // Create an issue for manual advisory review if needed
             const title = `🔍 Weekly Security Advisory Review - ${new Date().toISOString().split('T')[0]}`;
             const body = `
             ## Weekly Security Advisory Review
-            
+
             **Date**: ${new Date().toISOString()}
             **Focus**: Go ecosystem and container security
-            
+
             ## Action Items
             - [ ] Review [GitHub Security Advisories](https://github.com/advisories?query=ecosystem%3Ago)
             - [ ] Check [Go vulnerability database](https://vuln.go.dev/)
             - [ ] Review container base image updates (Alpine, Eclipse Temurin)
             - [ ] Validate dependency security status
-            
+
             ## Automated Checks
             - Security scanning: ✅ Scheduled weekly
             - Dependency updates: ✅ Dependabot active
             - Container scanning: ✅ Trivy integration
-            
+
             **Review by**: Security team
             **Due date**: Within 48 hours
             `;
-            
+
             // Only create issue if it's a scheduled run
             if (context.eventName === 'schedule') {
               await github.rest.issues.create({
@@ -152,7 +152,7 @@ jobs:
     if: github.event.inputs.action == 'validate' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -162,26 +162,26 @@ jobs:
     - name: Run security validation
       run: |
         echo "🔍 Running comprehensive security validation..."
-        
+
         # Check for vulnerable dependencies
         echo "Checking for vulnerable dependencies..."
         cd setagaya
         go install golang.org/x/vuln/cmd/govulncheck@latest
         govulncheck ./... || echo "Vulnerabilities found in dependencies"
-        
+
         # Validate container security
         echo "Validating container security..."
         if docker --version; then
           docker build -f Dockerfile -t setagaya-security-check:latest . --quiet
           echo "Container built successfully"
         fi
-        
+
         # Check for exposed secrets
         echo "Checking for exposed secrets..."
         if grep -r "password\|secret\|key" . --include="*.go" --include="*.yaml" | grep -v "_test.go\|example\|template"; then
           echo "⚠️  Potential secrets found - manual review required"
         fi
-        
+
         # Validate RBAC configuration
         echo "Validating RBAC configuration..."
         if [ -f "kubernetes/roles.yaml" ]; then
@@ -214,21 +214,21 @@ jobs:
     if: github.event.inputs.action == 'update-docs'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Update security documentation
       run: |
         echo "🔄 Updating security documentation..."
-        
+
         # Update security policy with current date
         if [ -f "SECURITY.md" ]; then
           sed -i "s/Last updated: .*/Last updated: $(date +'%B %Y')/" SECURITY.md
           echo "✅ Updated SECURITY.md timestamp"
         fi
-        
+
         # Check if security advisories should be documented
         echo "📋 Checking for security advisories to document..."
-        
+
         # Update README security badges if needed
         if [ -f "README.md" ]; then
           echo "📝 README.md security section is current"
@@ -242,13 +242,13 @@ jobs:
         title: "🔒 Update Security Documentation"
         body: |
           ## Security Documentation Update
-          
+
           This PR updates security-related documentation:
-          
+
           - [ ] Updated SECURITY.md timestamp
           - [ ] Reviewed security policies
           - [ ] Updated README security information
-          
+
           **Automated by**: Security Advisory Management workflow
         branch: security-docs-update
         labels: |
@@ -263,41 +263,41 @@ jobs:
     if: github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'critical') && contains(github.event.issue.labels.*.name, 'security')
     steps:
     - name: Trigger emergency notification
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           const { issue } = context.payload;
-          
+
           // Create high-priority issue
           const title = `🚨 CRITICAL Security Alert: Issue #${issue.number}`;
           const body = `
           # 🚨 CRITICAL SECURITY ALERT
-          
+
           A critical security issue has been identified that may affect Setagaya.
-          
+
           **Original Issue**: #${issue.number}
           **Title**: ${issue.title}
           **Reporter**: @${issue.user.login}
-          
+
           ## Immediate Actions Required
-          
+
           1. **STOP**: Do not deploy current version to production
           2. **ASSESS**: Determine if Setagaya is affected
           3. **PATCH**: Apply emergency fixes if needed
           4. **COMMUNICATE**: Notify all stakeholders
           5. **MONITOR**: Watch for exploitation attempts
-          
+
           ## Timeline
           - **Reported**: ${issue.created_at}
           - **Detected**: ${new Date().toISOString()}
           - **Response Required**: Immediately
-          
+
           ## Resources
           - [Original Issue](${issue.html_url})
           - Security Team: security@yourorganization.com
           - Emergency Procedures: See SECURITY.md
           `;
-          
+
           await github.rest.issues.create({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -306,7 +306,7 @@ jobs:
             labels: ['security', 'critical', 'emergency'],
             assignees: [] // Add emergency response team members
           });
-          
+
           console.log('🚨 Critical security issue processed');
           console.log('📧 Emergency response team has been notified');
 
@@ -317,25 +317,25 @@ jobs:
     if: github.event.inputs.action == 'validate' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Collect security metrics
       run: |
         echo "📊 Collecting security metrics..."
-        
+
         # Count security-related files
         security_files=$(find . -name "SECURITY*" -o -name "*security*" | wc -l)
         echo "Security files: $security_files"
-        
+
         # Check for security workflows
         security_workflows=$(find .github/workflows -name "*security*" | wc -l)
         echo "Security workflows: $security_workflows"
-        
+
         # Count Docker security features
         if grep -r "USER" */Dockerfile* 2>/dev/null; then
           echo "✅ Non-root containers configured"
         fi
-        
+
         # Generate metrics summary
         cat << EOF > security-metrics.json
         {

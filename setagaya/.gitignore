@@ -1,2 +1,7 @@
 *.tgz
 setagaya-install/*
+config.json
+setagaya
+install/*
+# Test configuration files
+config_test.json

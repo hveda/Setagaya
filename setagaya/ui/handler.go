@@ -6,11 +6,12 @@ import (
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/api"
 	"github.com/hveda/Setagaya/setagaya/auth"
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/model"
-	log "github.com/sirupsen/logrus"
 )
 
 type UI struct {
@@ -111,9 +112,9 @@ func (u *UI) loginPageHandler(w http.ResponseWriter, r *http.Request, params htt
 
 func (u *UI) InitRoutes() api.Routes {
 	return api.Routes{
-		&api.Route{"home", "GET", "/", u.homeHandler},
-		&api.Route{"login", "POST", "/login", u.loginHandler},
-		&api.Route{"login", "GET", "/login", u.loginPageHandler},
-		&api.Route{"logout", "POST", "/logout", u.logoutHandler},
+		&api.Route{Name: "home", Method: "GET", Path: "/", HandlerFunc: u.homeHandler},
+		&api.Route{Name: "login", Method: "POST", Path: "/login", HandlerFunc: u.loginHandler},
+		&api.Route{Name: "login", Method: "GET", Path: "/login", HandlerFunc: u.loginPageHandler},
+		&api.Route{Name: "logout", Method: "POST", Path: "/logout", HandlerFunc: u.logoutHandler},
 	}
 }

@@ -8,16 +8,17 @@ import (
 	"time"
 
 	mysql "github.com/go-sql-driver/mysql"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/object_storage"
-	log "github.com/sirupsen/logrus"
 )
 
 type Plan struct {
-	ID          int64          `json:"id"`
-	Name        string         `json:"name"`
-	ProjectID   int64          `json:"project_id"`
-	CreatedTime time.Time      `json:"created_time"`
+	ID          int64           `json:"id"`
+	Name        string          `json:"name"`
+	ProjectID   int64           `json:"project_id"`
+	CreatedTime time.Time       `json:"created_time"`
 	TestFile    *SetagayaFile   `json:"test_file"`
 	Data        []*SetagayaFile `json:"data"`
 }

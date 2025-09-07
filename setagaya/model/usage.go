@@ -81,9 +81,15 @@ func makeCollectionsToProjects(history []*CollectionLaunchHistory) map[int64]Pro
 
 func findOwner(owner string, project Project) string {
 	if _, err := strconv.ParseInt(owner, 10, 32); err != nil {
+		// Non-numeric owner - return the owner itself
+		return owner
+	}
+	// Numeric owner - return the project SID (if available)
+	if project.SID != "" {
 		return project.SID
 	}
-	return owner
+	// If no SID, return empty string for numeric owners with empty SID
+	return ""
 }
 
 func GetUsageSummary(startedTime, endTime string) (*TotalUsageSummary, error) {
@@ -103,7 +109,7 @@ func GetUsageSummary(startedTime, endTime string) (*TotalUsageSummary, error) {
 	for _, p := range collectionsToProjects {
 		sid := p.SID
 		if sid == "" {
-			sid = "unknwon"
+			sid = "unknown"
 		}
 		contacts := s.Contacts[sid]
 		if !inArray(contacts, p.Owner) {

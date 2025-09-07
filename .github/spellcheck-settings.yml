@@ -6,7 +6,7 @@ matrix:
     sources:
       - '**/*.md'
     expect_match: true
-    apsell:
+    aspell:
       lang: en
       d: en_US
     dictionary:

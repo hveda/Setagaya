@@ -2,7 +2,13 @@
 
 ## Project Overview
 
-**Setagaya** is a distributed load testing platform that orchestrates JMeter engines across Kubernetes clusters. The
+**Setagaya** is a distribute| Component              | Dockerfile                         | Base Image                                                                                                                                                              | Purpose                      |
+|------------------------|-----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------|
+| API Server             | `Dockerfile`                       | `golang:1.25.1-alpine3.22@sha256:546...`, `alpine:3.22@sha256:beefd...`                                                                                              | Main API and UI server        |
+| API Server (Alt)       | `Dockerfile.api`                   | `golang:1.25.1-alpine3.22@sha256:546...`, `alpine:3.22@sha256:beefd...`                                                                                              | Dedicated API build           |
+| Controller             | `Dockerfile.controller`            | `golang:1.25.1-alpine3.22@sha256:546...`, `alpine:3.22@sha256:beefd...`                                                                                              | Controller daemon             |
+| JMeter Engine (Modern) | `Dockerfile.engines.jmeter`        | `eclipse-temurin:21-jre-alpine` | JMeter 5.6.3 + source build   |
+| JMeter Engine (Legacy) | `Dockerfile.engines.jmeter.legacy` | `eclipse-temurin:21-jre-alpine` | JMeter 3.3 + pre-built binary |testing platform that orchestrates JMeter engines across Kubernetes clusters. The
 system follows a controller-scheduler-engine pattern designed for scalable, enterprise-grade load testing.
 
 - **Version:** 2.0.0-rc
