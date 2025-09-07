@@ -135,9 +135,15 @@ jobs:
         # Build main images (pass empty GCP credentials for security scanning)
         docker build -f setagaya/Dockerfile -t setagaya:security-test . --build-arg GCP_CREDENTIALS_PATH=""
         docker build -f setagaya/Dockerfile.engines.jmeter -t setagaya-jmeter:security-test .
-        docker build -f local_storage/Dockerfile -t setagaya-storage:security-test .
-        docker build -f grafana/Dockerfile -t setagaya-grafana:security-test .
-        docker build -f ingress-controller/Dockerfile -t setagaya-ingress:security-test .
+        
+        # Build storage service from correct context
+        cd local_storage && docker build -f Dockerfile -t setagaya-storage:security-test . && cd ..
+        
+        # Build grafana service from correct context
+        cd grafana && docker build -f Dockerfile -t setagaya-grafana:security-test . && cd ..
+        
+        # Build ingress controller from correct context
+        cd ingress-controller && docker build -f Dockerfile -t setagaya-ingress:security-test . && cd ..
 
     - name: Run Trivy vulnerability scanner - Main API
       uses: aquasecurity/trivy-action@master
