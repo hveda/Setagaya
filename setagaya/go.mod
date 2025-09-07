@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	cloud.google.com/go/storage v1.50.0
-	github.com/beevik/etree v1.1.0
+	github.com/beevik/etree v1.6.0
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gorilla/context v1.1.1
 	github.com/gorilla/securecookie v1.1.2
