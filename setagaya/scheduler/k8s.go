@@ -104,11 +104,6 @@ func makeTolerations(key string, value string, effect apiv1.TaintEffect) apiv1.T
 	return toleration
 }
 
-func collectionNodeAffinity(collectionID int64) *apiv1.NodeAffinity {
-	collectionIDStr := fmt.Sprintf("%d", collectionID)
-	return makeNodeAffinity("collection_id", collectionIDStr)
-}
-
 func makePodAffinity(key, value string) *apiv1.PodAffinity {
 	podAffinity := &apiv1.PodAffinity{
 		PreferredDuringSchedulingIgnoredDuringExecution: []apiv1.WeightedPodAffinityTerm{
@@ -158,9 +153,9 @@ func prepareTolerations() []apiv1.Toleration {
 }
 
 func (kcm *K8sClientManager) makeHostAliases() []apiv1.HostAlias {
-	if kcm.ExecutorConfig != nil && kcm.ExecutorConfig.HostAliases != nil {
+	if kcm.ExecutorConfig != nil && kcm.HostAliases != nil {
 		hostAliases := []apiv1.HostAlias{}
-		for _, ha := range kcm.ExecutorConfig.HostAliases {
+		for _, ha := range kcm.HostAliases {
 			hostAliases = append(hostAliases, apiv1.HostAlias{
 				Hostnames: []string{ha.Hostname},
 				IP:        ha.IP,
@@ -244,7 +239,7 @@ func (kcm *K8sClientManager) generatePlanDeployment(planName string, replicas in
 					AutomountServiceAccountToken: &t,
 					ImagePullSecrets: []apiv1.LocalObjectReference{
 						{
-							Name: kcm.ExecutorConfig.ImagePullSecret,
+							Name: kcm.ImagePullSecret,
 						},
 					},
 					TerminationGracePeriodSeconds: new(int64),
@@ -254,7 +249,7 @@ func (kcm *K8sClientManager) generatePlanDeployment(planName string, replicas in
 						{
 							Name:            planName,
 							Image:           containerConfig.Image,
-							ImagePullPolicy: kcm.ExecutorConfig.ImagePullPolicy,
+							ImagePullPolicy: kcm.ImagePullPolicy,
 							Env:             envvars,
 							Resources: apiv1.ResourceRequirements{
 								Limits: apiv1.ResourceList{
@@ -309,7 +304,7 @@ func (kcm *K8sClientManager) generateEngineDeployment(engineName string, labels 
 					AutomountServiceAccountToken: &t,
 					ImagePullSecrets: []apiv1.LocalObjectReference{
 						{
-							Name: kcm.ExecutorConfig.ImagePullSecret,
+							Name: kcm.ImagePullSecret,
 						},
 					},
 					TerminationGracePeriodSeconds: new(int64),
@@ -318,7 +313,7 @@ func (kcm *K8sClientManager) generateEngineDeployment(engineName string, labels 
 						{
 							Name:            engineName,
 							Image:           containerConfig.Image,
-							ImagePullPolicy: kcm.ExecutorConfig.ImagePullPolicy,
+							ImagePullPolicy: kcm.ImagePullPolicy,
 							Resources: apiv1.ResourceRequirements{
 								Limits: apiv1.ResourceList{
 									apiv1.ResourceCPU:    resource.MustParse(containerConfig.CPU),
@@ -346,7 +341,7 @@ func (kcm *K8sClientManager) generateEngineDeployment(engineName string, labels 
 }
 
 func (kcm *K8sClientManager) deploy(deployment *appsv1.Deployment) error {
-	deploymentsClient := kcm.client.AppsV1().Deployments(kcm.ExecutorConfig.Namespace)
+	deploymentsClient := kcm.client.AppsV1().Deployments(kcm.Namespace)
 	_, err := deploymentsClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
 	if errors.IsAlreadyExists(err) {
 		// do nothing if already exists
@@ -364,10 +359,10 @@ func (kcm *K8sClientManager) expose(name string, deployment *appsv1.Deployment) 
 			Annotations: map[string]string{
 				"networking.istio.io/exportTo": ".",
 			},
-			Labels: deployment.Spec.Template.ObjectMeta.Labels,
+			Labels: deployment.Spec.Template.Labels,
 		},
 		Spec: apiv1.ServiceSpec{
-			Selector: deployment.Spec.Template.ObjectMeta.Labels,
+			Selector: deployment.Spec.Template.Labels,
 			Ports: []apiv1.ServicePort{
 				{
 					Port:       80,
@@ -377,7 +372,7 @@ func (kcm *K8sClientManager) expose(name string, deployment *appsv1.Deployment) 
 		},
 	}
 	if deployment.Labels["kind"] == "ingress-controller" {
-		switch kcm.ExecutorConfig.Cluster.ServiceType {
+		switch kcm.Cluster.ServiceType {
 		case "NodePort":
 			service.Spec.Type = apiv1.ServiceTypeNodePort
 		case "LoadBalancer":
@@ -385,7 +380,7 @@ func (kcm *K8sClientManager) expose(name string, deployment *appsv1.Deployment) 
 			service.Spec.Type = apiv1.ServiceTypeLoadBalancer
 		}
 	}
-	_, err := kcm.client.CoreV1().Services(kcm.ExecutorConfig.Namespace).Create(context.TODO(), service, metav1.CreateOptions{})
+	_, err := kcm.client.CoreV1().Services(kcm.Namespace).Create(context.TODO(), service, metav1.CreateOptions{})
 	if errors.IsAlreadyExists(err) {
 		return nil
 	} else if err != nil {
@@ -395,19 +390,19 @@ func (kcm *K8sClientManager) expose(name string, deployment *appsv1.Deployment) 
 }
 
 func (kcm *K8sClientManager) getRandomHostIP() (string, error) {
-	podList, err := kcm.client.CoreV1().Pods(kcm.ExecutorConfig.Namespace).
+	podList, err := kcm.client.CoreV1().Pods(kcm.Namespace).
 		List(context.TODO(), metav1.ListOptions{
 			Limit: 1,
 			// we need to add the selector here because pod's hostIP could be empty if it's in pending state
 			// So we want to only find the pod that is running so it would have hostIP.
-			FieldSelector: fmt.Sprintf("status.phase=Running"),
+			FieldSelector: "status.phase=Running",
 		})
 	if err != nil {
 		log.Error(err)
 		return "", err
 	}
 	if len(podList.Items) == 0 {
-		return "", e.New("No pods in Namespace")
+		return "", e.New("no pods in Namespace")
 	} else {
 		return podList.Items[0].Status.HostIP, nil
 	}
@@ -476,11 +471,11 @@ func (kcm *K8sClientManager) DeployPlan(projectID, collectionID, planID int64, e
 	envvars := prepareEngineMetaEnvvars(collectionID, planID)
 	tolerations := prepareTolerations()
 	planConfig := kcm.generatePlanDeployment(planName, enginesNo, labels, containerconfig, affinity, tolerations, envvars)
-	if _, err := kcm.client.AppsV1().StatefulSets(kcm.ExecutorConfig.Namespace).Create(context.TODO(), &planConfig, metav1.CreateOptions{}); err != nil {
+	if _, err := kcm.client.AppsV1().StatefulSets(kcm.Namespace).Create(context.TODO(), &planConfig, metav1.CreateOptions{}); err != nil {
 		return err
 	}
 	service := kcm.makePlanService(planName, labels)
-	if _, err := kcm.client.CoreV1().Services(kcm.ExecutorConfig.Namespace).Create(context.TODO(), service, metav1.CreateOptions{}); err != nil {
+	if _, err := kcm.client.CoreV1().Services(kcm.Namespace).Create(context.TODO(), service, metav1.CreateOptions{}); err != nil {
 		log.Println(err)
 		return err
 	}
@@ -489,15 +484,15 @@ func (kcm *K8sClientManager) DeployPlan(projectID, collectionID, planID int64, e
 
 func (kcm *K8sClientManager) GetIngressUrl(projectID int64) (string, error) {
 	igName := makeIngressClass(projectID)
-	serviceClient, err := kcm.client.CoreV1().Services(kcm.ExecutorConfig.Namespace).
+	serviceClient, err := kcm.client.CoreV1().Services(kcm.Namespace).
 		Get(context.TODO(), igName, metav1.GetOptions{})
 	if err != nil {
 		return "", makeSchedulerIngressError(err)
 	}
-	if kcm.ExecutorConfig.InCluster {
+	if kcm.InCluster {
 		return serviceClient.Spec.ClusterIP, nil
 	}
-	if kcm.ExecutorConfig.Cluster.ServiceType == "LoadBalancer" {
+	if kcm.Cluster.ServiceType == "LoadBalancer" {
 		// in case of GCP getting public IP is enough since it exposes to port 80
 		if len(serviceClient.Status.LoadBalancer.Ingress) == 0 {
 			return "", makeIPNotAssignedError()
@@ -513,7 +508,7 @@ func (kcm *K8sClientManager) GetIngressUrl(projectID int64) (string, error) {
 }
 
 func (kcm *K8sClientManager) GetPods(labelSelector, fieldSelector string) ([]apiv1.Pod, error) {
-	podsClient, err := kcm.client.CoreV1().Pods(kcm.ExecutorConfig.Namespace).
+	podsClient, err := kcm.client.CoreV1().Pods(kcm.Namespace).
 		List(context.TODO(), metav1.ListOptions{
 			LabelSelector: labelSelector,
 			FieldSelector: fieldSelector,
@@ -542,7 +537,7 @@ func (kcm *K8sClientManager) GetEnginesByProject(projectID int64) ([]apiv1.Pod, 
 	sort.Slice(pods, func(i, j int) bool {
 		p1 := pods[i]
 		p2 := pods[j]
-		return p1.CreationTimestamp.Time.After(p2.CreationTimestamp.Time)
+		return p1.CreationTimestamp.After(p2.CreationTimestamp.Time)
 	})
 	return pods, nil
 }
@@ -597,7 +592,7 @@ func (kcm *K8sClientManager) CollectionStatus(projectID, collectionID int64, eps
 	// if it's unrechable, we can assume it's not in progress as well
 	// If we didn't find an ingress controller in the main pod list, check specifically for running ingress pods
 	if !ingressControllerDeployed {
-		fieldSelector := fmt.Sprintf("status.phase=Running")
+		fieldSelector := "status.phase=Running"
 		ingressPods := kcm.GetPodsByCollection(collectionID, fieldSelector)
 		ingressControllerDeployed = len(ingressPods) >= 1
 	}
@@ -677,14 +672,14 @@ func (kcm *K8sClientManager) DownloadPodLog(collectionID, planID int64) (string,
 	if len(pods) > 0 {
 		return kcm.FetchLogFromPod(pods[0])
 	}
-	return "", fmt.Errorf("Cannot find pod for the plan %d", planID)
+	return "", fmt.Errorf("cannot find pod for the plan %d", planID)
 }
 
 func (kcm *K8sClientManager) PodReadyCount(collectionID int64) int {
 	label := makeCollectionLabel(collectionID)
-	podsClient, err := kcm.client.CoreV1().Pods(kcm.ExecutorConfig.Namespace).
+	podsClient, err := kcm.client.CoreV1().Pods(kcm.Namespace).
 		List(context.TODO(), metav1.ListOptions{
-			LabelSelector: fmt.Sprintf("%s", label),
+			LabelSelector: label,
 		})
 	if err != nil {
 		log.Warn(err)
@@ -712,7 +707,7 @@ func (kcm *K8sClientManager) deleteService(collectionID int64) error {
 	// We could not delete services by label
 	// So we firstly get them by label and then delete them one by one
 	// you can check here: https://github.com/kubernetes/kubernetes/issues/68468#issuecomment-419981870
-	corev1Client := kcm.client.CoreV1().Services(kcm.ExecutorConfig.Namespace)
+	corev1Client := kcm.client.CoreV1().Services(kcm.Namespace)
 	resp, err := corev1Client.List(context.TODO(), metav1.ListOptions{
 		LabelSelector: makeCollectionLabel(collectionID),
 	})
@@ -733,7 +728,7 @@ func (kcm *K8sClientManager) deleteService(collectionID int64) error {
 
 func (kcm *K8sClientManager) deleteDeployment(collectionID int64) error {
 	ls := fmt.Sprintf("collection=%d", collectionID)
-	deploymentsClient := kcm.client.AppsV1().Deployments(kcm.ExecutorConfig.Namespace)
+	deploymentsClient := kcm.client.AppsV1().Deployments(kcm.Namespace)
 	err := deploymentsClient.DeleteCollection(context.TODO(), metav1.DeleteOptions{
 		GracePeriodSeconds: new(int64),
 	}, metav1.ListOptions{
@@ -743,7 +738,7 @@ func (kcm *K8sClientManager) deleteDeployment(collectionID int64) error {
 		log.Error(err)
 		return err
 	}
-	if err := kcm.client.AppsV1().StatefulSets(kcm.ExecutorConfig.Namespace).DeleteCollection(context.TODO(),
+	if err := kcm.client.AppsV1().StatefulSets(kcm.Namespace).DeleteCollection(context.TODO(),
 		metav1.DeleteOptions{GracePeriodSeconds: new(int64)}, metav1.ListOptions{LabelSelector: ls}); err != nil {
 		return err
 	}
@@ -765,10 +760,10 @@ func (kcm *K8sClientManager) PurgeCollection(collectionID int64) error {
 func (kcm *K8sClientManager) PurgeProjectIngress(projectID int64) error {
 	igName := makeIngressClass(projectID)
 	deleteOpts := metav1.DeleteOptions{}
-	if err := kcm.client.AppsV1().Deployments(kcm.ExecutorConfig.Namespace).Delete(context.TODO(), igName, deleteOpts); err != nil {
+	if err := kcm.client.AppsV1().Deployments(kcm.Namespace).Delete(context.TODO(), igName, deleteOpts); err != nil {
 		return err
 	}
-	if err := kcm.client.CoreV1().Services(kcm.ExecutorConfig.Namespace).Delete(context.TODO(), igName, deleteOpts); err != nil {
+	if err := kcm.client.CoreV1().Services(kcm.Namespace).Delete(context.TODO(), igName, deleteOpts); err != nil {
 		return err
 	}
 	return nil
@@ -919,7 +914,7 @@ func (kcm *K8sClientManager) CreateIngress(ingressClass, ingressName, serviceNam
 			Rules: []v1networking.IngressRule{ingressRule},
 		},
 	}
-	_, err := kcm.client.NetworkingV1().Ingresses(kcm.ExecutorConfig.Namespace).Create(context.TODO(), &ingress, metav1.CreateOptions{})
+	_, err := kcm.client.NetworkingV1().Ingresses(kcm.Namespace).Create(context.TODO(), &ingress, metav1.CreateOptions{})
 	if err != nil {
 		log.Error(err)
 	}
@@ -927,7 +922,7 @@ func (kcm *K8sClientManager) CreateIngress(ingressClass, ingressName, serviceNam
 }
 
 func (kcm *K8sClientManager) GetDeployedCollections() (map[int64]time.Time, error) {
-	labelSelector := fmt.Sprintf("kind=executor")
+	labelSelector := "kind=executor"
 	pods, err := kcm.GetPods(labelSelector, "")
 	if err != nil {
 		return nil, err
@@ -944,8 +939,8 @@ func (kcm *K8sClientManager) GetDeployedCollections() (map[int64]time.Time, erro
 }
 
 func (kcm *K8sClientManager) GetDeployedServices() (map[int64]time.Time, error) {
-	labelSelector := fmt.Sprintf("kind=ingress-controller")
-	services, err := kcm.client.CoreV1().Services(kcm.ExecutorConfig.Namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: labelSelector})
+	labelSelector := "kind=ingress-controller"
+	services, err := kcm.client.CoreV1().Services(kcm.Namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: labelSelector})
 	if err != nil {
 		return nil, err
 	}
@@ -961,7 +956,7 @@ func (kcm *K8sClientManager) GetDeployedServices() (map[int64]time.Time, error) 
 }
 
 func (kcm *K8sClientManager) GetPodsMetrics(collectionID, planID int64) (map[string]apiv1.ResourceList, error) {
-	metricsList, err := kcm.metricClient.MetricsV1beta1().PodMetricses(kcm.ExecutorConfig.Namespace).List(context.TODO(), metav1.ListOptions{
+	metricsList, err := kcm.metricClient.MetricsV1beta1().PodMetricses(kcm.Namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("collection=%d,plan=%d", collectionID, planID),
 	})
 	if err != nil {
@@ -996,7 +991,7 @@ func (kcm *K8sClientManager) GetCollectionEnginesDetail(projectID, collectionID 
 	for _, p := range pods {
 		es := new(smodel.EngineStatus)
 		es.Name = p.Name
-		es.CreatedTime = p.ObjectMeta.CreationTimestamp.Time
+		es.CreatedTime = p.CreationTimestamp.Time
 		es.Status = string(p.Status.Phase)
 		engines = append(engines, es)
 	}

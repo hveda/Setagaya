@@ -29,7 +29,6 @@ type CloudRun struct {
 	// If we hit the quota, we cannot do any operations
 	throttlingQueue chan *cloudRunRequest
 	httpClient      *http.Client
-	kind            string
 }
 
 func NewCloudRun(cfg *config.ClusterConfig) *CloudRun {
@@ -232,26 +231,6 @@ func (cr *CloudRun) getEnginesByCollectionPlan(collectionID, planID int64) ([]*r
 	return resp.Items, nil
 }
 
-func (cr *CloudRun) getReadyEnginesByCollection(collectionID int64) ([]*runv1.Service, error) {
-	items, err := cr.getEnginesByCollection(collectionID)
-	if err != nil {
-		return items, err
-	}
-	r := []*runv1.Service{}
-	for _, item := range items {
-		ready := true
-		for _, c := range item.Status.Conditions {
-			if c.Status != "True" {
-				ready = false
-			}
-		}
-		if ready {
-			r = append(r, item)
-		}
-	}
-	return r, nil
-}
-
 func (cr *CloudRun) CollectionStatus(projectID, collectionID int64, eps []*model.ExecutionPlan) (*smodel.CollectionStatus, error) {
 	items, err := cr.getEnginesByCollection(collectionID)
 	if err != nil {
@@ -294,7 +273,7 @@ func (cr *CloudRun) CollectionStatus(projectID, collectionID int64, eps []*model
 		}
 	}
 	for planID, ps := range planStatuses {
-		reachableEngines, _ := planReachable[planID]
+		reachableEngines := planReachable[planID]
 		ps.EnginesReachable = reachableEngines == ps.Engines
 		// we only check if the plan is in progress if the engines are reachable
 		if ps.EnginesReachable {
@@ -342,7 +321,7 @@ func (cr *CloudRun) GetDeployedCollections() (map[int64]time.Time, error) {
 
 func (cr *CloudRun) GetPodsMetrics(collectionID, planID int64) (map[string]apiv1.ResourceList, error) {
 	// For cloud run, pod metrics is not supported
-	return nil, FeatureUnavailable
+	return nil, ErrFeatureUnavailable
 }
 
 // TODO: what we need is actually get the deployed engines account, not only ready ones.

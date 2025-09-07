@@ -107,7 +107,7 @@ func (l localStorage) Download(filename string) ([]byte, error) {
 		return nil, FileNotFoundError()
 	}
 	if resp.StatusCode != 200 {
-		return nil, errors.New("Bad response from Local storage")
+		return nil, errors.New("bad response from Local storage")
 	}
 	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {

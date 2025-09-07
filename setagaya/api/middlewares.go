@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
@@ -22,11 +21,6 @@ func authWithSession(r *http.Request) (*model.Account, error) {
 		return nil, makeLoginError()
 	}
 	return account, nil
-}
-
-// TODO add JWT token auth in the future
-func authWithToken(_ *http.Request) (*model.Account, error) {
-	return nil, errors.New("No token presented")
 }
 
 func (s *SetagayaAPI) authRequired(next httprouter.Handle) httprouter.Handle {

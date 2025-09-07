@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestEngineError(t *testing.T) {
+func TestErrEngine(t *testing.T) {
 	// Test that the engine error constant is properly defined
-	assert.NotNil(t, EngineError)
-	assert.Contains(t, EngineError.Error(), "Error with Engine-")
+	assert.NotNil(t, ErrEngine)
+	assert.Contains(t, ErrEngine.Error(), "Error with Engine-")
 }
 
 func TestMakeWrongEngineTypeError(t *testing.T) {
@@ -21,22 +21,22 @@ func TestMakeWrongEngineTypeError(t *testing.T) {
 	assert.Contains(t, err.Error(), "Wrong Engine type requested")
 
 	// Test error wrapping
-	assert.True(t, errors.Is(err, EngineError))
+	assert.True(t, errors.Is(err, ErrEngine))
 }
 
-func TestEngineErrorWrapping(t *testing.T) {
+func TestErrEngineWrapping(t *testing.T) {
 	wrongEngineErr := makeWrongEngineTypeError()
 
 	// Test errors.Is functionality
-	assert.True(t, errors.Is(wrongEngineErr, EngineError))
+	assert.True(t, errors.Is(wrongEngineErr, ErrEngine))
 
 	// Test that it doesn't match other error types
 	otherErr := errors.New("some other error")
 	assert.False(t, errors.Is(wrongEngineErr, otherErr))
-	assert.False(t, errors.Is(otherErr, EngineError))
+	assert.False(t, errors.Is(otherErr, ErrEngine))
 }
 
-func TestEngineErrorContent(t *testing.T) {
+func TestErrEngineContent(t *testing.T) {
 	err := makeWrongEngineTypeError()
 	errMsg := err.Error()
 
@@ -45,24 +45,24 @@ func TestEngineErrorContent(t *testing.T) {
 	assert.Contains(t, errMsg, "Wrong Engine type requested")
 }
 
-func TestEngineErrorType(t *testing.T) {
+func TestErrEngineType(t *testing.T) {
 	err := makeWrongEngineTypeError()
 
 	// Test that the error is properly typed
 	assert.Error(t, err)
 
-	// Test that it wraps the EngineError
-	assert.True(t, errors.Is(err, EngineError))
+	// Test that it wraps the ErrEngine
+	assert.True(t, errors.Is(err, ErrEngine))
 }
 
-func TestMultipleEngineErrors(t *testing.T) {
+func TestMultipleErrEngines(t *testing.T) {
 	// Test creating multiple engine errors
 	err1 := makeWrongEngineTypeError()
 	err2 := makeWrongEngineTypeError()
 
-	// Both should be EngineErrors
-	assert.True(t, errors.Is(err1, EngineError))
-	assert.True(t, errors.Is(err2, EngineError))
+	// Both should be ErrEngines
+	assert.True(t, errors.Is(err1, ErrEngine))
+	assert.True(t, errors.Is(err2, ErrEngine))
 
 	// Both should have the same message
 	assert.Equal(t, err1.Error(), err2.Error())
@@ -71,11 +71,11 @@ func TestMultipleEngineErrors(t *testing.T) {
 	assert.NotSame(t, err1, err2)
 }
 
-func TestEngineErrorConstants(t *testing.T) {
+func TestErrEngineConstants(t *testing.T) {
 	// Test that error constants remain stable
-	assert.Equal(t, "Error with Engine-", EngineError.Error())
+	assert.Equal(t, "Error with Engine-", ErrEngine.Error())
 
 	// Test that the constant cannot be accidentally modified (it's a read-only check)
-	originalErr := EngineError
-	assert.Equal(t, originalErr, EngineError)
+	originalErr := ErrEngine
+	assert.Equal(t, originalErr, ErrEngine)
 }

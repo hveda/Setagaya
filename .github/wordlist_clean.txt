@@ -358,8 +358,3 @@ filippo
 opentelemetry
 GPL
 LGPL
-UI
-Pre
-md
-CNCF
-pre

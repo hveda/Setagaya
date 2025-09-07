@@ -29,7 +29,7 @@ func getStorageOfType(storageProvider string) (StorageInterface, error) {
 	case localStorageProvider:
 		return NewLocalStorage(), nil
 	default:
-		return nil, fmt.Errorf("Unknown storage type %s, valid storage types are %v", storageProvider, allStorageProvidder)
+		return nil, fmt.Errorf("unknown storage type %s, valid storage types are %v", storageProvider, allStorageProvidder)
 	}
 }
 

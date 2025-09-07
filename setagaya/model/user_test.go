@@ -144,7 +144,7 @@ func TestAccount_IsAdmin(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Setup config for this test
 			config.SC.AuthConfig.AdminUsers = tc.adminUsers
-			config.SC.AuthConfig.LdapConfig.SystemUser = tc.systemUser
+			config.SC.AuthConfig.SystemUser = tc.systemUser
 
 			result := tc.account.IsAdmin()
 			assert.Equal(t, tc.expectedAdmin, result)

@@ -102,7 +102,7 @@ func (pc *PlanController) trigger(engineDataConfig *enginesModel.EngineDataConfi
 		}
 	}
 	if len(planErrors) > 0 {
-		return fmt.Errorf("Trigger plan errors:%v", planErrors)
+		return fmt.Errorf("trigger plan errors:%v", planErrors)
 	}
 	log.Printf("Triggering for plan %d is finished", pc.ep.PlanID)
 	return nil
@@ -154,7 +154,7 @@ func (pc *PlanController) progress() bool {
 	ep := pc.ep
 	collection := pc.collection
 	engines, err := generateEnginesWithUrl(ep.Engines, ep.PlanID, collection.ID, collection.ProjectID, JmeterEngineType, pc.scheduler)
-	if errors.Is(err, scheduler.IngressError) {
+	if errors.Is(err, scheduler.ErrIngress) {
 		log.Error(err)
 		return true
 	} else if err != nil {

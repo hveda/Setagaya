@@ -224,7 +224,7 @@ func (c *Controller) DeployCollection(collection *model.Collection) error {
 			}(e)
 		}
 		wg.Wait()
-		duration := time.Now().Sub(now_)
+		duration := time.Since(now_)
 		log.Infof("All engines deployment are finished for collection %d, total duration: %.2f seconds",
 			collection.ID, duration.Seconds())
 	}()

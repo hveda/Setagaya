@@ -103,7 +103,7 @@ func (n nexusStorage) Download(filename string) ([]byte, error) {
 		return nil, FileNotFoundError()
 	}
 	if resp.StatusCode != 200 {
-		return nil, errors.New("Bad response from Nexus")
+		return nil, errors.New("bad response from Nexus")
 	}
 	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {

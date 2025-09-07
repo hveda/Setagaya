@@ -18,7 +18,7 @@ func TestFileNotFoundError_Isolated(t *testing.T) {
 	assert.Equal(t, "File not found", err.Error())
 
 	// Test that it implements error interface
-	var errorInterface error = err
+	var errorInterface = err
 	assert.Equal(t, "File not found", errorInterface.Error())
 }
 

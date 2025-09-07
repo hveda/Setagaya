@@ -8,9 +8,9 @@ import (
 )
 
 func TestIngressError(t *testing.T) {
-	// Test the IngressError constant
-	assert.Error(t, IngressError)
-	assert.Equal(t, "Error with Ingress-", IngressError.Error())
+	// Test the ErrIngress constant
+	assert.Error(t, ErrIngress)
+	assert.Equal(t, "Error with Ingress-", ErrIngress.Error())
 }
 
 func TestMakeSchedulerIngressError(t *testing.T) {
@@ -55,7 +55,7 @@ func TestMakeSchedulerIngressError(t *testing.T) {
 
 			if tc.shouldWrapErr {
 				// Test that the original error is wrapped
-				assert.True(t, errors.Is(result, IngressError))
+				assert.True(t, errors.Is(result, ErrIngress))
 			}
 		})
 	}
@@ -67,8 +67,8 @@ func TestMakeIPNotAssignedError(t *testing.T) {
 	assert.Error(t, result)
 	assert.Equal(t, "Error with Ingress-IP is not assigned yet", result.Error())
 
-	// Test that it wraps IngressError
-	assert.True(t, errors.Is(result, IngressError))
+	// Test that it wraps ErrIngress
+	assert.True(t, errors.Is(result, ErrIngress))
 }
 
 func TestNoResourcesFoundErr(t *testing.T) {
@@ -144,11 +144,11 @@ func TestErrorWrappingBehavior(t *testing.T) {
 	originalErr := errors.New("original ingress error")
 	wrappedErr := makeSchedulerIngressError(originalErr)
 
-	// Test that we can unwrap to get IngressError
-	assert.True(t, errors.Is(wrappedErr, IngressError))
+	// Test that we can unwrap to get ErrIngress
+	assert.True(t, errors.Is(wrappedErr, ErrIngress))
 
 	// Test error chain
-	assert.Contains(t, wrappedErr.Error(), IngressError.Error())
+	assert.Contains(t, wrappedErr.Error(), ErrIngress.Error())
 	assert.Contains(t, wrappedErr.Error(), originalErr.Error())
 }
 
@@ -167,9 +167,9 @@ func TestErrorTypeComparison(t *testing.T) {
 	assert.NotEqual(t, ipErr, noResourcesErr)
 
 	// But ingress errors should wrap the same base error
-	assert.True(t, errors.Is(ingressErr, IngressError))
-	assert.True(t, errors.Is(ipErr, IngressError))
-	assert.False(t, errors.Is(noResourcesErr, IngressError))
+	assert.True(t, errors.Is(ingressErr, ErrIngress))
+	assert.True(t, errors.Is(ipErr, ErrIngress))
+	assert.False(t, errors.Is(noResourcesErr, ErrIngress))
 }
 
 func TestNoResourcesFoundErrEdgeCases(t *testing.T) {
@@ -203,9 +203,9 @@ func TestNoResourcesFoundErrEdgeCases(t *testing.T) {
 }
 
 func TestIngressErrorConstants(t *testing.T) {
-	// Test that IngressError is a sentinel error that can be compared
-	err1 := IngressError
-	err2 := IngressError
+	// Test that ErrIngress is a sentinel error that can be compared
+	err1 := ErrIngress
+	err2 := ErrIngress
 
 	assert.Equal(t, err1, err2)
 	assert.True(t, errors.Is(err1, err2))
@@ -233,7 +233,7 @@ func TestErrorInterfaces(t *testing.T) {
 	// Test that all error types implement the error interface
 	var err error
 
-	err = IngressError
+	err = ErrIngress
 	assert.NotNil(t, err)
 
 	err = makeSchedulerIngressError(errors.New("test"))

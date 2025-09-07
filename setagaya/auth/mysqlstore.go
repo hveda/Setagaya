@@ -78,10 +78,10 @@ func NewMySQLStoreFromConnection(db *sql.DB, tableName string, path string, maxA
 		"modified_on TIMESTAMP NOT NULL DEFAULT NOW() ON UPDATE CURRENT_TIMESTAMP, " +
 		"expires_on TIMESTAMP DEFAULT NOW(), PRIMARY KEY(`id`)) ENGINE=InnoDB;"
 	if _, err := db.Exec(cTableQ); err != nil {
-		switch err.(type) {
+		switch mysqlErr := err.(type) {
 		case *mysql.MySQLError:
 			// Error 1142 means permission denied for create command
-			if err.(*mysql.MySQLError).Number == 1142 {
+			if mysqlErr.Number == 1142 {
 				break
 			} else {
 				return nil, err
@@ -262,7 +262,7 @@ func (m *MySQLStore) Delete(r *http.Request, w http.ResponseWriter, session *ses
 }
 
 func (m *MySQLStore) save(session *sessions.Session) error {
-	if session.IsNew == true {
+	if session.IsNew {
 		return m.insert(session)
 	}
 	var createdOn time.Time
@@ -315,9 +315,9 @@ func (m *MySQLStore) load(session *sessions.Session) error {
 	if scanErr != nil {
 		return scanErr
 	}
-	if sess.expiresOn.Sub(time.Now()) < 0 {
+	if time.Until(sess.expiresOn) < 0 {
 		log.Printf("Session expired on %s, but it is %s now.", sess.expiresOn, time.Now())
-		return errors.New("Session expired")
+		return errors.New("session expired")
 	}
 	if err := m.decode(sess.data, &session.Values); err != nil {
 		return err

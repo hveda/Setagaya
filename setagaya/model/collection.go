@@ -281,7 +281,7 @@ func (c *Collection) StoreFile(content io.ReadCloser, filename string) error {
 	_, err = q.Query(c.ID, filename)
 	if driverErr, ok := err.(*mysql.MySQLError); ok {
 		if driverErr.Number == 1062 {
-			return errors.New("File already exists. If you wish to update it then delete existing one and upload again.")
+			return errors.New("file already exists; if you wish to update it then delete existing one and upload again")
 		}
 		return err
 	}

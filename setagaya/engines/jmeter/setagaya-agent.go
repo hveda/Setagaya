@@ -106,7 +106,6 @@ type SetagayaWrapper struct {
 	Bus            chan string
 	logCounter     int
 	httpClient     *http.Client
-	wg             sync.WaitGroup
 	pidLock        sync.RWMutex
 	handlerLock    sync.RWMutex
 	currentPid     int
@@ -325,10 +324,7 @@ func (sw *SetagayaWrapper) stopHandler(w http.ResponseWriter, r *http.Request) {
 	// #nosec G204 - JMETER_SHUTDOWN is validated and controlled by container environment
 	cmd := exec.Command(JMETER_SHUTDOWN)
 	cmd.Run()
-	for {
-		if sw.getPid() == 0 {
-			break
-		}
+	for sw.getPid() != 0 {
 		time.Sleep(time.Second * 2)
 	}
 	sw.closeSignal <- 1
@@ -418,15 +414,15 @@ func saveToDisk(filename string, file []byte) error {
 func GetThreadGroups(planDoc *etree.Document) ([]*etree.Element, error) {
 	jtp := planDoc.SelectElement("jmeterTestPlan")
 	if jtp == nil {
-		return nil, errors.New("Missing Jmeter Test plan in jmx")
+		return nil, errors.New("missing Jmeter Test plan in jmx")
 	}
 	ht := jtp.SelectElement("hashTree")
 	if ht == nil {
-		return nil, errors.New("Missing hash tree inside Jmeter test plan in jmx")
+		return nil, errors.New("missing hash tree inside Jmeter test plan in jmx")
 	}
 	ht = ht.SelectElement("hashTree")
 	if ht == nil {
-		return nil, errors.New("Missing hash tree inside hash tree in jmx")
+		return nil, errors.New("missing hash tree inside hash tree in jmx")
 	}
 	tgs := ht.SelectElements("ThreadGroup")
 	stgs := ht.SelectElements("SetupThreadGroup")

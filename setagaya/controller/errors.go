@@ -6,9 +6,9 @@ import (
 )
 
 var (
-	EngineError = errors.New("Error with Engine-")
+	ErrEngine = errors.New("error with Engine-")
 )
 
 func makeWrongEngineTypeError() error {
-	return fmt.Errorf("%w%s", EngineError, "Wrong Engine type requested")
+	return fmt.Errorf("%w%s", ErrEngine, "wrong engine type requested")
 }

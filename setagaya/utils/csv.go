@@ -27,7 +27,7 @@ func calCSVRange(totalRows, totalSplits, currentSplit int) (int, int) {
 func SplitCSV(file []byte, totalSplits, currentSplit int) ([]byte, error) {
 	if currentSplit >= totalSplits {
 		// currentSplit starts at 0
-		return nil, errors.New("Cannot split more than total number of engines")
+		return nil, errors.New("cannot split more than total number of engines")
 	}
 	csvReader := csv.NewReader(bytes.NewReader(file))
 	csvReader.FieldsPerRecord = -1

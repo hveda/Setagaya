@@ -54,21 +54,21 @@ func Auth(username, password string) (*AuthResult, error) {
 
 	entries := sr.Entries
 	if len(entries) != 1 {
-		return r, errors.New("Users does not exist")
+		return r, errors.New("users does not exist")
 	}
 
 	attributes := entries[0].Attributes
 	if len(attributes) == 0 {
-		return r, errors.New("Cannot find the user")
+		return r, errors.New("cannot find the user")
 	}
 	values := attributes[0].Values
 	if len(values) == 0 {
-		return r, errors.New("Cannot find the principle name")
+		return r, errors.New("cannot find the principle name")
 	}
 	UserPrincipalName := values[0]
 	err = l.Bind(UserPrincipalName, password)
 	if err != nil {
-		return r, errors.New("Incorrect password")
+		return r, errors.New("incorrect password")
 	}
 	searchRequest = ldap.NewSearchRequest(
 		baseDN,
@@ -79,15 +79,15 @@ func Auth(username, password string) (*AuthResult, error) {
 	)
 	sr, err = l.Search(searchRequest)
 	if err != nil {
-		return r, errors.New("Error in contacting LDAP server")
+		return r, errors.New("error in contacting LDAP server")
 	}
 	entries = sr.Entries
 	if len(entries) == 0 {
-		return r, errors.New("Cannot find user ml/group information")
+		return r, errors.New("cannot find user ml/group information")
 	}
 	attributes = entries[0].Attributes
 	if len(attributes) == 0 {
-		return r, errors.New("Cannot find user group/ml information")
+		return r, errors.New("cannot find user group/ml information")
 	}
 	values = attributes[0].Values
 	for _, m := range values {

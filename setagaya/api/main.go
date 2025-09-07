@@ -79,9 +79,9 @@ func (s *SetagayaAPI) handleErrors(w http.ResponseWriter, err error) {
 	unhandledError := s.handleErrorsFromExt(w, err)
 	if unhandledError != nil { // if unhandleError is not nil, it's the same as original error
 		switch {
-		case errors.Is(err, noPermissionErr):
+		case errors.Is(err, errNoPermission):
 			s.makeFailMessage(w, err.Error(), http.StatusForbidden)
-		case errors.Is(err, invalidRequestErr):
+		case errors.Is(err, errInvalidRequest):
 			s.makeFailMessage(w, err.Error(), http.StatusBadRequest)
 		default:
 			log.Printf("api error: %v", err)

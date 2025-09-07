@@ -29,7 +29,7 @@ type EngineScheduler interface {
 	GetEnginesByProject(projectID int64) ([]apiv1.Pod, error)
 }
 
-var FeatureUnavailable = errors.New("Feature unavailable")
+var ErrFeatureUnavailable = errors.New("feature unavailable")
 
 func NewEngineScheduler(cfg *config.ClusterConfig) EngineScheduler {
 	switch cfg.Kind {

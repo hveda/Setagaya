@@ -12,7 +12,7 @@ func TestMakeLoginError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "you need to login")
-	assert.True(t, errors.Is(err, noPermissionErr))
+	assert.True(t, errors.Is(err, errNoPermission))
 }
 
 func TestMakeInvalidRequestError(t *testing.T) {
@@ -49,7 +49,7 @@ func TestMakeInvalidRequestError(t *testing.T) {
 
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expected)
-			assert.True(t, errors.Is(err, invalidRequestErr))
+			assert.True(t, errors.Is(err, errInvalidRequest))
 		})
 	}
 }
@@ -83,12 +83,12 @@ func TestMakeNoPermissionErr(t *testing.T) {
 
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expected)
-			assert.True(t, errors.Is(err, noPermissionErr))
+			assert.True(t, errors.Is(err, errNoPermission))
 		})
 	}
 }
 
-func TestMakeInternalServerError(t *testing.T) {
+func TestMakeInternalErrServeror(t *testing.T) {
 	testCases := []struct {
 		name     string
 		message  string
@@ -117,7 +117,7 @@ func TestMakeInternalServerError(t *testing.T) {
 
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expected)
-			assert.True(t, errors.Is(err, ServerErr))
+			assert.True(t, errors.Is(err, ErrServer))
 		})
 	}
 }
@@ -161,7 +161,7 @@ func TestMakeInvalidResourceError(t *testing.T) {
 
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expected)
-			assert.True(t, errors.Is(err, invalidRequestErr))
+			assert.True(t, errors.Is(err, errInvalidRequest))
 		})
 	}
 }
@@ -171,7 +171,7 @@ func TestMakeProjectOwnershipError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "You don't own the project")
-	assert.True(t, errors.Is(err, noPermissionErr))
+	assert.True(t, errors.Is(err, errNoPermission))
 }
 
 func TestMakeCollectionOwnershipError(t *testing.T) {
@@ -179,19 +179,19 @@ func TestMakeCollectionOwnershipError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "You don't own the collection")
-	assert.True(t, errors.Is(err, noPermissionErr))
+	assert.True(t, errors.Is(err, errNoPermission))
 }
 
 func TestErrorConstants(t *testing.T) {
 	// Test that error constants are properly defined
-	assert.NotNil(t, noPermissionErr)
-	assert.NotNil(t, invalidRequestErr)
-	assert.NotNil(t, ServerErr)
+	assert.NotNil(t, errNoPermission)
+	assert.NotNil(t, errInvalidRequest)
+	assert.NotNil(t, ErrServer)
 
 	// Test error constant values
-	assert.Contains(t, noPermissionErr.Error(), "403-")
-	assert.Contains(t, invalidRequestErr.Error(), "400-")
-	assert.Contains(t, ServerErr.Error(), "500-")
+	assert.Contains(t, errNoPermission.Error(), "403-")
+	assert.Contains(t, errInvalidRequest.Error(), "400-")
+	assert.Contains(t, ErrServer.Error(), "500-")
 }
 
 func TestErrorWrapping(t *testing.T) {
@@ -205,16 +205,16 @@ func TestErrorWrapping(t *testing.T) {
 	collectionOwnershipErr := makeCollectionOwnershipError()
 
 	// Test error.Is() functionality
-	assert.True(t, errors.Is(loginErr, noPermissionErr))
-	assert.True(t, errors.Is(invalidErr, invalidRequestErr))
-	assert.True(t, errors.Is(permissionErr, noPermissionErr))
-	assert.True(t, errors.Is(serverErr, ServerErr))
-	assert.True(t, errors.Is(resourceErr, invalidRequestErr))
-	assert.True(t, errors.Is(projectOwnershipErr, noPermissionErr))
-	assert.True(t, errors.Is(collectionOwnershipErr, noPermissionErr))
+	assert.True(t, errors.Is(loginErr, errNoPermission))
+	assert.True(t, errors.Is(invalidErr, errInvalidRequest))
+	assert.True(t, errors.Is(permissionErr, errNoPermission))
+	assert.True(t, errors.Is(serverErr, ErrServer))
+	assert.True(t, errors.Is(resourceErr, errInvalidRequest))
+	assert.True(t, errors.Is(projectOwnershipErr, errNoPermission))
+	assert.True(t, errors.Is(collectionOwnershipErr, errNoPermission))
 
 	// Test cross-type error checking (should be false)
-	assert.False(t, errors.Is(loginErr, invalidRequestErr))
-	assert.False(t, errors.Is(invalidErr, noPermissionErr))
-	assert.False(t, errors.Is(serverErr, invalidRequestErr))
+	assert.False(t, errors.Is(loginErr, errInvalidRequest))
+	assert.False(t, errors.Is(invalidErr, errNoPermission))
+	assert.False(t, errors.Is(serverErr, errInvalidRequest))
 }

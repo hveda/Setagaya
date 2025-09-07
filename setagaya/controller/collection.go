@@ -88,7 +88,7 @@ func (c *Controller) TriggerCollection(collection *model.Collection) error {
 			return err
 		}
 		if plan.TestFile == nil {
-			return fmt.Errorf("Triggering plan aborted. There is no Test file (.jmx) in this plan %d", plan.ID)
+			return fmt.Errorf("triggering plan aborted; there is no Test file (.jmx) in this plan %d", plan.ID)
 		}
 	}
 	runID, err := collection.StartRun()
@@ -132,7 +132,7 @@ func (c *Controller) TriggerCollection(collection *model.Collection) error {
 		c.TermCollection(collection, true)
 	}
 	if len(triggerErrors) > 0 {
-		return fmt.Errorf("Triggering errors %v", triggerErrors)
+		return fmt.Errorf("triggering errors %v", triggerErrors)
 	}
 	return nil
 }

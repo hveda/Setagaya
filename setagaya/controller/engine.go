@@ -58,14 +58,8 @@ type setagayaMetric struct {
 	runID        string
 }
 
-const enginePlanRoot = "/test-data"
-
 type baseEngine struct {
-	name         string
-	serviceName  string
-	ingressName  string
 	engineUrl    string
-	ingressClass string
 	collectionID int64
 	planID       int64
 	projectID    int64
@@ -182,7 +176,7 @@ func (be *baseEngine) trigger(edc *enginesModel.EngineDataConfig) error {
 			return fmt.Errorf("%w: Some test files are missing. Please stop collection re-upload them", sos.FileNotFoundError())
 		}
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("Engine failed to trigger: %d %s", resp.StatusCode, resp.Status)
+			return fmt.Errorf("engine failed to trigger: %d %s", resp.StatusCode, resp.Status)
 		}
 		log.Printf("%s is triggered", engineUrl)
 		return nil
@@ -240,7 +234,7 @@ func generateEnginesWithUrl(enginesRequired int, planID, collectionID, projectID
 	}
 	// This could happen during purging as there are still some engines lingering in the scheduler
 	if len(engineUrls) != len(engines) {
-		return nil, errors.New("Engines in scheduler does not match")
+		return nil, errors.New("engines in scheduler does not match")
 	}
 	for i, e := range engines {
 		url := engineUrls[i]
@@ -274,7 +268,7 @@ func (ctr *Controller) fetchEngineMetrics() {
 					// Some schedulers might not have the feature to expose the metrics
 					// We will return directly
 					log.Warn(err)
-					if errors.Is(err, scheduler.FeatureUnavailable) {
+					if errors.Is(err, scheduler.ErrFeatureUnavailable) {
 						return
 					}
 					continue

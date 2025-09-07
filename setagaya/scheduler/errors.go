@@ -6,15 +6,15 @@ import (
 )
 
 var (
-	IngressError = errors.New("Error with Ingress-")
+	ErrIngress = errors.New("Error with Ingress-")
 )
 
 func makeSchedulerIngressError(err error) error {
-	return fmt.Errorf("%w%s", IngressError, err.Error())
+	return fmt.Errorf("%w%s", ErrIngress, err.Error())
 }
 
 func makeIPNotAssignedError() error {
-	return fmt.Errorf("%w%s", IngressError, "IP is not assigned yet")
+	return fmt.Errorf("%w%s", ErrIngress, "IP is not assigned yet")
 }
 
 type NoResourcesFoundErr struct {
