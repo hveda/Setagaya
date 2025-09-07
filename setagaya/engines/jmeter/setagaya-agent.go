@@ -395,8 +395,19 @@ func cleanTestData() error {
 }
 
 func saveToDisk(filename string, file []byte) error {
-	filePath := filepath.Join(TEST_DATA_FOLDER, filepath.Base(filename))
-	log.Println(filePath)
+	// Sanitize filename to prevent path traversal attacks
+	cleanFilename := filepath.Base(filename)
+	if cleanFilename == "." || cleanFilename == ".." || strings.Contains(cleanFilename, "..") {
+		return errors.New("invalid filename")
+	}
+
+	filePath := filepath.Join(TEST_DATA_FOLDER, cleanFilename)
+
+	// Sanitize log output to prevent log injection
+	sanitizedPath := strings.ReplaceAll(filePath, "\n", "")
+	sanitizedPath = strings.ReplaceAll(sanitizedPath, "\r", "")
+	log.Printf("Saving file to: %s", sanitizedPath)
+
 	// Use secure file permissions instead of 0777
 	if err := os.WriteFile(filePath, file, 0644); err != nil {
 		return err

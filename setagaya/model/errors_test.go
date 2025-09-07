@@ -100,7 +100,8 @@ func TestDBErrorComparison(t *testing.T) {
 	assert.False(t, err1 == err2, "Different pointer instances should not be equal")
 
 	// Same instance should be equal to itself
-	//nolint:staticcheck // SA4000: testing object equality to itself is intentional
+	// This test verifies pointer equality behavior - intentionally comparing to self
+	//nolint:staticcheck // SA4000: testing object equality to itself is intentional for pointer equality validation
 	assert.True(t, err1 == err1, "Same instance should be equal to itself")
 
 	// Check that the content is similar (but instances are different)

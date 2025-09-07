@@ -31,7 +31,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o setagaya-agent ./engines/jmeter/setagaya-agent.go
 
 # Build stage for JMeter download
-FROM alpine:3.22@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d AS jmeter-builder
+FROM alpine:3.22@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d AS jmeter-downloader
 ARG jmeter_ver=5.6.3
 ENV JMETER_VERSION=$jmeter_ver
 
@@ -69,9 +69,9 @@ RUN mkdir -p /test-conf /test-result ${JMETER_HOME} && \
     chown -R setagaya:setagaya /test-conf /test-result ${JMETER_HOME}
 
 # Copy JMeter from builder stage
-COPY --from=jmeter-builder --chown=setagaya:setagaya /apache-jmeter-${JMETER_VERSION} ${JMETER_HOME}
+COPY --from=jmeter-downloader --chown=setagaya:setagaya /apache-jmeter-${JMETER_VERSION} ${JMETER_HOME}
 
-# Copy setagaya-agent binary 
+# Copy setagaya-agent binary
 # Default approach: Use source-built binary (recommended)
 COPY --from=go-builder --chmod=755 /app/setagaya-agent /usr/local/bin/setagaya-agent
 

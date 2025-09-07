@@ -236,7 +236,7 @@ The `setagaya-agent` automatically detects JMeter paths:
 ## Common Development Patterns
 
 When adding new schedulers: Implement `scheduler.EngineScheduler` interface When adding storage backends: Implement
-`object_storage.Storage` interface  
+`object_storage.Storage` interface
 When adding engine types: Follow `setagaya/engines/jmeter/` structure with agent sidecar pattern When modifying API
 endpoints: Update both `api/main.go` routes and ownership validation middleware When updating container builds: Ensure
 both README.md and TECHNICAL_SPECS.md reflect changes

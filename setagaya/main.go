@@ -1,5 +1,8 @@
 package main
 
+// Setagaya Load Testing Platform
+// Main entry point for the API server and controller
+
 import (
 	"fmt"
 	"net/http"

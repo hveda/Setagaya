@@ -3,7 +3,7 @@ FROM alpine:3.22@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd1
 ARG jmeter_ver
 ENV JMETER_VERSION=$jmeter_verr Engine Dockerfile - Uses pre-built binaries with JMeter 3.3
 # This file maintains backward compatibility with the original build process
-# 
+#
 # Usage:
 #   1. Build the binary: ./build.sh jmeter
 #   2. Build the image: docker build -f Dockerfile.engines.jmeter.legacy .
