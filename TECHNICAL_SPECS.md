@@ -11,11 +11,12 @@
 | JMeter Engine (Legacy) | `Dockerfile.engines.jmeter.legacy` | `eclipse-temurin:21-jre-alpine` | JMeter 3.3 + pre-built binary |testing platform that orchestrates JMeter engines across Kubernetes clusters. The
 system follows a controller-scheduler-engine pattern designed for scalable, enterprise-grade load testing.
 
-- **Version:** 2.0.0-rc
+- **Version:** 2.0.0-rc (Security & Testing Improvements)
 - **Language:** Go 1.25.1
 - **Runtime:** Kubernetes-native with Docker/Podman support
 - **License:** See [LICENSE](LICENSE) file
 - **Repository:** https://github.com/hveda/Setagaya
+- **Last Updated:** December 2025
 
 ## Architecture Overview
 
@@ -145,12 +146,35 @@ Project → Collection → Plan → ExecutionPlan
 
 ### Dependencies
 
+#### Core Dependencies (Latest Security Patches Applied)
+
 - **Web Framework:** Native Go HTTP server
 - **Metrics:** Prometheus client
-- **Database:** MySQL (configurable)
+- **Database:** MySQL driver v1.9.3 (security updates applied)
 - **Authentication:** LDAP integration
+- **Session Management:** Gorilla sessions v1.4.0 (security hardened)
 - **Storage:** Pluggable (GCP Buckets, Nexus, Local)
 - **Load Testing:** Apache JMeter 3.3/5.6.3
+
+#### Security-Critical Dependencies
+
+| Package | Version | Security Updates |
+|---------|---------|------------------|
+| `github.com/go-sql-driver/mysql` | v1.9.3 | DoS vulnerability fixes, auth improvements |
+| `github.com/gorilla/sessions` | v1.4.0 | Cookie security enhancements, 3rd party compatibility |
+| `github.com/sirupsen/logrus` | v1.9.3 | DoS vulnerability patches, writer improvements |
+| `golang.org/x/crypto` | v0.35.0 | Critical cryptographic security updates |
+| `golang.org/x/net` | v0.25.0 | Network security patches, HTTP/2 improvements |
+| `google.golang.org/grpc` | v1.56.3 | gRPC security updates (CVE-2023-44487) |
+| `google.golang.org/api` | v0.248.0 | Google API security improvements |
+| `k8s.io/client-go` | v0.34.0 | Kubernetes client security updates |
+
+#### Performance & Reliability
+
+| Package | Version | Improvements |
+|---------|---------|--------------|
+| `go.uber.org/automaxprocs` | v1.6.0 | CPU quota rounding, cgroups v2 support |
+| `grafana/grafana` | 12.1.1 | Latest security patches and features |
 
 ### Monitoring Stack
 

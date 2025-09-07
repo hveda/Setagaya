@@ -1,3 +1,5 @@
+version: "2"
+
 # golangci-lint configuration
 # https://golangci-lint.run/usage/configuration/
 
@@ -6,121 +8,26 @@ run:
   issues-exit-code: 1
   tests: true
 
-issues:
-  exclude-dirs:
-    - vendor
-    - third_party
-  exclude-files:
-    - ".*\\.pb\\.go$"
-    - ".*\\.gen\\.go$"
-  exclude-rules:
-    # Exclude some linters from running on tests files.
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - dupl
-        - gosec
-
-    # Exclude known linter issues
-    - text: 'weak cryptographic primitive'
-      linters:
-        - gosec
-
-    # Exclude defer close errors for database cleanup (low risk)
-    - text: 'Error return value.*Close.*not checked'
-      linters:
-        - errcheck
-
-    # Exclude errors for database scan operations in model layer (handled at higher level)
-    - path: model/
-      text: 'Error return value.*Scan.*not checked'
-      linters:
-        - errcheck
-
-    # Exclude last insert ID checks (often intentionally ignored)
-    - text: 'Error return value.*LastInsertId.*not checked'
-      linters:
-        - errcheck
-
-    # Exclude type assertions for known internal types
-    - text: 'Error return value is not checked.*\.\('
-      linters:
-        - errcheck
-      source: '^\s*\w+\s*:?=.*\.\([^)]+\)'
-
-  exclude-use-default: false
-  max-issues-per-linter: 0
-  max-same-issues: 0
-
 output:
   formats:
-    - format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-
-  govet:
-    enable-all: true
-
-  goimports:
-    local-prefixes: github.com/hveda/Setagaya
-
-  gocyclo:
-    min-complexity: 15
-
-  dupl:
-    threshold: 100
-
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-
-  depguard:
-    rules:
-      main:
-        deny:
-          - pkg: 'github.com/pkg/errors'
-            desc: 'use standard library errors package'
-
-  misspell:
-    locale: US
-
-  lll:
-    line-length: 120
-
-  gofmt:
-    simplify: true
-
-  gosec:
-    severity: medium
-    confidence: medium
-    excludes:
-      - G204 # Subprocess launched with function call as argument or cmd arguments
-      - G304 # File path provided as taint input
-
-  revive:
-    severity: warning
-    confidence: 0.8
-    rules:
-      - name: error-return
-      - name: error-naming
-      - name: if-return
-      - name: var-naming
+    text:
+      path: stdout
+      colors: true
+      print-issued-lines: true
+      print-linter-name: true
+  show-stats: true
 
 linters:
   enable:
-    - gofmt
-    - goimports
+    # Essential Go linters
     - staticcheck
-    - typecheck
+    - govet
+    - ineffassign
+    - unused
+    - errcheck
 
   disable:
-    # Deprecated linters
+    # Disabled linters (can be re-enabled gradually)
     - depguard # disable for now
     - dogsled # disable for now
     - dupl # disable for now
@@ -137,12 +44,114 @@ linters:
     - nolintlint # disable for now
     - unparam # disable for now
     - bodyclose # disable for now - many false positives
-    - govet # disable for now - too many field alignment warnings
-    - ineffassign # disable for now
     - unconvert # disable for now
     - whitespace # disable for now
-    - errcheck # disable for now - many intentionally ignored errors
-    - gosimple # disable for now - minor style issues
-    - unused # disable for now - many intentionally unused items for future use
 
+  exclusions:
+    paths:
+      - vendor
+      - third_party
+      - ".*\\.pb\\.go$"
+      - ".*\\.gen\\.go$"
 
+    rules:
+      # Exclude some linters from running on tests files.
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - dupl
+          - gosec
+
+      # Exclude known linter issues
+      - text: 'weak cryptographic primitive'
+        linters:
+          - gosec
+
+      # Exclude defer close errors for database cleanup (low risk)
+      - text: 'Error return value.*Close.*not checked'
+        linters:
+          - errcheck
+
+      # Exclude errors for database scan operations in model layer (handled at higher level)
+      - path: model/
+        text: 'Error return value.*Scan.*not checked'
+        linters:
+          - errcheck
+
+      # Exclude last insert ID checks (often intentionally ignored)
+      - text: 'Error return value.*LastInsertId.*not checked'
+        linters:
+          - errcheck
+
+      # Exclude type assertions for known internal types
+      - text: 'Error return value is not checked.*\.\('
+        linters:
+          - errcheck
+        source: '^\s*\w+\s*:?=.*\.\([^)]+\)'
+
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    govet:
+      enable-all: true
+
+    gocyclo:
+      min-complexity: 15
+
+    dupl:
+      threshold: 100
+
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: 'github.com/pkg/errors'
+              desc: 'use standard library errors package'
+
+    misspell:
+      locale: US
+
+    lll:
+      line-length: 120
+
+    gosec:
+      severity: medium
+      confidence: medium
+      excludes:
+        - G204 # Subprocess launched with function call as argument or cmd arguments
+        - G304 # File path provided as taint input
+
+    revive:
+      severity: warning
+      confidence: 0.8
+      rules:
+        - name: error-return
+        - name: error-naming
+        - name: if-return
+        - name: var-naming
+
+formatters:
+  enable:
+    # Code formatters
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/hveda/Setagaya
+    gofmt:
+      simplify: true
