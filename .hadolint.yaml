@@ -1,0 +1,36 @@
+# Hadolint configuration
+# https://github.com/hadolint/hadolint
+
+rules:
+  # Ignore DL3018 - Pin versions in apk add
+  # Alpine Linux package versioning is complex and can make builds brittle
+  # We use SHA-pinned base images and security updates for protection
+  DL3018: ignore
+
+  # Other rules to consider in the future:
+  # DL3008: Pin versions in apt get install
+  # DL3009: Delete the apt-get lists after installing something
+  # DL3015: Avoid additional packages by specifying `--no-install-recommends`
+
+ignored:
+  - DL3018
+
+# Trusted registries for base images
+trustedRegistries:
+  - docker.io
+  - gcr.io
+  - registry.k8s.io
+  - ghcr.io
+
+# Expected labels that should be present
+labels:
+  - maintainer
+
+# Allow these FROM aliases
+allowedFromPairs:
+  - from: "alpine:3.22@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d"
+    to: "alpine"
+  - from: "golang:1.25.1-alpine3.22@sha256:546671046d6f9f786c24b83111ba1801b736ee4b01b23db33e4f3eb41d4f8883"
+    to: "golang"
+  - from: "eclipse-temurin:21-jre-alpine"
+    to: "eclipse-temurin"

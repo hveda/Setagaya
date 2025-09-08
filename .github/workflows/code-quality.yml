@@ -111,6 +111,7 @@ jobs:
         dockerfile: setagaya/Dockerfile
         format: sarif
         output-file: hadolint-api.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint JMeter Dockerfile
@@ -119,6 +120,7 @@ jobs:
         dockerfile: setagaya/Dockerfile.engines.jmeter
         format: sarif
         output-file: hadolint-jmeter.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint Controller Dockerfile
@@ -127,6 +129,7 @@ jobs:
         dockerfile: setagaya/Dockerfile.controller
         format: sarif
         output-file: hadolint-controller.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint Local Storage Dockerfile
@@ -135,6 +138,7 @@ jobs:
         dockerfile: local_storage/Dockerfile
         format: sarif
         output-file: hadolint-storage.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint Grafana Dockerfile
@@ -143,6 +147,7 @@ jobs:
         dockerfile: grafana/Dockerfile
         format: sarif
         output-file: hadolint-grafana.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Upload Hadolint API results

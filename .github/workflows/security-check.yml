@@ -361,13 +361,30 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: TruffleHog OSS
+    - name: TruffleHog OSS - Pull Request Scan
+      if: github.event_name == 'pull_request'
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
-        base: main
-        head: HEAD
+        base: ${{ github.event.pull_request.base.sha }}
+        head: ${{ github.event.pull_request.head.sha }}
         extra_args: --debug --only-verified
+
+    - name: TruffleHog OSS - Push Event Scan
+      if: github.event_name == 'push'
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.before }}
+        head: ${{ github.event.after }}
+        extra_args: --debug --only-verified
+
+    - name: TruffleHog OSS - Scheduled/Full Repository Scan
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        extra_args: --debug --only-verified --since-commit="$(git log --since='7 days ago' --format='%H' | tail -1)"
 
   # License compliance check (with caching)
   license-check:
