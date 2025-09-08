@@ -57,8 +57,8 @@ func (c *Controller) TermAndPurgeCollection(collection *model.Collection) (err e
 			err = e
 		}
 	}()
-	if err := c.TermCollection(collection, true); err != nil {
-		return err
+	if termErr := c.TermCollection(collection, true); termErr != nil {
+		return termErr
 	}
 	if err = c.Scheduler.PurgeCollection(collection.ID); err != nil {
 		return err
@@ -85,9 +85,9 @@ func (c *Controller) TriggerCollection(collection *model.Collection) error {
 	}
 	engineDataConfigs := prepareCollection(collection)
 	for _, ep := range collection.ExecutionPlans {
-		plan, err := model.GetPlan(ep.PlanID)
-		if err != nil {
-			return err
+		plan, planErr := model.GetPlan(ep.PlanID)
+		if planErr != nil {
+			return planErr
 		}
 		if plan.TestFile == nil {
 			return fmt.Errorf("triggering plan aborted; there is no Test file (.jmx) in this plan %d", plan.ID)

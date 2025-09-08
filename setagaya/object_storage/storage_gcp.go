@@ -54,10 +54,10 @@ func newStorageClient(ctx context.Context) *storage.Client {
 	}
 	if config.SC.ObjectStorage.RequireProxy {
 		log.Info("Setting up GCP storage client with proxy")
-		baseTransportWithProxy, err := htransport.NewTransport(ctx, config.SC.HTTPProxyClient.Transport,
+		baseTransportWithProxy, transportErr := htransport.NewTransport(ctx, config.SC.HTTPProxyClient.Transport,
 			option.WithCredentials(creds))
-		if err != nil {
-			log.Fatal(err)
+		if transportErr != nil {
+			log.Fatal(transportErr)
 		}
 		if transport, ok := hc.Transport.(*oauth2.Transport); ok {
 			transport.Base = baseTransportWithProxy

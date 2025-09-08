@@ -44,8 +44,8 @@ func (l localStorage) Upload(filename string, content io.ReadCloser) error {
 	if _, err = io.Copy(fw, content); err != nil {
 		return err
 	}
-	if err := w.Close(); err != nil {
-		return err
+	if closeErr := w.Close(); closeErr != nil {
+		return closeErr
 	}
 
 	url := l.GetUrl(filename)

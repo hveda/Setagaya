@@ -103,6 +103,8 @@ linters:
 
     govet:
       enable-all: true
+      disable:
+        - fieldalignment  # Disable field alignment warnings (cosmetic, low impact)
 
     gocyclo:
       min-complexity: 15

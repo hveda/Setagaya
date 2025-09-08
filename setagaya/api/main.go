@@ -353,7 +353,7 @@ func (s *SetagayaAPI) planFilesUploadHandler(w http.ResponseWriter, r *http.Requ
 		s.handleErrors(w, err)
 		return
 	}
-	if err := r.ParseMultipartForm(100 << 20); err != nil { //parse 100 MB of data
+	if parseErr := r.ParseMultipartForm(100 << 20); parseErr != nil { //parse 100 MB of data
 		s.handleErrors(w, makeInvalidRequestError("failed to parse multipart form"))
 		return
 	}
@@ -387,7 +387,7 @@ func (s *SetagayaAPI) collectionFilesUploadHandler(w http.ResponseWriter, r *htt
 		s.handleErrors(w, err)
 		return
 	}
-	if err := r.ParseMultipartForm(100 << 20); err != nil { //parse 100 MB of data
+	if parseErr := r.ParseMultipartForm(100 << 20); parseErr != nil { //parse 100 MB of data
 		s.handleErrors(w, makeInvalidRequestError("failed to parse multipart form"))
 		return
 	}
@@ -412,7 +412,7 @@ func (s *SetagayaAPI) collectionFilesDeleteHandler(w http.ResponseWriter, r *htt
 		s.handleErrors(w, err)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if parseErr := r.ParseForm(); parseErr != nil {
 		s.handleErrors(w, makeInvalidRequestError("failed to parse form"))
 		return
 	}
@@ -437,7 +437,7 @@ func (s *SetagayaAPI) planFilesDeleteHandler(w http.ResponseWriter, r *http.Requ
 		s.handleErrors(w, err)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if parseErr := r.ParseForm(); parseErr != nil {
 		s.handleErrors(w, makeInvalidRequestError("failed to parse form"))
 		return
 	}
@@ -569,7 +569,7 @@ func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 	e := new(model.ExecutionWrapper)
-	if err := r.ParseMultipartForm(1 << 20); err != nil { //parse 1 MB of data
+	if parseErr := r.ParseMultipartForm(1 << 20); parseErr != nil { //parse 1 MB of data
 		s.handleErrors(w, makeInvalidRequestError("form"))
 		return
 	}
@@ -600,14 +600,14 @@ func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Req
 	}
 	totalEnginesRequired := 0
 	for _, ep := range e.Content.Tests {
-		plan, err := model.GetPlan(ep.PlanID)
-		if err != nil {
-			s.handleErrors(w, err)
+		plan, planErr := model.GetPlan(ep.PlanID)
+		if planErr != nil {
+			s.handleErrors(w, planErr)
 			return
 		}
-		planProject, err := model.GetProject(plan.ProjectID)
-		if err != nil {
-			s.handleErrors(w, err)
+		planProject, projectErr := model.GetProject(plan.ProjectID)
+		if projectErr != nil {
+			s.handleErrors(w, projectErr)
 			return
 		}
 		if project.ID != planProject.ID {
@@ -638,9 +638,9 @@ func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Req
 		}
 	}
 	if s.ctr.Scheduler.PodReadyCount(collection.ID) > 0 {
-		currentPlans, err := collection.GetExecutionPlans()
-		if err != nil {
-			s.handleErrors(w, err)
+		currentPlans, plansErr := collection.GetExecutionPlans()
+		if plansErr != nil {
+			s.handleErrors(w, plansErr)
 			return
 		}
 		if ok, message := hasInvalidDiff(currentPlans, e.Content.Tests); ok {
