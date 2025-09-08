@@ -25,7 +25,7 @@ jobs:
       uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
 
@@ -45,7 +45,7 @@ jobs:
       uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
 
@@ -57,14 +57,50 @@ jobs:
     - name: Run Tests
       run: |
         cd setagaya
-        SETAGAYA_TEST_MODE=true go test -v -race -coverprofile=coverage.out ./...
+
+        # Verify test mode configuration
+        echo "Running tests in SETAGAYA_TEST_MODE..."
+        echo "Current directory: $(pwd)"
+        echo "Config files available:"
+        ls -la config* || echo "No config files in current directory"
+        ls -la /config.json || echo "No config file in root"
+
+        # Run tests with coverage
+        SETAGAYA_TEST_MODE=true go test -v -coverprofile=coverage.out ./...
+
+        # Verify coverage file was created
+        if [ -f coverage.out ]; then
+          echo "Coverage file created successfully"
+          echo "Coverage summary:"
+          go tool cover -func=coverage.out | tail -1
+          echo "Coverage file size: $(wc -l < coverage.out) lines"
+        else
+          echo "Error: Coverage file not created"
+          exit 1
+        fi
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
-        file: setagaya/coverage.out
+        file: ./setagaya/coverage.out
         flags: unittests
         name: codecov-umbrella
+        fail_ci_if_error: false
+        verbose: true
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Coverage validation
+      run: |
+        echo "Validating coverage file before upload..."
+        if [ -f setagaya/coverage.out ]; then
+          echo "Coverage file exists and contains:"
+          head -5 setagaya/coverage.out
+          echo "..."
+          tail -2 setagaya/coverage.out
+        else
+          echo "Coverage file not found!"
+        fi
 
     - name: Generate coverage report
       run: |
@@ -86,7 +122,7 @@ jobs:
       uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
 
@@ -106,43 +142,48 @@ jobs:
       uses: actions/checkout@v5
 
     - name: Lint Dockerfiles with Hadolint
-      uses: hadolint/hadolint-action@v3.1.0
+      uses: hadolint/hadolint-action@v3.2.0
       with:
         dockerfile: setagaya/Dockerfile
         format: sarif
         output-file: hadolint-api.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint JMeter Dockerfile
-      uses: hadolint/hadolint-action@v3.1.0
+      uses: hadolint/hadolint-action@v3.2.0
       with:
         dockerfile: setagaya/Dockerfile.engines.jmeter
         format: sarif
         output-file: hadolint-jmeter.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint Controller Dockerfile
-      uses: hadolint/hadolint-action@v3.1.0
+      uses: hadolint/hadolint-action@v3.2.0
       with:
         dockerfile: setagaya/Dockerfile.controller
         format: sarif
         output-file: hadolint-controller.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint Local Storage Dockerfile
-      uses: hadolint/hadolint-action@v3.1.0
+      uses: hadolint/hadolint-action@v3.2.0
       with:
         dockerfile: local_storage/Dockerfile
         format: sarif
         output-file: hadolint-storage.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Lint Grafana Dockerfile
-      uses: hadolint/hadolint-action@v3.1.0
+      uses: hadolint/hadolint-action@v3.2.0
       with:
         dockerfile: grafana/Dockerfile
         format: sarif
         output-file: hadolint-grafana.sarif
+        config: .hadolint.yaml
         no-fail: true
 
     - name: Upload Hadolint API results
@@ -322,7 +363,7 @@ jobs:
       uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
 
