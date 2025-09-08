@@ -192,30 +192,30 @@ func TestEngineDataConfigDeepCopies(t *testing.T) {
 					t.Error("Both maps should be non-nil")
 				}
 
-			// Test that files in the copy are deep copied
-			copiedFile1 := copy.EngineData["file1.csv"]
-			copiedFile2 := copy.EngineData["file2.csv"]
+				// Test that files in the copy are deep copied
+				copiedFile1 := copy.EngineData["file1.csv"]
+				copiedFile2 := copy.EngineData["file2.csv"]
 
-			// Test that files are different objects
-			if originalFile1 == copiedFile1 {
-				t.Error("File1 should be different objects")
-			}
-			if originalFile2 == copiedFile2 {
-				t.Error("File2 should be different objects")
-			}
+				// Test that files are different objects
+				if originalFile1 == copiedFile1 {
+					t.Error("File1 should be different objects")
+				}
+				if originalFile2 == copiedFile2 {
+					t.Error("File2 should be different objects")
+				}
 
-			assert.Equal(t, originalFile1.Filename, copiedFile1.Filename)
-			assert.Equal(t, originalFile2.Filename, copiedFile2.Filename)
+				assert.Equal(t, originalFile1.Filename, copiedFile1.Filename)
+				assert.Equal(t, originalFile2.Filename, copiedFile2.Filename)
 
-			// Test that copies are independent of each other
-			for j, otherCopy := range copies {
-				if i != j {
-					// Test that copy maps are both non-nil
-					if copy.EngineData == nil || otherCopy.EngineData == nil {
-						t.Error("Both copy maps should be non-nil")
+				// Test that copies are independent of each other
+				for j, otherCopy := range copies {
+					if i != j {
+						// Test that copy maps are both non-nil
+						if copy.EngineData == nil || otherCopy.EngineData == nil {
+							t.Error("Both copy maps should be non-nil")
+						}
 					}
 				}
-			}
 			}
 		})
 	}

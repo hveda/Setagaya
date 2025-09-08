@@ -82,6 +82,7 @@ func TestDBErrorUnwrap(t *testing.T) {
 	// While DBError doesn't implement Unwrap, we can still access the original error
 	assert.Equal(t, originalErr, dbErr.Err)
 	assert.Contains(t, dbErr.Err.Error(), "connection timeout")
+	assert.Equal(t, "database timeout", dbErr.Message) // Test that the message is set correctly
 }
 
 func TestDBErrorComparison(t *testing.T) {

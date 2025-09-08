@@ -3,9 +3,10 @@ package model
 import (
 	"net/http"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/hveda/Setagaya/setagaya/auth"
 	"github.com/hveda/Setagaya/setagaya/config"
-	log "github.com/sirupsen/logrus"
 )
 
 type Account struct {

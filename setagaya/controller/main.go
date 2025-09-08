@@ -201,11 +201,11 @@ func (c *Controller) DeployCollection(collection *model.Collection) error {
 		vu += e.Engines * e.Concurrency
 	}
 	sid := ""
-	if project, err := model.GetProject(collection.ProjectID); err == nil {
+	if project, projectErr := model.GetProject(collection.ProjectID); projectErr == nil {
 		sid = project.SID
 	}
-	if err := collection.NewLaunchEntry(sid, config.SC.Context, int64(enginesCount), nodesCount, int64(vu)); err != nil {
-		return err
+	if launchErr := collection.NewLaunchEntry(sid, config.SC.Context, int64(enginesCount), nodesCount, int64(vu)); launchErr != nil {
+		return launchErr
 	}
 	err = utils.Retry(func() error {
 		return c.Scheduler.ExposeProject(collection.ProjectID)

@@ -272,6 +272,10 @@ func TestExecutionStructsEdgeCases(t *testing.T) {
 			CSVSplit:     false,
 		}
 		assert.Equal(t, 0, len(ec.Tests))
+		assert.Equal(t, "empty-collection", ec.Name)
+		assert.Equal(t, int64(123), ec.ProjectID)
+		assert.Equal(t, int64(456), ec.CollectionID)
+		assert.False(t, ec.CSVSplit)
 	})
 
 	t.Run("negative values in execution plan", func(t *testing.T) {
@@ -284,10 +288,13 @@ func TestExecutionStructsEdgeCases(t *testing.T) {
 			Duration:    -300,
 			CSVSplit:    false,
 		}
-		// Struct should accept negative values even if they're not logical
+		assert.Equal(t, "negative-test", ep.Name)
 		assert.Equal(t, int64(-1), ep.PlanID)
 		assert.Equal(t, -5, ep.Concurrency)
+		assert.Equal(t, -2, ep.Rampup)
+		assert.Equal(t, -1, ep.Engines)
 		assert.Equal(t, -300, ep.Duration)
+		assert.False(t, ep.CSVSplit)
 	})
 
 	t.Run("very large values", func(t *testing.T) {
@@ -300,8 +307,13 @@ func TestExecutionStructsEdgeCases(t *testing.T) {
 			Duration:    2147483647,
 			CSVSplit:    true,
 		}
+		assert.Equal(t, "large-test", ep.Name)
 		assert.Equal(t, int64(9223372036854775807), ep.PlanID)
 		assert.Equal(t, 2147483647, ep.Concurrency)
+		assert.Equal(t, 2147483647, ep.Rampup)
+		assert.Equal(t, 2147483647, ep.Engines)
+		assert.Equal(t, 2147483647, ep.Duration)
+		assert.True(t, ep.CSVSplit)
 	})
 }
 

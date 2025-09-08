@@ -179,8 +179,8 @@ func TestCollectionRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.RunFinish(runID); err != nil {
-		t.Fatal(err)
+	if finishErr := c.RunFinish(runID); finishErr != nil {
+		t.Fatal(finishErr)
 	}
 	runs, err := c.GetRuns()
 	if err != nil {
@@ -227,8 +227,8 @@ func TestCollectionRun(t *testing.T) {
 	_, err = c.StartRun()
 	assert.NotNil(t, err)
 
-	if err := c.StopRun(); err != nil {
-		t.Fatal(err)
+	if stopErr := c.StopRun(); stopErr != nil {
+		t.Fatal(stopErr)
 	}
 	runID, err = c.GetCurrentRun()
 	assert.NoError(t, err)

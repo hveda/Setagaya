@@ -250,8 +250,8 @@ outer:
 		delPending = append(delPending, cp.PlanID)
 	}
 	for _, ep := range ec.Tests {
-		if err := c.AddExecutionPlan(ep); err != nil {
-			log.Printf("Error adding execution plan: %v", err)
+		if addErr := c.AddExecutionPlan(ep); addErr != nil {
+			log.Printf("Error adding execution plan: %v", addErr)
 		}
 	}
 	//remove deleted plans
@@ -539,8 +539,8 @@ func (c *Collection) NewLaunchEntry(owner, cxt string, enginesCount, machinesCou
 		return err
 	}
 	defer func() {
-		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			log.Printf("Error rolling back transaction: %v", err)
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
+			log.Printf("Error rolling back transaction: %v", rollbackErr)
 		}
 	}()
 	r, err := tx.Exec("insert into collection_launch (collection_id) values(?)", c.ID)
@@ -574,8 +574,8 @@ func (c *Collection) MarkUsageFinished(cxt string, vu int64) error {
 		return err
 	}
 	defer func() {
-		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			log.Printf("Error rolling back transaction: %v", err)
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
+			log.Printf("Error rolling back transaction: %v", rollbackErr)
 		}
 	}()
 

@@ -37,9 +37,9 @@ func (s *SetagayaAPI) collectionConfigGetHandler(w http.ResponseWriter, req *htt
 		return
 	}
 	for _, ep := range eps {
-		plan, err := model.GetPlan(ep.PlanID)
-		if err != nil {
-			s.handleErrors(w, err)
+		plan, planErr := model.GetPlan(ep.PlanID)
+		if planErr != nil {
+			s.handleErrors(w, planErr)
 			return
 		}
 		ep.Name = plan.Name

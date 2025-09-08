@@ -22,8 +22,8 @@ func (c *Controller) CheckRunningThenTerminate() {
 					collection := j.collection
 					currRunID, err := collection.GetCurrentRun()
 					if currRunID != int64(0) {
-						if err := pc.term(false, &c.connectedEngines); err != nil {
-							log.Printf("Error terminating plan %d: %v", j.ep.PlanID, err)
+						if termErr := pc.term(false, &c.connectedEngines); termErr != nil {
+							log.Printf("Error terminating plan %d: %v", j.ep.PlanID, termErr)
 						}
 						log.Printf("Plan %d is terminated.", j.ep.PlanID)
 					}

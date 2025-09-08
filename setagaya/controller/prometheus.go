@@ -4,10 +4,11 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/hveda/Setagaya/setagaya/config"
-	"github.com/hveda/Setagaya/setagaya/model"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/hveda/Setagaya/setagaya/config"
+	"github.com/hveda/Setagaya/setagaya/model"
 )
 
 // We use a KV map of [runID:set(values)] to store labels and statuses
