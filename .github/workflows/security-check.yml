@@ -384,7 +384,7 @@ jobs:
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
-        extra_args: --debug --only-verified --since-commit="$(git log --since='7 days ago' --format='%H' | tail -1)"
+        extra_args: --debug --only-verified
 
   # License compliance check (with caching)
   license-check:
