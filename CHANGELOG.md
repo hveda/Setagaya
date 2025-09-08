@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.0.0-rc.1](https://github.com/hveda/Setagaya/compare/v2.0.0-rc...v2.0.0-rc.1) (2025-12-15)
+
+### 🔐 Security Scanning Fixes
+
+#### ✨ Features
+* **Enhanced Secret Scanning**: Event-aware TruffleHog configuration for different GitHub trigger types
+* **Improved Dockerfile Linting**: Hadolint configuration file for Alpine package handling
+* **Security Workflow Optimization**: Proper commit SHA handling for PR and push events
+
+#### 🛠️ Fixes
+* **TruffleHog Configuration**: Fixed "BASE and HEAD commits are the same" error in scheduled scans
+  - Pull request scans: Use proper base/head commit SHAs (`github.event.pull_request.base.sha` vs `github.event.pull_request.head.sha`)
+  - Push event scans: Use before/after commit SHAs (`github.event.before` vs `github.event.after`)
+  - Scheduled/manual scans: Use time-based scanning (7-day window) instead of diff-based approach
+* **Dockerfile Linting**: Added `.hadolint.yaml` configuration to handle Alpine package versioning
+  - Ignores DL3018 warnings (industry best practice for Alpine packages)
+  - Uses SHA-pinned base images for security instead of package version pinning
+  - Updated code-quality workflow to use the configuration file
+
+#### 📚 Documentation Updates
+* **Technical Specifications**: Enhanced security automation documentation
+  - Added detailed security scanning workflow descriptions
+  - Updated container security features section
+  - Documented automated security tools integration
+* **Security Integration**: Updated platform overview to highlight security automation improvements
+
+#### ✅ Validation
+* **Go Code Quality**: All Go modules pass linting and build successfully
+* **Workflow Validation**: All YAML workflow files validated for syntax correctness
+* **Security Configuration**: Hadolint and TruffleHog configurations tested and validated
+
 ## [2.0.0-rc](https://github.com/hveda/Setagaya/compare/v1.1.2...v2.0.0-rc) (2025-09-06)
 
 ### 🚀 Major Platform Modernization Release Candidate

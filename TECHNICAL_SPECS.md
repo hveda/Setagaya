@@ -13,10 +13,11 @@ system follows a controller-scheduler-engine pattern designed for scalable, ente
 
 - **Version:** 2.0.0-rc (Security & Testing Improvements)
 - **Language:** Go 1.25.1
-- **Runtime:** Kubernetes-native with Docker/Podman support
+- **Runtime:** Kubernetes-native with Docker/Podman support  
 - **License:** See [LICENSE](LICENSE) file
 - **Repository:** https://github.com/hveda/Setagaya
 - **Last Updated:** December 2025
+- **Security:** Enhanced scanning with TruffleHog, CodeQL, and Trivy integration
 
 ## Architecture Overview
 
@@ -128,11 +129,37 @@ Project → Collection → Plan → ExecutionPlan
 
 ### Security Features
 
+#### Container Security (2025)
+
 - **Multi-stage builds:** Separate build and runtime environments
 - **Non-root users:** All containers run as `setagaya` user (UID 1001)
 - **Static compilation:** CGO_ENABLED=0 with security flags
 - **Minimal base images:** Alpine and scratch for reduced attack surface
+- **SHA-pinned base images:** All base images use cryptographic SHA checksums
 - **No HEALTHCHECK:** Eliminates OCI format warnings, relies on Kubernetes health monitoring
+
+#### Automated Security Scanning
+
+- **Secret Scanning:** TruffleHog integration with event-aware configuration
+  - PR scans: Compare base vs head commits
+  - Push scans: Compare before vs after commits  
+  - Scheduled scans: Time-based repository scanning (7-day window)
+- **Code Analysis:** CodeQL static analysis with manual build optimization
+  - Multi-module Go project support
+  - Enhanced caching for 60-minute timeout
+  - Security-extended and quality queries
+- **Vulnerability Scanning:** Trivy container image scanning
+  - CRITICAL, HIGH, MEDIUM severity focus
+  - SARIF integration with GitHub Security tab
+  - Matrix-based scanning for all Docker images
+- **Dependency Management:** Automated security updates via Dependabot
+  - Daily Go module updates
+  - Weekly Docker base image updates  
+  - Weekly GitHub Actions updates
+- **Compliance Checking:** 
+  - Dockerfile security linting with Hadolint
+  - Go security analysis with Gosec
+  - License compliance validation
 
 ## Technology Stack
 

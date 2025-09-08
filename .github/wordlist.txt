@@ -1,4 +1,4 @@
-personal_ws-1.1 en 445
+personal_ws-1.1 en 450
 Setagaya
 JMeter
 Kubernetes
@@ -444,3 +444,7 @@ Wordlist
 txt
 aspell
 pyspelling
+checksums
+Hadolint
+SHAs
+DL

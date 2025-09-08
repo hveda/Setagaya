@@ -4,6 +4,55 @@ applyTo: '**'
 
 # Setagaya Load Testing Platform - AI Coding Guidelines
 
+## Pull Request Title and Description Requirements
+
+### CRITICAL: Follow Conventional Commit Format for PR Titles
+
+All pull request titles MUST follow the conventional commit format enforced by the PR validation workflow:
+
+**Format**: `<type>: <description>`
+
+**Allowed Types**:
+- `feat` - New features or capabilities
+- `fix` - Bug fixes, issue resolution, workflow failures
+- `docs` - Documentation updates, README changes
+- `style` - Code style changes (formatting, missing semicolons, etc.)
+- `refactor` - Code refactoring without changing functionality
+- `perf` - Performance improvements
+- `test` - Adding or updating tests
+- `build` - Changes to build system, dependencies, package management
+- `ci` - Changes to CI/CD configuration, GitHub Actions workflows
+- `chore` - Maintenance tasks, housekeeping
+- `revert` - Reverting previous commits
+
+**Title Requirements**:
+- Subject (description part) must NOT start with an uppercase letter
+- Use lowercase for the first word after the colon and space
+- Keep descriptions concise but meaningful
+- Do not use `release` as a scope (disallowed)
+
+**Examples**:
+- ✅ `fix: resolve TruffleHog secret scanning workflow failures`
+- ✅ `feat: add new JMeter engine scheduler interface`
+- ✅ `docs: update TECHNICAL_SPECS.md with security automation details`
+- ✅ `build: update dependencies and consolidate Dependabot PRs`
+- ✅ `ci: improve GitHub Actions workflow error handling`
+- ❌ `Fix: TruffleHog issues` (uppercase after colon)
+- ❌ `Consolidate dependency updates` (missing type prefix)
+- ❌ `feat(release): new feature` (disallowed scope)
+
+**Multiple Change Types**: When a PR contains multiple types of changes, choose the primary/most impactful type:
+- Security fixes and workflow failures → `fix:`
+- New features with documentation → `feat:`
+- Dependency updates with CI changes → `build:`
+
+### PR Description Requirements
+
+- Minimum 10 characters in length
+- Provide meaningful description of changes
+- Include breaking changes indicator if applicable (`BREAKING CHANGE` or `!` in title)
+- Document impact and validation performed
+
 ## Documentation Maintenance Requirements
 
 ### CRITICAL: Always Update Documentation
@@ -73,6 +122,24 @@ follows a controller-scheduler-engine pattern:
 - Results converge at collection level for unified reporting via Grafana dashboards
 
 ## Key Development Workflows
+
+### Pull Request Workflow
+
+Before creating any pull request:
+
+1. **Validate PR Title**: Ensure it follows conventional commit format (see PR Title Requirements above)
+2. **Check PR Size**: Keep PRs focused and under 1000 lines of changes when possible
+3. **Run Local Tests**: Ensure all tests pass and code is properly formatted
+4. **Update Documentation**: Follow documentation maintenance requirements
+5. **Security Review**: Consider security impact for sensitive changes
+
+The PR validation workflow will automatically check:
+- Conventional commit title format
+- PR description length and content
+- Code formatting and style
+- Security impact assessment
+- Test coverage requirements
+- Dependency license validation
 
 ### Local Development Setup
 
