@@ -288,6 +288,8 @@ jobs:
         mysql -e 'CREATE DATABASE setagaya_test;' -uroot -proot
 
     - name: Run tests with coverage
+      env:
+        SETAGAYA_TEST_MODE: "true"
       run: |
         cd setagaya
         go test -race -coverprofile=coverage.out -covermode=atomic ./...

@@ -19,7 +19,7 @@ updates:
       - "dependencies"
       - "go"
     commit-message:
-      prefix: "deps"
+      prefix: "build"
       include: "scope"
     ignore:
       # Ignore major version updates for stability
@@ -41,7 +41,7 @@ updates:
       - "go"
       - "local-storage"
     commit-message:
-      prefix: "deps"
+      prefix: "build"
 
   # Go dependencies in ingress-controller
   - package-ecosystem: "gomod"
@@ -58,7 +58,7 @@ updates:
       - "go"
       - "ingress-controller"
     commit-message:
-      prefix: "deps"
+      prefix: "build"
 
   # Docker base images
   - package-ecosystem: "docker"
@@ -75,7 +75,7 @@ updates:
       - "dependencies"
       - "docker"
     commit-message:
-      prefix: "deps"
+      prefix: "build"
 
   - package-ecosystem: "docker"
     directory: "/local_storage"

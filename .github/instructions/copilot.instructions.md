@@ -46,6 +46,17 @@ All pull request titles MUST follow the conventional commit format enforced by t
 - New features with documentation → `feat:`
 - Dependency updates with CI changes → `build:`
 
+**Dependabot Configuration**: 
+- Dependabot PRs use `build:` prefix for Go module and Docker dependency updates
+- Dependabot PRs use `ci:` prefix for GitHub Actions updates
+- This is configured in `.github/dependabot.yml` and ensures PR validation passes
+- Never manually change Dependabot PR titles - fix the configuration instead
+
+**Test Environment Setup**:
+- Tests require `SETAGAYA_TEST_MODE=true` environment variable to use test configuration
+- This is configured in the PR validation workflow (`pr-validation.yml`)
+- Test mode provides a minimal config without requiring external files
+
 ### PR Description Requirements
 
 - Minimum 10 characters in length
