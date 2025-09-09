@@ -30,10 +30,10 @@ MINIMAL_VERSION=1.8.0
 # Check if Java is present and the minimal version requirement
 _java=$(type java | awk '{ print $ NF }')
 CURRENT_VERSION=$("$_java" -version 2>&1 | awk -F'"' '/version/ {print $2}')
-minimal_version=$(echo $MINIMAL_VERSION | awk -F'.' '{ print $2 }')
-current_version=$(echo $CURRENT_VERSION | awk -F'.' '{ print $2 }')
-if [ $current_version ]; then
-        if [ $current_version -lt $minimal_version ]; then
+minimal_version=$(echo "$MINIMAL_VERSION" | awk -F'.' '{ print $2 }')
+current_version=$(echo "$CURRENT_VERSION" | awk -F'.' '{ print $2 }')
+if [ "$current_version" ]; then
+        if [ "$current_version" -lt "$minimal_version" ]; then
                  echo "Error: Java version is too low to run JMeter. Needs at least Java >= ${MINIMAL_VERSION}."
                  exit 1
         fi
@@ -100,4 +100,5 @@ SERVER="-server"
 
 ARGS="$SERVER $DUMP $HEAP $VERBOSE_GC $GC_ALGO $SYSTEM_PROPS"
 
+# shellcheck disable=SC2086
 java $ARGS $JVM_ARGS $JMETER_OPTS -jar "$PRGDIR/ApacheJMeter.jar" "$@"

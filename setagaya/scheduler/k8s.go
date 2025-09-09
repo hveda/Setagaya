@@ -223,7 +223,7 @@ func (kcm *K8sClientManager) generatePlanDeployment(planName string, replicas in
 			Labels:                     labels,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:            int32Ptr(int32(replicas)),
+			Replicas:            int32Ptr(safeIntToInt32(replicas)),
 			PodManagementPolicy: appsv1.ParallelPodManagement,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
@@ -1002,4 +1002,15 @@ func (kcm *K8sClientManager) GetCollectionEnginesDetail(projectID, collectionID 
 
 func getEngineNumber(podName string) string {
 	return strings.Split(podName, "-")[4]
+}
+
+// safeIntToInt32 safely converts an int to int32, preventing overflow
+func safeIntToInt32(i int) int32 {
+	if i > 2147483647 { // max int32
+		return 2147483647
+	}
+	if i < -2147483648 { // min int32
+		return -2147483648
+	}
+	return int32(i)
 }

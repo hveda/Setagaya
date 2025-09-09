@@ -13,7 +13,7 @@ system follows a controller-scheduler-engine pattern designed for scalable, ente
 
 - **Version:** 2.0.0-rc (Security & Testing Improvements)
 - **Language:** Go 1.25.1
-- **Runtime:** Kubernetes-native with Docker/Podman support  
+- **Runtime:** Kubernetes-native with Docker/Podman support
 - **License:** See [LICENSE](LICENSE) file
 - **Repository:** https://github.com/hveda/Setagaya
 - **Last Updated:** December 2025
@@ -62,6 +62,7 @@ system follows a controller-scheduler-engine pattern designed for scalable, ente
   - Server-sent events for live dashboard updates
   - LDAP authentication and authorization
   - File upload handling for test plans
+- **API Documentation:** OpenAPI 3.0 specification in `docs/api/openapi.yaml`
 
 #### 3. **Scheduler** (`setagaya/scheduler/`)
 
@@ -142,7 +143,7 @@ Project → Collection → Plan → ExecutionPlan
 
 - **Secret Scanning:** TruffleHog integration with event-aware configuration
   - PR scans: Compare base vs head commits
-  - Push scans: Compare before vs after commits  
+  - Push scans: Compare before vs after commits
   - Scheduled scans: Time-based repository scanning (7-day window)
 - **Code Analysis:** CodeQL static analysis with manual build optimization
   - Multi-module Go project support
@@ -154,9 +155,9 @@ Project → Collection → Plan → ExecutionPlan
   - Matrix-based scanning for all Docker images
 - **Dependency Management:** Automated security updates via Dependabot
   - Daily Go module updates
-  - Weekly Docker base image updates  
+  - Weekly Docker base image updates
   - Weekly GitHub Actions updates
-- **Compliance Checking:** 
+- **Compliance Checking:**
   - Dockerfile security linting with Hadolint
   - Go security analysis with Gosec
   - License compliance validation
@@ -292,6 +293,107 @@ storage := object_storage.Client.Storage
 storage.Upload(bucket, key, data)
 data := storage.Download(bucket, key)
 ```
+
+## API Documentation
+
+### OpenAPI Specification
+
+The Setagaya REST API is fully documented using OpenAPI 3.0 specification:
+
+- **Location:** `docs/api/openapi.yaml`
+- **Format:** OpenAPI 3.0.3
+- **Coverage:** All endpoints, request/response schemas, and error codes
+- **Authentication:** LDAP authentication documented with security schemes
+
+### API Structure
+
+The API follows RESTful principles with hierarchical resource organization:
+
+#### Resource Hierarchy
+```
+Projects (Top-level organizational units)
+├── Plans (Test configurations with JMeter files)
+└── Collections (Execution units)
+    ├── ExecutionPlans (Engine/concurrency configuration)
+    ├── Files (Test data and configurations)
+    └── Lifecycle Operations (Deploy → Trigger → Stop → Purge)
+```
+
+#### Core Endpoint Groups
+
+- **`/api/projects`** - Project management and ownership
+- **`/api/plans`** - Test plan creation and file management
+- **`/api/collections`** - Test execution lifecycle and monitoring
+- **`/api/files`** - File upload/download operations
+- **`/api/usage`** - Platform usage statistics
+- **`/api/admin`** - Administrative operations (requires admin privileges)
+- **`/metrics`** - Prometheus metrics endpoint
+
+#### Real-time Features
+
+- **Server-Sent Events (SSE):** `/api/collections/{id}/stream` provides real-time metrics
+- **Live Monitoring:** Engine status, active threads, throughput metrics
+- **Event Stream Format:** JSON-formatted metrics with timestamp and collection/plan identifiers
+
+#### Authentication Flow
+
+1. **LDAP Authentication:** HTTP Basic Auth with LDAP credentials
+2. **Ownership Validation:** Project access based on LDAP group membership
+3. **Admin Privileges:** Configurable admin user list for platform-wide access
+4. **Local Development:** Authentication can be disabled with `no_auth: true`
+
+### API Usage Examples
+
+#### Creating a Load Test Flow
+```bash
+# 1. Create project
+curl -X POST http://localhost:8080/api/projects \
+  -d "name=My Load Test&owner=engineering-team"
+
+# 2. Create test plan
+curl -X POST http://localhost:8080/api/plans \
+  -d "name=API Test&project_id=123"
+
+# 3. Upload JMeter file
+curl -X PUT http://localhost:8080/api/plans/456/files \
+  -F "planFile=@test-plan.jmx"
+
+# 4. Create collection
+curl -X POST http://localhost:8080/api/collections \
+  -d "name=Performance Suite&project_id=123"
+
+# 5. Configure execution
+curl -X PUT http://localhost:8080/api/collections/789/config \
+  -F "collectionYAML=@execution-config.yaml"
+
+# 6. Deploy engines
+curl -X POST http://localhost:8080/api/collections/789/deploy
+
+# 7. Start test
+curl -X POST http://localhost:8080/api/collections/789/trigger
+
+# 8. Monitor (real-time stream)
+curl http://localhost:8080/api/collections/789/stream
+```
+
+#### Error Handling
+
+The API uses standard HTTP status codes with consistent JSON error responses:
+
+```json
+{
+  "message": "Detailed error description"
+}
+```
+
+Common status codes:
+- `200` - Success
+- `400` - Invalid request parameters
+- `401` - Authentication required
+- `403` - Insufficient permissions
+- `404` - Resource not found
+- `500` - Internal server error
+- `501` - Not implemented
 
 ## Authentication & Authorization
 

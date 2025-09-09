@@ -46,7 +46,7 @@ All pull request titles MUST follow the conventional commit format enforced by t
 - New features with documentation → `feat:`
 - Dependency updates with CI changes → `build:`
 
-**Dependabot Configuration**: 
+**Dependabot Configuration**:
 - Dependabot PRs use `build:` prefix for Go module and Docker dependency updates
 - Dependabot PRs use `ci:` prefix for GitHub Actions updates
 - This is configured in `.github/dependabot.yml` and ensures PR validation passes
@@ -77,26 +77,35 @@ When making any changes to the codebase, you MUST update relevant documentation 
    - Update API endpoints or interfaces
    - Update security features or container changes
 
-2. **README.md**:
+2. **OpenAPI Documentation** (`docs/api/openapi.yaml`):
+   - **CRITICAL**: Update OpenAPI specification for ANY changes to API endpoints in `setagaya/api/`
+   - Add new endpoints with complete parameter and response schemas
+   - Update existing endpoint definitions when request/response formats change
+   - Update authentication and authorization requirements
+   - Add example requests and responses for complex operations
+   - Update error response codes and descriptions
+   - Validate OpenAPI spec syntax before committing changes
+
+3. **README.md**:
    - Update for new features or capabilities
    - Update installation/setup instructions
    - Update quick start guides
    - Update feature lists and badges
    - Update roadmap items when completed
 
-3. **Security Documentation**:
+4. **Security Documentation**:
    - Update `SECURITY.md` for security policy changes
    - Update `.github/SECURITY_CHECKLIST.md` for release procedures
    - Update GitHub Actions workflows for security automation changes
    - Update security issue templates for new vulnerability types
 
-4. **Component-Specific Documentation**:
+5. **Component-Specific Documentation**:
    - Update `setagaya/JMETER_BUILD_OPTIONS.md` for JMeter-related changes
    - Update inline code comments for complex logic changes
    - Update configuration templates (`config_tmpl.json`) for new config options
    - Update `CHANGELOG.md` for all significant changes
 
-5. **Version Information**:
+6. **Version Information**:
    - Update version numbers in both TECHNICAL_SPECS.md and README.md
    - Update "Last Updated" timestamps in technical documentation
    - Update compatibility matrices for supported versions
@@ -114,6 +123,8 @@ Before completing any task, verify:
 - [ ] Security changes are properly documented
 - [ ] GitHub Actions workflows are updated for security/linting changes
 - [ ] CHANGELOG.md includes all significant changes
+- [ ] **OpenAPI specification is updated** - CRITICAL: Update `docs/api/openapi.yaml` for any API endpoint changes
+- [ ] **OpenAPI spec is valid** - Validate OpenAPI syntax and completeness before committing
 - [ ] **Documentation Check workflow passes** - CRITICAL: Always ensure the Documentation Check workflow passes before submitting PR
 - [ ] **Spell check passes** - Run spell check on all modified documentation files
 - [ ] **New technical terms added to wordlist** - Add any new domain-specific terms to `.github/wordlist.txt`

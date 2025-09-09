@@ -175,12 +175,12 @@ func (sc *SetagayaConfig) makeHTTPClients() {
 
 func applyJsonLogging() {
 	log.SetFormatter(&log.JSONFormatter{})
-	err := os.MkdirAll(SC.LogFormat.JsonPath, os.ModePerm)
+	err := os.MkdirAll(SC.LogFormat.JsonPath, 0750) // More secure permissions
 	if err != nil {
 		log.Fatal(err)
 	}
 	file, err := os.OpenFile(path.Join(SC.LogFormat.JsonPath, "setagaya.json"),
-		os.O_CREATE|os.O_WRONLY, 0666)
+		os.O_CREATE|os.O_WRONLY, 0600) // More secure file permissions
 	if err != nil {
 		log.Fatalf("Failed to log to file. %v", err)
 	}

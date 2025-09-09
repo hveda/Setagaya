@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/context"
 	"github.com/julienschmidt/httprouter"
@@ -36,5 +37,16 @@ func main() {
 		w.Header().Set("Cache-Control", "public, max-age=604800")
 		fileServer.ServeHTTP(w, req)
 	})
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", 8080), context.ClearHandler(r)))
+
+	// Create HTTP server with timeouts for security
+	server := &http.Server{
+		Addr:           fmt.Sprintf(":%d", 8080),
+		Handler:        context.ClearHandler(r),
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB
+	}
+
+	log.Fatal(server.ListenAndServe())
 }

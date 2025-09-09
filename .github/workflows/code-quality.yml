@@ -28,6 +28,8 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
+        cache: true
+        cache-dependency-path: setagaya/go.sum
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v7
@@ -48,6 +50,8 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
+        cache: true
+        cache-dependency-path: setagaya/go.sum
 
     - name: Setup test database
       run: |
@@ -82,7 +86,7 @@ jobs:
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
       with:
-        file: ./setagaya/coverage.out
+        files: ./setagaya/coverage.out
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
@@ -125,6 +129,8 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
+        cache: true
+        cache-dependency-path: setagaya/go.sum
 
     - name: Verify go mod
       run: |
@@ -249,16 +255,18 @@ jobs:
 
     - name: Run ShellCheck
       uses: ludeeus/action-shellcheck@2.0.0
-      continue-on-error: true
       with:
         scandir: './'
         format: gcc
-        severity: info
+        severity: warning
         check_together: 'yes'
         ignore_paths: |
           node_modules
           .git
           .github
+        additional_files: |
+          setagaya/build.sh
+          setagaya/move_images.sh
 
   # JSON linting
   json-lint:
@@ -296,7 +304,7 @@ jobs:
         sudo mv kubeconform /usr/local/bin
 
         # Validate manifests
-        kubeconform -summary -verbose -kubernetes-version 1.28.0 kubernetes/ setagaya/install/setagaya/templates/ || true
+        kubeconform -summary -verbose -kubernetes-version 1.28.0 kubernetes/ setagaya/install/setagaya/templates/
 
   # Documentation checks
   docs-check:
@@ -359,6 +367,8 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
+        cache: true
+        cache-dependency-path: setagaya/go.sum
 
     - name: Install gocyclo
       run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest

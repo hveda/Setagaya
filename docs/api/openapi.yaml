@@ -1,0 +1,1356 @@
+openapi: 3.0.3
+info:
+  title: Setagaya Load Testing Platform API
+  description: |
+    REST API for the Setagaya distributed load testing platform. Setagaya orchestrates Apache JMeter engines across Kubernetes clusters to provide scalable load testing capabilities.
+
+    ## Architecture
+    Setagaya follows a Project → Collection → Plan → ExecutionPlan hierarchy:
+    - **Projects**: Top-level organizational units with ownership controls
+    - **Collections**: Execution units containing multiple plans running simultaneously
+    - **Plans**: Test configurations with JMeter test files
+    - **ExecutionPlans**: Specify engines and concurrency per plan within collections
+
+    ## Authentication
+    The API supports LDAP authentication with project ownership validation. In local development mode, authentication can be disabled.
+
+    ## Real-time Metrics
+    Collections provide real-time metrics via Server-Sent Events (SSE) for live dashboard updates.
+  version: 2.0.0
+  contact:
+    name: Setagaya Development Team
+    url: https://github.com/hveda/Setagaya
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://your-setagaya-instance.com
+    description: Production server (customize as needed)
+
+tags:
+  - name: projects
+    description: Project management operations
+  - name: plans
+    description: Test plan management
+  - name: collections
+    description: Test collection execution and lifecycle
+  - name: files
+    description: File upload and download operations
+  - name: usage
+    description: Usage statistics and reporting
+  - name: admin
+    description: Administrative operations
+  - name: monitoring
+    description: Metrics and monitoring endpoints
+
+paths:
+  # Projects
+  /api/projects:
+    get:
+      tags: [projects]
+      summary: List projects
+      description: Retrieve all projects accessible to the authenticated user
+      parameters:
+        - name: include_collections
+          in: query
+          description: Include collections in response
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: include_plans
+          in: query
+          description: Include plans in response
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [projects]
+      summary: Create project
+      description: Create a new project with specified name and owner
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - name
+                - owner
+              properties:
+                name:
+                  type: string
+                  description: Project name
+                  example: "Load Test Project Alpha"
+                owner:
+                  type: string
+                  description: LDAP group name for project ownership
+                  example: "engineering-team"
+                sid:
+                  type: string
+                  description: System ID (required if SID is enabled)
+                  example: "12345"
+      responses:
+        '200':
+          description: Project created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/projects/{project_id}:
+    get:
+      tags: [projects]
+      summary: Get project
+      description: Retrieve a specific project by ID
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [projects]
+      summary: Update project
+      description: Update project details (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    delete:
+      tags: [projects]
+      summary: Delete project
+      description: Delete a project (must have no collections or plans)
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Plans
+  /api/plans:
+    post:
+      tags: [plans]
+      summary: Create plan
+      description: Create a new test plan within a project
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - name
+                - project_id
+              properties:
+                name:
+                  type: string
+                  description: Plan name
+                  example: "API Load Test"
+                project_id:
+                  type: string
+                  description: Parent project ID
+                  example: "123"
+      responses:
+        '200':
+          description: Plan created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/plans/{plan_id}:
+    get:
+      tags: [plans]
+      summary: Get plan
+      description: Retrieve a specific plan by ID
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Plan details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [plans]
+      summary: Update plan
+      description: Update plan details (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    delete:
+      tags: [plans]
+      summary: Delete plan
+      description: Delete a plan (must not be in use)
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Plan deleted successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/plans/{plan_id}/files:
+    get:
+      tags: [files, plans]
+      summary: Get plan files
+      description: List files associated with a plan (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    put:
+      tags: [files, plans]
+      summary: Upload plan file
+      description: Upload a JMeter test file (.jmx) to a plan
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - planFile
+              properties:
+                planFile:
+                  type: string
+                  format: binary
+                  description: JMeter test file (.jmx)
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "success"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [files, plans]
+      summary: Delete plan file
+      description: Delete a file from a plan
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - filename
+              properties:
+                filename:
+                  type: string
+                  description: Name of file to delete
+                  example: "test-plan.jmx"
+      responses:
+        '200':
+          description: File deleted successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Deleted successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Collections
+  /api/collections:
+    post:
+      tags: [collections]
+      summary: Create collection
+      description: Create a new test collection within a project
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - name
+                - project_id
+              properties:
+                name:
+                  type: string
+                  description: Collection name
+                  example: "API Performance Test Suite"
+                project_id:
+                  type: string
+                  description: Parent project ID
+                  example: "123"
+      responses:
+        '200':
+          description: Collection created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}:
+    get:
+      tags: [collections]
+      summary: Get collection
+      description: Retrieve collection details including execution plans and run history
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Collection details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionDetailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [collections]
+      summary: Update collection
+      description: Update collection details (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    delete:
+      tags: [collections]
+      summary: Delete collection
+      description: Delete a collection (must have no running engines)
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Collection deleted successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/config:
+    get:
+      tags: [collections]
+      summary: Get collection configuration
+      description: Retrieve collection configuration YAML
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Collection configuration
+          content:
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/ExecutionWrapper'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags: [collections]
+      summary: Upload collection configuration
+      description: Upload YAML configuration defining execution plans for the collection
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - collectionYAML
+              properties:
+                collectionYAML:
+                  type: string
+                  format: binary
+                  description: YAML file containing execution plans
+      responses:
+        '200':
+          description: Configuration uploaded successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/files:
+    get:
+      tags: [files, collections]
+      summary: Get collection files
+      description: List files associated with a collection (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    put:
+      tags: [files, collections]
+      summary: Upload collection file
+      description: Upload additional files for the collection
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - collectionFile
+              properties:
+                collectionFile:
+                  type: string
+                  format: binary
+                  description: File to upload
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "success"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [files, collections]
+      summary: Delete collection file
+      description: Delete a file from a collection
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - filename
+              properties:
+                filename:
+                  type: string
+                  description: Name of file to delete
+                  example: "test-data.csv"
+      responses:
+        '200':
+          description: File deleted successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Deleted successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Collection Lifecycle Operations
+  /api/collections/{collection_id}/deploy:
+    post:
+      tags: [collections]
+      summary: Deploy engines
+      description: Deploy JMeter engines for the collection based on execution plans
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Engines deployed successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/trigger:
+    post:
+      tags: [collections]
+      summary: Start test execution
+      description: Trigger load test execution across all deployed engines
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Test execution started successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/stop:
+    post:
+      tags: [collections]
+      summary: Stop test execution
+      description: Terminate running tests while keeping engines deployed for result collection
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Test execution stopped successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/purge:
+    post:
+      tags: [collections]
+      summary: Purge resources
+      description: Terminate tests and remove all Kubernetes resources and clean up storage
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Resources purged successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/status:
+    get:
+      tags: [collections, monitoring]
+      summary: Get collection status
+      description: Retrieve current status of collection and its engines
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Collection status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/engines_detail:
+    get:
+      tags: [collections, monitoring]
+      summary: Get engine details
+      description: Retrieve detailed information about engines in the collection
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Engine details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionEnginesDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/stream:
+    get:
+      tags: [collections, monitoring]
+      summary: Stream real-time metrics
+      description: Server-Sent Events endpoint for real-time metrics streaming
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Real-time metrics stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream with real-time metrics
+                example: |
+                  data: {"timestamp": "2025-09-09T10:30:00Z", "active_threads": 100, "throughput": 500.5}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/collections/{collection_id}/logs/{plan_id}:
+    get:
+      tags: [collections, monitoring]
+      summary: Get plan logs
+      description: Retrieve logs from a specific plan's engines
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Plan logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  c:
+                    type: string
+                    description: Log content
+                    example: "2025-09-09 10:30:00,123 INFO JMeterThread: Started thread group..."
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Collection Runs
+  /api/collections/{collection_id}/runs:
+    get:
+      tags: [collections]
+      summary: Get collection runs
+      description: List historical runs for a collection (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    delete:
+      tags: [collections]
+      summary: Delete collection runs
+      description: Delete run history for a collection (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/collections/{collection_id}/runs/{run_id}:
+    get:
+      tags: [collections]
+      summary: Get specific run
+      description: Retrieve details of a specific run (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    delete:
+      tags: [collections]
+      summary: Delete specific run
+      description: Delete a specific run (not implemented)
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  # File Downloads
+  /api/files/{kind}/{id}/{name}:
+    get:
+      tags: [files]
+      summary: Download file
+      description: Download a file from object storage
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          description: Type of object (plan, collection, etc.)
+          schema:
+            type: string
+            example: "plan"
+        - name: id
+          in: path
+          required: true
+          description: Object ID
+          schema:
+            type: string
+            example: "123"
+        - name: name
+          in: path
+          required: true
+          description: File name
+          schema:
+            type: string
+            example: "test-plan.jmx"
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              description: Attachment header for file download
+              schema:
+                type: string
+                example: "Attachment"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Usage Statistics
+  /api/usage/summary:
+    get:
+      tags: [usage]
+      summary: Get usage summary
+      description: Retrieve platform usage statistics
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummary'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/usage/summary_sid:
+    get:
+      tags: [usage]
+      summary: Get usage summary by SID
+      description: Retrieve usage statistics grouped by System ID
+      responses:
+        '200':
+          description: Usage summary by SID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummaryBySid'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Admin Operations
+  /api/admin/collections:
+    get:
+      tags: [admin]
+      summary: Get all running collections (Admin)
+      description: Administrative endpoint to view all running collections across the platform
+      responses:
+        '200':
+          description: Running collections and node pool information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCollectionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Monitoring
+  /metrics:
+    get:
+      tags: [monitoring]
+      summary: Prometheus metrics
+      description: Prometheus-compatible metrics endpoint
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP setagaya_collection_active_threads Current active threads
+                  # TYPE setagaya_collection_active_threads gauge
+                  setagaya_collection_active_threads{collection_id="123",plan_id="456"} 100
+
+components:
+  parameters:
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      description: Project ID
+      schema:
+        type: string
+        example: "123"
+
+    PlanId:
+      name: plan_id
+      in: path
+      required: true
+      description: Plan ID
+      schema:
+        type: string
+        example: "456"
+
+    CollectionId:
+      name: collection_id
+      in: path
+      required: true
+      description: Collection ID
+      schema:
+        type: string
+        example: "789"
+
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      description: Run ID
+      schema:
+        type: string
+        example: "101112"
+
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Project ID
+          example: 123
+        name:
+          type: string
+          description: Project name
+          example: "Load Test Project Alpha"
+        owner:
+          type: string
+          description: LDAP group name
+          example: "engineering-team"
+        sid:
+          type: string
+          description: System ID
+          example: "12345"
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Collection'
+          description: Associated collections (when include_collections=true)
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plan'
+          description: Associated plans (when include_plans=true)
+
+    Plan:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Plan ID
+          example: 456
+        name:
+          type: string
+          description: Plan name
+          example: "API Load Test"
+        project_id:
+          type: integer
+          description: Parent project ID
+          example: 123
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    Collection:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Collection ID
+          example: 789
+        name:
+          type: string
+          description: Collection name
+          example: "API Performance Test Suite"
+        project_id:
+          type: integer
+          description: Parent project ID
+          example: 123
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    CollectionDetailed:
+      allOf:
+        - $ref: '#/components/schemas/Collection'
+        - type: object
+          properties:
+            execution_plans:
+              type: array
+              items:
+                $ref: '#/components/schemas/ExecutionPlan'
+              description: Execution plans for this collection
+            run_histories:
+              type: array
+              items:
+                $ref: '#/components/schemas/RunHistory'
+              description: Historical runs
+
+    ExecutionPlan:
+      type: object
+      properties:
+        plan_id:
+          type: integer
+          description: Plan ID
+          example: 456
+        engines:
+          type: integer
+          description: Number of engines to deploy
+          example: 5
+        concurrency:
+          type: integer
+          description: Concurrency level per engine
+          example: 100
+
+    ExecutionWrapper:
+      type: object
+      properties:
+        content:
+          $ref: '#/components/schemas/ExecutionContent'
+
+    ExecutionContent:
+      type: object
+      properties:
+        collection_id:
+          type: integer
+          description: Collection ID
+          example: 789
+        tests:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionPlan'
+          description: Test execution plans
+
+    RunHistory:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Run ID
+          example: 101112
+        collection_id:
+          type: integer
+          description: Collection ID
+          example: 789
+        started_at:
+          type: string
+          format: date-time
+          description: Run start time
+        ended_at:
+          type: string
+          format: date-time
+          description: Run end time
+        status:
+          type: string
+          enum: [running, completed, failed, terminated]
+          description: Run status
+
+    CollectionStatus:
+      type: object
+      properties:
+        collection_id:
+          type: integer
+          description: Collection ID
+          example: 789
+        status:
+          type: string
+          enum: [deployed, running, stopped, terminating]
+          description: Current collection status
+        engines_ready:
+          type: integer
+          description: Number of ready engines
+          example: 5
+        engines_total:
+          type: integer
+          description: Total number of engines
+          example: 5
+        last_updated:
+          type: string
+          format: date-time
+          description: Last status update
+
+    CollectionEnginesDetail:
+      type: object
+      properties:
+        collection_id:
+          type: integer
+          description: Collection ID
+          example: 789
+        engines:
+          type: array
+          items:
+            $ref: '#/components/schemas/EngineDetail'
+
+    EngineDetail:
+      type: object
+      properties:
+        plan_id:
+          type: integer
+          description: Plan ID
+          example: 456
+        pod_name:
+          type: string
+          description: Kubernetes pod name
+          example: "setagaya-engine-789-456-1"
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+          description: Engine status
+        node_name:
+          type: string
+          description: Kubernetes node name
+          example: "worker-node-1"
+        started_at:
+          type: string
+          format: date-time
+          description: Engine start time
+
+    UsageSummary:
+      type: object
+      properties:
+        total_projects:
+          type: integer
+          description: Total number of projects
+          example: 25
+        total_collections:
+          type: integer
+          description: Total number of collections
+          example: 150
+        total_plans:
+          type: integer
+          description: Total number of plans
+          example: 300
+        active_collections:
+          type: integer
+          description: Currently active collections
+          example: 8
+
+    UsageSummaryBySid:
+      type: object
+      properties:
+        summaries:
+          type: array
+          items:
+            type: object
+            properties:
+              sid:
+                type: string
+                description: System ID
+                example: "12345"
+              usage:
+                $ref: '#/components/schemas/UsageSummary'
+
+    AdminCollectionResponse:
+      type: object
+      properties:
+        running_collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunningPlan'
+          description: Currently running plans across all collections
+        node_pools:
+          $ref: '#/components/schemas/AllNodesInfo'
+          description: Kubernetes node pool information
+
+    RunningPlan:
+      type: object
+      properties:
+        collection_id:
+          type: integer
+          description: Collection ID
+          example: 789
+        plan_id:
+          type: integer
+          description: Plan ID
+          example: 456
+        project_id:
+          type: integer
+          description: Project ID
+          example: 123
+        engines:
+          type: integer
+          description: Number of engines
+          example: 5
+        status:
+          type: string
+          description: Execution status
+          example: "running"
+        started_at:
+          type: string
+          format: date-time
+          description: Start time
+
+    AllNodesInfo:
+      type: object
+      properties:
+        total_nodes:
+          type: integer
+          description: Total number of nodes
+          example: 10
+        available_cpu:
+          type: string
+          description: Available CPU resources
+          example: "50000m"
+        available_memory:
+          type: string
+          description: Available memory resources
+          example: "100Gi"
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Response message
+          example: "Operation completed successfully"
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message
+          example: "Invalid request parameters"
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Invalid request parameters"
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Authentication required"
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "You do not have permission to access this resource"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Resource not found"
+
+    NotImplemented:
+      description: Endpoint not implemented
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "This endpoint is not yet implemented"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Internal server error occurred"
+
+  securitySchemes:
+    LDAPAuth:
+      type: http
+      scheme: basic
+      description: LDAP authentication with username and password
+
+security:
+  - LDAPAuth: []

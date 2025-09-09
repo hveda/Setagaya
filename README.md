@@ -2,13 +2,19 @@
 
 [![Release](https://img.shields.io/badge/version-2.0.0--rc-blue.svg)](https://github.com/hveda/Setagaya/releases)
 [![Go Version](https://img.shields.io/badge/Go-1.25.1-00ADD8.svg?logo=go)](https://golang.org)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hveda/Setagaya)](https://goreportcard.com/report/github.com/hveda/Setagaya)
-[![codecov](https://codecov.io/gh/hveda/Setagaya/branch/main/graph/badge.svg)](https://codecov.io/gh/hveda/Setagaya)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hveda/Setagaya/setagaya)](https://goreportcard.com/report/github.com/hveda/Setagaya/setagaya)
+[![codecov](https://codecov.io/gh/hveda/Setagaya/graph/badge.svg)](https://codecov.io/gh/hveda/Setagaya)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0.3-green.svg?logo=openapi-initiative)](docs/api/openapi.yaml)
+[![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)](setagaya/Dockerfile)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-Native-blue.svg?logo=kubernetes)](kubernetes/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 [![Security Check](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml)
 [![Code Quality](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml)
 [![PR Validation](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml)
+[![Security Monitoring](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml)
+[![Documentation](https://github.com/hveda/Setagaya/actions/workflows/gh-pages.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/gh-pages.yml)
+[![Build & Release](https://github.com/hveda/Setagaya/actions/workflows/build-publish.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/build-publish.yml)
 
 Setagaya is a cloud-native, distributed load testing platform that orchestrates Apache JMeter engines across Kubernetes
 clusters. It provides enterprise-grade scalability, real-time metrics, and centralized management for performance
@@ -29,6 +35,7 @@ testing at scale.
 ## 📚 Documentation
 
 - **[Technical Specifications](TECHNICAL_SPECS.md)** - Comprehensive technical documentation
+- **[API Documentation](docs/api/openapi.yaml)** - OpenAPI 3.0 REST API specification
 - **[Security Policy](SECURITY.md)** - Security measures and vulnerability disclosure
 - **[JMeter Build Options](setagaya/JMETER_BUILD_OPTIONS.md)** - JMeter version compatibility guide
 - **[Development Guidelines](.github/instructions/copilot.instructions.md)** - AI coding guidelines and patterns
