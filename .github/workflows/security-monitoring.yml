@@ -89,7 +89,7 @@ jobs:
         docker build -f setagaya/Dockerfile.engines.jmeter -t setagaya-jmeter-monitor:latest .
 
     - name: Scan with Trivy
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@0.28.0
       with:
         image-ref: 'setagaya-monitor:latest'
         format: 'json'
@@ -122,7 +122,7 @@ jobs:
         fetch-depth: 0
 
     - name: Run comprehensive secret scan
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.87.0
       with:
         path: ./
         base: main

@@ -313,7 +313,7 @@ jobs:
         mv /tmp/.buildx-cache-${{ matrix.name }}-new /tmp/.buildx-cache-${{ matrix.name }} || true
 
     - name: Run Trivy vulnerability scanner - ${{ matrix.name }}
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@0.28.0
       with:
         image-ref: '${{ matrix.name }}:security-test'
         format: 'sarif'
@@ -363,7 +363,7 @@ jobs:
 
     - name: TruffleHog OSS - Pull Request Scan
       if: github.event_name == 'pull_request'
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.87.0
       with:
         path: ./
         base: ${{ github.event.pull_request.base.sha }}
@@ -372,7 +372,7 @@ jobs:
 
     - name: TruffleHog OSS - Push Event Scan
       if: github.event_name == 'push'
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.87.0
       with:
         path: ./
         base: ${{ github.event.before }}
@@ -381,7 +381,7 @@ jobs:
 
     - name: TruffleHog OSS - Scheduled/Full Repository Scan
       if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.87.0
       with:
         path: ./
         extra_args: --debug --only-verified
