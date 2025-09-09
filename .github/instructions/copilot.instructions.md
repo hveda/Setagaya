@@ -298,6 +298,7 @@ The platform includes comprehensive security automation:
 - **TruffleHog**: `trufflesecurity/trufflehog@v3.87.0` (pinned stable version)
 - **Trivy**: `aquasecurity/trivy-action@0.28.0` (pinned stable version)
 - **golangci-lint**: `golangci/golangci-lint-action@v7` with `version: latest`
+- **ShellCheck**: `ludeeus/action-shellcheck@2.0.0` with supported formats (gcc, json, checkstyle) - NOT sarif format
 
 When updating security tool versions:
 1. Verify the repository exists and is actively maintained
