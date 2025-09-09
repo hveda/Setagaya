@@ -13,7 +13,7 @@ system follows a controller-scheduler-engine pattern designed for scalable, ente
 
 - **Version:** 2.0.0-rc (Security & Testing Improvements)
 - **Language:** Go 1.25.1
-- **Runtime:** Kubernetes-native with Docker/Podman support  
+- **Runtime:** Kubernetes-native with Docker/Podman support
 - **License:** See [LICENSE](LICENSE) file
 - **Repository:** https://github.com/hveda/Setagaya
 - **Last Updated:** December 2025
@@ -142,7 +142,7 @@ Project → Collection → Plan → ExecutionPlan
 
 - **Secret Scanning:** TruffleHog integration with event-aware configuration
   - PR scans: Compare base vs head commits
-  - Push scans: Compare before vs after commits  
+  - Push scans: Compare before vs after commits
   - Scheduled scans: Time-based repository scanning (7-day window)
 - **Code Analysis:** CodeQL static analysis with manual build optimization
   - Multi-module Go project support
@@ -154,9 +154,9 @@ Project → Collection → Plan → ExecutionPlan
   - Matrix-based scanning for all Docker images
 - **Dependency Management:** Automated security updates via Dependabot
   - Daily Go module updates
-  - Weekly Docker base image updates  
+  - Weekly Docker base image updates
   - Weekly GitHub Actions updates
-- **Compliance Checking:** 
+- **Compliance Checking:**
   - Dockerfile security linting with Hadolint
   - Go security analysis with Gosec
   - License compliance validation
@@ -525,6 +525,16 @@ Located in `.github/workflows/`:
 - **Dependency Management**: Dependabot integration for automated security updates
 - **Container Security**: Image vulnerability scanning and hardening validation
 - **Emergency Response**: Automated security advisory creation and notification
+- **OpenSSF Scorecard Integration**: Continuous security posture assessment with SARIF reporting
+
+#### Workflow Version Management (2025)
+
+- **Pinned Action Versions**: All GitHub Actions use specific version tags for security and stability
+- **TruffleHog v3.87.0**: Latest stable release for comprehensive secret scanning
+- **Trivy v0.28.0**: Latest stable release for container vulnerability scanning
+- **OpenSSF Scorecard v2.5.1**: Enhanced configuration with proper token authentication
+- **golangci-lint**: Updated to latest version for improved Go code analysis
+- **No Unstable Branches**: Eliminated use of `@master` and `@main` action references
 
 #### Security Configuration Files
 

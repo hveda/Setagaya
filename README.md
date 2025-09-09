@@ -6,6 +6,11 @@
 [![Security](https://img.shields.io/badge/Security-Hardened-red.svg)](SECURITY.md)
 [![Automation](https://img.shields.io/badge/CI%2FCD-Automated-purple.svg)](.github/workflows/)
 
+[![Security Check](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml)
+[![Code Quality](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml)
+[![PR Validation](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml)
+[![Security Monitoring](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml)
+
 Setagaya is a cloud-native, distributed load testing platform that orchestrates Apache JMeter engines across Kubernetes
 clusters. It provides enterprise-grade scalability, real-time metrics, and centralized management for performance
 testing at scale.

@@ -46,6 +46,17 @@ All pull request titles MUST follow the conventional commit format enforced by t
 - New features with documentation → `feat:`
 - Dependency updates with CI changes → `build:`
 
+**Dependabot Configuration**:
+- Dependabot PRs use `build:` prefix for Go module and Docker dependency updates
+- Dependabot PRs use `ci:` prefix for GitHub Actions updates
+- This is configured in `.github/dependabot.yml` and ensures PR validation passes
+- Never manually change Dependabot PR titles - fix the configuration instead
+
+**Test Environment Setup**:
+- Tests require `SETAGAYA_TEST_MODE=true` environment variable to use test configuration
+- This is configured in the PR validation workflow (`pr-validation.yml`)
+- Test mode provides a minimal config without requiring external files
+
 ### PR Description Requirements
 
 - Minimum 10 characters in length
@@ -57,7 +68,7 @@ All pull request titles MUST follow the conventional commit format enforced by t
 
 ### CRITICAL: Always Update Documentation
 
-When making any changes to the codebase, you MUST update relevant documentation:
+When making any changes to the codebase, you MUST update relevant documentation and run spell check:
 
 1. **Technical Specifications** (`TECHNICAL_SPECS.md`):
    - Update for any architectural changes
@@ -103,6 +114,31 @@ Before completing any task, verify:
 - [ ] Security changes are properly documented
 - [ ] GitHub Actions workflows are updated for security/linting changes
 - [ ] CHANGELOG.md includes all significant changes
+- [ ] **Spell check passes** - Run spell check on all modified documentation files
+- [ ] **New technical terms added to wordlist** - Add any new domain-specific terms to `.github/wordlist.txt`
+
+#### Spell Check Requirements
+
+**CRITICAL**: Always run spell check when updating documentation:
+
+1. **Before making documentation changes**: Check existing spell check configuration in `.github/spellcheck-settings.yml`
+2. **Add new technical terms**: Add domain-specific terms to `.github/wordlist.txt` before they appear in documentation
+3. **Run local spell check**: Use `aspell` or similar tools to validate changes locally when possible
+4. **Monitor workflow failures**: Check spell check workflow results and fix any new misspelled words
+5. **Update wordlist proactively**: Add technical terms, product names, and domain-specific vocabulary
+
+**Common technical terms that should be in wordlist**:
+- Product names (OpenSSF, TruffleHog, Trivy, etc.)
+- Technical acronyms (SARIF, SBOM, CVE, etc.)
+- Tool names (kubectl, podman, containerd, etc.)
+- Configuration terms (configmap, namespace, serviceAccount, etc.)
+
+**Example spell check workflow failure fix**:
+```bash
+# If spell check fails with "OpenSSF" not recognized:
+echo "OpenSSF" >> .github/wordlist.txt
+# Increment word count in header: "personal_ws-1.1 en 451"
+```
 
 ## Architecture Overview
 
@@ -253,6 +289,22 @@ The platform includes comprehensive security automation:
 - **Dependency Management**: Automated security updates with Dependabot
 - **Security Documentation**: Comprehensive security policies and incident response procedures
 - **Emergency Response**: Automated critical vulnerability detection and escalation
+
+#### Security Tool Repository Information
+
+**CRITICAL**: Use correct import paths for security tools to prevent workflow failures:
+
+- **Gosec**: `github.com/securego/gosec/v2/cmd/gosec@latest` (NOT `securecodewarrior/gosec`)
+- **TruffleHog**: `trufflesecurity/trufflehog@v3.87.0` (pinned stable version)
+- **Trivy**: `aquasecurity/trivy-action@0.28.0` (pinned stable version)
+- **golangci-lint**: `golangci/golangci-lint-action@v7` with `version: latest`
+- **ShellCheck**: `ludeeus/action-shellcheck@2.0.0` with supported formats (gcc, json, checkstyle) - NOT sarif format
+
+When updating security tool versions:
+1. Verify the repository exists and is actively maintained
+2. Use stable release tags, not branch names (`@main`, `@master`)
+3. Test workflow execution before merging changes
+4. Update AI guidelines if repository paths change
 
 ### GitHub Actions Workflows
 
