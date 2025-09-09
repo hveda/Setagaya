@@ -42,8 +42,8 @@ ENV env=local
 COPY --from=builder --chmod=755 /build/setagaya /usr/local/bin/setagaya
 
 # Copy UI files with proper ownership (path relative to repository root)
-COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/templates/ /templates/
-COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/static/ /static/
+COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/templates /templates
+COPY --chmod=644 --chown=setagaya:setagaya setagaya/ui/static /static
 
 # Switch to non-root user
 USER setagaya:setagaya
