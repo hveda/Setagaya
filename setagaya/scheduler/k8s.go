@@ -556,12 +556,9 @@ func (kcm *K8sClientManager) FetchEngineUrlsByPlan(collectionID, planID int64, o
 	return urls, nil
 }
 
-func (kcm *K8sClientManager) CollectionStatus(projectID, collectionID int64, eps []*model.ExecutionPlan) (*smodel.CollectionStatus, error) {
+// initializePlanStatuses creates initial plan status map
+func initializePlanStatuses(eps []*model.ExecutionPlan) map[int64]*smodel.PlanStatus {
 	planStatuses := make(map[int64]*smodel.PlanStatus)
-	var engineReachable bool
-	cs := &smodel.CollectionStatus{}
-	pods := kcm.GetPodsByCollection(collectionID, "")
-	ingressControllerDeployed := false
 	for _, ep := range eps {
 		ps := &smodel.PlanStatus{
 			PlanID:  ep.PlanID,
@@ -569,67 +566,109 @@ func (kcm *K8sClientManager) CollectionStatus(projectID, collectionID int64, eps
 		}
 		planStatuses[ep.PlanID] = ps
 	}
+	return planStatuses
+}
+
+// processPodsStatus processes pods and updates plan status and ingress controller status
+func (kcm *K8sClientManager) processPodsStatus(pods []apiv1.Pod, planStatuses map[int64]*smodel.PlanStatus) (bool, bool) {
+	ingressControllerDeployed := false
 	enginesReady := true
+	
 	for _, pod := range pods {
 		if pod.Labels["kind"] == "ingress-controller" {
 			ingressControllerDeployed = true
 			continue
 		}
+		
 		planID, err := strconv.Atoi(pod.Labels["plan"])
 		if err != nil {
 			log.Error(err)
+			continue
 		}
+		
 		ps, ok := planStatuses[int64(planID)]
 		if !ok {
 			log.Error("Could not find running pod in ExecutionPlan")
 			continue
 		}
+		
 		ps.EnginesDeployed += 1
 		if pod.Status.Phase != apiv1.PodRunning {
 			enginesReady = false
 		}
 	}
-	// if it's unrechable, we can assume it's not in progress as well
-	// If we didn't find an ingress controller in the main pod list, check specifically for running ingress pods
+	
+	return ingressControllerDeployed, enginesReady
+}
+
+// checkIngressControllerDeployment checks if ingress controller is deployed
+func (kcm *K8sClientManager) checkIngressControllerDeployment(collectionID int64, ingressControllerDeployed bool) bool {
 	if !ingressControllerDeployed {
 		fieldSelector := "status.phase=Running"
 		ingressPods := kcm.GetPodsByCollection(collectionID, fieldSelector)
 		ingressControllerDeployed = len(ingressPods) >= 1
 	}
+	return ingressControllerDeployed
+}
+
+// collectPlanStatuses collects status for each plan using workers
+func collectPlanStatuses(collectionID int64, eps []*model.ExecutionPlan, planStatuses map[int64]*smodel.PlanStatus, engineReachable bool) []*smodel.PlanStatus {
+	jobs := make(chan *smodel.PlanStatus)
+	result := make(chan *smodel.PlanStatus)
+	
+	for w := 0; w < len(eps); w++ {
+		go smodel.GetPlanStatus(collectionID, jobs, result)
+	}
+	
+	for _, ps := range planStatuses {
+		jobs <- ps
+	}
+	defer close(jobs)
+	defer close(result)
+	
+	var plans []*smodel.PlanStatus
+	for range eps {
+		ps := <-result
+		if ps.Engines == ps.EnginesDeployed && engineReachable {
+			ps.EnginesReachable = true
+		}
+		plans = append(plans, ps)
+	}
+	
+	return plans
+}
+
+func (kcm *K8sClientManager) CollectionStatus(projectID, collectionID int64, eps []*model.ExecutionPlan) (*smodel.CollectionStatus, error) {
+	planStatuses := initializePlanStatuses(eps)
+	cs := &smodel.CollectionStatus{}
+	pods := kcm.GetPodsByCollection(collectionID, "")
+	
+	ingressControllerDeployed, enginesReady := kcm.processPodsStatus(pods, planStatuses)
+	ingressControllerDeployed = kcm.checkIngressControllerDeployment(collectionID, ingressControllerDeployed)
+	
 	if !ingressControllerDeployed || !enginesReady {
 		for _, ps := range planStatuses {
 			cs.Plans = append(cs.Plans, ps)
 		}
 		return cs, nil
 	}
-	engineReachable = false
-	randomPlan := eps[0]
-	opts := &smodel.EngineOwnerRef{
-		ProjectID:    projectID,
-		EnginesCount: randomPlan.Engines,
-	}
-	engineUrls, err := kcm.FetchEngineUrlsByPlan(collectionID, randomPlan.PlanID, opts)
-	if err == nil {
-		randomEngine := engineUrls[0]
-		engineReachable = kcm.ServiceReachable(randomEngine)
-	}
-	jobs := make(chan *smodel.PlanStatus)
-	result := make(chan *smodel.PlanStatus)
-	for w := 0; w < len(eps); w++ {
-		go smodel.GetPlanStatus(collectionID, jobs, result)
-	}
-	for _, ps := range planStatuses {
-		jobs <- ps
-	}
-	defer close(jobs)
-	defer close(result)
-	for range eps {
-		ps := <-result
-		if ps.Engines == ps.EnginesDeployed && engineReachable {
-			ps.EnginesReachable = true
+	
+	// Check engine reachability
+	engineReachable := false
+	if len(eps) > 0 {
+		randomPlan := eps[0]
+		opts := &smodel.EngineOwnerRef{
+			ProjectID:    projectID,
+			EnginesCount: randomPlan.Engines,
 		}
-		cs.Plans = append(cs.Plans, ps)
+		engineUrls, err := kcm.FetchEngineUrlsByPlan(collectionID, randomPlan.PlanID, opts)
+		if err == nil && len(engineUrls) > 0 {
+			randomEngine := engineUrls[0]
+			engineReachable = kcm.ServiceReachable(randomEngine)
+		}
 	}
+	
+	cs.Plans = collectPlanStatuses(collectionID, eps, planStatuses, engineReachable)
 	return cs, nil
 }
 

@@ -57,6 +57,18 @@ func setupTestConfig() error {
 	return nil
 }
 
+// executeDelete executes a delete statement and closes the prepared statement
+func executeDelete(db *sql.DB, query string) error {
+	q, err := db.Prepare(query)
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+	
+	_, err = q.Exec()
+	return err
+}
+
 func setupAndTeardown() error {
 	// Skip database operations if no real DB connection
 	if config.SC.DBC == nil {
@@ -64,64 +76,25 @@ func setupAndTeardown() error {
 	}
 
 	db := config.SC.DBC
-	q, err := db.Prepare("delete from plan")
-	if err != nil {
-		return err
+	
+	// List of tables to clean up in order
+	tablesToClean := []string{
+		"plan",
+		"running_plan", 
+		"collection",
+		"collection_plan",
+		"project",
+		"collection_run",
+		"collection_run_history",
 	}
-	defer q.Close()
-	_, err = q.Exec()
-	if err != nil {
-		return err
+	
+	// Execute delete statements for each table
+	for _, table := range tablesToClean {
+		if err := executeDelete(db, "delete from "+table); err != nil {
+			return err
+		}
 	}
-
-	q, err = db.Prepare("delete from running_plan")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection_plan")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from project")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection_run")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
-	q, err = db.Prepare("delete from collection_run_history")
-	if err != nil {
-		return err
-	}
-	_, err = q.Exec()
-	if err != nil {
-		return err
-	}
+	
 	return nil
 }
 

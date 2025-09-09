@@ -562,93 +562,127 @@ func (s *SetagayaAPI) collectionUpdateHandler(w http.ResponseWriter, _ *http.Req
 	s.jsonise(w, http.StatusNotImplemented, nil)
 }
 
+// parseCollectionUpload extracts and validates the uploaded YAML file
+func (s *SetagayaAPI) parseCollectionUpload(r *http.Request) (*model.ExecutionWrapper, error) {
+	if parseErr := r.ParseMultipartForm(1 << 20); parseErr != nil { //parse 1 MB of data
+		return nil, makeInvalidRequestError("form")
+	}
+	
+	file, _, err := r.FormFile("collectionYAML")
+	if err != nil {
+		return nil, makeInvalidResourceError("file")
+	}
+	
+	raw, err := io.ReadAll(file)
+	if err != nil {
+		return nil, makeInvalidRequestError("invalid file")
+	}
+	
+	e := new(model.ExecutionWrapper)
+	err = yaml.Unmarshal(raw, e)
+	if err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	
+	return e, nil
+}
+
+// validateExecutionPlans validates that all plans belong to the same project and calculates total engines
+func (s *SetagayaAPI) validateExecutionPlans(project *model.Project, tests []*model.ExecutionPlan) (int, error) {
+	totalEnginesRequired := 0
+	
+	for _, ep := range tests {
+		if ep.Engines <= 0 {
+			return 0, makeInvalidRequestError("You cannot configure a plan with zero engine")
+		}
+		
+		plan, planErr := model.GetPlan(ep.PlanID)
+		if planErr != nil {
+			return 0, planErr
+		}
+		
+		planProject, projectErr := model.GetProject(plan.ProjectID)
+		if projectErr != nil {
+			return 0, projectErr
+		}
+		
+		if project.ID != planProject.ID {
+			return 0, makeInvalidRequestError("You can only add plan within the same project")
+		}
+		
+		totalEnginesRequired += ep.Engines
+	}
+	
+	return totalEnginesRequired, nil
+}
+
+// validateCollectionState checks if collection can be modified
+func (s *SetagayaAPI) validateCollectionState(collection *model.Collection, newTests []*model.ExecutionPlan) error {
+	runningPlans, err := model.GetRunningPlansByCollection(collection.ID)
+	if err != nil {
+		return err
+	}
+	
+	if len(runningPlans) > 0 {
+		return makeInvalidRequestError("You cannot change the collection during testing period")
+	}
+	
+	if s.ctr.Scheduler.PodReadyCount(collection.ID) > 0 {
+		currentPlans, plansErr := collection.GetExecutionPlans()
+		if plansErr != nil {
+			return plansErr
+		}
+		if ok, message := hasInvalidDiff(currentPlans, newTests); ok {
+			return makeInvalidRequestError(message)
+		}
+	}
+	
+	return nil
+}
+
 func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
 	collection, err := hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
 	}
-	e := new(model.ExecutionWrapper)
-	if parseErr := r.ParseMultipartForm(1 << 20); parseErr != nil { //parse 1 MB of data
-		s.handleErrors(w, makeInvalidRequestError("form"))
-		return
-	}
-	file, _, err := r.FormFile("collectionYAML")
+	
+	e, err := s.parseCollectionUpload(r)
 	if err != nil {
-		s.handleErrors(w, makeInvalidResourceError("file"))
+		s.handleErrors(w, err)
 		return
 	}
-	raw, err := io.ReadAll(file)
-	if err != nil {
-		s.handleErrors(w, makeInvalidRequestError("invalid file"))
-		return
-	}
-	err = yaml.Unmarshal(raw, e)
-	if err != nil {
-		s.handleErrors(w, makeInvalidRequestError(err.Error()))
-		return
-	}
+	
 	if e.Content.CollectionID != collection.ID {
 		s.handleErrors(w, makeInvalidRequestError("collection ID mismatch"))
 		return
 	}
+	
 	project, err := model.GetProject(collection.ProjectID)
 	if err != nil {
 		log.Error(err)
 		s.handleErrors(w, err)
 		return
 	}
-	totalEnginesRequired := 0
-	for _, ep := range e.Content.Tests {
-		plan, planErr := model.GetPlan(ep.PlanID)
-		if planErr != nil {
-			s.handleErrors(w, planErr)
-			return
-		}
-		planProject, projectErr := model.GetProject(plan.ProjectID)
-		if projectErr != nil {
-			s.handleErrors(w, projectErr)
-			return
-		}
-		if project.ID != planProject.ID {
-			s.handleErrors(w, makeInvalidRequestError("You can only add plan within the same project"))
-			return
-		}
-		totalEnginesRequired += ep.Engines
+	
+	totalEnginesRequired, err := s.validateExecutionPlans(project, e.Content.Tests)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
 	}
+	
 	if totalEnginesRequired > config.SC.ExecutorConfig.MaxEnginesInCollection {
 		errMsg := fmt.Sprintf("You are reaching the resource limit of the cluster. Requesting engines: %d, limit: %d.",
 			totalEnginesRequired, config.SC.ExecutorConfig.MaxEnginesInCollection)
 		s.handleErrors(w, makeInvalidRequestError(errMsg))
 		return
 	}
-	runningPlans, err := model.GetRunningPlansByCollection(collection.ID)
-	if err != nil {
+	
+	if err := s.validateCollectionState(collection, e.Content.Tests); err != nil {
 		s.handleErrors(w, err)
 		return
 	}
-	if len(runningPlans) > 0 {
-		s.handleErrors(w, makeInvalidRequestError("You cannot change the collection during testing period"))
-		return
-	}
-	for _, ep := range e.Content.Tests {
-		if ep.Engines <= 0 {
-			s.handleErrors(w, makeInvalidRequestError("You cannot configure a plan with zero engine"))
-			return
-		}
-	}
-	if s.ctr.Scheduler.PodReadyCount(collection.ID) > 0 {
-		currentPlans, plansErr := collection.GetExecutionPlans()
-		if plansErr != nil {
-			s.handleErrors(w, plansErr)
-			return
-		}
-		if ok, message := hasInvalidDiff(currentPlans, e.Content.Tests); ok {
-			s.handleErrors(w, makeInvalidRequestError(message))
-			return
-		}
-
-	}
+	
 	err = collection.Store(e.Content)
 	if err != nil {
 		s.handleErrors(w, err)
