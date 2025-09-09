@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/hveda/Setagaya/graph/badge.svg)](https://codecov.io/gh/hveda/Setagaya)
 [![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0.3-green.svg?logo=openapi-initiative)](docs/api/openapi.yaml)
 [![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)](setagaya/Dockerfile)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Native-blue.svg?logo=kubernetes)](kubernetes/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.21%2B-blue.svg?logo=kubernetes)](kubernetes/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 [![Security Check](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml)
@@ -73,6 +73,62 @@ testing at scale.
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl) - Kubernetes CLI
 - [Helm](https://helm.sh/docs/intro/install/) - Package manager for Kubernetes
 - [Docker](https://docs.docker.com/install) or [Podman](https://podman.io) - Container runtime
+
+### 🎯 Kubernetes Compatibility
+
+Setagaya supports multiple Kubernetes versions with automatic API version compatibility:
+
+| Kubernetes Version | Status | API Versions | Notes |
+|-------------------|--------|--------------|-------|
+| 1.21.x | ✅ Supported | policy/v1 | Minimum supported version |
+| 1.25.x | ✅ LTS | policy/v1 | Long-term support |
+| 1.28.x | ✅ Stable | policy/v1 | Current stable |
+| 1.34.x | ✅ Latest | policy/v1 | Latest features |
+
+#### Multi-Version Testing
+
+Test manifests against multiple Kubernetes versions:
+
+```bash
+# Test single version
+./scripts/kubernetes-compatibility.sh validate 1.21.0
+
+# Test matrix of versions
+./scripts/kubernetes-compatibility.sh matrix
+
+# Adapt manifests for specific version
+./scripts/kubernetes-compatibility.sh adapt 1.21.0
+
+# Check current API versions
+./scripts/kubernetes-compatibility.sh check
+```
+
+#### CI/CD Integration
+
+Our GitHub Actions workflows automatically test against multiple Kubernetes versions:
+- **Integrated Compatibility Testing**: Code Quality workflow validates against 1.21, 1.25, 1.28, and 1.34
+- **Comprehensive Validation**: Includes kubeconform validation with matrix strategy
+- **Auto-detection**: Automatically adapts API versions based on target version
+
+#### API Version Matrix
+
+| Resource | K8s 1.21+ | K8s 1.25+ | Auto-Adapted | Test Status |
+|----------|-----------|-----------|-------------|------------|
+| PodDisruptionBudget | policy/v1 | policy/v1 | ✅ | ✅ |
+| Deployment | apps/v1 | apps/v1 | ✅ | ✅ |
+| Service | v1 | v1 | ✅ | ✅ |
+| RBAC | rbac.authorization.k8s.io/v1 | rbac.authorization.k8s.io/v1 | ✅ | ✅ |
+
+#### Compatibility Test Results
+
+| Kubernetes Version | Core Manifests | Helm Templates | Overall Status |
+|-------------------|----------------|----------------|----------------|
+| 1.21.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
+| 1.25.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
+| 1.28.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
+| 1.34.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
+
+> **Note**: Helm template validation warnings are expected due to Go templating syntax and do not affect actual deployment compatibility.
 
 ### Local Development Setup
 

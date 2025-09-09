@@ -1,4 +1,4 @@
-personal_ws-1.1 en 475
+personal_ws-1.1 en 478
 codecov
 OpenSSF
 Setagaya
@@ -473,3 +473,6 @@ DL
 planFile
 collectionYAML
 collectionFile
+kubeconform
+rbac
+templating
