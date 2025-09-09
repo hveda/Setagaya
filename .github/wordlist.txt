@@ -1,4 +1,4 @@
-personal_ws-1.1 en 452
+personal_ws-1.1 en 475
 codecov
 OpenSSF
 Setagaya
@@ -9,6 +9,26 @@ kubectl
 Grafana
 grafana
 APIs
+yamllint
+LDAP
+YAML
+UID
+UI
+ExecutionPlans
+auth
+backends
+GCP
+CVE
+Dependabot
+CodeQL
+golangci
+ARG
+CGO
+CNCF
+DoS
+cryptographic
+formatter
+ExecutionPlan
 YAML
 JSON
 RBAC
@@ -450,3 +470,6 @@ checksums
 Hadolint
 SHAs
 DL
+planFile
+collectionYAML
+collectionFile

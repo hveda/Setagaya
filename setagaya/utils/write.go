@@ -7,7 +7,7 @@ import (
 
 func MakeFolder(folderPath string) {
 	if _, err := os.Stat(folderPath); os.IsNotExist(err) {
-		if err := os.MkdirAll(folderPath, os.ModePerm); err != nil {
+		if err := os.MkdirAll(folderPath, 0750); err != nil { // More secure directory permissions
 			log.Printf("Failed to create folder %s: %v", folderPath, err)
 		}
 	}

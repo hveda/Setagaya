@@ -1,7 +1,8 @@
 package utils
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 )
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -9,12 +10,14 @@ var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 func RandStringRunes(n int) string {
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+		// Use crypto/rand for cryptographically secure random numbers
+		randomIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(letterRunes))))
+		if err != nil {
+			// Fallback to a secure default if crypto/rand fails
+			b[i] = letterRunes[0]
+			continue
+		}
+		b[i] = letterRunes[randomIndex.Int64()]
 	}
 	return string(b)
-}
-
-func init() {
-	// Note: rand.Seed() is deprecated since Go 1.20
-	// The global random generator is automatically seeded since Go 1.20
 }

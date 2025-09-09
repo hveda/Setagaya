@@ -653,5 +653,15 @@ func main() {
 	http.HandleFunc("/progress", sw.progressHandler)
 	http.HandleFunc("/output", sw.stdoutHandler)
 	http.HandleFunc("/metrics", promhttp.Handler().ServeHTTP)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	// Create HTTP server with timeouts for security
+	server := &http.Server{
+		Addr:           ":8080",
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB
+	}
+
+	log.Fatal(server.ListenAndServe())
 }
