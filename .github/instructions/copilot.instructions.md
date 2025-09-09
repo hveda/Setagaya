@@ -290,6 +290,21 @@ The platform includes comprehensive security automation:
 - **Security Documentation**: Comprehensive security policies and incident response procedures
 - **Emergency Response**: Automated critical vulnerability detection and escalation
 
+#### Security Tool Repository Information
+
+**CRITICAL**: Use correct import paths for security tools to prevent workflow failures:
+
+- **Gosec**: `github.com/securego/gosec/v2/cmd/gosec@latest` (NOT `securecodewarrior/gosec`)
+- **TruffleHog**: `trufflesecurity/trufflehog@v3.87.0` (pinned stable version)
+- **Trivy**: `aquasecurity/trivy-action@0.28.0` (pinned stable version)
+- **golangci-lint**: `golangci/golangci-lint-action@v7` with `version: latest`
+
+When updating security tool versions:
+1. Verify the repository exists and is actively maintained
+2. Use stable release tags, not branch names (`@main`, `@master`)
+3. Test workflow execution before merging changes
+4. Update AI guidelines if repository paths change
+
 ### GitHub Actions Workflows
 
 Located in `.github/workflows/`:

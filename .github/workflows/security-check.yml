@@ -53,7 +53,7 @@ jobs:
     - name: Run Gosec Security Scanner
       run: |
         cd setagaya
-        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
         gosec -fmt sarif -out ../gosec-results.sarif ./...
       continue-on-error: true
 
