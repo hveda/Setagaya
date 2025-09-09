@@ -1,15 +1,14 @@
 # Setagaya Load Testing Platform
 
-[![Go Version](https://img.shields.io/badge/Go-1.25.1-blue.svg)](https://golang.org)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Compatible-brightgreen.svg)](https://kubernetes.io)
-[![JMeter](https://img.shields.io/badge/JMeter-3.3%20%7C%205.6.3-orange.svg)](https://jmeter.apache.org)
-[![Security](https://img.shields.io/badge/Security-Hardened-red.svg)](SECURITY.md)
-[![Automation](https://img.shields.io/badge/CI%2FCD-Automated-purple.svg)](.github/workflows/)
+[![Release](https://img.shields.io/badge/version-2.0.0--rc-blue.svg)](https://github.com/hveda/Setagaya/releases)
+[![Go Version](https://img.shields.io/badge/Go-1.25.1-00ADD8.svg?logo=go)](https://golang.org)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hveda/Setagaya)](https://goreportcard.com/report/github.com/hveda/Setagaya)
+[![codecov](https://codecov.io/gh/hveda/Setagaya/branch/main/graph/badge.svg)](https://codecov.io/gh/hveda/Setagaya)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 [![Security Check](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml)
 [![Code Quality](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml)
 [![PR Validation](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml)
-[![Security Monitoring](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml)
 
 Setagaya is a cloud-native, distributed load testing platform that orchestrates Apache JMeter engines across Kubernetes
 clusters. It provides enterprise-grade scalability, real-time metrics, and centralized management for performance
