@@ -22,7 +22,7 @@ these steps:
 Instead, please report security vulnerabilities through:
 
 1. **GitHub Security Advisories**: Use the "Security" tab in this repository
-2. **Email**: Send to security@yourorganization.com (replace with actual contact)
+2. **Email**: Send to mail@heri.life
 3. **Private Issue**: Contact maintainers directly via GitHub
 
 ### 📝 What to Include
@@ -151,7 +151,7 @@ When testing for vulnerabilities:
 
 For security-related questions or concerns:
 
-- **Security Team**: security@yourorganization.com
+- **Security Team**: mail@heri.life
 - **GitHub Security**: Use the Security tab in this repository
 - **PGP Key**: Available upon request
 

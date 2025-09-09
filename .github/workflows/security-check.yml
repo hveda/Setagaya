@@ -53,7 +53,7 @@ jobs:
     - name: Run Gosec Security Scanner
       run: |
         cd setagaya
-        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
         gosec -fmt sarif -out ../gosec-results.sarif ./...
       continue-on-error: true
 
@@ -101,8 +101,8 @@ jobs:
       with:
         # Focus on high severity vulnerabilities for Go ecosystem upgrades
         fail-on-severity: high
-        # Allow standard open-source licenses
-        allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0
+        # Allow standard open-source licenses plus AGPL-3.0 for security tools
+        allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, AGPL-3.0
         # Only fail on runtime dependencies to focus on production impact
         fail-on-scopes: runtime
         # Provide summary for transparency
@@ -313,7 +313,7 @@ jobs:
         mv /tmp/.buildx-cache-${{ matrix.name }}-new /tmp/.buildx-cache-${{ matrix.name }} || true
 
     - name: Run Trivy vulnerability scanner - ${{ matrix.name }}
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@0.28.0
       with:
         image-ref: '${{ matrix.name }}:security-test'
         format: 'sarif'
@@ -363,7 +363,7 @@ jobs:
 
     - name: TruffleHog OSS - Pull Request Scan
       if: github.event_name == 'pull_request'
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.87.0
       with:
         path: ./
         base: ${{ github.event.pull_request.base.sha }}
@@ -372,7 +372,7 @@ jobs:
 
     - name: TruffleHog OSS - Push Event Scan
       if: github.event_name == 'push'
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.87.0
       with:
         path: ./
         base: ${{ github.event.before }}
@@ -381,7 +381,7 @@ jobs:
 
     - name: TruffleHog OSS - Scheduled/Full Repository Scan
       if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.87.0
       with:
         path: ./
         extra_args: --debug --only-verified

@@ -525,6 +525,16 @@ Located in `.github/workflows/`:
 - **Dependency Management**: Dependabot integration for automated security updates
 - **Container Security**: Image vulnerability scanning and hardening validation
 - **Emergency Response**: Automated security advisory creation and notification
+- **OpenSSF Scorecard Integration**: Continuous security posture assessment with SARIF reporting
+
+#### Workflow Version Management (2025)
+
+- **Pinned Action Versions**: All GitHub Actions use specific version tags for security and stability
+- **TruffleHog v3.87.0**: Latest stable release for comprehensive secret scanning
+- **Trivy v0.28.0**: Latest stable release for container vulnerability scanning
+- **OpenSSF Scorecard v2.5.1**: Enhanced configuration with proper token authentication
+- **golangci-lint**: Updated to latest version for improved Go code analysis
+- **No Unstable Branches**: Eliminated use of `@master` and `@main` action references
 
 #### Security Configuration Files
 
