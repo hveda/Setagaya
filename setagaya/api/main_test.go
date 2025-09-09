@@ -487,3 +487,131 @@ func TestSetagayaAPI_handleErrorsFromExt(t *testing.T) {
 		})
 	}
 }
+
+// Test the main API constructor and central error handling
+func TestSetagayaAPI_NewAPIServer_Safe(t *testing.T) {
+	// Skip this test in environments where config isn't fully set up
+	if os.Getenv("SETAGAYA_TEST_MODE") == "true" {
+		t.Skip("Skipping NewAPIServer test in test mode (requires full config)")
+	}
+	
+	api := NewAPIServer()
+	assert.NotNil(t, api)
+	assert.NotNil(t, api.ctr)
+}
+
+func TestSetagayaAPI_handleErrors(t *testing.T) {
+	api := &SetagayaAPI{}
+
+	testCases := []struct {
+		name           string
+		inputError     error
+		expectedStatus int
+		expectedMsg    string
+	}{
+		{
+			name:           "no permission error",
+			inputError:     makeNoPermissionErr("access denied"),
+			expectedStatus: http.StatusForbidden,
+			expectedMsg:    "403-access denied",
+		},
+		{
+			name:           "invalid request error",
+			inputError:     makeInvalidRequestError("bad data"),
+			expectedStatus: http.StatusBadRequest,
+			expectedMsg:    "400-bad data",
+		},
+		{
+			name:           "login error",
+			inputError:     makeLoginError(),
+			expectedStatus: http.StatusForbidden,
+			expectedMsg:    "403-you need to login",
+		},
+		{
+			name:           "project ownership error",
+			inputError:     makeProjectOwnershipError(),
+			expectedStatus: http.StatusForbidden,
+			expectedMsg:    "403-You don't own the project",
+		},
+		{
+			name:           "collection ownership error",
+			inputError:     makeCollectionOwnershipError(),
+			expectedStatus: http.StatusForbidden,
+			expectedMsg:    "403-You don't own the collection",
+		},
+		{
+			name:           "invalid resource error",
+			inputError:     makeInvalidResourceError("project"),
+			expectedStatus: http.StatusBadRequest,
+			expectedMsg:    "400-invalid project",
+		},
+		{
+			name:           "internal server error",
+			inputError:     makeInternalServerError("database failed"),
+			expectedStatus: http.StatusInternalServerError,
+			expectedMsg:    "500-database failed",
+		},
+		{
+			name:           "unknown error - defaults to internal server error",
+			inputError:     errors.New("some unexpected error"),
+			expectedStatus: http.StatusInternalServerError,
+			expectedMsg:    "some unexpected error",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+
+			api.handleErrors(w, tc.inputError)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+			var response JSONMessage
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expectedMsg, response.Message)
+		})
+	}
+}
+
+func TestSetagayaAPI_handleErrors_WithDBError(t *testing.T) {
+	api := &SetagayaAPI{}
+
+	// Test that DBError is handled by handleErrorsFromExt
+	dbError := &model.DBError{
+		Err:     errors.New("connection failed"),
+		Message: "Database is unavailable",
+	}
+
+	w := httptest.NewRecorder()
+	api.handleErrors(w, dbError)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	var response JSONMessage
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "Database is unavailable", response.Message)
+}
+
+func TestSetagayaAPI_handleErrors_WithSchedulerError(t *testing.T) {
+	api := &SetagayaAPI{}
+
+	// Test that scheduler errors are handled by handleErrorsFromExt
+	schedulerError := &scheduler.NoResourcesFoundErr{
+		Err:     errors.New("no nodes available"),
+		Message: "No compute resources available",
+	}
+
+	w := httptest.NewRecorder()
+	api.handleErrors(w, schedulerError)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	var response JSONMessage
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "No compute resources available", response.Message)
+}
