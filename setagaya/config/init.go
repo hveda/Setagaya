@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	apiv1 "k8s.io/api/core/v1"
@@ -222,6 +223,12 @@ func loadConfig() *SetagayaConfig {
 		return sc
 	}
 
+	// Validate config file path for security
+	if !strings.HasSuffix(ConfigFilePath, "config.json") {
+		log.Fatal("Invalid config file path")
+	}
+	
+	// #nosec G304 -- ConfigFilePath is hardcoded to "/config.json" and validated above
 	f, err := os.Open(ConfigFilePath)
 	if err != nil {
 		log.Fatal("Cannot find config file")

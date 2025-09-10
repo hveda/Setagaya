@@ -219,18 +219,7 @@ jobs:
         go mod download
         go build -v ./...
 
-    # Build test files for better analysis coverage (individual packages to avoid conflicts)
-    - name: Build Test Files
-      run: |
-        cd setagaya
-        # Build test files for individual packages to avoid binary name conflicts
-        echo "Building test files for individual packages..."
-        for pkg in $(go list ./...); do
-          echo "Building tests for $pkg"
-          go test -c "$pkg" -o "$(basename "$pkg").test" 2>/dev/null || echo "Warning: Could not compile tests for $pkg"
-        done
-        # Clean up test binaries to avoid cluttering
-        rm -f *.test
+    # Test files are analyzed directly from source by CodeQL - no need to compile them
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3

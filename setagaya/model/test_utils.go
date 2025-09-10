@@ -187,7 +187,7 @@ func CreateTestConfigFile(t *testing.T) (string, func()) {
 		t.Fatalf("Failed to marshal test config: %v", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 

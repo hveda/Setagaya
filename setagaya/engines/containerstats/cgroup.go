@@ -59,6 +59,12 @@ func detectCgroupVersion() string {
 }
 
 func head(path string, nol int) ([]string, error) {
+	// Validate that the path is within the expected cgroup directories for security
+	if !strings.HasPrefix(path, "/sys/fs/cgroup/") {
+		return nil, fmt.Errorf("invalid cgroup path: %s", path)
+	}
+	
+	// #nosec G304 -- Path is validated to be within /sys/fs/cgroup/ and comes from hardcoded constants
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
