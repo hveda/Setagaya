@@ -5,6 +5,11 @@ on:
     branches:
       - master
 
+# Ensure only one GitHub Pages deployment runs at a time
+concurrency:
+  group: gh-pages-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-20.04

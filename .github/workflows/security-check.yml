@@ -27,6 +27,11 @@ on:
         default: 'false'
         type: boolean
 
+# Ensure only one security workflow runs per branch at a time
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   security-events: write
