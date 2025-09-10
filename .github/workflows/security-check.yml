@@ -169,30 +169,38 @@ jobs:
         cache: true
         cache-dependency-path: setagaya/go.sum
 
-    # Enhanced caching for Go modules and CodeQL (excluding database directory)
-    - name: Cache Go modules and CodeQL
+    # Clean cache directories to prevent tar extraction conflicts
+    - name: Clean Cache Directories
+      run: |
+        echo "🧹 Cleaning cache directories to prevent conflicts..."
+        # Remove potentially problematic cached directories
+        rm -rf ~/.cache/go-build || true
+        rm -rf ~/.cache/codeql || true
+        rm -rf "${{ runner.temp }}/codeql_databases" || true
+        
+        # Create fresh directories
+        mkdir -p ~/.cache/go-build
+        mkdir -p ~/.cache/codeql
+        
+        echo "✅ Cache directories cleaned and recreated"
+
+    # Separate Go module caching (more stable)
+    - name: Cache Go modules
       uses: actions/cache@v4
       with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-          ~/.cache/codeql
-        key: ${{ runner.os }}-go-codeql-${{ hashFiles('**/go.mod', '**/go.sum') }}-${{ github.sha }}
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-codeql-${{ hashFiles('**/go.mod', '**/go.sum') }}-
-          ${{ runner.os }}-go-codeql-
+          ${{ runner.os }}-go-mod-
 
-    # Clean CodeQL database directory to prevent conflicts
-    - name: Clean CodeQL Database Directory
-      run: |
-        echo "Checking CodeQL database directory: ${{ runner.temp }}/codeql_databases"
-        if [ -d "${{ runner.temp }}/codeql_databases" ]; then
-          echo "🧹 Cleaning existing CodeQL database directory..."
-          rm -rf "${{ runner.temp }}/codeql_databases"
-          echo "✅ CodeQL database directory cleaned"
-        else
-          echo "✅ CodeQL database directory is already clean"
-        fi
+    # Separate Go build cache (rebuild each time for CodeQL compatibility)
+    - name: Cache Go build
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/go-build
+        key: ${{ runner.os }}-go-build-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-go-build-
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
