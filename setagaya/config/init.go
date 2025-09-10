@@ -227,7 +227,7 @@ func loadConfig() *SetagayaConfig {
 	if !strings.HasSuffix(ConfigFilePath, "config.json") {
 		log.Fatal("Invalid config file path")
 	}
-	
+
 	// #nosec G304 -- ConfigFilePath is hardcoded to "/config.json" and validated above
 	f, err := os.Open(ConfigFilePath)
 	if err != nil {

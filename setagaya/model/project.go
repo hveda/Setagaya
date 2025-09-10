@@ -50,19 +50,19 @@ func CreateProject(name, owner, sid string) (int64, error) {
 func GetProjectsByOwners(owners []string) ([]*Project, error) {
 	db := config.SC.DBC
 	r := []*Project{}
-	
+
 	if len(owners) == 0 {
 		return r, nil
 	}
-	
-	// Create placeholders for parameterized query  
+
+	// Create placeholders for parameterized query
 	placeholders := make([]string, len(owners))
 	args := make([]interface{}, len(owners))
 	for i, owner := range owners {
 		placeholders[i] = "?"
 		args[i] = owner
 	}
-	
+
 	// #nosec G201 -- Using parameterized placeholders, not direct user input in SQL
 	query := fmt.Sprintf("select id, name, owner, sid, created_time from project where owner in (%s)",
 		strings.Join(placeholders, ","))
