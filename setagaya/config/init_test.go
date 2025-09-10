@@ -313,7 +313,7 @@ func TestAuthConfigStruct(t *testing.T) {
 	assert.False(t, authConfig.NoAuth)
 	assert.Equal(t, "test-session-key", authConfig.SessionKey)
 	assert.NotNil(t, authConfig.LdapConfig)
-	assert.Equal(t, "DC=example,DC=com", authConfig.LdapConfig.BaseDN)
+	assert.Equal(t, "DC=example,DC=com", authConfig.BaseDN)
 }
 
 func TestClusterConfigStruct(t *testing.T) {
@@ -342,7 +342,7 @@ func TestClusterConfigStruct(t *testing.T) {
 func TestHostAliasStruct(t *testing.T) {
 	// Test HostAlias struct if it exists
 	// Note: The struct definition was cut off in our view, so this is a basic test
-	
+
 	// First check if HostAlias is defined properly in the package
 	// This test verifies the struct can be imported and used
 	// We'll need to see the full definition to test it properly
@@ -352,7 +352,7 @@ func TestConfigFileConstants(t *testing.T) {
 	// Test configuration file handling constants and paths
 	assert.NotEmpty(t, ConfigFileName)
 	assert.NotEmpty(t, ConfigFilePath)
-	
+
 	// Test that ConfigFilePath is properly constructed
 	assert.Contains(t, ConfigFilePath, ConfigFileName)
 	assert.True(t, ConfigFilePath[0] == '/', "ConfigFilePath should be absolute")
@@ -365,13 +365,13 @@ func TestMySQLEndpointEdgeCases(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "nil config should not panic",
-			config: nil,
+			name:     "nil config should not panic",
+			config:   nil,
 			expected: "", // This will likely panic, but we test for it
 		},
 		{
-			name: "empty config",
-			config: &MySQLConfig{},
+			name:     "empty config",
+			config:   &MySQLConfig{},
 			expected: ":@tcp()/?",
 		},
 		{
@@ -413,13 +413,13 @@ func TestMySQLEndpointEdgeCases(t *testing.T) {
 
 func TestHTTPClientCreation(t *testing.T) {
 	// Test HTTP client creation with various configurations
-	
+
 	t.Run("default HTTP client", func(t *testing.T) {
 		client := &http.Client{}
 		assert.NotNil(t, client)
 		assert.Nil(t, client.Transport) // Default transport should be nil
 	})
-	
+
 	t.Run("HTTP client with timeout", func(t *testing.T) {
 		client := &http.Client{}
 		assert.Zero(t, client.Timeout) // Default timeout should be 0
@@ -428,7 +428,7 @@ func TestHTTPClientCreation(t *testing.T) {
 
 func TestConfigStructIntegration(t *testing.T) {
 	// Test that all config structs work together properly
-	
+
 	ldapConfig := &LdapConfig{
 		BaseDN:         "DC=corp,DC=example,DC=com",
 		SystemUser:     "CN=setagaya,CN=Users,DC=corp,DC=example,DC=com",
@@ -436,14 +436,14 @@ func TestConfigStructIntegration(t *testing.T) {
 		LdapServer:     "ldap.corp.example.com",
 		LdapPort:       "636",
 	}
-	
+
 	authConfig := &AuthConfig{
 		AdminUsers: []string{"admin", "super-admin"},
 		NoAuth:     false,
 		SessionKey: "setagaya-session",
 		LdapConfig: ldapConfig,
 	}
-	
+
 	clusterConfig := &ClusterConfig{
 		Project:     "setagaya-platform",
 		Zone:        "us-west1-b",
@@ -454,7 +454,7 @@ func TestConfigStructIntegration(t *testing.T) {
 		GCDuration:  30.0,
 		ServiceType: "NodePort",
 	}
-	
+
 	mysqlConfig := &MySQLConfig{
 		Host:     "mysql.corp.example.com:3306",
 		User:     "setagaya_user",
@@ -463,20 +463,20 @@ func TestConfigStructIntegration(t *testing.T) {
 		Keypairs: "ssl_keypairs",
 		Endpoint: "mysql://mysql.corp.example.com:3306/setagaya_db",
 	}
-	
+
 	httpConfig := &HttpConfig{
 		Proxy: "http://proxy.corp.example.com:8080",
 	}
-	
+
 	// Test that all configs can be combined
 	assert.NotNil(t, authConfig)
 	assert.NotNil(t, clusterConfig)
 	assert.NotNil(t, mysqlConfig)
 	assert.NotNil(t, httpConfig)
-	
+
 	// Test relationships
 	assert.Same(t, ldapConfig, authConfig.LdapConfig)
-	
+
 	// Test MySQL endpoint generation
 	endpoint := makeMySQLEndpoint(mysqlConfig)
 	assert.Contains(t, endpoint, mysqlConfig.User)

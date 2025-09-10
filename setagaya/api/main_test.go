@@ -496,7 +496,7 @@ func TestSetagayaAPI_NewAPIServer_Safe(t *testing.T) {
 	if os.Getenv("SETAGAYA_TEST_MODE") == "true" {
 		t.Skip("Skipping NewAPIServer test in test mode (requires full config)")
 	}
-	
+
 	api := NewAPIServer()
 	assert.NotNil(t, api)
 	assert.NotNil(t, api.ctr)
@@ -505,29 +505,29 @@ func TestSetagayaAPI_NewAPIServer_Safe(t *testing.T) {
 // Test jsonise function with various scenarios
 func TestSetagayaAPI_Jsonise(t *testing.T) {
 	api := &SetagayaAPI{}
-	
+
 	t.Run("successful json encoding", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		data := map[string]string{"message": "test"}
-		
+
 		api.jsonise(recorder, http.StatusOK, data)
-		
+
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Contains(t, recorder.Header().Get("Content-Type"), "application/json")
-		
+
 		var result map[string]string
 		err := json.Unmarshal(recorder.Body.Bytes(), &result)
 		assert.NoError(t, err)
 		assert.Equal(t, "test", result["message"])
 	})
-	
+
 	t.Run("handle encoding error with invalid data", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		// Using a function which cannot be encoded to JSON to trigger error
 		invalidData := func() {}
-		
+
 		api.jsonise(recorder, http.StatusOK, invalidData)
-		
+
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		// Should still set content type even on error
 		assert.Contains(t, recorder.Header().Get("Content-Type"), "application/json")
@@ -546,11 +546,11 @@ func TestMakeRespMessage(t *testing.T) {
 func TestMakeFailMessage(t *testing.T) {
 	api := &SetagayaAPI{}
 	recorder := httptest.NewRecorder()
-	
+
 	api.makeFailMessage(recorder, "test failure", http.StatusBadRequest)
-	
+
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
-	
+
 	var response JSONMessage
 	err := json.Unmarshal(recorder.Body.Bytes(), &response)
 	assert.NoError(t, err)
@@ -560,11 +560,11 @@ func TestMakeFailMessage(t *testing.T) {
 // Test handleErrorsFromExt function
 func TestHandleErrorsFromExt(t *testing.T) {
 	api := &SetagayaAPI{}
-	
+
 	testCases := []struct {
-		name           string
-		err            error
-		expectHandled  bool
+		name          string
+		err           error
+		expectHandled bool
 	}{
 		{
 			name:          "database error",
@@ -577,13 +577,13 @@ func TestHandleErrorsFromExt(t *testing.T) {
 			expectHandled: false, // Should return the error unhandled
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			
+
 			unhandledErr := api.handleErrorsFromExt(recorder, tc.err)
-			
+
 			if tc.expectHandled {
 				// Error should be handled (status code set)
 				assert.True(t, recorder.Code >= 400)
@@ -599,7 +599,7 @@ func TestHandleErrorsFromExt(t *testing.T) {
 // Test handleErrors function
 func TestSetagayaAPI_HandleErrors(t *testing.T) {
 	api := &SetagayaAPI{}
-	
+
 	testCases := []struct {
 		name           string
 		err            error
@@ -641,13 +641,13 @@ func TestSetagayaAPI_HandleErrors(t *testing.T) {
 			expectedStatus: http.StatusForbidden,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			
+
 			api.handleErrors(recorder, tc.err)
-			
+
 			assert.Equal(t, tc.expectedStatus, recorder.Code)
 		})
 	}
@@ -660,7 +660,7 @@ func TestGetProject_Unit(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "project_id cannot be empty")
 	})
-	
+
 	t.Run("invalid project ID format", func(t *testing.T) {
 		_, err := getProject("invalid")
 		assert.Error(t, err)
@@ -686,27 +686,16 @@ func TestGetCollection_Unit(t *testing.T) {
 	})
 }
 
-// Mock account for testing
-func createMockAccount() *model.Account {
-	return &model.Account{
-		Name: "testuser",
-		ML:   []string{"test-group"},
-		MLMap: map[string]interface{}{
-			"test-group": nil,
-		},
-	}
-}
-
 // Test projectsGetHandler (unit tests)
 func TestSetagayaAPI_ProjectsGetHandler_Unit(t *testing.T) {
 	api := &SetagayaAPI{}
-	
+
 	t.Run("missing account in context", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/projects", nil)
 		recorder := httptest.NewRecorder()
-		
+
 		api.projectsGetHandler(recorder, req, nil)
-		
+
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
 }
@@ -714,14 +703,14 @@ func TestSetagayaAPI_ProjectsGetHandler_Unit(t *testing.T) {
 // Test projectGetHandler (unit tests)
 func TestSetagayaAPI_ProjectGetHandler_Unit(t *testing.T) {
 	api := &SetagayaAPI{}
-	
+
 	t.Run("invalid project ID", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/projects/invalid", nil)
 		recorder := httptest.NewRecorder()
-		params := httprouter.Params{{"project_id", "invalid"}}
-		
+		params := httprouter.Params{{Key: "project_id", Value: "invalid"}}
+
 		api.projectGetHandler(recorder, req, params)
-		
+
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
 }

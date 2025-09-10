@@ -56,7 +56,7 @@ func getRunningPlansWithCache() ([]*model.RunningPlan, map[int64]*model.Collecti
 	if err != nil {
 		return nil, nil, err
 	}
-	
+
 	localCache := make(map[int64]*model.Collection)
 	for _, rp := range runningPlans {
 		if _, ok := localCache[rp.CollectionID]; !ok {
@@ -67,14 +67,14 @@ func getRunningPlansWithCache() ([]*model.RunningPlan, map[int64]*model.Collecti
 			localCache[rp.CollectionID] = collection
 		}
 	}
-	
+
 	return runningPlans, localCache, nil
 }
 
 func (c *Controller) CheckRunningThenTerminate() {
 	jobs := make(chan *RunningPlan)
 	c.startWorkers(jobs)
-	
+
 	log.Printf("Getting all the running plans for %s", config.SC.Context)
 	for {
 		runningPlans, localCache, err := getRunningPlansWithCache()
@@ -82,18 +82,18 @@ func (c *Controller) CheckRunningThenTerminate() {
 			log.Error(err)
 			continue
 		}
-		
+
 		for _, rp := range runningPlans {
 			collection, ok := localCache[rp.CollectionID]
 			if !ok {
 				continue
 			}
-			
+
 			ep, err := model.GetExecutionPlan(collection.ID, rp.PlanID)
 			if err != nil {
 				continue
 			}
-			
+
 			item := &RunningPlan{
 				ep:         ep,
 				collection: collection,
@@ -195,12 +195,12 @@ func parseIngressConfig() (time.Duration, time.Duration, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	
+
 	gcInterval, err := time.ParseDuration(config.SC.IngressConfig.GCInterval)
 	if err != nil {
 		return 0, 0, err
 	}
-	
+
 	return ingressLifespan, gcInterval, nil
 }
 
@@ -211,24 +211,24 @@ func (c *Controller) findLatestRunTime(pods []apiv1.Pod, projectID int64) (time.
 		return time.Time{}, err
 	}
 	latestRun := &model.RunHistory{EndTime: t}
-	
+
 	for _, p := range pods {
 		collectionID, err := strconv.ParseInt(p.Labels["collection"], 10, 64)
 		if err != nil {
 			log.Error(err)
 			return time.Time{}, err
 		}
-		
+
 		collection, err := model.GetCollection(collectionID)
 		if err != nil {
 			return time.Time{}, err
 		}
-		
+
 		lr, err := collection.GetLastRun()
 		if err != nil {
 			return time.Time{}, err
 		}
-		
+
 		if lr != nil {
 			// Track ongoing runs
 			if lr.EndTime.IsZero() {
@@ -239,19 +239,19 @@ func (c *Controller) findLatestRunTime(pods []apiv1.Pod, projectID int64) (time.
 			}
 		}
 	}
-	
+
 	return latestRun.EndTime, nil
 }
 
 // calculateProjectLastUsedTime determines when a project was last used
 func (c *Controller) calculateProjectLastUsedTime(projectID int64, pods []apiv1.Pod) (time.Time, error) {
 	var plu time.Time
-	
+
 	latestRunTime, err := c.findLatestRunTime(pods, projectID)
 	if err != nil {
 		return time.Time{}, err
 	}
-	
+
 	if len(pods) > 0 {
 		// Pods are ordered by created time in asc order
 		podLastCreatedTime := pods[0].CreationTimestamp.Time
@@ -259,45 +259,45 @@ func (c *Controller) calculateProjectLastUsedTime(projectID int64, pods []apiv1.
 			plu = podLastCreatedTime
 		}
 	}
-	
+
 	// Use the latest time between pod creation and run end time
 	if latestRunTime.After(plu) {
 		plu = latestRunTime
 	}
-	
+
 	return plu, nil
 }
 
 func (c *Controller) AutoPurgeProjectIngressController() {
 	log.Info("Start the loop for purging idle ingress controllers")
 	projectLastUsedTime := make(map[int64]time.Time)
-	
+
 	ingressLifespan, gcInterval, err := parseIngressConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	log.Println(fmt.Sprintf("Project ingress lifespan is %v. And the GC Interval is %v", ingressLifespan, gcInterval))
-	
+
 	for {
 		deployedServices, err := c.Scheduler.GetDeployedServices()
 		if err != nil {
 			continue
 		}
-		
+
 		for projectID := range deployedServices {
 			pods, err := c.Scheduler.GetEnginesByProject(projectID)
 			if err != nil {
 				continue
 			}
-			
+
 			plu, err := c.calculateProjectLastUsedTime(projectID, pods)
 			if err != nil {
 				continue
 			}
-			
+
 			projectLastUsedTime[projectID] = plu
-			
+
 			if time.Since(plu) > ingressLifespan {
 				log.Println(fmt.Sprintf("Going to delete ingress for project %d. Last used time was %v", projectID, plu))
 				if err := c.Scheduler.PurgeProjectIngress(projectID); err != nil {
@@ -305,7 +305,7 @@ func (c *Controller) AutoPurgeProjectIngressController() {
 				}
 			}
 		}
-		
+
 		time.Sleep(gcInterval)
 	}
 }

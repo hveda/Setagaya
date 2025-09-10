@@ -567,52 +567,52 @@ func (s *SetagayaAPI) parseCollectionUpload(r *http.Request) (*model.ExecutionWr
 	if parseErr := r.ParseMultipartForm(1 << 20); parseErr != nil { //parse 1 MB of data
 		return nil, makeInvalidRequestError("form")
 	}
-	
+
 	file, _, err := r.FormFile("collectionYAML")
 	if err != nil {
 		return nil, makeInvalidResourceError("file")
 	}
-	
+
 	raw, err := io.ReadAll(file)
 	if err != nil {
 		return nil, makeInvalidRequestError("invalid file")
 	}
-	
+
 	e := new(model.ExecutionWrapper)
 	err = yaml.Unmarshal(raw, e)
 	if err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
-	
+
 	return e, nil
 }
 
 // validateExecutionPlans validates that all plans belong to the same project and calculates total engines
 func (s *SetagayaAPI) validateExecutionPlans(project *model.Project, tests []*model.ExecutionPlan) (int, error) {
 	totalEnginesRequired := 0
-	
+
 	for _, ep := range tests {
 		if ep.Engines <= 0 {
 			return 0, makeInvalidRequestError("You cannot configure a plan with zero engine")
 		}
-		
+
 		plan, planErr := model.GetPlan(ep.PlanID)
 		if planErr != nil {
 			return 0, planErr
 		}
-		
+
 		planProject, projectErr := model.GetProject(plan.ProjectID)
 		if projectErr != nil {
 			return 0, projectErr
 		}
-		
+
 		if project.ID != planProject.ID {
 			return 0, makeInvalidRequestError("You can only add plan within the same project")
 		}
-		
+
 		totalEnginesRequired += ep.Engines
 	}
-	
+
 	return totalEnginesRequired, nil
 }
 
@@ -622,11 +622,11 @@ func (s *SetagayaAPI) validateCollectionState(collection *model.Collection, newT
 	if err != nil {
 		return err
 	}
-	
+
 	if len(runningPlans) > 0 {
 		return makeInvalidRequestError("You cannot change the collection during testing period")
 	}
-	
+
 	if s.ctr.Scheduler.PodReadyCount(collection.ID) > 0 {
 		currentPlans, plansErr := collection.GetExecutionPlans()
 		if plansErr != nil {
@@ -636,7 +636,7 @@ func (s *SetagayaAPI) validateCollectionState(collection *model.Collection, newT
 			return makeInvalidRequestError(message)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -646,43 +646,43 @@ func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Req
 		s.handleErrors(w, err)
 		return
 	}
-	
+
 	e, err := s.parseCollectionUpload(r)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
 	}
-	
+
 	if e.Content.CollectionID != collection.ID {
 		s.handleErrors(w, makeInvalidRequestError("collection ID mismatch"))
 		return
 	}
-	
+
 	project, err := model.GetProject(collection.ProjectID)
 	if err != nil {
 		log.Error(err)
 		s.handleErrors(w, err)
 		return
 	}
-	
+
 	totalEnginesRequired, err := s.validateExecutionPlans(project, e.Content.Tests)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
 	}
-	
+
 	if totalEnginesRequired > config.SC.ExecutorConfig.MaxEnginesInCollection {
 		errMsg := fmt.Sprintf("You are reaching the resource limit of the cluster. Requesting engines: %d, limit: %d.",
 			totalEnginesRequired, config.SC.ExecutorConfig.MaxEnginesInCollection)
 		s.handleErrors(w, makeInvalidRequestError(errMsg))
 		return
 	}
-	
-	if err := s.validateCollectionState(collection, e.Content.Tests); err != nil {
-		s.handleErrors(w, err)
+
+	if validateErr := s.validateCollectionState(collection, e.Content.Tests); validateErr != nil {
+		s.handleErrors(w, validateErr)
 		return
 	}
-	
+
 	err = collection.Store(e.Content)
 	if err != nil {
 		s.handleErrors(w, err)

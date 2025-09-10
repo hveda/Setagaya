@@ -91,7 +91,7 @@ func validateCollectionPlans(collection *model.Collection) error {
 func (c *Controller) triggerExecutionPlans(collection *model.Collection, engineDataConfigs []*enginesModel.EngineDataConfig, runID int64) []error {
 	errs := make(chan error, len(collection.ExecutionPlans))
 	defer close(errs)
-	
+
 	for i, ep := range collection.ExecutionPlans {
 		go func(i int, ep *model.ExecutionPlan) {
 			pc := NewPlanController(ep, collection, c.Scheduler)
@@ -99,12 +99,12 @@ func (c *Controller) triggerExecutionPlans(collection *model.Collection, engineD
 				errs <- err
 				return
 			}
-			
+
 			if err := pc.subscribe(&c.connectedEngines, c.readingEngines); err != nil {
 				errs <- err
 				return
 			}
-			
+
 			if err := model.AddRunningPlan(collection.ID, ep.PlanID); err != nil {
 				errs <- err
 				return
@@ -112,7 +112,7 @@ func (c *Controller) triggerExecutionPlans(collection *model.Collection, engineD
 			errs <- nil
 		}(i, ep)
 	}
-	
+
 	// Collect all errors
 	triggerErrors := []error{}
 	for i := 0; i < len(collection.ExecutionPlans); i++ {
@@ -120,7 +120,7 @@ func (c *Controller) triggerExecutionPlans(collection *model.Collection, engineD
 			triggerErrors = append(triggerErrors, err)
 		}
 	}
-	
+
 	return triggerErrors
 }
 
@@ -131,34 +131,34 @@ func (c *Controller) TriggerCollection(collection *model.Collection) error {
 	if err != nil {
 		return err
 	}
-	
-	if err := validateCollectionPlans(collection); err != nil {
-		return err
+
+	if validateErr := validateCollectionPlans(collection); validateErr != nil {
+		return validateErr
 	}
-	
+
 	engineDataConfigs := prepareCollection(collection)
 	runID, err := collection.StartRun()
 	if err != nil {
 		return err
 	}
-	
+
 	triggerErrors := c.triggerExecutionPlans(collection, engineDataConfigs, runID)
-	
+
 	if err := collection.NewRun(runID); err != nil {
 		log.Printf("Error creating new run: %v", err)
 	}
-	
+
 	if len(triggerErrors) == len(collection.ExecutionPlans) {
 		// every plan in collection has error
 		if err := c.TermCollection(collection, true); err != nil {
 			log.Printf("Error terminating collection: %v", err)
 		}
 	}
-	
+
 	if len(triggerErrors) > 0 {
 		return fmt.Errorf("triggering errors %v", triggerErrors)
 	}
-	
+
 	return nil
 }
 

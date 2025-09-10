@@ -64,7 +64,7 @@ func executeDelete(db *sql.DB, query string) error {
 		return err
 	}
 	defer q.Close()
-	
+
 	_, err = q.Exec()
 	return err
 }
@@ -76,25 +76,25 @@ func setupAndTeardown() error {
 	}
 
 	db := config.SC.DBC
-	
+
 	// List of tables to clean up in order
 	tablesToClean := []string{
 		"plan",
-		"running_plan", 
+		"running_plan",
 		"collection",
 		"collection_plan",
 		"project",
 		"collection_run",
 		"collection_run_history",
 	}
-	
+
 	// Execute delete statements for each table
 	for _, table := range tablesToClean {
 		if err := executeDelete(db, "delete from "+table); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 

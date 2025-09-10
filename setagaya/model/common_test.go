@@ -139,7 +139,7 @@ func TestInArray_EdgeCases(t *testing.T) {
 		longString[i] = 'a'
 	}
 	longStr := string(longString)
-	
+
 	slice := []string{longStr, "short"}
 	result := inArray(slice, longStr)
 	assert.True(t, result)
