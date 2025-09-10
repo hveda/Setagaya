@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ "master", "main", "develop" ]
 
+# Ensure only one code quality workflow runs per branch at a time
+concurrency:
+  group: code-quality-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   checks: write

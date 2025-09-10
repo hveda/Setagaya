@@ -16,6 +16,11 @@ on:
   push:
     branches: [ "split", "master" ]
 
+# Ensure only one build/publish workflow runs per branch at a time
+concurrency:
+  group: build-publish-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false  # Don't cancel release builds to avoid incomplete releases
+
 permissions:
   contents: write
   pull-requests: write

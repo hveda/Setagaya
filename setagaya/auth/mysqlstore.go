@@ -71,12 +71,12 @@ func NewMySQLStoreFromConnection(db *sql.DB, tableName string, path string, maxA
 	// Make sure table name is enclosed.
 	tableName = "`" + strings.Trim(tableName, "`") + "`"
 
-	cTableQ := "CREATE TABLE IF NOT EXISTS " +
-		tableName + " (id INT NOT NULL AUTO_INCREMENT, " +
-		"session_data LONGBLOB, " +
-		"created_on TIMESTAMP DEFAULT NOW(), " +
-		"modified_on TIMESTAMP NOT NULL DEFAULT NOW() ON UPDATE CURRENT_TIMESTAMP, " +
-		"expires_on TIMESTAMP DEFAULT NOW(), PRIMARY KEY(`id`)) ENGINE=InnoDB;"
+	// #nosec G201 -- tableName is sanitized on line 72 with backticks and controlled by application
+	cTableQ := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT NOT NULL AUTO_INCREMENT, "+
+		"session_data LONGBLOB, "+
+		"created_on TIMESTAMP DEFAULT NOW(), "+
+		"modified_on TIMESTAMP NOT NULL DEFAULT NOW() ON UPDATE CURRENT_TIMESTAMP, "+
+		"expires_on TIMESTAMP DEFAULT NOW(), PRIMARY KEY(`id`)) ENGINE=InnoDB;", tableName)
 	if _, err := db.Exec(cTableQ); err != nil {
 		switch mysqlErr := err.(type) {
 		case *mysql.MySQLError:
@@ -91,28 +91,29 @@ func NewMySQLStoreFromConnection(db *sql.DB, tableName string, path string, maxA
 		}
 	}
 
-	insQ := "INSERT INTO " + tableName +
-		"(id, session_data, created_on, modified_on, expires_on) VALUES (NULL, ?, ?, ?, ?)"
+	// #nosec G201 -- tableName is sanitized on line 72 with backticks and controlled by application
+	insQ := fmt.Sprintf("INSERT INTO %s (id, session_data, created_on, modified_on, expires_on) VALUES (NULL, ?, ?, ?, ?)", tableName)
 	stmtInsert, stmtErr := db.Prepare(insQ)
 	if stmtErr != nil {
 		return nil, stmtErr
 	}
 
-	delQ := "DELETE FROM " + tableName + " WHERE id = ?"
+	// #nosec G201 -- tableName is sanitized on line 72 with backticks and controlled by application
+	delQ := fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName)
 	stmtDelete, stmtErr := db.Prepare(delQ)
 	if stmtErr != nil {
 		return nil, stmtErr
 	}
 
-	updQ := "UPDATE " + tableName + " SET session_data = ?, created_on = ?, expires_on = ? " +
-		"WHERE id = ?"
+	// #nosec G201 -- tableName is sanitized on line 72 with backticks and controlled by application
+	updQ := fmt.Sprintf("UPDATE %s SET session_data = ?, created_on = ?, expires_on = ? WHERE id = ?", tableName)
 	stmtUpdate, stmtErr := db.Prepare(updQ)
 	if stmtErr != nil {
 		return nil, stmtErr
 	}
 
-	selQ := "SELECT id, session_data, created_on, modified_on, expires_on from " +
-		tableName + " WHERE id = ?"
+	// #nosec G201 -- tableName is sanitized on line 72 with backticks and controlled by application
+	selQ := fmt.Sprintf("SELECT id, session_data, created_on, modified_on, expires_on from %s WHERE id = ?", tableName)
 	stmtSelect, stmtErr := db.Prepare(selQ)
 	if stmtErr != nil {
 		return nil, stmtErr

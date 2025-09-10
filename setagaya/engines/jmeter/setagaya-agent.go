@@ -402,7 +402,7 @@ func cleanTestData() error {
 	if err := os.RemoveAll(TEST_DATA_FOLDER); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(TEST_DATA_FOLDER, os.ModePerm); err != nil {
+	if err := os.MkdirAll(TEST_DATA_FOLDER, 0750); err != nil {
 		return err
 	}
 	return nil
@@ -423,7 +423,7 @@ func saveToDisk(filename string, file []byte) error {
 	log.Printf("Saving file to: %s", sanitizedPath)
 
 	// Use secure file permissions instead of 0777
-	if err := os.WriteFile(filePath, file, 0644); err != nil {
+	if err := os.WriteFile(filePath, file, 0600); err != nil {
 		return err
 	}
 	return nil
