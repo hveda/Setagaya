@@ -1,0 +1,71 @@
+{
+  "bg_color": "#fff",
+  "project_home": "https://docs.example.com/setagaya/project-home",
+  "upload_file_help": "https://docs.example.com/setagaya/file-upload-guide",
+  "auth_config": {
+    "admin_users": ["test-admin@company.com"],
+    "ldap_server": "",
+    "ldap_port": "",
+    "system_user": "",
+    "system_password": "",
+    "base_dn": "",
+    "no_auth": true
+  },
+  "rbac": {
+    "enable_rbac": false,
+    "default_tenant_role": "tenant_viewer",
+    "session_timeout_minutes": 480,
+    "audit_enabled": true,
+    "permission_cache_ttl_minutes": 15,
+    "okta": {
+      "domain": "test.okta.com",
+      "client_id": "test-client-id",
+      "client_secret": "test-client-secret",
+      "redirect_uri": "http://localhost:8080/auth/callback",
+      "scopes": ["openid", "profile", "email", "groups"],
+      "group_claims": "groups"
+    }
+  },
+  "http_config": {
+    "proxy": ""
+  },
+  "db": {
+    "host": "localhost",
+    "user": "test",
+    "password": "test",
+    "database": "setagaya_test"
+  },
+  "executors": {
+    "cluster": {
+      "on_demand": false
+    },
+    "in_cluster": false,
+    "namespace": "setagaya-test",
+    "jmeter": {
+      "image": "setagaya:jmeter",
+      "cpu": "0.1",
+      "mem": "256Mi"
+    },
+    "pull_secret": "",
+    "pull_policy": "IfNotPresent",
+    "max_engines_in_collection": 2
+  },
+  "ingress": {
+    "image": "setagaya:ingress-controller",
+    "cpu": "0.1"
+  },
+  "dashboard": {
+    "url": "http://localhost:3000",
+    "run_dashboard": "/d/RXY8nM1mk2/setagaya",
+    "engine_dashboard": "/d/9EH6xqTZz/setagaya-engine-health"
+  },
+  "object_storage": {
+    "provider": "local",
+    "url": "http://localhost:8080",
+    "user": "",
+    "password": ""
+  },
+  "log_format": {
+    "json": false
+  }
+}
