@@ -43,6 +43,15 @@ func NewNotFoundError(resource, id string) *RBACError {
 	}
 }
 
+// NewNotFoundErrorSimple creates a not found error with a simple message
+func NewNotFoundErrorSimple(message string) *RBACError {
+	return &RBACError{
+		Type:    "not_found",
+		Message: message,
+		Details: make(map[string]interface{}),
+	}
+}
+
 func NewConflictError(message string) *RBACError {
 	return &RBACError{
 		Type:    "conflict",
