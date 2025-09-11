@@ -387,7 +387,7 @@ The platform automatically formats files on commit via pre-commit hooks that:
 - Sequential context execution (parallel execution planned)
 - JMeter-focused (additional executors like Gatling planned)
 
-## 🗺️ Roadmap
+## 🗺️ Development Roadmap
 
 ### ✅ Completed (v2.0.0-rc)
 
@@ -397,18 +397,92 @@ The platform automatically formats files on commit via pre-commit hooks that:
 - **CI/CD Integration**: GitHub Actions workflows for security and quality
 - **Documentation Overhaul**: Complete technical specifications and security policies
 - **Auto-Formatting Infrastructure**: Prettier, yamllint with git hooks
+- **Code Quality Improvements**: Reduced complexity, enhanced error handling
 
-### 🚧 In Progress
+### 🚧 In Progress (v2.1.0)
 
 - **Multi-Executor Support**: Gatling, K6, custom executors
 - **Multi-Context Management**: Single controller, multiple clusters
-- **Enhanced Authentication**: OAuth2, SAML integration
+- **Performance Optimization**: Enhanced metrics aggregation and caching
 
-### 🔮 Planned
+### 🎯 Next Major Release (v3.0.0) - Enterprise RBAC
 
-- **Advanced Scheduling**: Time-based triggers, dependency chains
-- **Cloud Integration**: Native cloud provider integrations
-- **Performance Optimization**: Enhanced metrics aggregation and storage
+**Target**: Q2 2026 | **Focus**: Enterprise Identity & Multi-Tenancy
+
+#### 🏢 Role-Based Access Control (RBAC) with Okta Integration
+
+**Planning Documents**:
+- **[RBAC Development Plan](docs/RBAC_DEVELOPMENT_PLAN.md)** - Comprehensive development strategy
+- **[RBAC Technical Specification](docs/RBAC_TECHNICAL_SPECIFICATION.md)** - Implementation details
+
+**Role Hierarchy**:
+```
+Service Provider:
+├── Admin (Full platform control)
+└── Support (Read-only + troubleshooting)
+
+Project Management:
+└── PJM Loadtest (Cross-tenant oversight)
+
+Tenant-Scoped:
+├── Tenant Admin (Full tenant control)
+├── Tenant Editor (Create/modify resources)
+└── Tenant Viewer (Read-only access)
+```
+
+**Key Features**:
+- **Modern Authentication**: Okta OIDC/OAuth2 integration replacing LDAP
+- **Multi-Tenant Architecture**: Complete tenant isolation and resource scoping
+- **Fine-Grained Permissions**: Resource-level authorization with audit trails
+- **Enterprise Integration**: SSO, group-based access, automated provisioning
+- **Security Enhancements**: Comprehensive audit logging and compliance support
+
+**Development Timeline** (14 weeks):
+- **Phase 1** (4 weeks): Okta integration and authentication infrastructure
+- **Phase 2** (3 weeks): Authorization engine and permission framework
+- **Phase 3** (3 weeks): Multi-tenant support and quota management
+- **Phase 4** (2 weeks): API security enhancement and endpoint protection
+- **Phase 5** (2 weeks): Monitoring, audit, and compliance features
+
+**Migration Strategy**:
+- Parallel authentication systems during transition
+- Gradual role migration with validation
+- Feature flag controlled rollout
+- Zero-downtime migration path
+
+### 🔮 Future Releases
+
+#### v3.1.0 - Advanced Scheduling (Q3 2026)
+- **Time-Based Triggers**: Cron-style scheduling and recurring tests
+- **Dependency Chains**: Sequential test execution with conditions
+- **Load Profiles**: Dynamic load adjustment and spike testing
+- **Test Templates**: Reusable test configurations and best practices
+
+#### v3.2.0 - Cloud Integration (Q4 2026)
+- **Multi-Cloud Support**: AWS, GCP, Azure native integrations
+- **Serverless Executors**: Lambda, Cloud Functions, Cloud Run support
+- **Cost Optimization**: Spot instances, preemptible nodes, auto-scaling
+- **Regional Distribution**: Global load testing from multiple regions
+
+#### v4.0.0 - AI-Powered Testing (2027)
+- **Intelligent Load Patterns**: ML-driven realistic traffic simulation
+- **Automated Performance Analysis**: AI-powered bottleneck detection
+- **Predictive Scaling**: Proactive resource allocation
+- **Smart Test Generation**: AI-assisted test plan creation
+
+### 🎯 Strategic Initiatives
+
+#### Enterprise Readiness
+- **High Availability**: Multi-region deployment and disaster recovery
+- **Compliance**: SOC2, PCI-DSS, GDPR compliance frameworks
+- **Professional Services**: Training, consulting, and support tiers
+- **Integration Ecosystem**: Plugin architecture for third-party tools
+
+#### Developer Experience
+- **CLI Tools**: Command-line interface for test management
+- **IDE Plugins**: VS Code, IntelliJ integration
+- **API First**: Comprehensive REST and GraphQL APIs
+- **SDK Development**: Client libraries for popular languages
 
 ## 🤝 Contributing
 
