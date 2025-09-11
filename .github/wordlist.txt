@@ -1,4 +1,4 @@
-personal_ws-1.1 en 646
+personal_ws-1.1 en 678
 codecov
 OpenSSF
 Setagaya
@@ -645,3 +645,35 @@ HighAuthorizationFailureRate
 expr
 AuthenticationServiceDown
 PJM
+mdBook
+openapi
+AuthResponse
+bearerAuth
+subgraph
+CreateTenant
+TestTenantModel
+errMsg
+wantErr
+GetPublicKey
+MockOktaProvider
+TestOktaAuthProvider
+setupMock
+testPublicKey
+TestTenantAPI
+setupTestServer
+testServer
+TenantIsolation
+TestProjectAPI
+TenantAdminWorkflow
+TestE
+CrossTenantIsolation
+EEnvironment
+setupE
+testEnv
+coverprofile
+html
+ci
+lt
+InternalError
+resourceID
+Okta's
