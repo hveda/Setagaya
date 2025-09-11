@@ -726,4 +726,26 @@ Follow `setagaya/engines/jmeter/` structure:
 
 ---
 
-**Last Updated:** September 6, 2025 **Document Version:** 2.0 **Next Review:** Quarterly or on major releases
+**Last Updated:** September 11, 2025 **Document Version:** 2.1 **Next Review:** Quarterly or on major releases
+
+## Current RBAC Implementation Status
+
+### ✅ Phase 1 Completed (September 2025)
+- **OpenAPI 3.0 Specification**: Complete RBAC API specification (`docs/api/rbac-openapi.yaml`)
+- **Database Schema**: Initial RBAC schema with multi-tenant support (`setagaya/db/2025091101_rbac_initial_schema.sql`)
+- **Core Domain Models**: Comprehensive Go structures and interfaces (`setagaya/rbac/`)
+- **Test Infrastructure**: TDD-first approach with **94.1% test coverage** exceeding 80% target
+- **Configuration Framework**: RBAC configuration integrated into `config_tmpl.json`
+- **Build Integration**: RBAC package successfully integrated with existing build system
+
+### 🚧 Next Phases (Planned)
+- **Phase 2**: RBAC Engine Development (3 weeks) - Authorization logic and database implementation
+- **Phase 3**: Multi-Tenant Architecture (3 weeks) - Tenant management and data isolation  
+- **Phase 4**: API Security Enhancement (2 weeks) - Endpoint protection and middleware
+- **Phase 5**: Monitoring & Audit (2 weeks) - Compliance and security logging
+
+### 📊 Test Coverage Achievement
+- **RBAC Package**: 94.1% test coverage (Target: 80% minimum)
+- **TDD Methodology**: Comprehensive unit tests for all domain models
+- **API-First Design**: Complete OpenAPI specification before implementation
+- **Make Targets**: Automated testing with `make test-coverage-rbac`

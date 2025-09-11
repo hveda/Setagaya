@@ -11,6 +11,21 @@
     "base_dn": "",
     "no_auth": true
   },
+  "rbac": {
+    "enable_rbac": false,
+    "default_tenant_role": "tenant_viewer",
+    "session_timeout_minutes": 480,
+    "audit_enabled": true,
+    "permission_cache_ttl_minutes": 15,
+    "okta": {
+      "domain": "company.okta.com",
+      "client_id": "${OKTA_CLIENT_ID}",
+      "client_secret": "${OKTA_CLIENT_SECRET}",
+      "redirect_uri": "https://setagaya.company.com/auth/callback",
+      "scopes": ["openid", "profile", "email", "groups"],
+      "group_claims": "groups"
+    }
+  },
   "http_config": {
     "proxy": ""
   },
