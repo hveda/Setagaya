@@ -316,8 +316,8 @@ func TestPermissionCache_IsExpired(t *testing.T) {
 	past := now.Add(-1 * time.Hour)
 
 	tests := []struct {
-		name  string
-		cache *PermissionCache
+		name     string
+		cache    *PermissionCache
 		expected bool
 	}{
 		{
@@ -477,7 +477,7 @@ func TestRoleConstants(t *testing.T) {
 func TestTenantStatusConstants(t *testing.T) {
 	// Verify tenant status constants
 	statuses := []string{TenantStatusActive, TenantStatusSuspended, TenantStatusDeleted}
-	
+
 	for _, status := range statuses {
 		assert.NotEmpty(t, status, "Status constant should not be empty")
 	}
@@ -493,7 +493,7 @@ func TestResourceTypeConstants(t *testing.T) {
 		ResourceTypeExecution,
 		ResourceTypeSystem,
 	}
-	
+
 	for _, resourceType := range resourceTypes {
 		assert.NotEmpty(t, resourceType, "Resource type constant should not be empty")
 	}
@@ -504,12 +504,12 @@ func isValidRoleName(name string) bool {
 	if len(name) < 3 {
 		return false
 	}
-	
+
 	for _, char := range name {
-		if !((char >= 'a' && char <= 'z') || char == '_') {
+		if (char < 'a' || char > 'z') && char != '_' {
 			return false
 		}
 	}
-	
+
 	return true
 }

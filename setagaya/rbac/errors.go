@@ -86,7 +86,7 @@ func IsValidationError(err error) bool {
 	return IsErrorType(err, "validation_error")
 }
 
-// IsAuthorizationError checks if error is an authorization error  
+// IsAuthorizationError checks if error is an authorization error
 func IsAuthorizationError(err error) bool {
 	return IsErrorType(err, "authorization_error")
 }

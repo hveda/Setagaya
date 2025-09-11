@@ -123,22 +123,22 @@ type OktaClaims struct {
 
 // OktaUser represents a user in Okta
 type OktaUser struct {
-	ID       string `json:"id"`
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Groups   []string `json:"groups"`
+	ID     string   `json:"id"`
+	Email  string   `json:"email"`
+	Name   string   `json:"name"`
+	Status string   `json:"status"`
+	Groups []string `json:"groups"`
 }
 
 // Config represents RBAC configuration
 type Config struct {
-	DatabaseURL         string        `json:"database_url"`
-	EnableRBAC          bool          `json:"enable_rbac"`
-	DefaultTenantRole   string        `json:"default_tenant_role"`
-	SessionTimeoutMins  int           `json:"session_timeout_minutes"`
-	AuditEnabled        bool          `json:"audit_enabled"`
-	PermissionCacheTTL  int           `json:"permission_cache_ttl_minutes"`
-	OktaConfig          *OktaConfig   `json:"okta"`
+	DatabaseURL        string      `json:"database_url"`
+	EnableRBAC         bool        `json:"enable_rbac"`
+	DefaultTenantRole  string      `json:"default_tenant_role"`
+	SessionTimeoutMins int         `json:"session_timeout_minutes"`
+	AuditEnabled       bool        `json:"audit_enabled"`
+	PermissionCacheTTL int         `json:"permission_cache_ttl_minutes"`
+	OktaConfig         *OktaConfig `json:"okta"`
 }
 
 // OktaConfig represents Okta integration configuration

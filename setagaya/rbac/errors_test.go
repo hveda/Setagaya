@@ -9,7 +9,7 @@ import (
 func TestNewValidationError(t *testing.T) {
 	message := "test validation error"
 	err := NewValidationError(message)
-	
+
 	assert.NotNil(t, err)
 	assert.Equal(t, "validation_error", err.Type)
 	assert.Equal(t, message, err.Message)
@@ -20,7 +20,7 @@ func TestNewValidationError(t *testing.T) {
 func TestNewAuthorizationError(t *testing.T) {
 	message := "test authorization error"
 	err := NewAuthorizationError(message)
-	
+
 	assert.NotNil(t, err)
 	assert.Equal(t, "authorization_error", err.Type)
 	assert.Equal(t, message, err.Message)
@@ -31,7 +31,7 @@ func TestNewNotFoundError(t *testing.T) {
 	resource := "tenant"
 	id := "123"
 	err := NewNotFoundError(resource, id)
-	
+
 	assert.NotNil(t, err)
 	assert.Equal(t, "not_found", err.Type)
 	assert.Contains(t, err.Message, resource)
@@ -43,7 +43,7 @@ func TestNewNotFoundError(t *testing.T) {
 func TestNewConflictError(t *testing.T) {
 	message := "test conflict error"
 	err := NewConflictError(message)
-	
+
 	assert.NotNil(t, err)
 	assert.Equal(t, "conflict", err.Type)
 	assert.Equal(t, message, err.Message)
@@ -52,7 +52,7 @@ func TestNewConflictError(t *testing.T) {
 func TestNewInternalError(t *testing.T) {
 	message := "test internal error"
 	err := NewInternalError(message)
-	
+
 	assert.NotNil(t, err)
 	assert.Equal(t, "internal_error", err.Type)
 	assert.Equal(t, message, err.Message)
@@ -61,7 +61,7 @@ func TestNewInternalError(t *testing.T) {
 func TestNewForbiddenError(t *testing.T) {
 	message := "test forbidden error"
 	err := NewForbiddenError(message)
-	
+
 	assert.NotNil(t, err)
 	assert.Equal(t, "forbidden", err.Type)
 	assert.Equal(t, message, err.Message)
@@ -69,11 +69,11 @@ func TestNewForbiddenError(t *testing.T) {
 
 func TestRBACError_WithDetails(t *testing.T) {
 	err := NewValidationError("test error")
-	
+
 	// Add details
 	err.WithDetails("field", "name")
 	err.WithDetails("value", "invalid_value")
-	
+
 	assert.Equal(t, "name", err.Details["field"])
 	assert.Equal(t, "invalid_value", err.Details["value"])
 }
