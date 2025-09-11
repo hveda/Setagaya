@@ -21,7 +21,7 @@ permissions:
   contents: read
   security-events: write
   actions: read
-  issues: write
+  # Removed global issues: write to fix OpenSSF Scorecard workflow verification
 
 jobs:
   # Comprehensive dependency audit
@@ -163,7 +163,7 @@ jobs:
       uses: trufflesecurity/trufflehog@v3.90.6
       with:
         path: ./
-        extra_args: --only-verified --json --no-update --fail
+        extra_args: --only-verified --json --fail
 
     - name: Handle TruffleHog results
       if: always()
@@ -372,6 +372,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [dependency-audit, container-security-monitoring, secret-monitoring]
     if: always()
+    permissions:
+      contents: read
+      issues: write
     steps:
     - name: Check for security findings
       id: check-findings
