@@ -258,6 +258,58 @@ func TestUserContext_HasTenantAccess(t *testing.T) {
 	}
 }
 
+func TestUserContext_HasGlobalRole(t *testing.T) {
+	userContext := &UserContext{
+		UserID: "user123",
+		GlobalRoles: []Role{
+			{Name: RoleServiceProviderAdmin},
+			{Name: RoleServiceProviderSupport},
+		},
+		TenantAccess: map[int64][]Role{
+			1: {{Name: RoleTenantAdmin}},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		roleName string
+		expected bool
+	}{
+		{
+			name:     "has global admin role",
+			roleName: RoleServiceProviderAdmin,
+			expected: true,
+		},
+		{
+			name:     "has global support role",
+			roleName: RoleServiceProviderSupport,
+			expected: true,
+		},
+		{
+			name:     "does not have tenant role as global",
+			roleName: RoleTenantAdmin,
+			expected: false,
+		},
+		{
+			name:     "does not have non-existent role",
+			roleName: RoleTenantViewer,
+			expected: false,
+		},
+		{
+			name:     "empty role name",
+			roleName: "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := userContext.HasGlobalRole(tt.roleName)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestUserRole_IsActive(t *testing.T) {
 	now := time.Now()
 	future := now.Add(24 * time.Hour)
