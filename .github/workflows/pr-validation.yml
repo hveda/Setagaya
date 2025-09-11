@@ -315,6 +315,8 @@ jobs:
     steps:
     - name: Checkout Source
       uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
 
     - name: Check for dependency changes
       id: deps
@@ -336,7 +338,13 @@ jobs:
       run: |
         cd setagaya
         echo "Checking for new dependencies..."
-        git diff HEAD~1 go.mod | grep "^+" | grep -E "^\+[^+]" | head -20
+        # Check if HEAD~1 exists, if not, compare with base branch or skip
+        if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+          git diff HEAD~1 go.mod | grep "^+" | grep -E "^\+[^+]" | head -20 || echo "No new dependencies found"
+        else
+          echo "No previous commit available for comparison, showing all dependencies:"
+          grep -E "^\s+" go.mod | head -20 || echo "No dependencies found"
+        fi
         echo "Please ensure new dependencies are:"
         echo "- From trusted sources"
         echo "- Have compatible licenses"
