@@ -6,66 +6,94 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	apiv1 "k8s.io/api/core/v1"
 
 	"github.com/hveda/Setagaya/setagaya/config"
 	"github.com/hveda/Setagaya/setagaya/model"
 )
 
-func (c *Controller) CheckRunningThenTerminate() {
-	jobs := make(chan *RunningPlan)
+// processRunningPlan handles a single running plan
+func (c *Controller) processRunningPlan(j *RunningPlan) {
+	pc := NewPlanController(j.ep, j.collection, c.Scheduler)
+	if running := pc.progress(); !running {
+		collection := j.collection
+		currRunID, err := collection.GetCurrentRun()
+		if currRunID != int64(0) {
+			if termErr := pc.term(false, &c.connectedEngines); termErr != nil {
+				log.Printf("Error terminating plan %d: %v", j.ep.PlanID, termErr)
+			}
+			log.Printf("Plan %d is terminated.", j.ep.PlanID)
+		}
+		if err != nil {
+			return
+		}
+		if t, err := collection.HasRunningPlan(); t || err != nil {
+			return
+		}
+		if err := collection.StopRun(); err != nil {
+			log.Printf("Error stopping run: %v", err)
+		}
+		if err := collection.RunFinish(currRunID); err != nil {
+			log.Printf("Error finishing run: %v", err)
+		}
+	}
+}
+
+// startWorkers creates worker goroutines to process running plans
+func (c *Controller) startWorkers(jobs chan *RunningPlan) {
 	for w := 1; w <= 3; w++ {
 		go func(jobs <-chan *RunningPlan) {
-		jobLoop:
 			for j := range jobs {
-				pc := NewPlanController(j.ep, j.collection, c.Scheduler)
-				if running := pc.progress(); !running {
-					collection := j.collection
-					currRunID, err := collection.GetCurrentRun()
-					if currRunID != int64(0) {
-						if termErr := pc.term(false, &c.connectedEngines); termErr != nil {
-							log.Printf("Error terminating plan %d: %v", j.ep.PlanID, termErr)
-						}
-						log.Printf("Plan %d is terminated.", j.ep.PlanID)
-					}
-					if err != nil {
-						continue jobLoop
-					}
-					if t, err := collection.HasRunningPlan(); t || err != nil {
-						continue jobLoop
-					}
-					if err := collection.StopRun(); err != nil {
-						log.Printf("Error stopping run: %v", err)
-					}
-					if err := collection.RunFinish(currRunID); err != nil {
-						log.Printf("Error finishing run: %v", err)
-					}
-				}
+				c.processRunningPlan(j)
 			}
 		}(jobs)
 	}
+}
+
+// getRunningPlansWithCache retrieves running plans and builds a collection cache
+func getRunningPlansWithCache() ([]*model.RunningPlan, map[int64]*model.Collection, error) {
+	runningPlans, err := model.GetRunningPlans()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	localCache := make(map[int64]*model.Collection)
+	for _, rp := range runningPlans {
+		if _, ok := localCache[rp.CollectionID]; !ok {
+			collection, err := model.GetCollection(rp.CollectionID)
+			if err != nil {
+				continue
+			}
+			localCache[rp.CollectionID] = collection
+		}
+	}
+
+	return runningPlans, localCache, nil
+}
+
+func (c *Controller) CheckRunningThenTerminate() {
+	jobs := make(chan *RunningPlan)
+	c.startWorkers(jobs)
+
 	log.Printf("Getting all the running plans for %s", config.SC.Context)
 	for {
-		runningPlans, err := model.GetRunningPlans()
+		runningPlans, localCache, err := getRunningPlansWithCache()
 		if err != nil {
 			log.Error(err)
 			continue
 		}
-		localCache := make(map[int64]*model.Collection)
+
 		for _, rp := range runningPlans {
-			var collection *model.Collection
-			var ok bool
-			collection, ok = localCache[rp.CollectionID]
+			collection, ok := localCache[rp.CollectionID]
 			if !ok {
-				collection, err = model.GetCollection(rp.CollectionID)
-				if err != nil {
-					continue
-				}
-				localCache[rp.CollectionID] = collection
+				continue
 			}
+
 			ep, err := model.GetExecutionPlan(collection.ID, rp.PlanID)
 			if err != nil {
 				continue
 			}
+
 			item := &RunningPlan{
 				ep:         ep,
 				collection: collection,
@@ -161,78 +189,115 @@ func (c *Controller) AutoPurgeDeployments() {
 // Last time used is defined as:
 // 1. If none of the collections has a run, it will be the last launch time of the engines of a collection
 // 2. If any of the collection has a run, it will be the end time of that run
+// parseIngressConfig parses the ingress configuration durations
+func parseIngressConfig() (time.Duration, time.Duration, error) {
+	ingressLifespan, err := time.ParseDuration(config.SC.IngressConfig.Lifespan)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	gcInterval, err := time.ParseDuration(config.SC.IngressConfig.GCInterval)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return ingressLifespan, gcInterval, nil
+}
+
+// findLatestRunTime finds the latest run time for a project's pods
+func (c *Controller) findLatestRunTime(pods []apiv1.Pod, projectID int64) (time.Time, error) {
+	t, err := time.Parse("2006-01-03", "2000-01-01")
+	if err != nil {
+		return time.Time{}, err
+	}
+	latestRun := &model.RunHistory{EndTime: t}
+
+	for _, p := range pods {
+		collectionID, err := strconv.ParseInt(p.Labels["collection"], 10, 64)
+		if err != nil {
+			log.Error(err)
+			return time.Time{}, err
+		}
+
+		collection, err := model.GetCollection(collectionID)
+		if err != nil {
+			return time.Time{}, err
+		}
+
+		lr, err := collection.GetLastRun()
+		if err != nil {
+			return time.Time{}, err
+		}
+
+		if lr != nil {
+			// Track ongoing runs
+			if lr.EndTime.IsZero() {
+				lr.EndTime = time.Now()
+			}
+			if lr.EndTime.After(latestRun.EndTime) {
+				latestRun = lr
+			}
+		}
+	}
+
+	return latestRun.EndTime, nil
+}
+
+// calculateProjectLastUsedTime determines when a project was last used
+func (c *Controller) calculateProjectLastUsedTime(projectID int64, pods []apiv1.Pod) (time.Time, error) {
+	var plu time.Time
+
+	latestRunTime, err := c.findLatestRunTime(pods, projectID)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	if len(pods) > 0 {
+		// Pods are ordered by created time in asc order
+		podLastCreatedTime := pods[0].CreationTimestamp.Time
+		if podLastCreatedTime.After(plu) {
+			plu = podLastCreatedTime
+		}
+	}
+
+	// Use the latest time between pod creation and run end time
+	if latestRunTime.After(plu) {
+		plu = latestRunTime
+	}
+
+	return plu, nil
+}
+
 func (c *Controller) AutoPurgeProjectIngressController() {
 	log.Info("Start the loop for purging idle ingress controllers")
 	projectLastUsedTime := make(map[int64]time.Time)
-	ingressLifespan, err := time.ParseDuration(config.SC.IngressConfig.Lifespan)
+
+	ingressLifespan, gcInterval, err := parseIngressConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
-	gcInterval, err := time.ParseDuration(config.SC.IngressConfig.GCInterval)
-	if err != nil {
-		log.Fatal(err)
-	}
+
 	log.Println(fmt.Sprintf("Project ingress lifespan is %v. And the GC Interval is %v", ingressLifespan, gcInterval))
+
 	for {
 		deployedServices, err := c.Scheduler.GetDeployedServices()
 		if err != nil {
 			continue
 		}
-	svcLoop:
+
 		for projectID := range deployedServices {
-			// Because of this if, the GC could not know any operation happening in the span.
-			// When the time is up and there is no engines deployment, the ingress ip will be deleted right away.
-			// if time.Since(createdTime) < ingressLifespan {
-			// 	continue
-			// }
 			pods, err := c.Scheduler.GetEnginesByProject(projectID)
 			if err != nil {
 				continue
 			}
-			t, err := time.Parse("2006-01-03", "2000-01-01")
+
+			plu, err := c.calculateProjectLastUsedTime(projectID, pods)
 			if err != nil {
-				log.Fatal(err)
+				continue
 			}
-			latestRun := &model.RunHistory{EndTime: t}
-			for _, p := range pods {
-				collectionID, err := strconv.ParseInt(p.Labels["collection"], 10, 64)
-				if err != nil {
-					log.Error(err)
-					continue svcLoop
-				}
-				collection, err := model.GetCollection(collectionID)
-				if err != nil {
-					continue svcLoop
-				}
-				lr, err := collection.GetLastRun()
-				if err != nil {
-					continue svcLoop
-				}
-				if lr != nil {
-					// We need to track the ongoing run because if run stops before the loop and engines are purged,
-					// the lastUsedTime will be the engine launch time.
-					if lr.EndTime.IsZero() {
-						lr.EndTime = time.Now()
-					}
-					if lr.EndTime.After(latestRun.EndTime) {
-						latestRun = lr
-					}
-				}
-			}
-			plu := projectLastUsedTime[projectID]
-			if len(pods) > 0 {
-				// the pods are ordered by created time in asc order. So the first pod in the list
-				// is the most reccently being created
-				podLastCreatedTime := pods[0].CreationTimestamp.Time
-				if podLastCreatedTime.After(plu) {
-					plu = podLastCreatedTime
-				}
-			}
-			// we also need this line because if there is no engines deployed, we could not find the latest run
-			if latestRun.EndTime.After(plu) {
-				plu = latestRun.EndTime
-			}
+
 			projectLastUsedTime[projectID] = plu
+
 			if time.Since(plu) > ingressLifespan {
 				log.Println(fmt.Sprintf("Going to delete ingress for project %d. Last used time was %v", projectID, plu))
 				if err := c.Scheduler.PurgeProjectIngress(projectID); err != nil {
@@ -240,9 +305,7 @@ func (c *Controller) AutoPurgeProjectIngressController() {
 				}
 			}
 		}
-		// The interval should not be very long. For example, a collection has been launched for 30 minutes,
-		// If there is a run being executed for a minute, there is a chance the GC misses that run and the project
-		// ip will be deleted.
+
 		time.Sleep(gcInterval)
 	}
 }

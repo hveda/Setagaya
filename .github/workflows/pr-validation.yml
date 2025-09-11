@@ -5,14 +5,16 @@ on:
     branches: [ "master", "main", "develop" ]
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Ensure only one PR validation workflow runs per PR at a time
+concurrency:
+  group: pr-validation-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   checks: write
   pull-requests: write
   security-events: write
-
-env:
-  GO_VERSION: '1.25.1'
 
 jobs:
   # Skip if PR is draft
@@ -124,7 +126,7 @@ jobs:
       if: steps.changes.outputs.go == 'true'
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: '1.25.1'
 
     - name: Check Go code formatting
       if: steps.changes.outputs.go == 'true'
@@ -280,7 +282,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: '1.25.1'
 
     - name: Setup test database
       run: |
@@ -313,6 +315,8 @@ jobs:
     steps:
     - name: Checkout Source
       uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
 
     - name: Check for dependency changes
       id: deps
@@ -327,14 +331,20 @@ jobs:
       if: steps.deps.outputs.go_deps == 'true'
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: '1.25.1'
 
     - name: Check for new dependencies
       if: steps.deps.outputs.go_deps == 'true'
       run: |
         cd setagaya
         echo "Checking for new dependencies..."
-        git diff HEAD~1 go.mod | grep "^+" | grep -E "^\+[^+]" | head -20
+        # Check if HEAD~1 exists, if not, compare with base branch or skip
+        if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+          git diff HEAD~1 go.mod | grep "^+" | grep -E "^\+[^+]" | head -20 || echo "No new dependencies found"
+        else
+          echo "No previous commit available for comparison, showing all dependencies:"
+          grep -E "^\s+" go.mod | head -20 || echo "No dependencies found"
+        fi
         echo "Please ensure new dependencies are:"
         echo "- From trusted sources"
         echo "- Have compatible licenses"

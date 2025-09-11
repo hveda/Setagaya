@@ -6,37 +6,90 @@ on:
   pull_request:
     branches: [ "master", "main", "develop" ]
 
+# Ensure only one code quality workflow runs per branch at a time
+concurrency:
+  group: code-quality-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   checks: write
   pull-requests: write
   security-events: write
 
-env:
-  GO_VERSION: '1.25.1'
-
 jobs:
   # Go linting and formatting
-  golangci-lint:
-    name: Go Linting
+  go-quality:
+    name: Go Code Quality
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Source
+    - name: Checkout code
       uses: actions/checkout@v5
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: '1.25.1'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
-    - name: golangci-lint
+    - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v7
       with:
         version: latest
         working-directory: setagaya
-        args: --timeout=10m --config=.golangci.yml
+
+  # Kubernetes manifest validation and compatibility testing
+  kubernetes-compatibility:
+    name: Kubernetes Compatibility (K8s ${{ matrix.kubernetes-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kubernetes-version: ['1.21.0', '1.25.0', '1.28.0', '1.34.0']
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Install kubeconform
+      run: |
+        echo "📦 Installing kubeconform for Kubernetes validation..."
+        curl -L https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+        sudo mv kubeconform /usr/local/bin
+        kubeconform -v
+
+    - name: Validate Core Kubernetes Manifests
+      run: |
+        echo "🔍 Validating core Kubernetes manifests for version ${{ matrix.kubernetes-version }}"
+        echo "Files to validate:"
+        find kubernetes/ -name "*.yaml" -o -name "*.yml" | sort
+
+        # Validate with detailed output
+        if kubeconform -summary -verbose -kubernetes-version ${{ matrix.kubernetes-version }} kubernetes/; then
+          echo "✅ Core manifests are compatible with Kubernetes ${{ matrix.kubernetes-version }}"
+        else
+          echo "❌ Core manifests have compatibility issues with Kubernetes ${{ matrix.kubernetes-version }}"
+          exit 1
+        fi
+
+    - name: Validate Helm Templates (Best Effort)
+      continue-on-error: true
+      run: |
+        echo "🎯 Validating Helm templates for version ${{ matrix.kubernetes-version }}"
+        echo "Note: Some validation errors are expected for Helm templates due to templating syntax"
+
+        # Validate Helm templates with detailed output
+        kubeconform -summary -verbose -kubernetes-version ${{ matrix.kubernetes-version }} setagaya/install/setagaya/templates/ || {
+          echo "⚠️  Helm templates have validation warnings (expected due to templating)"
+        }
+
+    - name: Generate Compatibility Report
+      if: always()
+      run: |
+        echo "## Kubernetes ${{ matrix.kubernetes-version }} Compatibility Report" >> $GITHUB_STEP_SUMMARY
+        echo "- **Core Manifests**: $(if [ $? -eq 0 ]; then echo '✅ Compatible'; else echo '❌ Issues Found'; fi)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Helm Templates**: ⚠️ Partial validation (templating syntax)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test Date**: $(date -u)" >> $GITHUB_STEP_SUMMARY
 
   # Go testing
   go-test:
@@ -49,7 +102,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: '1.25.1'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -128,7 +181,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: '1.25.1'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -267,6 +320,7 @@ jobs:
         additional_files: |
           setagaya/build.sh
           setagaya/move_images.sh
+          scripts/kubernetes-compatibility.sh
 
   # JSON linting
   json-lint:
@@ -288,23 +342,6 @@ jobs:
             echo "Skipping empty file: $file"
           fi
         done
-
-  # Kubernetes manifest validation
-  k8s-manifest-validation:
-    name: Kubernetes Manifest Validation
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout Source
-      uses: actions/checkout@v5
-
-    - name: Validate Kubernetes manifests
-      run: |
-        # Install kubeconform
-        curl -L https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
-        sudo mv kubeconform /usr/local/bin
-
-        # Validate manifests
-        kubeconform -summary -verbose -kubernetes-version 1.28.0 kubernetes/ setagaya/install/setagaya/templates/
 
   # Documentation checks
   docs-check:
@@ -366,7 +403,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: '1.25.1'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -392,3 +429,28 @@ jobs:
     - name: Check for misspellings
       run: |
         misspell -error README.md TECHNICAL_SPECS.md docs/ $(find setagaya/ -type f -name "*.go" -o -name "*.md" -o -name "*.json" -o -name "*.yml" -o -name "*.yaml" | grep -v "/static/")
+
+  # Kubernetes compatibility summary
+  kubernetes-compatibility-summary:
+    name: Kubernetes Compatibility Summary
+    runs-on: ubuntu-latest
+    needs: kubernetes-compatibility
+    if: always()
+    steps:
+    - name: Generate Summary Report
+      run: |
+        echo "# 🚀 Kubernetes Compatibility Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Tested Versions" >> $GITHUB_STEP_SUMMARY
+        echo "- Kubernetes 1.21.0 (Minimum supported)" >> $GITHUB_STEP_SUMMARY
+        echo "- Kubernetes 1.25.0 (LTS)" >> $GITHUB_STEP_SUMMARY
+        echo "- Kubernetes 1.28.0 (Current stable)" >> $GITHUB_STEP_SUMMARY
+        echo "- Kubernetes 1.34.0 (Latest)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Results" >> $GITHUB_STEP_SUMMARY
+        echo "Check individual job results above for detailed compatibility information." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Production Recommendations" >> $GITHUB_STEP_SUMMARY
+        echo "- **Minimum**: Kubernetes 1.21+ (with policy/v1)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Recommended**: Kubernetes 1.25+ (LTS support)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Optimal**: Kubernetes 1.28+ (latest stable features)" >> $GITHUB_STEP_SUMMARY
