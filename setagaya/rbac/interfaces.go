@@ -21,12 +21,13 @@ type RBACEngine interface {
 	GetUsersWithRole(ctx context.Context, roleID int64, tenantID *int64) ([]UserRole, error)
 
 	// Tenant Management
-	CreateTenant(ctx context.Context, tenant *Tenant) error
-	UpdateTenant(ctx context.Context, tenantID int64, updates *Tenant) error
+	CreateTenant(ctx context.Context, tenant *Tenant) (*Tenant, error)
+	UpdateTenant(ctx context.Context, updates *Tenant) (*Tenant, error)
 	GetTenant(ctx context.Context, tenantID int64) (*Tenant, error)
 	GetTenantByName(ctx context.Context, name string) (*Tenant, error)
 	ListTenants(ctx context.Context, status string) ([]Tenant, error)
 	DeleteTenant(ctx context.Context, tenantID int64) error
+	GetAccessibleTenants(ctx context.Context, userContext *UserContext) ([]*Tenant, error)
 
 	// Authorization
 	CheckPermission(ctx context.Context, req *AuthorizationRequest) (*AuthorizationResult, error)

@@ -397,19 +397,91 @@ Common status codes:
 
 ## Authentication & Authorization
 
-### LDAP Integration (`setagaya/auth/`)
+### Multi-Layered Authentication Architecture (v2.0.0-rc)
+
+Setagaya implements a comprehensive authentication system supporting both legacy LDAP and modern RBAC approaches:
+
+#### RBAC (Role-Based Access Control) System (`setagaya/rbac/`)
+
+**Enterprise Multi-Tenant Architecture (Phase 3-4 Implementation)**:
+
+- **Tenant Management**: Complete CRUD operations for organizational boundaries
+- **Role Hierarchy**: Service provider, tenant admin, tenant editor, tenant viewer roles
+- **Permission Engine**: Fine-grained permissions with scope-based access control
+- **Data Isolation**: Strict tenant-scoped queries ensuring complete data separation
+- **Audit Trail**: Comprehensive logging of all authorization decisions
+- **Performance Optimization**: Permission caching with TTL management
+
+**RBAC Components**:
+```go
+// Core RBAC types
+type UserContext struct {
+    UserID            string
+    IsServiceProvider bool
+    TenantRoles       []UserTenantRole
+    GlobalPermissions []string
+}
+
+type Tenant struct {
+    ID              int64
+    Name            string
+    DisplayName     string
+    Status          string
+    QuotaConfig     map[string]interface{}
+    BillingConfig   map[string]interface{}
+}
+```
+
+**RBAC API Endpoints**:
+- `POST /api/tenants` - Create tenant (service provider admin only)
+- `GET /api/tenants` - List accessible tenants (tenant-scoped for users)
+- `GET /api/tenants/{id}` - Get tenant details
+- `PUT /api/tenants/{id}` - Update tenant (admin/tenant admin only)
+- `DELETE /api/tenants/{id}` - Delete tenant (service provider admin only)
+
+#### Legacy LDAP Integration (`setagaya/auth/`)
+
+**Backward Compatibility Support**:
 
 - **User Authentication:** LDAP directory services
 - **Group Membership:** Project ownership via LDAP groups
 - **Admin Users:** Bypass ownership checks
 - **Development Mode:** `no_auth: true` for local testing
 
-### Authorization Model
+#### Hybrid Authorization Model (v2.0.0-rc)
 
-- **Project Ownership:** Based on LDAP group membership
-- **Admin Override:** Admin users have full access
-- **API Validation:** All endpoints validate ownership
-- **Resource Isolation:** Users can only access owned resources
+**Runtime Authentication Switching**:
+```go
+// API middleware automatically selects authentication method
+if s.enableRBAC && s.rbacIntegration != nil {
+    r.HandlerFunc = s.rbacIntegration.GetMiddleware().AuthorizeRequest(r.HandlerFunc)
+} else {
+    r.HandlerFunc = s.authRequired(r.HandlerFunc) // Legacy LDAP
+}
+```
+
+**Authorization Patterns**:
+
+1. **RBAC Mode (Enterprise)**:
+   - Multi-tenant data isolation
+   - Role-based permission checking
+   - Tenant-scoped resource access
+   - Service provider global access
+
+2. **Legacy Mode (LDAP)**:
+   - Project ownership based on LDAP groups
+   - Admin override capabilities
+   - Resource isolation by owner validation
+
+3. **Development Mode**:
+   - Authentication bypass with `no_auth: true`
+   - All operations permitted for testing
+
+**Migration Strategy**:
+- Seamless runtime switching between authentication systems
+- Automatic tenant assignment for existing resources
+- Zero-downtime migration from LDAP to RBAC
+- Legacy Account objects converted to UserContext automatically
 
 ## Kubernetes Integration
 

@@ -177,7 +177,7 @@ func initializeDefaultData(engine RBACEngine) error {
 		UpdatedAt:       time.Now(),
 	}
 
-	if err := engine.CreateTenant(ctx, defaultTenant); err != nil {
+	if _, err := engine.CreateTenant(ctx, defaultTenant); err != nil {
 		// Ignore if tenant already exists
 		log.Printf("Default tenant creation warning: %v", err)
 	}
@@ -419,7 +419,7 @@ func (m *MemoryRBACEngine) GetUsersWithRole(ctx context.Context, roleID int64, t
 }
 
 // CreateTenant implements RBACEngine.CreateTenant
-func (m *MemoryRBACEngine) CreateTenant(ctx context.Context, tenant *Tenant) error {
+func (m *MemoryRBACEngine) CreateTenant(ctx context.Context, tenant *Tenant) (*Tenant, error) {
 	if tenant.ID == 0 {
 		tenant.ID = m.nextID
 		m.nextID++
@@ -428,19 +428,19 @@ func (m *MemoryRBACEngine) CreateTenant(ctx context.Context, tenant *Tenant) err
 	// Check for existing tenant with same name
 	for _, existingTenant := range m.tenants {
 		if existingTenant.Name == tenant.Name {
-			return NewConflictError("tenant with name '" + tenant.Name + "' already exists")
+			return nil, NewConflictError("tenant with name '" + tenant.Name + "' already exists")
 		}
 	}
 
 	m.tenants[tenant.ID] = tenant
-	return nil
+	return tenant, nil
 }
 
 // UpdateTenant implements RBACEngine.UpdateTenant
-func (m *MemoryRBACEngine) UpdateTenant(ctx context.Context, tenantID int64, updates *Tenant) error {
-	existing, exists := m.tenants[tenantID]
+func (m *MemoryRBACEngine) UpdateTenant(ctx context.Context, updates *Tenant) (*Tenant, error) {
+	existing, exists := m.tenants[updates.ID]
 	if !exists {
-		return NewNotFoundError("tenant", string(rune(tenantID)))
+		return nil, NewNotFoundError("tenant", string(rune(updates.ID)))
 	}
 
 	// Update fields
@@ -455,7 +455,30 @@ func (m *MemoryRBACEngine) UpdateTenant(ctx context.Context, tenantID int64, upd
 	}
 	existing.UpdatedAt = time.Now()
 
-	return nil
+	m.tenants[updates.ID] = existing
+	return existing, nil
+}
+
+// GetAccessibleTenants returns tenants that the user has access to
+func (m *MemoryRBACEngine) GetAccessibleTenants(ctx context.Context, userContext *UserContext) ([]*Tenant, error) {
+	var accessibleTenants []*Tenant
+
+	// Service providers can access all tenants
+	if userContext.IsServiceProvider {
+		for _, tenant := range m.tenants {
+			accessibleTenants = append(accessibleTenants, tenant)
+		}
+		return accessibleTenants, nil
+	}
+
+	// Regular users can only access tenants they have roles in
+	for tenantID := range userContext.TenantAccess {
+		if tenant, exists := m.tenants[tenantID]; exists {
+			accessibleTenants = append(accessibleTenants, tenant)
+		}
+	}
+
+	return accessibleTenants, nil
 }
 
 // GetTenant implements RBACEngine.GetTenant

@@ -25,7 +25,9 @@ testing at scale.
 - **Kubernetes-Native**: Deploy and scale load generators across K8s clusters
 - **Real-Time Monitoring**: Live metrics streaming with Grafana dashboards
 - **Multi-Version Support**: JMeter 3.3 (legacy) and 5.6.3 (modern) compatibility
-- **Enterprise Authentication**: LDAP integration with group-based access control
+- **Enterprise RBAC**: Multi-tenant architecture with role-based access control and fine-grained permissions
+- **Hybrid Authentication**: RBAC for enterprise deployments with LDAP backward compatibility
+- **Tenant Management**: Complete tenant lifecycle with quota management and data isolation
 - **Flexible Storage**: Multiple backends (Local, GCP Buckets, Nexus)
 - **Container Security**: Non-root execution, minimal attack surface
 - **High Scalability**: Horizontal scaling with configurable resource allocation

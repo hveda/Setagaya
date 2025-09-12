@@ -413,6 +413,53 @@ both README.md and TECHNICAL_SPECS.md reflect changes
 - Follow least-privilege principle for Kubernetes RBAC configurations
 - Never log sensitive data (passwords, tokens) in controller or API layers
 
+### RBAC Implementation Guidelines
+
+**CRITICAL**: When implementing RBAC features, follow these patterns to prevent compilation errors:
+
+1. **Interface Implementation**: Always implement complete interfaces in `setagaya/rbac/interfaces.go`:
+   - Ensure all RBACEngine methods are implemented with correct signatures
+   - Use pointer return types for complex objects: `(*Tenant, error)` not `(Tenant, error)`
+   - Implement all required methods before adding new functionality
+
+2. **Method Signatures**: Follow these patterns for RBAC engine methods:
+   ```go
+   CreateTenant(ctx context.Context, tenant *Tenant) (*Tenant, error)
+   UpdateTenant(ctx context.Context, updates *Tenant) (*Tenant, error)
+   GetTenant(ctx context.Context, tenantID int64) (*Tenant, error)
+   GetAccessibleTenants(ctx context.Context, userContext *UserContext) ([]*Tenant, error)
+   DeleteTenant(ctx context.Context, tenantID int64) error
+   ```
+
+3. **API Handler Organization**: 
+   - Place RBAC handlers in separate files (`setagaya/api/rbac_handlers.go`)
+   - Always check RBAC enablement before processing requests
+   - Use consistent error handling patterns with `s.makeFailMessage()` and `s.handleErrors()`
+   - Include proper authorization checks for each endpoint
+
+4. **Backward Compatibility**: 
+   - Maintain legacy auth support with runtime switching
+   - Use `s.enableRBAC` flag to toggle between auth systems
+   - Ensure middleware properly handles both authentication methods
+
+5. **Testing Requirements**:
+   - Add unit tests for all RBAC components
+   - Test both RBAC enabled/disabled scenarios
+   - Include authorization success/failure test cases
+
+6. **Documentation Updates**: 
+   - Update OpenAPI specification for all new RBAC endpoints
+   - Add complete request/response schemas for tenant management
+   - Include proper authentication and authorization documentation
+   - Update technical specifications with RBAC architecture details
+
+**Common Errors to Avoid**:
+- Missing method implementations causing undefined function errors
+- Incorrect method signatures causing interface compliance failures
+- Missing imports for RBAC types in API handlers
+- Incomplete error handling in RBAC middleware
+- Missing authorization checks in tenant management endpoints
+
 ## Key Files for Understanding
 
 - `setagaya/main.go` - Application entry point and HTTP routing

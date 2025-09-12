@@ -950,6 +950,13 @@ func (s *SetagayaAPI) InitRoutes() Routes {
 		&Route{"usage_summary_by_sid", "GET", "/api/usage/summary_sid", s.usageSummaryHandlerBySid},
 
 		&Route{"admin_collections", "GET", "/api/admin/collections", s.collectionAdminGetHandler},
+
+		// RBAC Tenant Management endpoints
+		&Route{"create_tenant", "POST", "/api/tenants", s.tenantCreateHandler},
+		&Route{"get_tenants", "GET", "/api/tenants", s.tenantsGetHandler},
+		&Route{"get_tenant", "GET", "/api/tenants/:tenant_id", s.tenantGetHandler},
+		&Route{"update_tenant", "PUT", "/api/tenants/:tenant_id", s.tenantUpdateHandler},
+		&Route{"delete_tenant", "DELETE", "/api/tenants/:tenant_id", s.tenantDeleteHandler},
 	}
 	for _, r := range routes {
 		// TODO! We don't require auth for usage endpoint for now.
