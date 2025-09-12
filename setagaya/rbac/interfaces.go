@@ -30,6 +30,7 @@ type RBACEngine interface {
 
 	// Authorization
 	CheckPermission(ctx context.Context, req *AuthorizationRequest) (*AuthorizationResult, error)
+	HasPermission(ctx context.Context, userContext *UserContext, action, resourceType string, tenantID *int64, resourceID string) bool
 	GetUserContext(ctx context.Context, userID string) (*UserContext, error)
 	RefreshUserContext(ctx context.Context, userID string) (*UserContext, error)
 	ClearUserCache(ctx context.Context, userID string) error

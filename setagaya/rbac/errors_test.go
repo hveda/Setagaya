@@ -40,6 +40,17 @@ func TestNewNotFoundError(t *testing.T) {
 	assert.Equal(t, id, err.Details["id"])
 }
 
+func TestNewNotFoundErrorSimple(t *testing.T) {
+	message := "resource not found"
+	err := NewNotFoundErrorSimple(message)
+
+	assert.NotNil(t, err)
+	assert.Equal(t, "not_found", err.Type)
+	assert.Equal(t, message, err.Message)
+	assert.NotNil(t, err.Details)
+	assert.Equal(t, "not_found: resource not found", err.Error())
+}
+
 func TestNewConflictError(t *testing.T) {
 	message := "test conflict error"
 	err := NewConflictError(message)
@@ -190,6 +201,11 @@ func TestIsNotFoundError(t *testing.T) {
 		{
 			name:     "not found error",
 			err:      NewNotFoundError("tenant", "123"),
+			expected: true,
+		},
+		{
+			name:     "not found error simple",
+			err:      NewNotFoundErrorSimple("resource not found"),
 			expected: true,
 		},
 		{
