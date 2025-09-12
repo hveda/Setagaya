@@ -32,6 +32,22 @@ func NewAuthorizationError(message string) *RBACError {
 	}
 }
 
+func NewConfigurationError(message string) *RBACError {
+	return &RBACError{
+		Type:    "configuration_error",
+		Message: message,
+		Details: make(map[string]interface{}),
+	}
+}
+
+func NewAuthenticationError(message string) *RBACError {
+	return &RBACError{
+		Type:    "authentication_error",
+		Message: message,
+		Details: make(map[string]interface{}),
+	}
+}
+
 func NewNotFoundError(resource, id string) *RBACError {
 	return &RBACError{
 		Type:    "not_found",

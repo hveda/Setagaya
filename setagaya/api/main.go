@@ -19,20 +19,37 @@ import (
 	"github.com/hveda/Setagaya/setagaya/controller"
 	"github.com/hveda/Setagaya/setagaya/model"
 	"github.com/hveda/Setagaya/setagaya/object_storage"
+	"github.com/hveda/Setagaya/setagaya/rbac"
 	"github.com/hveda/Setagaya/setagaya/scheduler"
 	smodel "github.com/hveda/Setagaya/setagaya/scheduler/model"
 	utils "github.com/hveda/Setagaya/setagaya/utils"
 )
 
 type SetagayaAPI struct {
-	ctr *controller.Controller
+	ctr             *controller.Controller
+	rbacIntegration *rbac.Integration
+	enableRBAC      bool
 }
 
 func NewAPIServer() *SetagayaAPI {
 	c := &SetagayaAPI{
-		ctr: controller.NewController(),
+		ctr:        controller.NewController(),
+		enableRBAC: true, // TODO: Read from config
 	}
 	c.ctr.StartRunning()
+
+	// Initialize RBAC integration
+	if c.enableRBAC {
+		integration, err := rbac.NewIntegration()
+		if err != nil {
+			log.WithError(err).Error("Failed to initialize RBAC integration")
+			c.enableRBAC = false
+		} else {
+			c.rbacIntegration = integration
+			log.Info("RBAC integration enabled for API server")
+		}
+	}
+
 	return c
 }
 
@@ -119,11 +136,21 @@ func (s *SetagayaAPI) projectsGetHandler(w http.ResponseWriter, r *http.Request,
 	} else {
 		includePlans = false
 	}
-	projects, err := model.GetProjectsByOwners(account.ML)
+
+	var projects []*model.Project
+	if s.enableRBAC && s.rbacIntegration != nil {
+		// Use RBAC-aware project filtering
+		projects, err = s.rbacIntegration.GetProjectsByOwnersWithTenantFilter(account.ML, account)
+	} else {
+		// Fallback to legacy method
+		projects, err = model.GetProjectsByOwners(account.ML)
+	}
+
 	if err != nil {
 		s.handleErrors(w, err)
 		return
 	}
+
 	if !includeCollections && !includePlans {
 		s.jsonise(w, http.StatusOK, projects)
 		return
@@ -216,7 +243,7 @@ func (s *SetagayaAPI) projectDeleteHandler(w http.ResponseWriter, r *http.Reques
 		s.handleErrors(w, err)
 		return
 	}
-	if r := hasProjectOwnership(project, account); !r {
+	if r := s.hasProjectOwnership(project, account); !r {
 		s.handleErrors(w, makeProjectOwnershipError())
 		return
 	}
@@ -290,7 +317,7 @@ func (s *SetagayaAPI) planCreateHandler(w http.ResponseWriter, r *http.Request, 
 		s.handleErrors(w, err)
 		return
 	}
-	if r := hasProjectOwnership(project, account); !r {
+	if r := s.hasProjectOwnership(project, account); !r {
 		s.handleErrors(w, makeProjectOwnershipError())
 		return
 	}
@@ -327,7 +354,7 @@ func (s *SetagayaAPI) planDeleteHandler(w http.ResponseWriter, r *http.Request, 
 		s.handleErrors(w, err)
 		return
 	}
-	if r := hasProjectOwnership(project, account); !r {
+	if r := s.hasProjectOwnership(project, account); !r {
 		s.handleErrors(w, makeProjectOwnershipError())
 		return
 	}
@@ -382,7 +409,7 @@ func (s *SetagayaAPI) collectionFilesGetHandler(w http.ResponseWriter, _ *http.R
 }
 
 func (s *SetagayaAPI) collectionFilesUploadHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -407,7 +434,7 @@ func (s *SetagayaAPI) collectionFilesUploadHandler(w http.ResponseWriter, r *htt
 }
 
 func (s *SetagayaAPI) collectionFilesDeleteHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -477,7 +504,7 @@ func (s *SetagayaAPI) collectionCreateHandler(w http.ResponseWriter, r *http.Req
 		s.handleErrors(w, err)
 		return
 	}
-	if r := hasProjectOwnership(project, account); !r {
+	if r := s.hasProjectOwnership(project, account); !r {
 		s.handleErrors(w, makeProjectOwnershipError())
 		return
 	}
@@ -495,7 +522,7 @@ func (s *SetagayaAPI) collectionCreateHandler(w http.ResponseWriter, r *http.Req
 }
 
 func (s *SetagayaAPI) collectionDeleteHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -520,7 +547,7 @@ func (s *SetagayaAPI) collectionDeleteHandler(w http.ResponseWriter, r *http.Req
 }
 
 func (s *SetagayaAPI) collectionGetHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -641,7 +668,7 @@ func (s *SetagayaAPI) validateCollectionState(collection *model.Collection, newT
 }
 
 func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -690,7 +717,7 @@ func (s *SetagayaAPI) collectionUploadHandler(w http.ResponseWriter, r *http.Req
 }
 
 func (s *SetagayaAPI) collectionEnginesDetailHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -704,7 +731,7 @@ func (s *SetagayaAPI) collectionEnginesDetailHandler(w http.ResponseWriter, r *h
 }
 
 func (s *SetagayaAPI) collectionDeploymentHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -721,7 +748,7 @@ func (s *SetagayaAPI) collectionDeploymentHandler(w http.ResponseWriter, r *http
 }
 
 func (s *SetagayaAPI) collectionTriggerHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -733,7 +760,7 @@ func (s *SetagayaAPI) collectionTriggerHandler(w http.ResponseWriter, r *http.Re
 }
 
 func (s *SetagayaAPI) collectionTermHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -745,7 +772,7 @@ func (s *SetagayaAPI) collectionTermHandler(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *SetagayaAPI) collectionStatusHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -758,7 +785,7 @@ func (s *SetagayaAPI) collectionStatusHandler(w http.ResponseWriter, r *http.Req
 }
 
 func (s *SetagayaAPI) collectionPurgeHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -791,7 +818,7 @@ func (s *SetagayaAPI) planLogHandler(w http.ResponseWriter, r *http.Request, par
 }
 
 func (s *SetagayaAPI) streamCollectionMetrics(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-	collection, err := hasCollectionOwnership(r, params)
+	collection, err := s.hasCollectionOwnership(r, params)
 	if err != nil {
 		s.handleErrors(w, err)
 		return
@@ -917,7 +944,13 @@ func (s *SetagayaAPI) InitRoutes() Routes {
 		if strings.Contains(r.Path, "usage") {
 			continue
 		}
-		r.HandlerFunc = s.authRequired(r.HandlerFunc)
+
+		// Apply RBAC authorization if available, otherwise fallback to legacy auth
+		if s.enableRBAC && s.rbacIntegration != nil {
+			r.HandlerFunc = s.rbacIntegration.GetMiddleware().AuthorizeRequest(r.HandlerFunc)
+		} else {
+			r.HandlerFunc = s.authRequired(r.HandlerFunc)
+		}
 	}
 	return routes
 }
