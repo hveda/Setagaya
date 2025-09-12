@@ -16,7 +16,7 @@ info:
 
     ## Real-time Metrics
     Collections provide real-time metrics via Server-Sent Events (SSE) for live dashboard updates.
-  version: 2.0.0
+  version: 2.0.0-rc.1
   contact:
     name: Setagaya Development Team
     url: https://github.com/hveda/Setagaya

@@ -11,7 +11,7 @@
 | JMeter Engine (Legacy) | `Dockerfile.engines.jmeter.legacy` | `eclipse-temurin:21-jre-alpine` | JMeter 3.3 + pre-built binary |testing platform that orchestrates JMeter engines across Kubernetes clusters. The
 system follows a controller-scheduler-engine pattern designed for scalable, enterprise-grade load testing.
 
-- **Version:** 2.0.0-rc (Security & Testing Improvements)
+- **Version:** 2.0.0-rc.1 (Security & Testing Improvements)
 - **Language:** Go 1.25.1
 - **Runtime:** Kubernetes-native with Docker/Podman support
 - **License:** See [LICENSE](LICENSE) file
@@ -397,7 +397,7 @@ Common status codes:
 
 ## Authentication & Authorization
 
-### Multi-Layered Authentication Architecture (v2.0.0-rc)
+### Multi-Layered Authentication Architecture (v2.0.0-rc.1)
 
 Setagaya implements a comprehensive authentication system supporting both legacy LDAP and modern RBAC approaches:
 
@@ -448,7 +448,7 @@ type Tenant struct {
 - **Admin Users:** Bypass ownership checks
 - **Development Mode:** `no_auth: true` for local testing
 
-#### Hybrid Authorization Model (v2.0.0-rc)
+#### Hybrid Authorization Model (v2.0.0-rc.1)
 
 **Runtime Authentication Switching**:
 ```go

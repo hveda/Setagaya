@@ -1,6 +1,6 @@
 # Setagaya Load Testing Platform
 
-[![Release](https://img.shields.io/badge/version-2.0.0--rc-blue.svg)](https://github.com/hveda/Setagaya/releases)
+[![Release](https://img.shields.io/badge/version-2.0.0--rc.1-blue.svg)](https://github.com/hveda/Setagaya/releases)
 [![Go Version](https://img.shields.io/badge/Go-1.25.1-00ADD8.svg?logo=go)](https://golang.org)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hveda/Setagaya/setagaya)](https://goreportcard.com/report/github.com/hveda/Setagaya/setagaya)
 [![codecov](https://codecov.io/gh/hveda/Setagaya/graph/badge.svg)](https://codecov.io/gh/hveda/Setagaya)
@@ -208,7 +208,7 @@ Example configuration structure:
 
 ## 🔒 Security & Updates
 
-### Recent Security Improvements (v2.0.0-rc)
+### Recent Security Improvements (v2.0.0-rc.1)
 
 The platform includes comprehensive security updates across all components:
 
@@ -324,7 +324,7 @@ Setagaya includes comprehensive auto-formatting tools for consistent code qualit
 
 ### Test Coverage & Quality Assurance
 
-#### Recent Test Coverage Improvements (v2.0.0-rc)
+#### Recent Test Coverage Improvements (v2.0.0-rc.1)
 
 | Package | Previous | Current | Key Areas Tested |
 |---------|----------|---------|------------------|
@@ -391,7 +391,7 @@ The platform automatically formats files on commit via pre-commit hooks that:
 
 ## 🗺️ Development Roadmap
 
-### ✅ Completed (v2.0.0-rc)
+### ✅ Completed (v2.0.0-rc.1)
 
 - **Security Automation**: Comprehensive security scanning and monitoring
 - **Container Modernization**: Security-hardened multi-stage Docker builds
