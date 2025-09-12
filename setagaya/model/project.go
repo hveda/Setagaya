@@ -12,11 +12,14 @@ import (
 )
 
 type Project struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Owner       string `json:"owner"`
+	ID          int64         `json:"id"`
+	Name        string        `json:"name"`
+	Owner       string        `json:"owner"`
 	ssID        null.String
 	SID         string        `json:"sid"`
+	TenantID    *int64        `json:"tenant_id,omitempty"`    // Added for multi-tenancy
+	CreatedBy   string        `json:"created_by,omitempty"`   // Okta User ID who created
+	UpdatedBy   string        `json:"updated_by,omitempty"`   // Okta User ID who last updated
 	CreatedTime time.Time     `json:"created_time"`
 	Collections []*Collection `json:"collections"`
 	Plans       []*Plan       `json:"plans"`

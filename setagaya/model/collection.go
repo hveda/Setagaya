@@ -27,6 +27,9 @@ type Collection struct {
 	ID             int64            `json:"id"`
 	Name           string           `json:"name"`
 	ProjectID      int64            `json:"project_id"`
+	TenantID       *int64           `json:"tenant_id,omitempty"`  // Added for multi-tenancy
+	CreatedBy      string           `json:"created_by,omitempty"` // Okta User ID who created
+	UpdatedBy      string           `json:"updated_by,omitempty"` // Okta User ID who last updated
 	ExecutionPlans []*ExecutionPlan `json:"execution_plans"`
 	RunHistories   []*RunHistory    `json:"run_history"`
 	CreatedTime    time.Time        `json:"created_time"`
