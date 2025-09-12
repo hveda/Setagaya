@@ -340,7 +340,7 @@ func (s *SetagayaAPI) tenantCreateHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	var tenant rbac.Tenant
-	if err := json.NewDecoder(r.Body).Decode(&tenant); err != nil {
+	if decodeErr := json.NewDecoder(r.Body).Decode(&tenant); decodeErr != nil {
 		s.handleErrors(w, makeInvalidRequestError("Invalid JSON payload"))
 		return
 	}
@@ -399,9 +399,9 @@ func (s *SetagayaAPI) tenantsGetHandler(w http.ResponseWriter, r *http.Request, 
 	var tenants []*rbac.Tenant
 	if userContext.IsServiceProvider {
 		// Service providers can see all tenants
-		allTenants, err := engine.ListTenants(r.Context(), "")
-		if err != nil {
-			s.handleErrors(w, err)
+		allTenants, listErr := engine.ListTenants(r.Context(), "")
+		if listErr != nil {
+			s.handleErrors(w, listErr)
 			return
 		}
 		for i := range allTenants {
@@ -498,7 +498,7 @@ func (s *SetagayaAPI) tenantUpdateHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	var updates rbac.Tenant
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+	if decodeErr := json.NewDecoder(r.Body).Decode(&updates); decodeErr != nil {
 		s.handleErrors(w, makeInvalidRequestError("Invalid JSON payload"))
 		return
 	}

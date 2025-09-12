@@ -1,5 +1,3 @@
-version: "2"
-
 # golangci-lint configuration
 # https://golangci-lint.run/usage/configuration/
 
@@ -10,12 +8,10 @@ run:
 
 output:
   formats:
-    text:
+    - format: colored-line-number
       path: stdout
-      colors: true
-      print-issued-lines: true
-      print-linter-name: true
-  show-stats: true
+  print-issued-lines: true
+  print-linter-name: true
 
 linters:
   enable:
@@ -47,113 +43,66 @@ linters:
     - unconvert # disable for now
     - whitespace # disable for now
 
-  exclusions:
-    paths:
-      - vendor
-      - third_party
-      - ".*\\.pb\\.go$"
-      - ".*\\.gen\\.go$"
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files.
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
 
-    rules:
-      # Exclude some linters from running on tests files.
-      - path: _test\.go
-        linters:
-          - gocyclo
-          - errcheck
-          - dupl
-          - gosec
+    # Exclude known linter issues
+    - text: 'weak cryptographic primitive'
+      linters:
+        - gosec
 
-      # Exclude known linter issues
-      - text: 'weak cryptographic primitive'
-        linters:
-          - gosec
+    # Exclude defer close errors for database cleanup (low risk)
+    - text: 'Error return value.*Close.*not checked'
+      linters:
+        - errcheck
 
-      # Exclude defer close errors for database cleanup (low risk)
-      - text: 'Error return value.*Close.*not checked'
-        linters:
-          - errcheck
+    # Exclude errors for database scan operations in model layer (handled at higher level)
+    - path: model/
+      text: 'Error return value.*Scan.*not checked'
+      linters:
+        - errcheck
 
-      # Exclude errors for database scan operations in model layer (handled at higher level)
-      - path: model/
-        text: 'Error return value.*Scan.*not checked'
-        linters:
-          - errcheck
+    # Exclude last insert ID checks (often intentionally ignored)
+    - text: 'Error return value.*LastInsertId.*not checked'
+      linters:
+        - errcheck
 
-      # Exclude last insert ID checks (often intentionally ignored)
-      - text: 'Error return value.*LastInsertId.*not checked'
-        linters:
-          - errcheck
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
 
-      # Exclude type assertions for known internal types
-      - text: 'Error return value is not checked.*\.\('
-        linters:
-          - errcheck
-        source: '^\s*\w+\s*:?=.*\.\([^)]+\)'
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment  # Disable field alignment warnings (cosmetic, low impact)
 
-    presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
+  gocyclo:
+    min-complexity: 15
 
-  settings:
-    errcheck:
-      check-type-assertions: true
-      check-blank: true
+  dupl:
+    threshold: 100
 
-    govet:
-      enable-all: true
-      disable:
-        - fieldalignment  # Disable field alignment warnings (cosmetic, low impact)
+  goconst:
+    min-len: 3
+    min-occurrences: 3
 
-    gocyclo:
-      min-complexity: 15
+  misspell:
+    locale: US
 
-    dupl:
-      threshold: 100
+  lll:
+    line-length: 120
 
-    goconst:
-      min-len: 3
-      min-occurrences: 3
-
-    depguard:
-      rules:
-        main:
-          deny:
-            - pkg: 'github.com/pkg/errors'
-              desc: 'use standard library errors package'
-
-    misspell:
-      locale: US
-
-    lll:
-      line-length: 120
-
-    gosec:
-      severity: medium
-      confidence: medium
-      excludes:
-        - G204 # Subprocess launched with function call as argument or cmd arguments
-        - G304 # File path provided as taint input
-
-    revive:
-      severity: warning
-      confidence: 0.8
-      rules:
-        - name: error-return
-        - name: error-naming
-        - name: if-return
-        - name: var-naming
-
-formatters:
-  enable:
-    # Code formatters
-    - gofmt
-    - goimports
-
-  settings:
-    goimports:
-      local-prefixes:
-        - github.com/hveda/Setagaya
-    gofmt:
-      simplify: true
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G204 # Subprocess launched with function call as argument or cmd arguments
+      - G304 # File path provided as taint input
