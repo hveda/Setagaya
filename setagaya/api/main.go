@@ -313,6 +313,260 @@ func (s *SetagayaAPI) collectionAdminGetHandler(w http.ResponseWriter, r *http.R
 	s.jsonise(w, http.StatusOK, acr)
 }
 
+// RBAC Tenant Management Handlers
+
+func (s *SetagayaAPI) tenantCreateHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	if !s.enableRBAC {
+		s.handleErrors(w, makeAPIDisabledError("RBAC not enabled"))
+		return
+	}
+
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+
+	// Only service providers can create tenants
+	userContext, err := s.rbacIntegration.GetUserContext(r.Context(), account.Name)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	if !userContext.IsServiceProvider {
+		s.handleErrors(w, makeNoPermissionErr("Only service providers can create tenants"))
+		return
+	}
+
+	var tenant rbac.Tenant
+	if err := json.NewDecoder(r.Body).Decode(&tenant); err != nil {
+		s.handleErrors(w, makeInvalidRequestError("Invalid JSON payload"))
+		return
+	}
+
+	// Validate required fields
+	if tenant.Name == "" {
+		s.handleErrors(w, makeInvalidRequestError("Tenant name cannot be empty"))
+		return
+	}
+
+	if tenant.DisplayName == "" {
+		s.handleErrors(w, makeInvalidRequestError("Tenant display name cannot be empty"))
+		return
+	}
+
+	// Create tenant
+	engine, err := s.rbacIntegration.GetRBACEngine()
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	createdTenant, err := engine.CreateTenant(r.Context(), &tenant)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	s.jsonise(w, http.StatusCreated, createdTenant)
+}
+
+func (s *SetagayaAPI) tenantsGetHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	if !s.enableRBAC {
+		s.handleErrors(w, makeAPIDisabledError("RBAC not enabled"))
+		return
+	}
+
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+
+	userContext, err := s.rbacIntegration.GetUserContext(r.Context(), account.Name)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	engine, err := s.rbacIntegration.GetRBACEngine()
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	var tenants []*rbac.Tenant
+	if userContext.IsServiceProvider {
+		// Service providers can see all tenants
+		allTenants, err := engine.ListTenants(r.Context(), "")
+		if err != nil {
+			s.handleErrors(w, err)
+			return
+		}
+		for i := range allTenants {
+			tenants = append(tenants, &allTenants[i])
+		}
+	} else {
+		// Regular users can only see tenants they have access to
+		tenants, err = engine.GetAccessibleTenants(r.Context(), userContext)
+		if err != nil {
+			s.handleErrors(w, err)
+			return
+		}
+	}
+
+	s.jsonise(w, http.StatusOK, tenants)
+}
+
+func (s *SetagayaAPI) tenantGetHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	if !s.enableRBAC {
+		s.handleErrors(w, makeAPIDisabledError("RBAC not enabled"))
+		return
+	}
+
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+
+	tenantIDStr := params.ByName("tenant_id")
+	tenantID, err := strconv.ParseInt(tenantIDStr, 10, 64)
+	if err != nil {
+		s.handleErrors(w, makeInvalidRequestError("Invalid tenant ID"))
+		return
+	}
+
+	userContext, err := s.rbacIntegration.GetUserContext(r.Context(), account.Name)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	engine, err := s.rbacIntegration.GetRBACEngine()
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	// Check if user has access to this tenant
+	if !userContext.IsServiceProvider && !userContext.HasTenantAccess(tenantID) {
+		s.handleErrors(w, makeNoPermissionErr("Access denied to tenant"))
+		return
+	}
+
+	tenant, err := engine.GetTenant(r.Context(), tenantID)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	s.jsonise(w, http.StatusOK, tenant)
+}
+
+func (s *SetagayaAPI) tenantUpdateHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	if !s.enableRBAC {
+		s.handleErrors(w, makeAPIDisabledError("RBAC not enabled"))
+		return
+	}
+
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+
+	tenantIDStr := params.ByName("tenant_id")
+	tenantID, err := strconv.ParseInt(tenantIDStr, 10, 64)
+	if err != nil {
+		s.handleErrors(w, makeInvalidRequestError("Invalid tenant ID"))
+		return
+	}
+
+	userContext, err := s.rbacIntegration.GetUserContext(r.Context(), account.Name)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	// Check if user can update this tenant (service provider or tenant admin)
+	canUpdate := userContext.IsServiceProvider || userContext.HasTenantRole(tenantID, "tenant_admin")
+	if !canUpdate {
+		s.handleErrors(w, makeNoPermissionErr("Insufficient permissions to update tenant"))
+		return
+	}
+
+	var updates rbac.Tenant
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		s.handleErrors(w, makeInvalidRequestError("Invalid JSON payload"))
+		return
+	}
+
+	// Set the tenant ID for the update
+	updates.ID = tenantID
+
+	engine, err := s.rbacIntegration.GetRBACEngine()
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	updatedTenant, err := engine.UpdateTenant(r.Context(), &updates)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	s.jsonise(w, http.StatusOK, updatedTenant)
+}
+
+func (s *SetagayaAPI) tenantDeleteHandler(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	if !s.enableRBAC {
+		s.handleErrors(w, makeAPIDisabledError("RBAC not enabled"))
+		return
+	}
+
+	account, ok := r.Context().Value(accountKey).(*model.Account)
+	if !ok {
+		s.handleErrors(w, makeInvalidRequestError("account"))
+		return
+	}
+
+	tenantIDStr := params.ByName("tenant_id")
+	tenantID, err := strconv.ParseInt(tenantIDStr, 10, 64)
+	if err != nil {
+		s.handleErrors(w, makeInvalidRequestError("Invalid tenant ID"))
+		return
+	}
+
+	userContext, err := s.rbacIntegration.GetUserContext(r.Context(), account.Name)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	// Only service providers can delete tenants
+	if !userContext.IsServiceProvider {
+		s.handleErrors(w, makeNoPermissionErr("Only service providers can delete tenants"))
+		return
+	}
+
+	engine, err := s.rbacIntegration.GetRBACEngine()
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	err = engine.DeleteTenant(r.Context(), tenantID)
+	if err != nil {
+		s.handleErrors(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *SetagayaAPI) planCreateHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	account, ok := r.Context().Value(accountKey).(*model.Account)
 	if !ok {

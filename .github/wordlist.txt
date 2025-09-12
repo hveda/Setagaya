@@ -1,4 +1,4 @@
-personal_ws-1.1 en 745
+personal_ws-1.1 en 748
 codecov
 OpenSSF
 Setagaya
@@ -726,3 +726,6 @@ lt
 InternalError
 resourceID
 Okta's
+GlobalPermissions
+TenantRoles
+UserTenantRole

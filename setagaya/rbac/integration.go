@@ -69,6 +69,11 @@ func (i *Integration) GetUserContext(ctx context.Context, userID string) (*UserC
 	return i.engine.GetUserContext(ctx, userID)
 }
 
+// GetRBACEngine returns the underlying RBAC engine
+func (i *Integration) GetRBACEngine() (RBACEngine, error) {
+	return i.engine, nil
+}
+
 // CheckPermission performs a permission check
 func (i *Integration) CheckPermission(ctx context.Context, userContext *UserContext, action, resourceType string, tenantID *int64, resourceID string) bool {
 	return i.engine.HasPermission(ctx, userContext, action, resourceType, tenantID, resourceID)
