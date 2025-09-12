@@ -140,7 +140,19 @@ func (s *SetagayaAPI) projectsGetHandler(w http.ResponseWriter, r *http.Request,
 	var projects []*model.Project
 	if s.enableRBAC && s.rbacIntegration != nil {
 		// Use RBAC-aware project filtering
-		projects, err = s.rbacIntegration.GetProjectsByOwnersWithTenantFilter(account.ML, account)
+		result, rbacErr := s.rbacIntegration.GetProjectsByOwnersWithTenantFilter(account.ML, account)
+		if rbacErr != nil || result == nil {
+			// Fall back to legacy method if RBAC filtering fails
+			projects, err = model.GetProjectsByOwners(account.ML)
+		} else {
+			// Type assert the result
+			if projectList, ok := result.([]*model.Project); ok {
+				projects = projectList
+			} else {
+				// Fallback if type assertion fails
+				projects, err = model.GetProjectsByOwners(account.ML)
+			}
+		}
 	} else {
 		// Fallback to legacy method
 		projects, err = model.GetProjectsByOwners(account.ML)
