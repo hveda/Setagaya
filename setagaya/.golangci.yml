@@ -47,38 +47,10 @@ linters:
     - whitespace # disable for now
 
 issues:
-  exclude-use-default: false
-  exclude:
-    # Exclude some linters from running on tests files.
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - dupl
-        - gosec
+  max-issues-per-linter: 0
+  max-same-issues: 0
 
-    # Exclude known linter issues
-    - text: 'weak cryptographic primitive'
-      linters:
-        - gosec
-
-    # Exclude defer close errors for database cleanup (low risk)
-    - text: 'Error return value.*Close.*not checked'
-      linters:
-        - errcheck
-
-    # Exclude errors for database scan operations in model layer (handled at higher level)
-    - path: model/
-      text: 'Error return value.*Scan.*not checked'
-      linters:
-        - errcheck
-
-    # Exclude last insert ID checks (often intentionally ignored)
-    - text: 'Error return value.*LastInsertId.*not checked'
-      linters:
-        - errcheck
-
-linter-settings:
+linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: true
