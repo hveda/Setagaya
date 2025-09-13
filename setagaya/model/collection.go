@@ -53,13 +53,20 @@ func CreateCollection(name string, projectID int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer q.Close()
+	defer func() {
+		if closeErr := q.Close(); closeErr != nil {
+			log.WithError(closeErr).Error("Failed to close prepared statement")
+		}
+	}()
 
 	r, err := q.Exec(name, projectID)
 	if err != nil {
 		return 0, err
 	}
-	id, _ := r.LastInsertId()
+	id, err := r.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return id, nil
 }
 
@@ -70,7 +77,11 @@ func GetCollection(ID int64) (*Collection, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer q.Close()
+	defer func() {
+		if closeErr := q.Close(); closeErr != nil {
+			log.WithError(closeErr).Error("Failed to close prepared statement")
+		}
+	}()
 
 	collection := new(Collection)
 	err = q.QueryRow(ID).Scan(&collection.ID, &collection.Name, &collection.ProjectID,
@@ -99,12 +110,20 @@ func (c *Collection) Delete() error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if closeErr := q.Close(); closeErr != nil {
+			log.WithError(closeErr).Error("Failed to close prepared statement")
+		}
+	}()
 	rs, err := q.Query(c.ID)
 	if err != nil {
 		return err
 	}
-	defer rs.Close()
+	defer func() {
+		if closeErr := rs.Close(); closeErr != nil {
+			log.WithError(closeErr).Error("Failed to close rows")
+		}
+	}()
 	return nil
 }
 
