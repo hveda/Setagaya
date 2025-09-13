@@ -149,6 +149,23 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+    - name: Coverage fallback report
+      if: always()
+      run: |
+        echo "## Coverage Report Summary" >> $GITHUB_STEP_SUMMARY
+        if [ -f setagaya/coverage.out ]; then
+          cd setagaya
+          COVERAGE_TOTAL=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')
+          echo "📊 **Total Coverage**: $COVERAGE_TOTAL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Top 10 Covered Files" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out | grep -v "total:" | sort -k3 -nr | head -10 | while read line; do
+            echo "- $line" >> $GITHUB_STEP_SUMMARY
+          done
+        else
+          echo "❌ Coverage file not found" >> $GITHUB_STEP_SUMMARY
+        fi
+
     - name: Coverage validation
       run: |
         echo "Validating coverage file before upload..."
@@ -157,8 +174,13 @@ jobs:
           head -5 setagaya/coverage.out
           echo "..."
           tail -2 setagaya/coverage.out
+          echo "Coverage file size: $(wc -l < setagaya/coverage.out) lines"
+          echo "Coverage file path: $(pwd)/setagaya/coverage.out"
+          echo "Coverage percentage:"
+          cd setagaya && go tool cover -func=coverage.out | tail -1
         else
           echo "Coverage file not found!"
+          exit 1
         fi
 
     - name: Generate coverage report
