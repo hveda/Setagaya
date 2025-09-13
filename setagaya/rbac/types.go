@@ -132,7 +132,7 @@ type PermissionCache struct {
 const (
 	RoleServiceProviderAdmin   = "service_provider_admin"
 	RoleServiceProviderSupport = "service_provider_support"
-	RolePJMLoadtest            = "pjm_loadtest"
+	RolePJMLoadTest            = "pjm_loadtest"
 	RoleTenantAdmin            = "tenant_admin"
 	RoleTenantEditor           = "tenant_editor"
 	RoleTenantViewer           = "tenant_viewer"
