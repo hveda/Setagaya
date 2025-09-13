@@ -82,8 +82,8 @@ func TestRBACError_WithDetails(t *testing.T) {
 	err := NewValidationError("test error")
 
 	// Add details
-	err.WithDetails("field", "name")
-	err.WithDetails("value", "invalid_value")
+	_ = err.WithDetails("field", "name")
+	_ = err.WithDetails("value", "invalid_value")
 
 	assert.Equal(t, "name", err.Details["field"])
 	assert.Equal(t, "invalid_value", err.Details["value"])

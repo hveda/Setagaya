@@ -1,4 +1,4 @@
-personal_ws-1.1 en 748
+personal_ws-1.1 en 758
 codecov
 OpenSSF
 Setagaya
@@ -729,3 +729,12 @@ Okta's
 GlobalPermissions
 TenantRoles
 UserTenantRole
+MemoryRBACEngine
+enableRBAC
+RBAC
+TenantRepository
+HasCollectionOwnership
+HasProjectOwnership
+enablement
+RoleRepository
+UserRoleRepository

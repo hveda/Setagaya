@@ -1119,9 +1119,13 @@ func (s *SetagayaAPI) streamCollectionMetrics(w http.ResponseWriter, r *http.Req
 		}
 		s, err := json.Marshal(event)
 		if err != nil {
-			fmt.Fprintf(w, "data:%v\n\n", err)
+			if _, writeErr := fmt.Fprintf(w, "data:%v\n\n", err); writeErr != nil {
+				log.Printf("Error writing to response: %v", writeErr)
+			}
 		} else {
-			fmt.Fprintf(w, "data:%s\n\n", s)
+			if _, writeErr := fmt.Fprintf(w, "data:%s\n\n", s); writeErr != nil {
+				log.Printf("Error writing to response: %v", writeErr)
+			}
 		}
 		flusher.Flush()
 	}
