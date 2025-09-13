@@ -36,8 +36,10 @@ jobs:
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v7
       with:
-        version: latest
+        version: v2.4.0
         working-directory: setagaya
+        skip-cache: true
+        args: --enable-only=errcheck,govet,staticcheck,ineffassign,unused --timeout=10m
 
   # Kubernetes manifest validation and compatibility testing
   kubernetes-compatibility:
