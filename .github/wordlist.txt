@@ -1,4 +1,4 @@
-personal_ws-1.1 en 752
+personal_ws-1.1 en 758
 codecov
 OpenSSF
 Setagaya
@@ -732,3 +732,9 @@ UserTenantRole
 MemoryRBACEngine
 enableRBAC
 RBAC
+TenantRepository
+HasCollectionOwnership
+HasProjectOwnership
+enablement
+RoleRepository
+UserRoleRepository
