@@ -21,7 +21,7 @@ This directory contains comprehensive documentation for the Setagaya Load Testin
 
 ## 🗺️ Documentation Roadmap
 
-### **Current Focus (v2.0.0-rc)**
+### **Current Focus (v2.0.0-rc.1)**
 - ✅ Complete technical specifications
 - ✅ Security automation documentation
 - ✅ API documentation improvements
