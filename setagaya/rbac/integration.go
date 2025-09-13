@@ -16,6 +16,11 @@ type Integration struct {
 	permissionTTL time.Duration
 	enableAudit   bool
 	defaultTenant *Tenant
+	oktaProvider  *OktaAuthProvider
+	jwtMiddleware *JWTMiddleware
+	oidcHandler   *OIDCHandler
+	sessionStore  SessionStore
+	logger        Logger
 }
 
 // NewIntegration creates a new RBAC integration instance
@@ -27,7 +32,18 @@ func NewIntegration() (*Integration, error) {
 		SessionTimeoutMins: 120,
 		AuditEnabled:       true,
 		PermissionCacheTTL: 30,
+		OktaConfig: &OktaConfig{
+			Domain:       "dev.okta.com",
+			ClientID:     "dev-client-id",
+			ClientSecret: "dev-client-secret",
+			RedirectURI:  "http://localhost:8080/api/auth/callback",
+			Scopes:       []string{"openid", "profile", "email", "groups"},
+			GroupClaims:  "groups",
+		},
 	}
+
+	// Create logger
+	logger := NewSimpleLogger("RBAC", true)
 
 	// Create a basic in-memory implementation for now
 	engine := &MemoryRBACEngine{
@@ -44,11 +60,36 @@ func NewIntegration() (*Integration, error) {
 		return nil, NewConfigurationError("failed to initialize default RBAC data: " + err.Error())
 	}
 
+	// Create session store
+	sessionStore := NewMemorySessionStore(logger)
+
+	// Create Okta provider if configuration is available
+	var oktaProvider *OktaAuthProvider
+	var jwtMiddleware *JWTMiddleware
+	var oidcHandler *OIDCHandler
+
+	if rbacConfig.OktaConfig != nil {
+		oktaProviderInstance, err := NewOktaAuthProvider(rbacConfig.OktaConfig, logger)
+		if err != nil {
+			logger.Warn("Failed to initialize Okta provider:", err)
+		} else {
+			oktaProvider = oktaProviderInstance
+			jwtMiddleware = NewJWTMiddleware(oktaProvider, engine, logger)
+			oidcHandler = NewOIDCHandler(oktaProvider, engine, logger, sessionStore, "http://localhost:8080")
+			logger.Info("Okta integration initialized successfully")
+		}
+	}
+
 	integration := &Integration{
 		engine:        engine,
 		config:        rbacConfig,
 		permissionTTL: time.Duration(rbacConfig.PermissionCacheTTL) * time.Minute,
 		enableAudit:   rbacConfig.AuditEnabled,
+		oktaProvider:  oktaProvider,
+		jwtMiddleware: jwtMiddleware,
+		oidcHandler:   oidcHandler,
+		sessionStore:  sessionStore,
+		logger:        logger,
 	}
 
 	return integration, nil
@@ -148,6 +189,26 @@ func (i *Integration) GetMiddleware() *RBACMiddleware {
 	return &RBACMiddleware{
 		integration: i,
 	}
+}
+
+// GetJWTMiddleware returns the JWT middleware if available
+func (i *Integration) GetJWTMiddleware() *JWTMiddleware {
+	return i.jwtMiddleware
+}
+
+// GetOIDCHandler returns the OIDC handler if available
+func (i *Integration) GetOIDCHandler() *OIDCHandler {
+	return i.oidcHandler
+}
+
+// GetOktaProvider returns the Okta provider if available
+func (i *Integration) GetOktaProvider() *OktaAuthProvider {
+	return i.oktaProvider
+}
+
+// IsOktaEnabled returns whether Okta integration is enabled and available
+func (i *Integration) IsOktaEnabled() bool {
+	return i.oktaProvider != nil
 }
 
 // RBACMiddleware provides HTTP middleware for RBAC authorization
