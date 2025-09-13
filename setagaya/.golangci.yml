@@ -9,8 +9,12 @@ run:
   tests: true
 
 output:
-  formats: 
-    - colored-line-number
+  formats:
+    text:
+      # Use colored text output (default format)
+      colors: true
+      print-linter-name: true
+      print-issued-lines: true
 
 linters:
   enable:
