@@ -71,12 +71,14 @@ func NewIntegration() (*Integration, error) {
 	if rbacConfig.OktaConfig != nil {
 		oktaProviderInstance, err := NewOktaAuthProvider(rbacConfig.OktaConfig, logger)
 		if err != nil {
-			logger.Warn("Failed to initialize Okta provider:", err)
+			logger.Warn("Failed to initialize Okta provider", map[string]interface{}{
+				"error": err.Error(),
+			})
 		} else {
 			oktaProvider = oktaProviderInstance
 			jwtMiddleware = NewJWTMiddleware(oktaProvider, engine, logger)
 			oidcHandler = NewOIDCHandler(oktaProvider, engine, logger, sessionStore, "http://localhost:8080")
-			logger.Info("Okta integration initialized successfully")
+			logger.Info("Okta integration initialized successfully", nil)
 		}
 	}
 
