@@ -54,8 +54,8 @@ func CreateCollection(name string, projectID int64) (int64, error) {
 		return 0, err
 	}
 	defer func() {
-		if closeErr := q.Close(); closeErr != nil {
-			log.WithError(closeErr).Error("Failed to close prepared statement")
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
 		}
 	}()
 
@@ -63,10 +63,7 @@ func CreateCollection(name string, projectID int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	id, err := r.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last insert ID: %w", err)
-	}
+	id, _ := r.LastInsertId()
 	return id, nil
 }
 
@@ -78,8 +75,8 @@ func GetCollection(ID int64) (*Collection, error) {
 		return nil, err
 	}
 	defer func() {
-		if closeErr := q.Close(); closeErr != nil {
-			log.WithError(closeErr).Error("Failed to close prepared statement")
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
 		}
 	}()
 
@@ -111,8 +108,8 @@ func (c *Collection) Delete() error {
 		return err
 	}
 	defer func() {
-		if closeErr := q.Close(); closeErr != nil {
-			log.WithError(closeErr).Error("Failed to close prepared statement")
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
 		}
 	}()
 	rs, err := q.Query(c.ID)
@@ -120,8 +117,8 @@ func (c *Collection) Delete() error {
 		return err
 	}
 	defer func() {
-		if closeErr := rs.Close(); closeErr != nil {
-			log.WithError(closeErr).Error("Failed to close rows")
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
 		}
 	}()
 	return nil
@@ -138,7 +135,11 @@ func (c *Collection) AddExecutionPlan(ep *ExecutionPlan) error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	_, err = q.Exec(ep.PlanID, c.ID, ep.Rampup, ep.Concurrency, ep.Duration, ep.Engines, CSVSplitDB, ep.Rampup, ep.Concurrency,
 		ep.Duration, ep.Engines, CSVSplitDB)
 	if err != nil {
@@ -153,17 +154,28 @@ func (c *Collection) GetExecutionPlans() ([]*ExecutionPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rows, err := q.Query(c.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}()
 	r := []*ExecutionPlan{}
 	for rows.Next() {
 		ep := new(ExecutionPlan)
 		var CSVSplitDB int8
-		rows.Scan(&ep.PlanID, &ep.Rampup, &ep.Concurrency, &ep.Duration, &ep.Engines, &CSVSplitDB)
+		if err := rows.Scan(&ep.PlanID, &ep.Rampup, &ep.Concurrency, &ep.Duration, &ep.Engines, &CSVSplitDB); err != nil {
+			log.Printf("Error scanning execution plan: %v", err)
+			continue
+		}
 		ep.CSVSplit = CSVSplitDB == 1
 		r = append(r, ep)
 	}
@@ -180,7 +192,11 @@ func GetExecutionPlan(collectionID, planID int64) (*ExecutionPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	ep := new(ExecutionPlan)
 	var CSVSplitDB int8
@@ -198,12 +214,20 @@ func (c *Collection) DeleteExecutionPlan(collectionID, planID int64) error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rs, err := q.Query(collectionID, planID)
 	if err != nil {
 		return err
 	}
-	defer rs.Close()
+	defer func() {
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
+		}
+	}()
 	return nil
 }
 
@@ -213,12 +237,20 @@ func (c *Collection) DeleteExecutionPlans() error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rs, err := q.Query(c.ID)
 	if err != nil {
 		return err
 	}
-	defer rs.Close()
+	defer func() {
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
+		}
+	}()
 	return nil
 }
 
@@ -228,12 +260,20 @@ func (c *Collection) DeleteRunHistory() error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rs, err := q.Query(c.ID)
 	if err != nil {
 		return err
 	}
-	defer rs.Close()
+	defer func() {
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
+		}
+	}()
 	return nil
 }
 
@@ -243,7 +283,11 @@ func (c *Collection) updateCollectionCSVSplit(split bool) error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	_, err = q.Exec(split, c.ID)
 	if err != nil {
@@ -301,7 +345,11 @@ func (c *Collection) StoreFile(content io.ReadCloser, filename string) error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	_, err = q.Query(c.ID, filename)
 	if driverErr, ok := err.(*mysql.MySQLError); ok {
 		if driverErr.Number == 1062 {
@@ -318,7 +366,11 @@ func (c *Collection) DeleteFile(filename string) error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	_, err = q.Query(filename, c.ID)
 	if err != nil {
@@ -337,7 +389,11 @@ func (c *Collection) DeleteAllFiles() error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	_, err = q.Query(c.ID)
 	if err != nil {
@@ -359,16 +415,27 @@ func (c *Collection) getCollectionFiles() ([]*SetagayaFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rows, err := q.Query(c.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}()
 	r := []*SetagayaFile{}
 	for rows.Next() {
 		f := new(SetagayaFile)
-		rows.Scan(&f.Filename)
+		if err := rows.Scan(&f.Filename); err != nil {
+			log.Printf("Error scanning filename: %v", err)
+			continue
+		}
 		f.Filepath = c.MakeFileName(f.Filename)
 		f.Filelink = object_storage.Client.Storage.GetUrl(f.Filepath)
 		r = append(r, f)
@@ -386,7 +453,11 @@ func (c *Collection) NewRun(runID int64) error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	_, err = q.Query(c.ID, runID)
 	if err != nil {
@@ -401,7 +472,11 @@ func (c *Collection) RunFinish(runID int64) error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	_, err = q.Exec(c.ID, runID)
 	if err != nil {
@@ -423,7 +498,11 @@ func GetRun(runID int64) (*RunHistory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	r := new(RunHistory)
 	var endTime sql.NullTime
@@ -443,17 +522,28 @@ func (c *Collection) GetRuns() ([]*RunHistory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 
 	r := []*RunHistory{}
 	rs, err := q.Query(c.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer rs.Close()
+	defer func() {
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
+		}
+	}()
 	for rs.Next() {
 		run := new(RunHistory)
-		rs.Scan(&run.ID, &run.CollectionID, &run.StartedTime, &run.EndTime)
+		if err := rs.Scan(&run.ID, &run.CollectionID, &run.StartedTime, &run.EndTime); err != nil {
+			log.Printf("Error scanning run data: %v", err)
+			return nil, err
+		}
 		r = append(r, run)
 	}
 	return r, nil
@@ -465,7 +555,11 @@ func (c *Collection) StartRun() (int64, error) {
 	if err != nil {
 		return int64(0), err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	r, err := q.Exec(c.ID)
 	if err != nil {
 		return int64(0), err
@@ -483,7 +577,11 @@ func (c *Collection) StopRun() error {
 	if err != nil {
 		return err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	_, err = q.Exec(c.ID)
 	if err != nil {
 		return err
@@ -497,16 +595,27 @@ func (c *Collection) GetCurrentRun() (int64, error) {
 	if err != nil {
 		return int64(0), err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rs, err := q.Query(c.ID)
 	if err != nil {
 		return int64(0), err
 	}
-	defer rs.Close()
+	defer func() {
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
+		}
+	}()
 	for rs.Next() {
 		var runID int64
-		rs.Scan(&runID)
-		return runID, err
+		if err := rs.Scan(&runID); err != nil {
+			log.Printf("Error scanning runID: %v", err)
+			return 0, err
+		}
+		return runID, nil //nolint:staticcheck // Expected to return first result only
 	}
 	return int64(0), nil
 }
@@ -517,7 +626,11 @@ func (c *Collection) GetLastRun() (*RunHistory, error) {
 	if err != nil {
 		return nil, nil
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rh := RunHistory{CollectionID: c.ID}
 	var endTime sql.NullTime
 	err = q.QueryRow(c.ID).Scan(&rh.ID, &rh.StartedTime, &endTime)
@@ -539,16 +652,27 @@ func (c *Collection) HasRunningPlan() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rs, err := q.Query(c.ID)
 	if err != nil && err == sql.ErrNoRows {
 		return false, nil
 	}
-	defer rs.Close()
+	defer func() {
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
+		}
+	}()
 	for rs.Next() {
 		var count int64
-		rs.Scan(&count)
-		return count > 0, nil
+		if err := rs.Scan(&count); err != nil {
+			log.Printf("Error scanning count: %v", err)
+			return false, err
+		}
+		return count > 0, nil //nolint:staticcheck // Expected to return first result only
 	}
 	return false, nil
 }
@@ -630,15 +754,26 @@ func GetLaunchingCollectionByContext(cxt string) ([]int64, error) {
 	if err != nil {
 		return collectionIDs, err
 	}
-	defer q.Close()
+	defer func() {
+		if err := q.Close(); err != nil {
+			log.Printf("Error closing prepared statement: %v", err)
+		}
+	}()
 	rs, err := q.Query(cxt)
 	if err != nil {
 		return collectionIDs, err
 	}
-	defer rs.Close()
+	defer func() {
+		if err := rs.Close(); err != nil {
+			log.Printf("Error closing result set: %v", err)
+		}
+	}()
 	for rs.Next() {
 		var cid int64
-		rs.Scan(&cid)
+		if err := rs.Scan(&cid); err != nil {
+			log.Printf("Error scanning cid: %v", err)
+			continue
+		}
 		collectionIDs = append(collectionIDs, cid)
 	}
 	return collectionIDs, nil
