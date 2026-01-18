@@ -5,7 +5,7 @@ ENV JMETER_VERSION=$jmeter_ver
 ARG USE_PREBUILT=false
 
 # Build stage for Go application (default approach)
-FROM golang:1.25.5-alpine3.22@sha256:3587db7cc96576822c606d119729370dbf581931c5f43ac6d3fa03ab4ed85a10 AS go-builder
+FROM golang:1.26rc2-alpine3.22@sha256:9cdde6d36f579aed530b070137a2ae7e42a936a3289152ce40f49b17409860e1 AS go-builder
 
 # Install required packages and create directory
 RUN apk update && apk upgrade && \
