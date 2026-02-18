@@ -373,7 +373,7 @@ jobs:
         mv /tmp/.buildx-cache-${{ matrix.name }}-new /tmp/.buildx-cache-${{ matrix.name }} || true
 
     - name: Run Trivy vulnerability scanner - ${{ matrix.name }}
-      uses: aquasecurity/trivy-action@0.33.1
+      uses: aquasecurity/trivy-action@0.34.0
       with:
         image-ref: '${{ matrix.name }}:security-test'
         format: 'sarif'
