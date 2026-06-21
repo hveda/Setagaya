@@ -39,6 +39,31 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Detect which file types changed so conditional jobs (e.g. Docker scan) can
+  # run on pull_request events too. github.event.head_commit is only populated
+  # for push events, so the previous head_commit-based gating never fired on PRs.
+  detect-changes:
+    name: Detect Changed Files
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.filter.outputs.docker }}
+      go: ${{ steps.filter.outputs.go }}
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v6
+
+    - name: Filter changed paths
+      id: filter
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          docker:
+            - '**/Dockerfile*'
+          go:
+            - '**/*.go'
+            - '**/go.mod'
+            - '**/go.sum'
+
   # Go security scanning (with shared cache)
   gosec:
     name: Go Security Scan
@@ -246,17 +271,16 @@ jobs:
   docker-security:
     name: Docker Security Scan
     runs-on: ubuntu-latest
-    # Run if: scheduled, Docker/Go files changed, workflow files changed, manual trigger, or forced
+    needs: detect-changes
+    # Run if: scheduled, manual trigger, forced, or Docker/Go files changed.
+    # Uses detect-changes outputs (works for both push and pull_request) instead
+    # of github.event.head_commit, which is empty on pull_request events.
     if: |
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       github.event.inputs.force_docker_scan == 'true' ||
-      contains(github.event.head_commit.modified, 'Dockerfile') ||
-      contains(github.event.head_commit.added, 'Dockerfile') ||
-      contains(github.event.head_commit.modified, '.go') ||
-      contains(github.event.head_commit.added, '.go') ||
-      contains(github.event.head_commit.modified, '.github/workflows/') ||
-      contains(github.event.head_commit.added, '.github/workflows/')
+      needs.detect-changes.outputs.docker == 'true' ||
+      needs.detect-changes.outputs.go == 'true'
 
     strategy:
       fail-fast: false
