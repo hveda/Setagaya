@@ -212,7 +212,9 @@ jobs:
       uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
-        extra_args: --only-verified --json --fail
+        # NOTE: the action already appends --fail; passing it again here caused
+        # "flag 'fail' cannot be repeated" and failed every scheduled run.
+        extra_args: --only-verified
 
     - name: Handle TruffleHog results
       if: always()
@@ -443,7 +445,10 @@ jobs:
   security-scorecard:
     name: OpenSSF Scorecard
     runs-on: ubuntu-latest
-    if: github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
+    # Scorecard only supports the repository's default branch; guard so a
+    # workflow_dispatch from a feature branch skips instead of failing with
+    # "Only the default branch main is supported".
+    if: (github.event.inputs.scan_type == 'full' || github.event_name == 'schedule') && github.ref == 'refs/heads/main'
     permissions:
       security-events: write
       id-token: write
