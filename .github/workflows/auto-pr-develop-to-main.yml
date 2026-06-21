@@ -133,7 +133,7 @@ jobs:
           gh pr create \
             --base main \
             --head develop \
-            --title "Release: Develop → Main" \
+            --title "chore: promote develop to main" \
             --body-file /tmp/pr-body.md \
             --draft
 
