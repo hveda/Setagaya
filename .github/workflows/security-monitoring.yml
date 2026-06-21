@@ -367,8 +367,12 @@ jobs:
             echo "- 🟡 Medium Severity: $MEDIUM_RESULTS" >> $GITHUB_STEP_SUMMARY
             echo "- 📊 Total Findings: $TOTAL_RESULTS" >> $GITHUB_STEP_SUMMARY
             
-            # Add basic artifact location if missing
-            jq '.runs[].results[]? |= if .locations[]?.physicalLocation.artifactLocation then . else (.locations[]?.physicalLocation.artifactLocation = {"uri": "."}) end' sbom-scan-results.sarif > results.sarif
+            # Ensure every result has a valid physicalLocation.artifactLocation.uri.
+            # Grype's SBOM-scan results often have empty/missing locations, which
+            # GitHub rejects with "locationFromSarifResult: expected artifact
+            # location". Normalise: default empty/missing locations to the scanned
+            # artifact and backfill any missing uri.
+            jq '.runs[].results[]?.locations |= ((. // []) | (if length == 0 then [{"physicalLocation":{"artifactLocation":{"uri":"sbom.spdx.json"}}}] else . end) | map(.physicalLocation.artifactLocation.uri //= "sbom.spdx.json"))' sbom-scan-results.sarif > results.sarif
             echo "✅ **SARIF Processing**: Enhanced for GitHub upload" >> $GITHUB_STEP_SUMMARY
             
             if [ "$HIGH_RESULTS" -gt "0" ]; then
