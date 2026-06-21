@@ -9,13 +9,17 @@ setagaya/config.json
 debug.yaml
 
 # Binaries and executables
+# NOTE: patterns must target the compiled binary *files*, not source directories.
+# Bare names like `**/setagaya`, `**/ingress-controller`, `**/*-controller` also
+# match the source directories, which makes `git add setagaya/...` fail and broke
+# Dependabot's Go module updates ("paths are ignored by one of your .gitignore").
 *.exe
-**/ingress-controller
-**/*-controller
-**/setagaya
 */setagaya-*
-local_storage/v0
+setagaya/setagaya
+ingress-controller/sic
 ingress-controller/ingress-controller
+local_storage/storage
+local_storage/v0
 bin/golangci-lint
 
 # Go build artifacts

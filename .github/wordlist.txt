@@ -1,4 +1,4 @@
-personal_ws-1.1 en 744
+personal_ws-1.1 en 752
 codecov
 OpenSSF
 Setagaya
@@ -743,3 +743,11 @@ anchore
 spdx
 ToolName
 TestTool
+addgroup
+adduser
+discoverability
+ENTRYPOINT
+gomod
+READMEs
+toml
+WORKDIR
