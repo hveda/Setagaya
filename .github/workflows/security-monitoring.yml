@@ -466,7 +466,12 @@ jobs:
         results_file: scorecard-results.sarif
         results_format: sarif
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_results: true
+        # Publishing to the public scorecard.dev webapp requires the *whole*
+        # workflow to drop top-level write permissions; this workflow needs
+        # security-events: write for its SARIF uploads, so the webapp rejects
+        # the publish with HTTP 400. Disable publishing — the SARIF is still
+        # uploaded to the GitHub Security tab by the step below.
+        publish_results: false
 
     - name: Generate Scorecard Summary
       if: always()
