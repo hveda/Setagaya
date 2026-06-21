@@ -319,7 +319,7 @@ func TestSplitCSVEdgeCases(t *testing.T) {
 		var csvBuilder strings.Builder
 		csvBuilder.WriteString("id,value\n")
 		for i := 0; i < 10000; i++ {
-			csvBuilder.WriteString(fmt.Sprintf("%d,value%d\n", i, i))
+			fmt.Fprintf(&csvBuilder, "%d,value%d\n", i, i)
 		}
 
 		largeCSV := csvBuilder.String()

@@ -94,7 +94,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -126,7 +126,7 @@ jobs:
       if: steps.changes.outputs.go == 'true'
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
 
     - name: Check Go code formatting
       if: steps.changes.outputs.go == 'true'
@@ -186,7 +186,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -228,7 +228,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -275,14 +275,14 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
 
     - name: Setup test database
       run: |
@@ -314,7 +314,7 @@ jobs:
     if: needs.check-pr-ready.outputs.ready == 'true'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -331,7 +331,7 @@ jobs:
       if: steps.deps.outputs.go_deps == 'true'
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
 
     - name: Check for new dependencies
       if: steps.deps.outputs.go_deps == 'true'

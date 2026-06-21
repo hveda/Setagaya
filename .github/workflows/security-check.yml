@@ -45,12 +45,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -111,17 +111,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
     - name: Install govulncheck
-      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
 
     - name: Run govulncheck
       run: |
@@ -135,7 +135,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Dependency Review
       uses: actions/dependency-review-action@v4
@@ -168,12 +168,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -194,7 +194,7 @@ jobs:
 
     # Separate Go module caching (more stable)
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
@@ -203,7 +203,7 @@ jobs:
 
     # Separate Go build cache (rebuild each time for CodeQL compatibility)
     - name: Cache Go build
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cache/go-build
         key: ${{ runner.os }}-go-build-${{ github.sha }}
@@ -290,13 +290,13 @@ jobs:
 
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go (for Go-based images)
       if: contains(matrix.name, 'setagaya-api') || contains(matrix.name, 'setagaya-jmeter') || contains(matrix.name, 'setagaya-storage') || contains(matrix.name, 'setagaya-ingress')
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -305,7 +305,7 @@ jobs:
 
     # Image-specific caching strategy
     - name: Cache Docker layers for ${{ matrix.name }}
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: /tmp/.buildx-cache-${{ matrix.name }}
         key: ${{ runner.os }}-buildx-${{ matrix.name }}-${{ hashFiles(matrix.dockerfile, '**/go.mod', '**/go.sum') }}-${{ github.sha }}
@@ -315,7 +315,7 @@ jobs:
 
     - name: Cache JMeter download
       if: contains(matrix.name, 'jmeter')
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: /tmp/jmeter-cache
         key: jmeter-5.6.3
@@ -373,7 +373,7 @@ jobs:
         mv /tmp/.buildx-cache-${{ matrix.name }}-new /tmp/.buildx-cache-${{ matrix.name }} || true
 
     - name: Run Trivy vulnerability scanner - ${{ matrix.name }}
-      uses: aquasecurity/trivy-action@0.33.1
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: '${{ matrix.name }}:security-test'
         format: 'sarif'
@@ -469,13 +469,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
     - name: TruffleHog OSS - Pull Request Scan
       if: github.event_name == 'pull_request'
-      uses: trufflesecurity/trufflehog@v3.90.11
+      uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
         base: ${{ github.event.pull_request.base.sha }}
@@ -484,7 +484,7 @@ jobs:
 
     - name: TruffleHog OSS - Push Event Scan
       if: github.event_name == 'push'
-      uses: trufflesecurity/trufflehog@v3.90.11
+      uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
         base: ${{ github.event.before }}
@@ -493,7 +493,7 @@ jobs:
 
     - name: TruffleHog OSS - Scheduled/Full Repository Scan
       if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-      uses: trufflesecurity/trufflehog@v3.90.11
+      uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
         extra_args: --debug --only-verified
@@ -504,12 +504,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -544,7 +544,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Generate SBOM
       uses: anchore/sbom-action@v0
