@@ -11,8 +11,10 @@ name: Security and Vulnerability Scanning
 # 8. Added workflow_dispatch for manual triggering with force Docker scan option
 
 on:
+  # Note: 'develop' is intentionally excluded from push to avoid duplicate runs
+  # with the pull_request trigger (every develop change arrives via a PR).
   push:
-    branches: [ "master", "main", "develop" ]
+    branches: [ "master", "main" ]
   pull_request:
     branches: [ "master", "main", "develop" ]
   schedule:

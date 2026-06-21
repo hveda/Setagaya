@@ -1,8 +1,10 @@
 name: Code Quality and Linting
 
 on:
+  # Note: 'develop' is intentionally excluded from push to avoid duplicate runs
+  # with the pull_request trigger (every develop change arrives via a PR).
   push:
-    branches: [ "master", "main", "develop" ]
+    branches: [ "master", "main" ]
   pull_request:
     branches: [ "master", "main", "develop" ]
 
