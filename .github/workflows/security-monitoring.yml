@@ -515,7 +515,10 @@ jobs:
     name: Create Security Issue
     runs-on: ubuntu-latest
     needs: [dependency-audit, container-security-monitoring, secret-monitoring]
-    if: always()
+    # Disabled: automated security-issue creation was failing/noisy. Findings are
+    # already surfaced via Code Scanning / the Security tab. Set back to always()
+    # (or a condition) to re-enable.
+    if: false
     permissions:
       contents: read
       issues: write
