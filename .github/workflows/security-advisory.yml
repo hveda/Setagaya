@@ -166,7 +166,7 @@ jobs:
         # Check for vulnerable dependencies
         echo "Checking for vulnerable dependencies..."
         cd setagaya
-        go install golang.org/x/vuln/cmd/govulncheck@latest
+        go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
         govulncheck ./... || echo "Vulnerabilities found in dependencies"
 
         # Validate container security
