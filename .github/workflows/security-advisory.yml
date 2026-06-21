@@ -33,7 +33,7 @@ jobs:
     if: github.event_name == 'issues' && (contains(github.event.issue.labels.*.name, 'security') || contains(github.event.issue.title, 'security') || contains(github.event.issue.title, 'vulnerability'))
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Process Security Issue
       uses: actions/github-script@v8
@@ -85,7 +85,7 @@ jobs:
     if: github.event_name == 'schedule' || github.event.inputs.action == 'notify'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Check for relevant advisories
       uses: actions/github-script@v8
@@ -152,12 +152,12 @@ jobs:
     if: github.event.inputs.action == 'validate' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
 
     - name: Run security validation
       run: |
@@ -166,7 +166,7 @@ jobs:
         # Check for vulnerable dependencies
         echo "Checking for vulnerable dependencies..."
         cd setagaya
-        go install golang.org/x/vuln/cmd/govulncheck@latest
+        go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
         govulncheck ./... || echo "Vulnerabilities found in dependencies"
 
         # Validate container security
@@ -225,7 +225,7 @@ jobs:
     if: github.event.inputs.action == 'update-docs'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Update security documentation
       run: |
@@ -246,7 +246,7 @@ jobs:
         fi
 
     - name: Create pull request for documentation updates
-      uses: peter-evans/create-pull-request@v7
+      uses: peter-evans/create-pull-request@v8
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         commit-message: "docs: update security documentation"
@@ -328,7 +328,7 @@ jobs:
     if: github.event.inputs.action == 'validate' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Collect security metrics
       run: |

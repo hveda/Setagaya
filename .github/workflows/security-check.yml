@@ -11,8 +11,10 @@ name: Security and Vulnerability Scanning
 # 8. Added workflow_dispatch for manual triggering with force Docker scan option
 
 on:
+  # Note: 'develop' is intentionally excluded from push to avoid duplicate runs
+  # with the pull_request trigger (every develop change arrives via a PR).
   push:
-    branches: [ "master", "main", "develop" ]
+    branches: [ "master", "main" ]
   pull_request:
     branches: [ "master", "main", "develop" ]
   schedule:
@@ -39,18 +41,43 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Detect which file types changed so conditional jobs (e.g. Docker scan) can
+  # run on pull_request events too. github.event.head_commit is only populated
+  # for push events, so the previous head_commit-based gating never fired on PRs.
+  detect-changes:
+    name: Detect Changed Files
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.filter.outputs.docker }}
+      go: ${{ steps.filter.outputs.go }}
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v6
+
+    - name: Filter changed paths
+      id: filter
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          docker:
+            - '**/Dockerfile*'
+          go:
+            - '**/*.go'
+            - '**/go.mod'
+            - '**/go.sum'
+
   # Go security scanning (with shared cache)
   gosec:
     name: Go Security Scan
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -111,17 +138,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
     - name: Install govulncheck
-      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
 
     - name: Run govulncheck
       run: |
@@ -135,7 +162,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Dependency Review
       uses: actions/dependency-review-action@v4
@@ -168,12 +195,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -194,7 +221,7 @@ jobs:
 
     # Separate Go module caching (more stable)
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
@@ -203,7 +230,7 @@ jobs:
 
     # Separate Go build cache (rebuild each time for CodeQL compatibility)
     - name: Cache Go build
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cache/go-build
         key: ${{ runner.os }}-go-build-${{ github.sha }}
@@ -246,17 +273,16 @@ jobs:
   docker-security:
     name: Docker Security Scan
     runs-on: ubuntu-latest
-    # Run if: scheduled, Docker/Go files changed, workflow files changed, manual trigger, or forced
+    needs: detect-changes
+    # Run if: scheduled, manual trigger, forced, or Docker/Go files changed.
+    # Uses detect-changes outputs (works for both push and pull_request) instead
+    # of github.event.head_commit, which is empty on pull_request events.
     if: |
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       github.event.inputs.force_docker_scan == 'true' ||
-      contains(github.event.head_commit.modified, 'Dockerfile') ||
-      contains(github.event.head_commit.added, 'Dockerfile') ||
-      contains(github.event.head_commit.modified, '.go') ||
-      contains(github.event.head_commit.added, '.go') ||
-      contains(github.event.head_commit.modified, '.github/workflows/') ||
-      contains(github.event.head_commit.added, '.github/workflows/')
+      needs.detect-changes.outputs.docker == 'true' ||
+      needs.detect-changes.outputs.go == 'true'
 
     strategy:
       fail-fast: false
@@ -290,13 +316,13 @@ jobs:
 
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go (for Go-based images)
       if: contains(matrix.name, 'setagaya-api') || contains(matrix.name, 'setagaya-jmeter') || contains(matrix.name, 'setagaya-storage') || contains(matrix.name, 'setagaya-ingress')
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -305,7 +331,7 @@ jobs:
 
     # Image-specific caching strategy
     - name: Cache Docker layers for ${{ matrix.name }}
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: /tmp/.buildx-cache-${{ matrix.name }}
         key: ${{ runner.os }}-buildx-${{ matrix.name }}-${{ hashFiles(matrix.dockerfile, '**/go.mod', '**/go.sum') }}-${{ github.sha }}
@@ -315,7 +341,7 @@ jobs:
 
     - name: Cache JMeter download
       if: contains(matrix.name, 'jmeter')
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: /tmp/jmeter-cache
         key: jmeter-5.6.3
@@ -373,7 +399,7 @@ jobs:
         mv /tmp/.buildx-cache-${{ matrix.name }}-new /tmp/.buildx-cache-${{ matrix.name }} || true
 
     - name: Run Trivy vulnerability scanner - ${{ matrix.name }}
-      uses: aquasecurity/trivy-action@0.33.1
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: '${{ matrix.name }}:security-test'
         format: 'sarif'
@@ -469,13 +495,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
     - name: TruffleHog OSS - Pull Request Scan
       if: github.event_name == 'pull_request'
-      uses: trufflesecurity/trufflehog@v3.90.11
+      uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
         base: ${{ github.event.pull_request.base.sha }}
@@ -484,7 +510,7 @@ jobs:
 
     - name: TruffleHog OSS - Push Event Scan
       if: github.event_name == 'push'
-      uses: trufflesecurity/trufflehog@v3.90.11
+      uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
         base: ${{ github.event.before }}
@@ -493,7 +519,7 @@ jobs:
 
     - name: TruffleHog OSS - Scheduled/Full Repository Scan
       if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-      uses: trufflesecurity/trufflehog@v3.90.11
+      uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
         extra_args: --debug --only-verified
@@ -504,12 +530,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -544,7 +570,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Generate SBOM
       uses: anchore/sbom-action@v0

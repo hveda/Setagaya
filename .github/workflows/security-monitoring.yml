@@ -31,17 +31,17 @@ jobs:
     if: github.event.inputs.scan_type == 'dependencies' || github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
     - name: Install govulncheck
-      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
 
     - name: Install OSV Scanner (Google's vulnerability scanner)
       run: go install github.com/google/osv-scanner/cmd/osv-scanner@latest
@@ -93,7 +93,7 @@ jobs:
     if: github.event.inputs.scan_type == 'containers' || github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -122,7 +122,7 @@ jobs:
         docker build -f setagaya/Dockerfile.engines.jmeter -t setagaya-jmeter-monitor:latest .
 
     - name: Scan with Trivy
-      uses: aquasecurity/trivy-action@0.33.1
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: 'setagaya-monitor:latest'
         format: 'json'
@@ -204,12 +204,12 @@ jobs:
     if: github.event.inputs.scan_type == 'secrets' || github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
     - name: Run comprehensive secret scan
-      uses: trufflesecurity/trufflehog@v3.90.11
+      uses: trufflesecurity/trufflehog@v3.92.4
       with:
         path: ./
         extra_args: --only-verified --json --fail
@@ -268,12 +268,12 @@ jobs:
     if: github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'
+        go-version: '1.25.11'
         cache: true
         cache-dependency-path: setagaya/go.sum
 
@@ -308,7 +308,7 @@ jobs:
     if: github.event.inputs.scan_type == 'full' || github.event_name == 'schedule'
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Generate SBOM
       uses: anchore/sbom-action@v0
@@ -446,7 +446,7 @@ jobs:
       actions: read
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         persist-credentials: false
 

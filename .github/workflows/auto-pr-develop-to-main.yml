@@ -1,0 +1,160 @@
+name: Auto PR from Develop to Main
+
+# Trigger when changes are pushed to develop branch
+# (e.g. when feature/dependency branches are merged into develop).
+#
+# SETUP REQUIRED:
+# Create a Personal Access Token (PAT) with 'repo' scope and save it as the
+# PAT_TOKEN secret. A PAT (rather than the default GITHUB_TOKEN) is required so
+# that the created PR triggers the normal CI workflows.
+# GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens
+# Required permissions: Contents (read/write), Pull requests (read/write)
+on:
+  push:
+    branches:
+      - develop
+
+# Required permissions for creating/updating PRs
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-pr:
+    name: Create or Update PR to Main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Fetch all history for proper diff
+
+      - name: Check for existing PR
+        id: check-pr
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          # Check if there's already an open PR from develop to main
+          PR_NUMBER=$(gh pr list \
+            --base main \
+            --head develop \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$PR_NUMBER" ]; then
+            echo "pr_exists=true" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            echo "Found existing PR #$PR_NUMBER"
+          else
+            echo "pr_exists=false" >> $GITHUB_OUTPUT
+            echo "No existing PR found"
+          fi
+
+      - name: Update existing PR
+        if: steps.check-pr.outputs.pr_exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          PR_NUMBER: ${{ steps.check-pr.outputs.pr_number }}
+          # Untrusted inputs are passed via env (not inlined into the script) to
+          # avoid shell-quoting breakage and script injection from commit messages.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          # Build the comment body from env vars, then post via --body-file
+          {
+            printf '%s\n\n' '🔄 **New changes pushed to `develop`**'
+            printf '%s\n\n' 'New commits have been merged to the `develop` branch.'
+            printf '**Latest commit:** %s\n' "${COMMIT_MSG}"
+            printf '**Pushed by:** @%s\n' "${ACTOR}"
+            printf '**Commit SHA:** `%s`\n\n' "${COMMIT_SHA}"
+            printf '%s\n' 'Please review the changes before merging to `main`.'
+          } > /tmp/pr-comment.md
+
+          gh pr comment "$PR_NUMBER" --body-file /tmp/pr-comment.md
+
+          echo "✅ Updated existing PR #$PR_NUMBER with new changes"
+
+      - name: Create new PR
+        if: steps.check-pr.outputs.pr_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          # Untrusted inputs via env (not inlined) to avoid script injection.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          # Get the latest commits from develop (comparing against remote main)
+          COMMITS=$(git log --oneline origin/main...HEAD --max-count=10)
+
+          # Create the PR body
+          cat > /tmp/pr-body.md << 'EOF'
+          ## 🚀 Release: Develop to Main
+
+          This PR was automatically created when changes were merged to the `develop` branch.
+
+          ### 📝 Recent Changes
+
+          ```
+          EOF
+
+          echo "${COMMITS}" >> /tmp/pr-body.md
+
+          cat >> /tmp/pr-body.md << 'EOF'
+          ```
+
+          ### ✅ Pre-merge Checklist
+
+          Before merging this PR to `main`, ensure:
+
+          - [ ] All CI checks pass (tests, lint, security scans)
+          - [ ] Code has been reviewed
+          - [ ] No breaking changes (or properly documented)
+          - [ ] Go modules build and `go vet` is clean
+          - [ ] Docker images build successfully
+          - [ ] Ready for release
+
+          ### 📊 Review
+
+          EOF
+
+          echo "" >> /tmp/pr-body.md
+          printf '**Latest commit:** %s\n' "${COMMIT_MSG}" >> /tmp/pr-body.md
+          printf '**Pushed by:** @%s\n' "${ACTOR}" >> /tmp/pr-body.md
+          printf '**Commit SHA:** `%s`\n' "${COMMIT_SHA}" >> /tmp/pr-body.md
+          echo "" >> /tmp/pr-body.md
+          echo "---" >> /tmp/pr-body.md
+          echo "" >> /tmp/pr-body.md
+          echo "🤖 This PR was automatically created by GitHub Actions" >> /tmp/pr-body.md
+
+          # Create the PR
+          gh pr create \
+            --base main \
+            --head develop \
+            --title "Release: Develop → Main" \
+            --body-file /tmp/pr-body.md \
+            --draft
+
+          echo "✅ Created new PR from develop to main"
+
+      - name: Summary
+        run: |
+          echo "## 📋 Auto PR Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.check-pr.outputs.pr_exists }}" == "true" ]; then
+            echo "✅ **Updated existing PR #${{ steps.check-pr.outputs.pr_number }}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Added comment with latest changes from develop branch." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **Created new PR from develop to main**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "PR created as **draft** - ready for review and approval." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** Push to develop branch" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Author:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
