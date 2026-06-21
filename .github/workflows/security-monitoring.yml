@@ -209,7 +209,7 @@ jobs:
         fetch-depth: 0
 
     - name: Run comprehensive secret scan
-      uses: trufflesecurity/trufflehog@v3.92.4
+      uses: trufflesecurity/trufflehog@v3.95.6
       with:
         path: ./
         # NOTE: the action already appends --fail; passing it again here caused
