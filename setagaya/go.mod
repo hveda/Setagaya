@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/storage v1.57.1
 	github.com/beevik/etree v1.6.0
 	github.com/go-sql-driver/mysql v1.9.3
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/context v1.1.2
 	github.com/gorilla/securecookie v1.1.2
 	github.com/gorilla/sessions v1.4.0
