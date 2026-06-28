@@ -1,5 +1,5 @@
 # Use latest stable Grafana with security updates
-FROM grafana/grafana:12.4.4
+FROM grafana/grafana:13.1.0
 
 # Security environment variables
 ENV GF_SECURITY_ADMIN_USER=setagaya
