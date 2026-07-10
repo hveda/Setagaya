@@ -20,6 +20,22 @@ type Config struct {
 	Log     LogConfig
 	Storage StorageConfig
 	Limits  LimitsConfig
+	Cluster ClusterConfig
+}
+
+// ClusterConfig selects and configures the scheduler and executor used to run
+// load tests.
+//
+// Scheduler "fake" keeps everything in-memory (local dev); "k8s" uses the
+// in-cluster Kubernetes client. Executor "fake" records triggers; "jmeter"
+// drives the JMeter agent over HTTP.
+type ClusterConfig struct {
+	Scheduler   string // fake|k8s
+	Executor    string // fake|jmeter
+	Namespace   string
+	EngineImage string
+	EnginePort  int
+	Context     string // deployment context scoping running_plan rows
 }
 
 // StorageConfig configures the object store used for uploaded artifacts.
@@ -76,6 +92,14 @@ func Load(getenv func(string) string) (Config, error) {
 		Log:     LogConfig{Level: "info", Format: "json"},
 		Storage: StorageConfig{Root: "storage-data"},
 		Limits:  LimitsConfig{MaxEnginesInCollection: 500},
+		Cluster: ClusterConfig{
+			Scheduler:   "fake",
+			Executor:    "fake",
+			Namespace:   "default",
+			EngineImage: "setagaya/jmeter:latest",
+			EnginePort:  8080,
+			Context:     "default",
+		},
 	}
 
 	var err error
@@ -98,6 +122,14 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Storage.Root = strEnv(getenv, "STORAGE_ROOT", cfg.Storage.Root)
 	cfg.Storage.BaseURL = strEnv(getenv, "STORAGE_BASE_URL", cfg.Storage.BaseURL)
 	if cfg.Limits.MaxEnginesInCollection, err = intEnv(getenv, "MAX_ENGINES", cfg.Limits.MaxEnginesInCollection); err != nil {
+		return Config{}, err
+	}
+	cfg.Cluster.Scheduler = strEnv(getenv, "SCHEDULER", cfg.Cluster.Scheduler)
+	cfg.Cluster.Executor = strEnv(getenv, "EXECUTOR", cfg.Cluster.Executor)
+	cfg.Cluster.Namespace = strEnv(getenv, "K8S_NAMESPACE", cfg.Cluster.Namespace)
+	cfg.Cluster.EngineImage = strEnv(getenv, "ENGINE_IMAGE", cfg.Cluster.EngineImage)
+	cfg.Cluster.Context = strEnv(getenv, "DEPLOY_CONTEXT", cfg.Cluster.Context)
+	if cfg.Cluster.EnginePort, err = intEnv(getenv, "ENGINE_PORT", cfg.Cluster.EnginePort); err != nil {
 		return Config{}, err
 	}
 
@@ -125,6 +157,15 @@ func (c Config) validate() error {
 	}
 	if c.Limits.MaxEnginesInCollection <= 0 {
 		return fmt.Errorf("config: %sMAX_ENGINES must be positive", envPrefix)
+	}
+	if !oneOf(c.Cluster.Scheduler, "fake", "k8s") {
+		return fmt.Errorf("config: invalid scheduler %q", c.Cluster.Scheduler)
+	}
+	if !oneOf(c.Cluster.Executor, "fake", "jmeter") {
+		return fmt.Errorf("config: invalid executor %q", c.Cluster.Executor)
+	}
+	if c.Cluster.EnginePort < 1 || c.Cluster.EnginePort > 65535 {
+		return fmt.Errorf("config: %sENGINE_PORT %d out of range 1-65535", envPrefix, c.Cluster.EnginePort)
 	}
 	return nil
 }

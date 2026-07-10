@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hveda/Setagaya/v3/internal/app/planapp"
-	"github.com/hveda/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
 )
 
 type planResponse struct {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hveda/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
 )
 
 // projectResponse is the JSON wire shape for a Project. Keeping it separate

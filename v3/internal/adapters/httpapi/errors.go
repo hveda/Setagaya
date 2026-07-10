@@ -5,14 +5,16 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/hveda/Setagaya/v3/internal/app/collectionapp"
-	"github.com/hveda/Setagaya/v3/internal/app/planapp"
-	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/execution"
-	"github.com/hveda/Setagaya/v3/internal/domain/plan"
-	"github.com/hveda/Setagaya/v3/internal/domain/project"
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/lifecycleapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/run"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
 // errForbidden is returned by ownership checks; mapped to HTTP 403.
@@ -29,6 +31,7 @@ var badRequestErrors = []error{
 	planapp.ErrInvalidFilename,
 	collectionapp.ErrInvalidFilename, collectionapp.ErrCollectionMismatch,
 	collectionapp.ErrPlanNotInProject, collectionapp.ErrEngineLimit,
+	run.ErrNoPlans, lifecycleapp.ErrNoTestFile,
 }
 
 // conflictErrors are state conflicts → HTTP 409.
@@ -36,6 +39,8 @@ var conflictErrors = []error{
 	ports.ErrFileExists,
 	planapp.ErrPlanInUse,
 	projectapp.ErrProjectHasPlans, projectapp.ErrProjectHasCollections,
+	run.ErrNotDeployed, run.ErrEnginesNotReady, run.ErrAlreadyRunning, run.ErrNotRunning,
+	ports.ErrEnginesUnreachable, ports.ErrRunActive,
 }
 
 // respondError maps an application/domain error onto an HTTP status.

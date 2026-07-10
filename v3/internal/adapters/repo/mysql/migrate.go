@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"sort"
 
-	"github.com/hveda/Setagaya/v3/migrations"
+	"github.com/heridotlife/Setagaya/v3/migrations"
 )
 
 const createSchemaMigrations = `CREATE TABLE IF NOT EXISTS schema_migrations (

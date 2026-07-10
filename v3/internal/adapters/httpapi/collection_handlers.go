@@ -8,9 +8,9 @@ import (
 
 	yaml "gopkg.in/yaml.v3"
 
-	"github.com/hveda/Setagaya/v3/internal/app/collectionapp"
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
 )
 
 type collectionResponse struct {

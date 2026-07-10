@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/execution"
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
 const collectionColumns = "id, name, project_id, csv_split, tenant_id, created_by, updated_by, created_time"

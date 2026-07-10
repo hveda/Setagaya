@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hveda/Setagaya/v3/internal/config"
+	"github.com/heridotlife/Setagaya/v3/internal/config"
 )
 
 func TestNewProjectRepository_Fake(t *testing.T) {
 	t.Parallel()
-	repo, err := newRepository(config.DBConfig{Driver: "fake"})
+	repo, err := newRepository(config.DBConfig{Driver: "fake"}, "default")
 	if err != nil {
 		t.Fatalf("newRepository(fake): %v", err)
 	}
@@ -24,7 +24,7 @@ func TestNewProjectRepository_Fake(t *testing.T) {
 
 func TestNewProjectRepository_Unsupported(t *testing.T) {
 	t.Parallel()
-	if _, err := newRepository(config.DBConfig{Driver: "postgres"}); err == nil {
+	if _, err := newRepository(config.DBConfig{Driver: "postgres"}, "default"); err == nil {
 		t.Fatal("newRepository(postgres): expected error, got nil")
 	}
 }
@@ -36,7 +36,7 @@ func TestNewProjectRepository_MySQL_Unreachable(t *testing.T) {
 	_, err := newRepository(config.DBConfig{
 		Driver: "mysql",
 		DSN:    "setagaya:secret@tcp(127.0.0.1:1)/setagaya?parseTime=true",
-	})
+	}, "default")
 	if err == nil {
 		t.Fatal("newRepository(mysql, unreachable): expected error, got nil")
 	}

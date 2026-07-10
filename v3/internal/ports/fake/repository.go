@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/execution"
-	"github.com/hveda/Setagaya/v3/internal/domain/plan"
-	"github.com/hveda/Setagaya/v3/internal/domain/project"
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
 // Store is an in-memory implementation of every repository port.
@@ -34,6 +34,11 @@ type Store struct {
 	collections map[int64]collection.Collection
 	collData    map[int64]map[string]struct{}       // collectionID -> data filenames
 	exec        map[int64][]execution.ExecutionPlan // collectionID -> execution plans
+
+	runSeq     int64
+	currentRun map[int64]int64               // collectionID -> active runID
+	runHistory map[int64]*ports.RunRecord    // runID -> history row
+	running    map[int64]map[int64]time.Time // collectionID -> planID -> startedTime
 }
 
 // NewStore returns an empty in-memory Store.
@@ -47,6 +52,9 @@ func NewStore() *Store {
 		collections: make(map[int64]collection.Collection),
 		collData:    make(map[int64]map[string]struct{}),
 		exec:        make(map[int64][]execution.ExecutionPlan),
+		currentRun:  make(map[int64]int64),
+		runHistory:  make(map[int64]*ports.RunRecord),
+		running:     make(map[int64]map[int64]time.Time),
 	}
 }
 
@@ -57,6 +65,7 @@ var (
 	_ ports.ProjectRepository    = (*Store)(nil)
 	_ ports.PlanRepository       = (*Store)(nil)
 	_ ports.CollectionRepository = (*Store)(nil)
+	_ ports.RunRepository        = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------

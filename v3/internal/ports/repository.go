@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/hveda/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
 )
 
 // ErrNotFound is returned by repositories when a requested entity does not

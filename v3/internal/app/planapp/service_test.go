@@ -6,11 +6,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/app/planapp"
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/execution"
-	"github.com/hveda/Setagaya/v3/internal/ports"
-	"github.com/hveda/Setagaya/v3/internal/ports/fake"
+	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/fake"
 )
 
 func newPlanService(t *testing.T) (*planapp.Service, *fake.Store, *fake.ObjectStore) {

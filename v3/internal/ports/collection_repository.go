@@ -3,8 +3,8 @@ package ports
 import (
 	"context"
 
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
 )
 
 // CollectionRepository persists Collection aggregates, their data files, and

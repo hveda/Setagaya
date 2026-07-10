@@ -18,15 +18,21 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
-	"github.com/hveda/Setagaya/v3/internal/adapters/httpapi"
-	mysqladapter "github.com/hveda/Setagaya/v3/internal/adapters/repo/mysql"
-	"github.com/hveda/Setagaya/v3/internal/adapters/storage/local"
-	"github.com/hveda/Setagaya/v3/internal/app/collectionapp"
-	"github.com/hveda/Setagaya/v3/internal/app/planapp"
-	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
-	"github.com/hveda/Setagaya/v3/internal/config"
-	"github.com/hveda/Setagaya/v3/internal/ports/fake"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/executor/jmeter"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/httpapi"
+	mysqladapter "github.com/heridotlife/Setagaya/v3/internal/adapters/repo/mysql"
+	k8sscheduler "github.com/heridotlife/Setagaya/v3/internal/adapters/scheduler/k8s"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/storage/local"
+	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/lifecycleapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/config"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/fake"
 )
 
 // repository is the full repository surface the API wires into its services.
@@ -35,6 +41,7 @@ type repository interface {
 	projectapp.Repo
 	planapp.Repo
 	collectionapp.Repo
+	lifecycleapp.Repo
 }
 
 func main() {
@@ -59,16 +66,26 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 	setupLogging(cfg.Log)
 
-	repo, err := newRepository(cfg.DB)
+	repo, err := newRepository(cfg.DB, cfg.Cluster.Context)
 	if err != nil {
 		return err
 	}
 	store := local.New(cfg.Storage.Root, cfg.Storage.BaseURL)
 
+	sched, err := newScheduler(cfg.Cluster)
+	if err != nil {
+		return err
+	}
+	exec, err := newExecutor(cfg.Cluster)
+	if err != nil {
+		return err
+	}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
 		Plans:         planapp.NewService(repo, store),
 		Collections:   collectionapp.NewService(repo, store, cfg.Limits.MaxEnginesInCollection),
+		Lifecycle:     lifecycleapp.NewService(repo, sched, exec, store, cfg.Cluster.EngineImage),
 		Store:         store,
 		DefaultOwners: []string{"setagaya"},
 	})
@@ -103,8 +120,9 @@ func run(ctx context.Context, getenv func(string) string) error {
 
 // newRepository selects the repository implementation from config.
 // "fake" is the in-memory default for local development and the walking
-// skeleton; "mysql" opens the pool and applies migrations.
-func newRepository(cfg config.DBConfig) (repository, error) {
+// skeleton; "mysql" opens the pool and applies migrations. deployContext scopes
+// the running_plan rows this process owns.
+func newRepository(cfg config.DBConfig, deployContext string) (repository, error) {
 	switch cfg.Driver {
 	case "fake":
 		return fake.NewStore(), nil
@@ -121,9 +139,43 @@ func newRepository(cfg config.DBConfig) (repository, error) {
 		if err := mysqladapter.Migrate(ctx, db); err != nil {
 			return nil, fmt.Errorf("migrate mysql: %w", err)
 		}
-		return mysqladapter.NewProjectRepository(db), nil
+		return mysqladapter.NewRepository(db).WithContext(deployContext), nil
 	default:
 		return nil, fmt.Errorf("db driver %q not supported", cfg.Driver)
+	}
+}
+
+// newScheduler selects the Scheduler adapter. "fake" is in-memory; "k8s" uses
+// the in-cluster Kubernetes client.
+func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
+	switch cfg.Scheduler {
+	case "fake":
+		return fake.NewScheduler(), nil
+	case "k8s":
+		restCfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, fmt.Errorf("k8s in-cluster config: %w", err)
+		}
+		client, err := kubernetes.NewForConfig(restCfg)
+		if err != nil {
+			return nil, fmt.Errorf("k8s client: %w", err)
+		}
+		return k8sscheduler.New(client, k8sscheduler.Config{Namespace: cfg.Namespace, EnginePort: cfg.EnginePort}), nil
+	default:
+		return nil, fmt.Errorf("scheduler %q not supported", cfg.Scheduler)
+	}
+}
+
+// newExecutor selects the Executor adapter. "fake" records triggers; "jmeter"
+// drives the JMeter agent over HTTP.
+func newExecutor(cfg config.ClusterConfig) (ports.Executor, error) {
+	switch cfg.Executor {
+	case "fake":
+		return fake.NewExecutor(), nil
+	case "jmeter":
+		return jmeter.New(nil), nil
+	default:
+		return nil, fmt.Errorf("executor %q not supported", cfg.Executor)
 	}
 }
 

@@ -40,6 +40,12 @@ linters:
         text: stutters
         linters:
           - revive
+      # EngineName/EngineLabels name the engine's scheduler object; renaming to
+      # Name/Labels would collide with the generic engine.Name(kind, ...) helper.
+      - path: internal/domain/engine/
+        text: stutters
+        linters:
+          - revive
 
 formatters:
   enable:
@@ -48,4 +54,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/hveda/Setagaya/v3
+        - github.com/heridotlife/Setagaya/v3

@@ -7,11 +7,11 @@ import (
 	"database/sql"
 	"testing"
 
-	mysqladapter "github.com/hveda/Setagaya/v3/internal/adapters/repo/mysql"
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/plan"
-	"github.com/hveda/Setagaya/v3/internal/ports/repositorytest"
-	"github.com/hveda/Setagaya/v3/test/dbtest"
+	mysqladapter "github.com/heridotlife/Setagaya/v3/internal/adapters/repo/mysql"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/repositorytest"
+	"github.com/heridotlife/Setagaya/v3/test/dbtest"
 )
 
 func TestMySQLPlanRepository_Contract(t *testing.T) {
@@ -119,6 +119,7 @@ func truncateAll(t *testing.T, db *sql.DB) {
 	for _, table := range []string{
 		"project", "plan", "collection", "collection_plan",
 		"plan_data", "plan_test_file", "collection_data",
+		"collection_run", "collection_run_history", "running_plan",
 	} {
 		if _, err := db.Exec("TRUNCATE TABLE " + table); err != nil {
 			t.Fatalf("truncate %s: %v", table, err)

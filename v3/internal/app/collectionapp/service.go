@@ -10,10 +10,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/hveda/Setagaya/v3/internal/domain/collection"
-	"github.com/hveda/Setagaya/v3/internal/domain/execution"
-	"github.com/hveda/Setagaya/v3/internal/domain/plan"
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
 // Business-rule errors. Callers compare with errors.Is.

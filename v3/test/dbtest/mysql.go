@@ -15,7 +15,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 
-	mysqladapter "github.com/hveda/Setagaya/v3/internal/adapters/repo/mysql"
+	mysqladapter "github.com/heridotlife/Setagaya/v3/internal/adapters/repo/mysql"
 )
 
 // StartMySQLDSN launches a MySQL container and returns a ready connection

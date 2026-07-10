@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/app/collectionapp"
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
 func TestBranches_InvalidFilename(t *testing.T) {

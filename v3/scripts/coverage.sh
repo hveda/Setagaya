@@ -16,7 +16,7 @@ PROFILE="${COVERAGE_PROFILE:-cover.out}"
 # Production packages only: exclude test-support suites, the e2e harness, the
 # embed-only migrations package, and the interface-only ports package.
 COVERPKG=$(go list ./... \
-  | grep -vE '/internal/ports/repositorytest$|/internal/ports/objectstoretest$|/test/dbtest$|/test/e2e$|/migrations$|/internal/ports$' \
+  | grep -vE '/internal/ports/repositorytest$|/internal/ports/objectstoretest$|/internal/ports/schedulertest$|/internal/ports/executortest$|/test/dbtest$|/test/e2e$|/migrations$|/internal/ports$' \
   | paste -sd,)
 
 echo "coverage tags:      '${TAGS}'"

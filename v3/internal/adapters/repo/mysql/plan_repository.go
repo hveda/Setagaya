@@ -8,8 +8,8 @@ import (
 
 	driver "github.com/go-sql-driver/mysql"
 
-	"github.com/hveda/Setagaya/v3/internal/domain/plan"
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
 const planColumns = "id, name, project_id, tenant_id, created_by, updated_by, created_time"

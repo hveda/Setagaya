@@ -7,11 +7,11 @@ import (
 	"database/sql"
 	"testing"
 
-	mysqladapter "github.com/hveda/Setagaya/v3/internal/adapters/repo/mysql"
-	"github.com/hveda/Setagaya/v3/internal/domain/project"
-	"github.com/hveda/Setagaya/v3/internal/ports"
-	"github.com/hveda/Setagaya/v3/internal/ports/repositorytest"
-	"github.com/hveda/Setagaya/v3/test/dbtest"
+	mysqladapter "github.com/heridotlife/Setagaya/v3/internal/adapters/repo/mysql"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/repositorytest"
+	"github.com/heridotlife/Setagaya/v3/test/dbtest"
 )
 
 // TestMySQLProjectRepository_Contract runs the shared repository conformance

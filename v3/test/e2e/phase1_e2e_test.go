@@ -14,13 +14,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/adapters/httpapi"
-	mysqladapter "github.com/hveda/Setagaya/v3/internal/adapters/repo/mysql"
-	"github.com/hveda/Setagaya/v3/internal/adapters/storage/local"
-	"github.com/hveda/Setagaya/v3/internal/app/collectionapp"
-	"github.com/hveda/Setagaya/v3/internal/app/planapp"
-	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
-	"github.com/hveda/Setagaya/v3/test/dbtest"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/httpapi"
+	mysqladapter "github.com/heridotlife/Setagaya/v3/internal/adapters/repo/mysql"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/storage/local"
+	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/test/dbtest"
 )
 
 // TestPhase1_FullFlowEndToEnd drives the whole Phase 1 surface over real HTTP,

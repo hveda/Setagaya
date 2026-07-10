@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/adapters/storage/local"
-	"github.com/hveda/Setagaya/v3/internal/ports"
-	"github.com/hveda/Setagaya/v3/internal/ports/objectstoretest"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/storage/local"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/objectstoretest"
 )
 
 func TestLocalStore_Contract(t *testing.T) {

@@ -8,18 +8,32 @@ package mysql
 import (
 	"database/sql"
 
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
-// Repository implements ProjectRepository, PlanRepository and
-// CollectionRepository over a single MySQL connection pool.
+// defaultDeployContext scopes running_plan rows when no context is configured.
+const defaultDeployContext = "default"
+
+// Repository implements ProjectRepository, PlanRepository,
+// CollectionRepository and RunRepository over a single MySQL connection pool.
 type Repository struct {
-	db *sql.DB
+	db            *sql.DB
+	deployContext string
 }
 
 // NewRepository returns a Repository backed by db.
 func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
+	return &Repository{db: db, deployContext: defaultDeployContext}
+}
+
+// WithContext sets the deployment context recorded on running_plan rows and
+// used to scope RunningPlans queries (mirrors v2's config.SC.Context). An empty
+// value is ignored. Returns the receiver for chaining.
+func (r *Repository) WithContext(deployContext string) *Repository {
+	if deployContext != "" {
+		r.deployContext = deployContext
+	}
+	return r
 }
 
 // NewProjectRepository is a convenience constructor for callers that only need
@@ -32,6 +46,7 @@ var (
 	_ ports.ProjectRepository    = (*Repository)(nil)
 	_ ports.PlanRepository       = (*Repository)(nil)
 	_ ports.CollectionRepository = (*Repository)(nil)
+	_ ports.RunRepository        = (*Repository)(nil)
 )
 
 // rowScanner abstracts *sql.Row and *sql.Rows for a shared scan.

@@ -1,0 +1,168 @@
+package httpapi_test
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/httpapi"
+	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/lifecycleapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/run"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/fake"
+)
+
+type lifecycleEnv struct {
+	h            http.Handler
+	store        *fake.Store
+	sched        *fake.Scheduler
+	exec         *fake.Executor
+	collectionID int64
+	planID       int64
+	owner        string
+}
+
+// newLifecycleEnv wires a router with the lifecycle service and seeds an owned
+// collection with one plan (JMX test file) and a stored execution config.
+func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
+	t.Helper()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	sched := fake.NewScheduler()
+	exec := fake.NewExecutor()
+
+	h := httpapi.NewRouter(httpapi.Deps{
+		Projects:      projectapp.NewService(store),
+		Plans:         planapp.NewService(store, obj),
+		Collections:   collectionapp.NewService(store, obj, 100),
+		Lifecycle:     lifecycleapp.NewService(store, sched, exec, obj, "img"),
+		Store:         obj,
+		DefaultOwners: []string{"setagaya"},
+	})
+
+	p, _ := project.New("web", owner, "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := collection.New("peak", projectID)
+	collectionID, _ := store.CreateCollection(ctx, coll)
+	pl, _ := plan.New("smoke", projectID)
+	planID, _ := store.CreatePlan(ctx, pl)
+	if err := store.AddPlanFile(ctx, planID, "test.jmx", true); err != nil {
+		t.Fatalf("add test file: %v", err)
+	}
+	if err := store.StoreExecutionCollection(ctx, collectionID, false, []execution.ExecutionPlan{
+		{Name: "p", PlanID: planID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
+	}); err != nil {
+		t.Fatalf("store exec: %v", err)
+	}
+	return lifecycleEnv{h: h, store: store, sched: sched, exec: exec, collectionID: collectionID, planID: planID, owner: owner}
+}
+
+func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "setagaya")
+	base := "/api/collections/" + itoa(e.collectionID)
+
+	if rec := do(t, e.h, http.MethodPost, base+"/deploy"); rec.Code != http.StatusOK {
+		t.Fatalf("deploy = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Status shows deployed engines.
+	rec := do(t, e.h, http.MethodGet, base+"/status")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var st lifecycleapp.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if st.Phase != run.PhaseDeployed || st.PoolSize != 2 {
+		t.Fatalf("status = %+v, want deployed/2", st)
+	}
+
+	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusOK {
+		t.Fatalf("trigger = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if e.exec.TriggerCount() != 2 {
+		t.Fatalf("triggered engines = %d, want 2", e.exec.TriggerCount())
+	}
+
+	// Engines detail and pod log.
+	if rec := do(t, e.h, http.MethodGet, base+"/engines"); rec.Code != http.StatusOK {
+		t.Fatalf("engines = %d", rec.Code)
+	}
+	if rec := do(t, e.h, http.MethodGet, base+"/plans/"+itoa(e.planID)+"/logs"); rec.Code != http.StatusOK {
+		t.Fatalf("logs = %d", rec.Code)
+	}
+
+	if rec := do(t, e.h, http.MethodPost, base+"/stop"); rec.Code != http.StatusOK {
+		t.Fatalf("stop = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, e.h, http.MethodPost, base+"/purge"); rec.Code != http.StatusOK {
+		t.Fatalf("purge = %d", rec.Code)
+	}
+}
+
+func TestLifecycleHTTP_TriggerBeforeDeployConflicts(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "setagaya")
+	base := "/api/collections/" + itoa(e.collectionID)
+	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusConflict {
+		t.Fatalf("trigger before deploy = %d, want 409", rec.Code)
+	}
+}
+
+func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "setagaya")
+	base := "/api/collections/" + itoa(e.collectionID)
+	if rec := do(t, e.h, http.MethodPost, base+"/stop"); rec.Code != http.StatusConflict {
+		t.Fatalf("stop without run = %d, want 409", rec.Code)
+	}
+}
+
+func TestLifecycleHTTP_Forbidden(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "other-team")
+	base := "/api/collections/" + itoa(e.collectionID)
+	for _, op := range []string{"/deploy", "/trigger", "/stop", "/purge"} {
+		if rec := do(t, e.h, http.MethodPost, base+op); rec.Code != http.StatusForbidden {
+			t.Errorf("%s on foreign collection = %d, want 403", op, rec.Code)
+		}
+	}
+}
+
+func TestLifecycleHTTP_InvalidIDs(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "setagaya")
+	cases := []struct{ method, path string }{
+		{http.MethodPost, "/api/collections/x/deploy"},
+		{http.MethodPost, "/api/collections/x/trigger"},
+		{http.MethodPost, "/api/collections/x/stop"},
+		{http.MethodPost, "/api/collections/x/purge"},
+		{http.MethodGet, "/api/collections/x/status"},
+		{http.MethodGet, "/api/collections/x/engines"},
+		{http.MethodGet, "/api/collections/x/plans/1/logs"},
+		{http.MethodGet, "/api/collections/1/plans/x/logs"},
+	}
+	for _, tc := range cases {
+		if rec := do(t, e.h, tc.method, tc.path); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s %s = %d, want 400", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
+func TestLifecycleHTTP_DeployMissingCollection(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "setagaya")
+	if rec := do(t, e.h, http.MethodPost, "/api/collections/9999/deploy"); rec.Code != http.StatusNotFound {
+		t.Fatalf("deploy missing = %d, want 404", rec.Code)
+	}
+}

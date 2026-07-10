@@ -5,8 +5,8 @@ package main
 import (
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/config"
-	"github.com/hveda/Setagaya/v3/test/dbtest"
+	"github.com/heridotlife/Setagaya/v3/internal/config"
+	"github.com/heridotlife/Setagaya/v3/test/dbtest"
 )
 
 // TestNewProjectRepository_MySQL covers the mysql wiring branch: open, ping and
@@ -14,7 +14,7 @@ import (
 func TestNewProjectRepository_MySQL(t *testing.T) {
 	dsn := dbtest.StartMySQLDSN(t)
 
-	repo, err := newRepository(config.DBConfig{Driver: "mysql", DSN: dsn})
+	repo, err := newRepository(config.DBConfig{Driver: "mysql", DSN: dsn}, "default")
 	if err != nil {
 		t.Fatalf("newRepository(mysql): %v", err)
 	}

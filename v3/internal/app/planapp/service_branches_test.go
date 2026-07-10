@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
 )
 
 func TestDownloadFile_InvalidFilename(t *testing.T) {

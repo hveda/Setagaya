@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
-	"github.com/hveda/Setagaya/v3/internal/domain/project"
-	"github.com/hveda/Setagaya/v3/internal/ports/fake"
+	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/fake"
 )
 
 // failingCreate embeds a real fake store but forces CreateProject to fail,

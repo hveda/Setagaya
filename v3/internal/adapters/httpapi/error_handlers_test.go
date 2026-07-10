@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/hveda/Setagaya/v3/internal/adapters/httpapi"
-	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
-	"github.com/hveda/Setagaya/v3/internal/domain/project"
-	"github.com/hveda/Setagaya/v3/internal/ports/fake"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/httpapi"
+	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/ports/fake"
 )
 
 // boomRepo embeds a real fake store but forces the project reads to fail,
