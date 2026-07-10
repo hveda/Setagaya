@@ -1,0 +1,8 @@
+# Test & coverage artifacts
+cover.out
+*.coverprofile
+
+# Build output
+/bin/
+/dist/
+setagaya-api
