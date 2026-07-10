@@ -28,6 +28,18 @@ linters:
         linters:
           - errcheck
           - unparam
+      # Test doubles and conformance harnesses implement documented port
+      # interfaces; per-method doc comments would be redundant noise.
+      - path: internal/ports/(fake|repositorytest|objectstoretest)/
+        linters:
+          - revive
+      # ExecutionPlan/ExecutionCollection are established domain terms; renaming
+      # to execution.Plan/Collection would collide with the plan/collection
+      # aggregates.
+      - path: internal/domain/execution/
+        text: stutters
+        linters:
+          - revive
 
 formatters:
   enable:

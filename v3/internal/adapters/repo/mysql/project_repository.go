@@ -1,7 +1,3 @@
-// Package mysql is the MySQL/MariaDB implementation of the repository ports.
-// It maps domain aggregates onto the shared v2/v3 schema. Behaviour is pinned
-// by the shared suite in internal/ports/repositorytest, so it stays
-// interchangeable with the in-memory fake.
 package mysql
 
 import (
@@ -15,22 +11,10 @@ import (
 	"github.com/hveda/Setagaya/v3/internal/ports"
 )
 
-// ProjectRepository persists projects in MySQL.
-type ProjectRepository struct {
-	db *sql.DB
-}
-
-// NewProjectRepository returns a ProjectRepository backed by db.
-func NewProjectRepository(db *sql.DB) *ProjectRepository {
-	return &ProjectRepository{db: db}
-}
-
-var _ ports.ProjectRepository = (*ProjectRepository)(nil)
-
 const projectColumns = "id, name, owner, sid, tenant_id, created_by, updated_by, created_time"
 
 // CreateProject inserts p and returns its auto-assigned ID.
-func (r *ProjectRepository) CreateProject(ctx context.Context, p project.Project) (int64, error) {
+func (r *Repository) CreateProject(ctx context.Context, p project.Project) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		"INSERT INTO project (name, owner, sid, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?)",
 		p.Name, p.Owner, nullString(p.SID), nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
@@ -46,7 +30,7 @@ func (r *ProjectRepository) CreateProject(ctx context.Context, p project.Project
 }
 
 // GetProject returns the project with id, or ports.ErrNotFound.
-func (r *ProjectRepository) GetProject(ctx context.Context, id int64) (project.Project, error) {
+func (r *Repository) GetProject(ctx context.Context, id int64) (project.Project, error) {
 	row := r.db.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM project WHERE id = ?", id)
 	p, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -59,7 +43,7 @@ func (r *ProjectRepository) GetProject(ctx context.Context, id int64) (project.P
 }
 
 // ListProjectsByOwners returns all projects owned by any of owners.
-func (r *ProjectRepository) ListProjectsByOwners(ctx context.Context, owners []string) ([]project.Project, error) {
+func (r *Repository) ListProjectsByOwners(ctx context.Context, owners []string) ([]project.Project, error) {
 	out := []project.Project{}
 	if len(owners) == 0 {
 		return out, nil
@@ -94,24 +78,8 @@ func (r *ProjectRepository) ListProjectsByOwners(ctx context.Context, owners []s
 }
 
 // DeleteProject removes the project with id, or returns ports.ErrNotFound.
-func (r *ProjectRepository) DeleteProject(ctx context.Context, id int64) error {
-	res, err := r.db.ExecContext(ctx, "DELETE FROM project WHERE id = ?", id)
-	if err != nil {
-		return fmt.Errorf("mysql: delete project: %w", err)
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("mysql: delete project rows: %w", err)
-	}
-	if affected == 0 {
-		return ports.ErrNotFound
-	}
-	return nil
-}
-
-// rowScanner abstracts *sql.Row and *sql.Rows for a shared scan.
-type rowScanner interface {
-	Scan(dest ...any) error
+func (r *Repository) DeleteProject(ctx context.Context, id int64) error {
+	return execDelete(ctx, r.db, "DELETE FROM project WHERE id = ?", id)
 }
 
 func scanProject(s rowScanner) (project.Project, error) {
@@ -134,16 +102,19 @@ func scanProject(s rowScanner) (project.Project, error) {
 	return p, nil
 }
 
-func nullString(s string) any {
-	if s == "" {
-		return nil
+// execDelete runs a single-row DELETE, mapping zero affected rows to
+// ports.ErrNotFound.
+func execDelete(ctx context.Context, db *sql.DB, query string, args ...any) error {
+	res, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("mysql: delete: %w", err)
 	}
-	return s
-}
-
-func nullInt64(v *int64) any {
-	if v == nil {
-		return nil
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mysql: delete rows: %w", err)
 	}
-	return *v
+	if affected == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
 }

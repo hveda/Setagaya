@@ -1,13 +1,10 @@
 package httpapi
 
 import (
-	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/hveda/Setagaya/v3/internal/domain/project"
-	"github.com/hveda/Setagaya/v3/internal/ports"
 )
 
 // projectResponse is the JSON wire shape for a Project. Keeping it separate
@@ -40,7 +37,7 @@ func toProjectResponse(p project.Project) projectResponse {
 func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.deps.Projects.List(r.Context(), h.deps.DefaultOwners)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, err)
 		return
 	}
 	out := make([]projectResponse, 0, len(projects))
@@ -51,19 +48,50 @@ func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) getProject(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("project_id"), 10, 64)
-	if err != nil {
+	id, ok := pathInt(r, "project_id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid project id")
 		return
 	}
 	p, err := h.deps.Projects.Get(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "project not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toProjectResponse(p))
+}
+
+func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeError(w, http.StatusBadRequest, "failed to parse form")
+		return
+	}
+	owner := r.PostForm.Get("owner")
+	if !h.owns(owner) {
+		writeError(w, http.StatusForbidden, "you are not a member of "+owner)
+		return
+	}
+	p, err := h.deps.Projects.Create(r.Context(), r.PostForm.Get("name"), owner, r.PostForm.Get("sid"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toProjectResponse(p))
+}
+
+func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "project_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	if err := h.authorizeProject(r.Context(), id); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.deps.Projects.Delete(r.Context(), id); err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "project deleted"})
 }

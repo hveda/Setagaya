@@ -40,6 +40,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Log.Format != "json" {
 		t.Errorf("Log.Format = %q, want %q", cfg.Log.Format, "json")
 	}
+	if cfg.Storage.Root != "storage-data" {
+		t.Errorf("Storage.Root = %q, want storage-data", cfg.Storage.Root)
+	}
+	if cfg.Limits.MaxEnginesInCollection != 500 {
+		t.Errorf("Limits.MaxEnginesInCollection = %d, want 500", cfg.Limits.MaxEnginesInCollection)
+	}
 }
 
 func TestLoad_Overrides(t *testing.T) {
@@ -54,9 +60,18 @@ func TestLoad_Overrides(t *testing.T) {
 		"SETAGAYA_DB_DSN":             "user:pw@tcp(db:3306)/setagaya",
 		"SETAGAYA_LOG_LEVEL":          "debug",
 		"SETAGAYA_LOG_FORMAT":         "text",
+		"SETAGAYA_STORAGE_ROOT":       "/data/setagaya",
+		"SETAGAYA_STORAGE_BASE_URL":   "https://cdn.example.com",
+		"SETAGAYA_MAX_ENGINES":        "42",
 	}))
 	if err != nil {
 		t.Fatalf("Load with overrides: unexpected error: %v", err)
+	}
+	if cfg.Storage.Root != "/data/setagaya" || cfg.Storage.BaseURL != "https://cdn.example.com" {
+		t.Errorf("Storage = %+v, want overridden root/baseURL", cfg.Storage)
+	}
+	if cfg.Limits.MaxEnginesInCollection != 42 {
+		t.Errorf("MaxEnginesInCollection = %d, want 42", cfg.Limits.MaxEnginesInCollection)
 	}
 
 	if cfg.HTTP.Port != 9090 {
@@ -86,16 +101,18 @@ func TestLoad_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]map[string]string{
-		"port not a number":  {"SETAGAYA_HTTP_PORT": "abc"},
-		"port out of range":  {"SETAGAYA_HTTP_PORT": "70000"},
-		"port zero":          {"SETAGAYA_HTTP_PORT": "0"},
-		"bad read timeout":   {"SETAGAYA_HTTP_READ_TIMEOUT": "soon"},
-		"bad write timeout":  {"SETAGAYA_HTTP_WRITE_TIMEOUT": "later"},
-		"bad idle timeout":   {"SETAGAYA_HTTP_IDLE_TIMEOUT": "never"},
-		"unknown log level":  {"SETAGAYA_LOG_LEVEL": "verbose"},
-		"unknown log format": {"SETAGAYA_LOG_FORMAT": "yaml"},
-		"unknown db driver":  {"SETAGAYA_DB_DRIVER": "postgres"},
-		"mysql without dsn":  {"SETAGAYA_DB_DRIVER": "mysql"},
+		"port not a number":   {"SETAGAYA_HTTP_PORT": "abc"},
+		"port out of range":   {"SETAGAYA_HTTP_PORT": "70000"},
+		"port zero":           {"SETAGAYA_HTTP_PORT": "0"},
+		"bad read timeout":    {"SETAGAYA_HTTP_READ_TIMEOUT": "soon"},
+		"bad write timeout":   {"SETAGAYA_HTTP_WRITE_TIMEOUT": "later"},
+		"bad idle timeout":    {"SETAGAYA_HTTP_IDLE_TIMEOUT": "never"},
+		"unknown log level":   {"SETAGAYA_LOG_LEVEL": "verbose"},
+		"unknown log format":  {"SETAGAYA_LOG_FORMAT": "yaml"},
+		"unknown db driver":   {"SETAGAYA_DB_DRIVER": "postgres"},
+		"mysql without dsn":   {"SETAGAYA_DB_DRIVER": "mysql"},
+		"bad max engines":     {"SETAGAYA_MAX_ENGINES": "-3"},
+		"non-numeric engines": {"SETAGAYA_MAX_ENGINES": "lots"},
 	}
 
 	for name, env := range cases {

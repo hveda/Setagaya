@@ -21,11 +21,21 @@ import (
 
 	"github.com/hveda/Setagaya/v3/internal/adapters/httpapi"
 	mysqladapter "github.com/hveda/Setagaya/v3/internal/adapters/repo/mysql"
+	"github.com/hveda/Setagaya/v3/internal/adapters/storage/local"
+	"github.com/hveda/Setagaya/v3/internal/app/collectionapp"
+	"github.com/hveda/Setagaya/v3/internal/app/planapp"
 	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
 	"github.com/hveda/Setagaya/v3/internal/config"
-	"github.com/hveda/Setagaya/v3/internal/ports"
 	"github.com/hveda/Setagaya/v3/internal/ports/fake"
 )
+
+// repository is the full repository surface the API wires into its services.
+// Both the in-memory fake and the MySQL adapter satisfy it.
+type repository interface {
+	projectapp.Repo
+	planapp.Repo
+	collectionapp.Repo
+}
 
 func main() {
 	if err := realMain(); err != nil {
@@ -49,13 +59,17 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 	setupLogging(cfg.Log)
 
-	repo, err := newProjectRepository(cfg.DB)
+	repo, err := newRepository(cfg.DB)
 	if err != nil {
 		return err
 	}
+	store := local.New(cfg.Storage.Root, cfg.Storage.BaseURL)
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
+		Plans:         planapp.NewService(repo, store),
+		Collections:   collectionapp.NewService(repo, store, cfg.Limits.MaxEnginesInCollection),
+		Store:         store,
 		DefaultOwners: []string{"setagaya"},
 	})
 
@@ -87,13 +101,13 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 }
 
-// newProjectRepository selects the repository implementation from config.
+// newRepository selects the repository implementation from config.
 // "fake" is the in-memory default for local development and the walking
 // skeleton; "mysql" opens the pool and applies migrations.
-func newProjectRepository(cfg config.DBConfig) (ports.ProjectRepository, error) {
+func newRepository(cfg config.DBConfig) (repository, error) {
 	switch cfg.Driver {
 	case "fake":
-		return fake.NewProjectRepository(), nil
+		return fake.NewStore(), nil
 	case "mysql":
 		db, err := sql.Open("mysql", cfg.DSN)
 		if err != nil {

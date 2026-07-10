@@ -13,19 +13,19 @@ import (
 
 func TestNewProjectRepository_Fake(t *testing.T) {
 	t.Parallel()
-	repo, err := newProjectRepository(config.DBConfig{Driver: "fake"})
+	repo, err := newRepository(config.DBConfig{Driver: "fake"})
 	if err != nil {
-		t.Fatalf("newProjectRepository(fake): %v", err)
+		t.Fatalf("newRepository(fake): %v", err)
 	}
 	if repo == nil {
-		t.Fatal("newProjectRepository(fake) returned nil repo")
+		t.Fatal("newRepository(fake) returned nil repo")
 	}
 }
 
 func TestNewProjectRepository_Unsupported(t *testing.T) {
 	t.Parallel()
-	if _, err := newProjectRepository(config.DBConfig{Driver: "postgres"}); err == nil {
-		t.Fatal("newProjectRepository(postgres): expected error, got nil")
+	if _, err := newRepository(config.DBConfig{Driver: "postgres"}); err == nil {
+		t.Fatal("newRepository(postgres): expected error, got nil")
 	}
 }
 
@@ -33,12 +33,12 @@ func TestNewProjectRepository_MySQL_Unreachable(t *testing.T) {
 	t.Parallel()
 	// Nothing listens on port 1, so the ping fails fast: covers the mysql
 	// open-ok / ping-error wiring branch without needing a container.
-	_, err := newProjectRepository(config.DBConfig{
+	_, err := newRepository(config.DBConfig{
 		Driver: "mysql",
 		DSN:    "setagaya:secret@tcp(127.0.0.1:1)/setagaya?parseTime=true",
 	})
 	if err == nil {
-		t.Fatal("newProjectRepository(mysql, unreachable): expected error, got nil")
+		t.Fatal("newRepository(mysql, unreachable): expected error, got nil")
 	}
 }
 
@@ -61,6 +61,14 @@ func TestRun_ConfigError(t *testing.T) {
 	err := run(context.Background(), func(k string) string { return env[k] })
 	if err == nil {
 		t.Fatal("run with invalid config: expected error, got nil")
+	}
+}
+
+func TestRealMain_ConfigError(t *testing.T) {
+	// t.Setenv marks the test non-parallel and restores the env afterwards.
+	t.Setenv("SETAGAYA_HTTP_PORT", "not-a-number")
+	if err := realMain(); err == nil {
+		t.Fatal("realMain with invalid config: expected error, got nil")
 	}
 }
 

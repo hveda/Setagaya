@@ -9,28 +9,25 @@ import (
 	"github.com/hveda/Setagaya/v3/internal/adapters/httpapi"
 	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
 	"github.com/hveda/Setagaya/v3/internal/domain/project"
-	"github.com/hveda/Setagaya/v3/internal/ports"
+	"github.com/hveda/Setagaya/v3/internal/ports/fake"
 )
 
-// boomRepo fails every read, to drive the handlers' 500 branches.
-type boomRepo struct{}
-
-func (boomRepo) CreateProject(context.Context, project.Project) (int64, error) {
-	return 0, errors.New("boom")
+// boomRepo embeds a real fake store but forces the project reads to fail,
+// driving the handlers' 500 branches.
+type boomRepo struct {
+	*fake.Store
 }
+
 func (boomRepo) GetProject(context.Context, int64) (project.Project, error) {
 	return project.Project{}, errors.New("boom")
 }
 func (boomRepo) ListProjectsByOwners(context.Context, []string) ([]project.Project, error) {
 	return nil, errors.New("boom")
 }
-func (boomRepo) DeleteProject(context.Context, int64) error { return errors.New("boom") }
-
-var _ ports.ProjectRepository = boomRepo{}
 
 func boomRouter() http.Handler {
 	return httpapi.NewRouter(httpapi.Deps{
-		Projects:      projectapp.NewService(boomRepo{}),
+		Projects:      projectapp.NewService(boomRepo{Store: fake.NewStore()}),
 		DefaultOwners: []string{"setagaya"},
 	})
 }

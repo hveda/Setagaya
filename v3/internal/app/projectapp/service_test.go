@@ -6,13 +6,15 @@ import (
 	"testing"
 
 	"github.com/hveda/Setagaya/v3/internal/app/projectapp"
+	"github.com/hveda/Setagaya/v3/internal/domain/collection"
+	"github.com/hveda/Setagaya/v3/internal/domain/plan"
 	"github.com/hveda/Setagaya/v3/internal/domain/project"
 	"github.com/hveda/Setagaya/v3/internal/ports"
 	"github.com/hveda/Setagaya/v3/internal/ports/fake"
 )
 
 func newService() *projectapp.Service {
-	return projectapp.NewService(fake.NewProjectRepository())
+	return projectapp.NewService(fake.NewStore())
 }
 
 func TestService_List_EmptyByDefault(t *testing.T) {
@@ -93,4 +95,59 @@ func TestService_Get_And_Delete(t *testing.T) {
 	if _, err := svc.Get(ctx, created.ID); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("Get after Delete err = %v, want ErrNotFound", err)
 	}
+}
+
+func TestService_Delete_Missing(t *testing.T) {
+	t.Parallel()
+	if err := newService().Delete(context.Background(), 4242); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Delete(missing) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestService_Delete_RefusesWhenNotEmpty(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Project with a plan cannot be deleted.
+	withPlan := fake.NewStore()
+	pid, _ := withPlan.CreateProject(ctx, mustProject(t, "p", "team-a"))
+	_, _ = withPlan.CreatePlan(ctx, mustPlan(t, "smoke", pid))
+	if err := projectapp.NewService(withPlan).Delete(ctx, pid); !errors.Is(err, projectapp.ErrProjectHasPlans) {
+		t.Fatalf("Delete(project with plan) = %v, want ErrProjectHasPlans", err)
+	}
+
+	// Project with a collection cannot be deleted.
+	withColl := fake.NewStore()
+	pid2, _ := withColl.CreateProject(ctx, mustProject(t, "p", "team-a"))
+	_, _ = withColl.CreateCollection(ctx, mustCollection(t, "peak", pid2))
+	if err := projectapp.NewService(withColl).Delete(ctx, pid2); !errors.Is(err, projectapp.ErrProjectHasCollections) {
+		t.Fatalf("Delete(project with collection) = %v, want ErrProjectHasCollections", err)
+	}
+}
+
+func mustProject(t *testing.T, name, owner string) project.Project {
+	t.Helper()
+	p, err := project.New(name, owner, "")
+	if err != nil {
+		t.Fatalf("project.New: %v", err)
+	}
+	return p
+}
+
+func mustPlan(t *testing.T, name string, projectID int64) plan.Plan {
+	t.Helper()
+	p, err := plan.New(name, projectID)
+	if err != nil {
+		t.Fatalf("plan.New: %v", err)
+	}
+	return p
+}
+
+func mustCollection(t *testing.T, name string, projectID int64) collection.Collection {
+	t.Helper()
+	c, err := collection.New(name, projectID)
+	if err != nil {
+		t.Fatalf("collection.New: %v", err)
+	}
+	return c
 }

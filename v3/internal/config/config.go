@@ -15,9 +15,22 @@ import (
 
 // Config is the fully-resolved, validated runtime configuration.
 type Config struct {
-	HTTP HTTPConfig
-	DB   DBConfig
-	Log  LogConfig
+	HTTP    HTTPConfig
+	DB      DBConfig
+	Log     LogConfig
+	Storage StorageConfig
+	Limits  LimitsConfig
+}
+
+// StorageConfig configures the object store used for uploaded artifacts.
+type StorageConfig struct {
+	Root    string // filesystem root for the local store
+	BaseURL string // optional public base URL for retrieval links
+}
+
+// LimitsConfig holds platform guardrails.
+type LimitsConfig struct {
+	MaxEnginesInCollection int
 }
 
 // HTTPConfig configures the API HTTP server.
@@ -58,9 +71,11 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		HTTP: HTTPConfig{Port: 8080, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second},
-		DB:   DBConfig{Driver: "fake"},
-		Log:  LogConfig{Level: "info", Format: "json"},
+		HTTP:    HTTPConfig{Port: 8080, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second},
+		DB:      DBConfig{Driver: "fake"},
+		Log:     LogConfig{Level: "info", Format: "json"},
+		Storage: StorageConfig{Root: "storage-data"},
+		Limits:  LimitsConfig{MaxEnginesInCollection: 500},
 	}
 
 	var err error
@@ -80,6 +95,11 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.DB.DSN = strEnv(getenv, "DB_DSN", cfg.DB.DSN)
 	cfg.Log.Level = strEnv(getenv, "LOG_LEVEL", cfg.Log.Level)
 	cfg.Log.Format = strEnv(getenv, "LOG_FORMAT", cfg.Log.Format)
+	cfg.Storage.Root = strEnv(getenv, "STORAGE_ROOT", cfg.Storage.Root)
+	cfg.Storage.BaseURL = strEnv(getenv, "STORAGE_BASE_URL", cfg.Storage.BaseURL)
+	if cfg.Limits.MaxEnginesInCollection, err = intEnv(getenv, "MAX_ENGINES", cfg.Limits.MaxEnginesInCollection); err != nil {
+		return Config{}, err
+	}
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
@@ -102,6 +122,9 @@ func (c Config) validate() error {
 	}
 	if c.DB.Driver == "mysql" && c.DB.DSN == "" {
 		return fmt.Errorf("config: db driver mysql requires %sDB_DSN", envPrefix)
+	}
+	if c.Limits.MaxEnginesInCollection <= 0 {
+		return fmt.Errorf("config: %sMAX_ENGINES must be positive", envPrefix)
 	}
 	return nil
 }

@@ -14,11 +14,11 @@ import (
 func TestNewProjectRepository_MySQL(t *testing.T) {
 	dsn := dbtest.StartMySQLDSN(t)
 
-	repo, err := newProjectRepository(config.DBConfig{Driver: "mysql", DSN: dsn})
+	repo, err := newRepository(config.DBConfig{Driver: "mysql", DSN: dsn})
 	if err != nil {
-		t.Fatalf("newProjectRepository(mysql): %v", err)
+		t.Fatalf("newRepository(mysql): %v", err)
 	}
 	if repo == nil {
-		t.Fatal("newProjectRepository(mysql) returned nil repo")
+		t.Fatal("newRepository(mysql) returned nil repo")
 	}
 }
