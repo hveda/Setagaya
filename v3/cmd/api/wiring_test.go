@@ -75,7 +75,30 @@ func TestNewExecutor(t *testing.T) {
 	if e, err := newExecutor(config.ClusterConfig{Executor: "jmeter"}); err != nil || e == nil {
 		t.Fatalf("newExecutor(jmeter) = %v, %v", e, err)
 	}
+	if e, err := newExecutor(config.ClusterConfig{Executor: "k6"}); err != nil || e == nil || e.Kind() != "k6" {
+		t.Fatalf("newExecutor(k6) = %v, %v", e, err)
+	}
 	if _, err := newExecutor(config.ClusterConfig{Executor: "nope"}); err == nil {
 		t.Fatal("newExecutor(nope): expected error, got nil")
+	}
+}
+
+func TestNewObjectStore(t *testing.T) {
+	t.Parallel()
+
+	if s, err := newObjectStore(config.StorageConfig{Driver: "local", Root: t.TempDir()}); err != nil || s == nil {
+		t.Fatalf("newObjectStore(local) = %v, %v", s, err)
+	}
+	s, err := newObjectStore(config.StorageConfig{
+		Driver: "nexus", BaseURL: "https://nexus.example", Repo: "raw", Username: "u", Password: "p",
+	})
+	if err != nil || s == nil {
+		t.Fatalf("newObjectStore(nexus) = %v, %v", s, err)
+	}
+	if got := s.URL("plan/1/a.jmx"); got != "https://nexus.example/repository/raw/plan/1/a.jmx" {
+		t.Fatalf("nexus URL = %q", got)
+	}
+	if _, err := newObjectStore(config.StorageConfig{Driver: "s3"}); err == nil {
+		t.Fatal("newObjectStore(s3): expected error, got nil")
 	}
 }

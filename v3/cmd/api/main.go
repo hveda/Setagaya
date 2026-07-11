@@ -28,11 +28,13 @@ import (
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/auth/oidc"
 	eventbus "github.com/heridotlife/Setagaya/v3/internal/adapters/eventbus/memory"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/executor/jmeter"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/executor/k6"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/httpapi"
 	promsink "github.com/heridotlife/Setagaya/v3/internal/adapters/metrics/prometheus"
 	mysqladapter "github.com/heridotlife/Setagaya/v3/internal/adapters/repo/mysql"
 	k8sscheduler "github.com/heridotlife/Setagaya/v3/internal/adapters/scheduler/k8s"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/storage/local"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/storage/nexus"
 	"github.com/heridotlife/Setagaya/v3/internal/app/adminapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/authapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
@@ -85,7 +87,10 @@ func run(ctx context.Context, getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
-	store := local.New(cfg.Storage.Root, cfg.Storage.BaseURL)
+	store, err := newObjectStore(cfg.Storage)
+	if err != nil {
+		return err
+	}
 
 	sched, err := newScheduler(cfg.Cluster)
 	if err != nil {
@@ -272,15 +277,34 @@ func fetchJWKS(ctx context.Context, url string) (*oidc.StaticKeySet, error) {
 }
 
 // newExecutor selects the Executor adapter. "fake" records triggers; "jmeter"
-// drives the JMeter agent over HTTP.
+// and "k6" drive their respective agents over HTTP.
 func newExecutor(cfg config.ClusterConfig) (ports.Executor, error) {
 	switch cfg.Executor {
 	case "fake":
 		return fake.NewExecutor(), nil
 	case "jmeter":
 		return jmeter.New(nil), nil
+	case "k6":
+		return k6.New(nil), nil
 	default:
 		return nil, fmt.Errorf("executor %q not supported", cfg.Executor)
+	}
+}
+
+// newObjectStore selects the ObjectStore adapter. "local" stores artifacts on
+// the filesystem; "nexus" targets a Sonatype Nexus raw repository.
+func newObjectStore(cfg config.StorageConfig) (ports.ObjectStore, error) {
+	switch cfg.Driver {
+	case "local":
+		return local.New(cfg.Root, cfg.BaseURL), nil
+	case "nexus":
+		opts := []nexus.Option{}
+		if cfg.Username != "" || cfg.Password != "" {
+			opts = append(opts, nexus.WithBasicAuth(cfg.Username, cfg.Password))
+		}
+		return nexus.New(cfg.BaseURL, cfg.Repo, opts...), nil
+	default:
+		return nil, fmt.Errorf("storage driver %q not supported", cfg.Driver)
 	}
 }
 

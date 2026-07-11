@@ -64,9 +64,16 @@ type ClusterConfig struct {
 }
 
 // StorageConfig configures the object store used for uploaded artifacts.
+//
+// Driver "local" stores files under Root; "nexus" targets a Sonatype Nexus raw
+// repository at BaseURL/repository/Repo, optionally with basic-auth credentials.
 type StorageConfig struct {
-	Root    string // filesystem root for the local store
-	BaseURL string // optional public base URL for retrieval links
+	Driver   string // local|nexus
+	Root     string // filesystem root for the local store
+	BaseURL  string // public base URL: retrieval links (local) or Nexus server (nexus)
+	Repo     string // nexus raw repository name
+	Username string // nexus basic-auth username
+	Password string // nexus basic-auth password
 }
 
 // LimitsConfig holds platform guardrails.
@@ -115,7 +122,7 @@ func Load(getenv func(string) string) (Config, error) {
 		HTTP:    HTTPConfig{Port: 8080, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second},
 		DB:      DBConfig{Driver: "fake"},
 		Log:     LogConfig{Level: "info", Format: "json"},
-		Storage: StorageConfig{Root: "storage-data"},
+		Storage: StorageConfig{Driver: "local", Root: "storage-data"},
 		Limits:  LimitsConfig{MaxEnginesInCollection: 500},
 		Cluster: ClusterConfig{
 			Scheduler:     "fake",
@@ -146,8 +153,12 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.DB.DSN = strEnv(getenv, "DB_DSN", cfg.DB.DSN)
 	cfg.Log.Level = strEnv(getenv, "LOG_LEVEL", cfg.Log.Level)
 	cfg.Log.Format = strEnv(getenv, "LOG_FORMAT", cfg.Log.Format)
+	cfg.Storage.Driver = strEnv(getenv, "STORAGE_DRIVER", cfg.Storage.Driver)
 	cfg.Storage.Root = strEnv(getenv, "STORAGE_ROOT", cfg.Storage.Root)
 	cfg.Storage.BaseURL = strEnv(getenv, "STORAGE_BASE_URL", cfg.Storage.BaseURL)
+	cfg.Storage.Repo = strEnv(getenv, "NEXUS_REPO", cfg.Storage.Repo)
+	cfg.Storage.Username = strEnv(getenv, "NEXUS_USERNAME", cfg.Storage.Username)
+	cfg.Storage.Password = strEnv(getenv, "NEXUS_PASSWORD", cfg.Storage.Password)
 	if cfg.Limits.MaxEnginesInCollection, err = intEnv(getenv, "MAX_ENGINES", cfg.Limits.MaxEnginesInCollection); err != nil {
 		return Config{}, err
 	}
@@ -201,8 +212,19 @@ func (c Config) validate() error {
 	if !oneOf(c.Cluster.Scheduler, "fake", "k8s") {
 		return fmt.Errorf("config: invalid scheduler %q", c.Cluster.Scheduler)
 	}
-	if !oneOf(c.Cluster.Executor, "fake", "jmeter") {
+	if !oneOf(c.Cluster.Executor, "fake", "jmeter", "k6") {
 		return fmt.Errorf("config: invalid executor %q", c.Cluster.Executor)
+	}
+	if !oneOf(c.Storage.Driver, "local", "nexus") {
+		return fmt.Errorf("config: invalid storage driver %q", c.Storage.Driver)
+	}
+	if c.Storage.Driver == "nexus" {
+		if c.Storage.BaseURL == "" {
+			return fmt.Errorf("config: storage driver nexus requires %sSTORAGE_BASE_URL", envPrefix)
+		}
+		if c.Storage.Repo == "" {
+			return fmt.Errorf("config: storage driver nexus requires %sNEXUS_REPO", envPrefix)
+		}
 	}
 	if c.Cluster.EnginePort < 1 || c.Cluster.EnginePort > 65535 {
 		return fmt.Errorf("config: %sENGINE_PORT %d out of range 1-65535", envPrefix, c.Cluster.EnginePort)

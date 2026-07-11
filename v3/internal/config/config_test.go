@@ -43,6 +43,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Storage.Root != "storage-data" {
 		t.Errorf("Storage.Root = %q, want storage-data", cfg.Storage.Root)
 	}
+	if cfg.Storage.Driver != "local" {
+		t.Errorf("Storage.Driver = %q, want local", cfg.Storage.Driver)
+	}
 	if cfg.Limits.MaxEnginesInCollection != 500 {
 		t.Errorf("Limits.MaxEnginesInCollection = %d, want 500", cfg.Limits.MaxEnginesInCollection)
 	}
@@ -73,6 +76,29 @@ func TestLoad_AuthOverrides(t *testing.T) {
 	if cfg.Auth.OIDC.Issuer != "https://issuer.example" || cfg.Auth.OIDC.Audience != "setagaya" ||
 		cfg.Auth.OIDC.JWKSURL != "https://issuer.example/jwks" {
 		t.Fatalf("OIDC = %+v", cfg.Auth.OIDC)
+	}
+}
+
+func TestLoad_StorageAndExecutorOverrides(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(envMap(map[string]string{
+		"SETAGAYA_EXECUTOR":         "k6",
+		"SETAGAYA_STORAGE_DRIVER":   "nexus",
+		"SETAGAYA_STORAGE_BASE_URL": "https://nexus.example",
+		"SETAGAYA_NEXUS_REPO":       "setagaya-raw",
+		"SETAGAYA_NEXUS_USERNAME":   "admin",
+		"SETAGAYA_NEXUS_PASSWORD":   "s3cret",
+	}))
+	if err != nil {
+		t.Fatalf("Load storage/executor overrides: %v", err)
+	}
+	if cfg.Cluster.Executor != "k6" {
+		t.Fatalf("Executor = %q, want k6", cfg.Cluster.Executor)
+	}
+	if cfg.Storage.Driver != "nexus" || cfg.Storage.Repo != "setagaya-raw" ||
+		cfg.Storage.Username != "admin" || cfg.Storage.Password != "s3cret" {
+		t.Fatalf("Storage = %+v", cfg.Storage)
 	}
 }
 
@@ -151,6 +177,9 @@ func TestLoad_ValidationErrors(t *testing.T) {
 		"bad enable rbac":     {"SETAGAYA_ENABLE_RBAC": "maybe"},
 		"oidc without issuer": {"SETAGAYA_AUTH_MODE": "oidc", "SETAGAYA_OIDC_JWKS_URL": "https://x/jwks"},
 		"oidc without jwks":   {"SETAGAYA_AUTH_MODE": "oidc", "SETAGAYA_OIDC_ISSUER": "https://x"},
+		"unknown storage":     {"SETAGAYA_STORAGE_DRIVER": "s3"},
+		"nexus without url":   {"SETAGAYA_STORAGE_DRIVER": "nexus", "SETAGAYA_NEXUS_REPO": "raw"},
+		"nexus without repo":  {"SETAGAYA_STORAGE_DRIVER": "nexus", "SETAGAYA_STORAGE_BASE_URL": "https://x"},
 	}
 
 	for name, env := range cases {
