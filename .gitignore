@@ -1,33 +1,20 @@
-setagaya-bin
-setagaya/db/all.sql
-setagaya/config/gcp
-docs/book
-setagaya/setagaya-gcp.json
-setagaya/build
-setagaya/config.json
-.DS_Store
-debug.yaml
-
-# Binaries and executables
-# NOTE: patterns must target the compiled binary *files*, not source directories.
-# Bare names like `**/setagaya`, `**/ingress-controller`, `**/*-controller` also
-# match the source directories, which makes `git add setagaya/...` fail and broke
-# Dependabot's Go module updates ("paths are ignored by one of your .gitignore").
+# Binaries and build output
 *.exe
-*/setagaya-*
-setagaya/setagaya
-ingress-controller/sic
-ingress-controller/ingress-controller
-local_storage/storage
-local_storage/v0
-bin/golangci-lint
+/bin/
+/dist/
+setagaya-api
 
-# Go build artifacts
-*/coverage.out
-*/coverage.html
-**/go.sum~
-**/go.mod~
+# Test & coverage artifacts
+cover.out
+*.coverprofile
+coverage.out
+coverage.html
 
-# Temporary files
+# Local object-store data
+storage-data/
+
+# Editor / OS
+.DS_Store
 *.tmp
 *.temp
+debug.yaml

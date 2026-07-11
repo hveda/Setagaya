@@ -1,5 +1,0 @@
-# Exclude development files
-.git
-.gitignore
-README.md
-Makefile
