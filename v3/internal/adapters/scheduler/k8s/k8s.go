@@ -25,17 +25,23 @@ import (
 const managedByLabel = "managed-by"
 const managedByValue = "setagaya-v3"
 
+// defaultPoolLabel groups nodes into pools when Config.PoolLabel is unset.
+const defaultPoolLabel = "cloud.google.com/gke-nodepool"
+
 // Config tunes the adapter.
 type Config struct {
 	Namespace  string
 	EnginePort int
+	// PoolLabel is the node label whose value names the node pool.
+	PoolLabel string
 }
 
 // Scheduler is the Kubernetes-backed ports.Scheduler.
 type Scheduler struct {
-	client kubernetes.Interface
-	ns     string
-	port   int
+	client    kubernetes.Interface
+	ns        string
+	port      int
+	poolLabel string
 }
 
 // New builds a Scheduler over the given clientset.
@@ -48,7 +54,11 @@ func New(client kubernetes.Interface, cfg Config) *Scheduler {
 	if port == 0 {
 		port = 8080
 	}
-	return &Scheduler{client: client, ns: ns, port: port}
+	poolLabel := cfg.PoolLabel
+	if poolLabel == "" {
+		poolLabel = defaultPoolLabel
+	}
+	return &Scheduler{client: client, ns: ns, port: port, poolLabel: poolLabel}
 }
 
 var _ ports.Scheduler = (*Scheduler)(nil)
@@ -284,6 +294,38 @@ func (s *Scheduler) PodLog(ctx context.Context, collectionID, planID int64) (str
 		return "", err
 	}
 	return string(body), nil
+}
+
+// NodePools groups cluster nodes by their pool label, reporting each pool's
+// size and earliest node creation time.
+func (s *Scheduler) NodePools(ctx context.Context) ([]ports.NodePool, error) {
+	nodes, err := s.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	byPool := map[string]*ports.NodePool{}
+	for i := range nodes.Items {
+		n := &nodes.Items[i]
+		name := n.Labels[s.poolLabel]
+		if name == "" {
+			name = "default"
+		}
+		created := n.CreationTimestamp.Time
+		if pool, ok := byPool[name]; ok {
+			pool.Size++
+			if created.Before(pool.LaunchTime) {
+				pool.LaunchTime = created
+			}
+		} else {
+			byPool[name] = &ports.NodePool{Name: name, Size: 1, LaunchTime: created}
+		}
+	}
+	pools := make([]ports.NodePool, 0, len(byPool))
+	for _, p := range byPool {
+		pools = append(pools, *p)
+	}
+	sort.Slice(pools, func(i, j int) bool { return pools[i].Name < pools[j].Name })
+	return pools, nil
 }
 
 // DeployedCollections maps collection id to its earliest StatefulSet creation.

@@ -15,6 +15,7 @@ import (
 	"github.com/heridotlife/Setagaya/v3/internal/domain/engine"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/run"
 	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
@@ -25,6 +26,7 @@ var ErrNoTestFile = errors.New("lifecycle: plan has no test file")
 // Repo is the persistence the lifecycle use-cases need: read access to the
 // collection, its execution plans and files, plus run/running-plan state.
 type Repo interface {
+	GetProject(ctx context.Context, id int64) (project.Project, error)
 	GetCollection(ctx context.Context, id int64) (collection.Collection, error)
 	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]execution.ExecutionPlan, error)
 	GetPlan(ctx context.Context, id int64) (plan.Plan, error)
@@ -33,6 +35,35 @@ type Repo interface {
 	ports.RunRepository
 }
 
+// Metrics is the metric-collection lifecycle the run drives: Start streaming on
+// trigger, Stop on teardown, and Purge (stop + drop series) on purge. The
+// metricsapp service implements it; a no-op default is used when none is wired
+// (e.g. in tests that don't exercise metrics).
+type Metrics interface {
+	Start(collectionID int64)
+	Stop(collectionID int64)
+	Purge(collectionID int64)
+}
+
+type noopMetrics struct{}
+
+func (noopMetrics) Start(int64) {}
+func (noopMetrics) Stop(int64)  {}
+func (noopMetrics) Purge(int64) {}
+
+// Usage records the usage of a run: a launch opened on trigger and closed on
+// teardown. The usageapp service implements it; a no-op default is used when
+// none is wired.
+type Usage interface {
+	RecordStart(ctx context.Context, collectionID int64, owner string, engines, vu int) error
+	RecordFinish(ctx context.Context, collectionID int64, vu int) error
+}
+
+type noopUsage struct{}
+
+func (noopUsage) RecordStart(context.Context, int64, string, int, int) error { return nil }
+func (noopUsage) RecordFinish(context.Context, int64, int) error             { return nil }
+
 // Service implements the lifecycle use-cases.
 type Service struct {
 	repo        Repo
@@ -40,12 +71,31 @@ type Service struct {
 	exec        ports.Executor
 	store       ports.ObjectStore
 	engineImage string
+	metrics     Metrics
+	usage       Usage
 }
 
 // NewService wires the lifecycle service. engineImage is the executor container
 // image deployed for every engine.
 func NewService(repo Repo, sched ports.Scheduler, exec ports.Executor, store ports.ObjectStore, engineImage string) *Service {
-	return &Service{repo: repo, sched: sched, exec: exec, store: store, engineImage: engineImage}
+	return &Service{repo: repo, sched: sched, exec: exec, store: store, engineImage: engineImage, metrics: noopMetrics{}, usage: noopUsage{}}
+}
+
+// WithMetrics attaches the metric collector started on trigger and stopped on
+// teardown/purge. Returns the receiver for chaining.
+func (s *Service) WithMetrics(m Metrics) *Service {
+	if m != nil {
+		s.metrics = m
+	}
+	return s
+}
+
+// WithUsage attaches the usage recorder. Returns the receiver for chaining.
+func (s *Service) WithUsage(u Usage) *Service {
+	if u != nil {
+		s.usage = u
+	}
+	return s
 }
 
 // Deploy provisions the engines for every plan of a collection. It is rejected
@@ -141,6 +191,12 @@ func (s *Service) Trigger(ctx context.Context, collectionID int64) error {
 	if len(triggerErrs) > 0 {
 		return fmt.Errorf("lifecycle: trigger errors: %w", errors.Join(triggerErrs...))
 	}
+	// Begin streaming metrics from the now-running engines and open a usage
+	// launch (best effort: accounting must not fail a successful trigger).
+	s.metrics.Start(collectionID)
+	if proj, perr := s.repo.GetProject(ctx, coll.ProjectID); perr == nil {
+		_ = s.usage.RecordStart(ctx, collectionID, proj.Owner, ec.TotalEngines(), run.VirtualUsers(ec))
+	}
 	return nil
 }
 
@@ -198,12 +254,17 @@ func (s *Service) Purge(ctx context.Context, collectionID int64) error {
 			return err
 		}
 	}
-	return s.sched.PurgeCollection(ctx, collectionID)
+	if err := s.sched.PurgeCollection(ctx, collectionID); err != nil {
+		return err
+	}
+	s.metrics.Purge(collectionID)
+	return nil
 }
 
-// teardown stops engines and clears run/running-plan state (best effort on the
-// engine stop calls, which may already be gone).
+// teardown stops metric collection and engines, and clears run/running-plan
+// state (best effort on the engine stop calls, which may already be gone).
 func (s *Service) teardown(ctx context.Context, collectionID int64) error {
+	s.metrics.Stop(collectionID)
 	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
 	if err != nil {
 		return err
@@ -218,6 +279,9 @@ func (s *Service) teardown(ctx context.Context, collectionID int64) error {
 			return err
 		}
 	}
+	// Close the usage launch (best effort).
+	vu := run.VirtualUsers(execution.ExecutionCollection{Tests: plans})
+	_ = s.usage.RecordFinish(ctx, collectionID, vu)
 	return s.repo.StopRun(ctx, collectionID)
 }
 

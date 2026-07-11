@@ -47,6 +47,7 @@ var (
 	_ ports.PlanRepository       = (*Repository)(nil)
 	_ ports.CollectionRepository = (*Repository)(nil)
 	_ ports.RunRepository        = (*Repository)(nil)
+	_ ports.UsageRepository      = (*Repository)(nil)
 )
 
 // rowScanner abstracts *sql.Row and *sql.Rows for a shared scan.

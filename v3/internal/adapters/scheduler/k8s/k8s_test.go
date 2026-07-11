@@ -127,6 +127,42 @@ func TestK8sScheduler_EngineURLsUnreachableWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestK8sScheduler_NodePoolsGroupByLabel(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns, PoolLabel: "node-pool"})
+
+	nodes := []struct {
+		name, pool string
+	}{
+		{"n1", "engines"}, {"n2", "engines"}, {"n3", "system"}, {"n4", ""},
+	}
+	for _, n := range nodes {
+		labels := map[string]string{}
+		if n.pool != "" {
+			labels["node-pool"] = n.pool
+		}
+		if _, err := client.CoreV1().Nodes().Create(ctx, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: n.name, Labels: labels},
+		}, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create node: %v", err)
+		}
+	}
+
+	pools, err := s.NodePools(ctx)
+	if err != nil {
+		t.Fatalf("NodePools: %v", err)
+	}
+	sizes := map[string]int{}
+	for _, p := range pools {
+		sizes[p.Name] = p.Size
+	}
+	if sizes["engines"] != 2 || sizes["system"] != 1 || sizes["default"] != 1 {
+		t.Fatalf("pool sizes = %+v", sizes)
+	}
+}
+
 func TestK8sScheduler_StatusCountsOnlyReadyPods(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

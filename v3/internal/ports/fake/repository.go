@@ -39,33 +39,48 @@ type Store struct {
 	currentRun map[int64]int64               // collectionID -> active runID
 	runHistory map[int64]*ports.RunRecord    // runID -> history row
 	running    map[int64]map[int64]time.Time // collectionID -> planID -> startedTime
+
+	deployContext string
+	openLaunch    map[int64]*ports.LaunchRecord // collectionID -> open launch
+	launchHistory []*ports.LaunchRecord
 }
 
 // NewStore returns an empty in-memory Store.
 func NewStore() *Store {
 	return &Store{
-		now:         time.Now,
-		projects:    make(map[int64]project.Project),
-		plans:       make(map[int64]plan.Plan),
-		planTest:    make(map[int64]string),
-		planData:    make(map[int64]map[string]struct{}),
-		collections: make(map[int64]collection.Collection),
-		collData:    make(map[int64]map[string]struct{}),
-		exec:        make(map[int64][]execution.ExecutionPlan),
-		currentRun:  make(map[int64]int64),
-		runHistory:  make(map[int64]*ports.RunRecord),
-		running:     make(map[int64]map[int64]time.Time),
+		now:           time.Now,
+		projects:      make(map[int64]project.Project),
+		plans:         make(map[int64]plan.Plan),
+		planTest:      make(map[int64]string),
+		planData:      make(map[int64]map[string]struct{}),
+		collections:   make(map[int64]collection.Collection),
+		collData:      make(map[int64]map[string]struct{}),
+		exec:          make(map[int64][]execution.ExecutionPlan),
+		currentRun:    make(map[int64]int64),
+		runHistory:    make(map[int64]*ports.RunRecord),
+		running:       make(map[int64]map[int64]time.Time),
+		deployContext: "default",
+		openLaunch:    make(map[int64]*ports.LaunchRecord),
 	}
 }
 
 // NewProjectRepository returns a Store viewed as a ProjectRepository.
 func NewProjectRepository() *Store { return NewStore() }
 
+// SetNow overrides the clock used for created/started timestamps, for
+// deterministic tests.
+func (s *Store) SetNow(now func() time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.now = now
+}
+
 var (
 	_ ports.ProjectRepository    = (*Store)(nil)
 	_ ports.PlanRepository       = (*Store)(nil)
 	_ ports.CollectionRepository = (*Store)(nil)
 	_ ports.RunRepository        = (*Store)(nil)
+	_ ports.UsageRepository      = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------

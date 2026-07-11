@@ -113,6 +113,12 @@ func TestLoad_ValidationErrors(t *testing.T) {
 		"mysql without dsn":   {"SETAGAYA_DB_DRIVER": "mysql"},
 		"bad max engines":     {"SETAGAYA_MAX_ENGINES": "-3"},
 		"non-numeric engines": {"SETAGAYA_MAX_ENGINES": "lots"},
+		"unknown scheduler":   {"SETAGAYA_SCHEDULER": "nomad"},
+		"unknown executor":    {"SETAGAYA_EXECUTOR": "locust"},
+		"bad engine port":     {"SETAGAYA_ENGINE_PORT": "99999"},
+		"non-numeric port":    {"SETAGAYA_ENGINE_PORT": "eighty"},
+		"bad purge interval":  {"SETAGAYA_AUTOPURGE_INTERVAL": "soon"},
+		"bad purge idle":      {"SETAGAYA_AUTOPURGE_IDLE": "forever"},
 	}
 
 	for name, env := range cases {

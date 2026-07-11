@@ -9,10 +9,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/heridotlife/Setagaya/v3/internal/app/adminapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/usageapp"
 	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
@@ -22,6 +24,9 @@ type Deps struct {
 	Plans       *planapp.Service
 	Collections *collectionapp.Service
 	Lifecycle   *lifecycleapp.Service
+	Usage       *usageapp.Service
+	Admin       *adminapp.Service
+	Events      ports.EventBus
 	Store       ports.ObjectStore
 	// DefaultOwners is the owner set used when no authenticated account is
 	// present (no-auth mode). Replaced by the auth adapter in a later phase.
@@ -68,6 +73,15 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/collections/{collection_id}/status", h.collectionStatus)
 	mux.HandleFunc("GET /api/collections/{collection_id}/engines", h.collectionEngines)
 	mux.HandleFunc("GET /api/collections/{collection_id}/plans/{plan_id}/logs", h.planPodLog)
+	mux.HandleFunc("GET /api/collections/{collection_id}/stream", h.streamCollection)
+
+	// Usage
+	mux.HandleFunc("GET /api/usage/history", h.usageHistory)
+	mux.HandleFunc("GET /api/usage/summary", h.usageSummary)
+
+	// Admin
+	mux.HandleFunc("GET /api/admin/collections", h.adminCollections)
+	mux.HandleFunc("GET /api/admin/nodes", h.adminNodes)
 
 	// Generic artifact download
 	mux.HandleFunc("GET /api/files/{kind}/{id}/{name}", h.downloadFile)

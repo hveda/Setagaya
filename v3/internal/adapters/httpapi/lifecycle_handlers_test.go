@@ -166,3 +166,36 @@ func TestLifecycleHTTP_DeployMissingCollection(t *testing.T) {
 		t.Fatalf("deploy missing = %d, want 404", rec.Code)
 	}
 }
+
+func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newLifecycleEnv(t, "setagaya")
+	// A fresh owned collection with no execution config.
+	c, _ := e.store.GetCollection(ctx, e.collectionID)
+	bare, _ := collection.New("bare", c.ProjectID)
+	bareID, _ := e.store.CreateCollection(ctx, bare)
+
+	rec := do(t, e.h, http.MethodPost, "/api/collections/"+itoa(bareID)+"/deploy")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("deploy no plans = %d, want 400", rec.Code)
+	}
+}
+
+func TestLifecycleHTTP_EnginesMissingCollection(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "setagaya")
+	if rec := do(t, e.h, http.MethodGet, "/api/collections/9999/engines"); rec.Code != http.StatusNotFound {
+		t.Fatalf("engines missing = %d, want 404", rec.Code)
+	}
+}
+
+func TestLifecycleHTTP_PodLogNotDeployed(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "setagaya")
+	// No deploy: the plan's engines are unreachable -> 409 conflict.
+	rec := do(t, e.h, http.MethodGet, "/api/collections/"+itoa(e.collectionID)+"/plans/"+itoa(e.planID)+"/logs")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("logs not deployed = %d, want 409", rec.Code)
+	}
+}

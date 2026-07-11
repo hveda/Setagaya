@@ -23,6 +23,8 @@ type Scheduler struct {
 	PodLogText string
 	// IngressIP is reported by EngineDetail.
 	IngressIP string
+	// Pools is returned by NodePools.
+	Pools []ports.NodePool
 	// Now supplies deploy timestamps; defaults to time.Now.
 	Now func() time.Time
 }
@@ -38,7 +40,15 @@ func NewScheduler() *Scheduler {
 		deployments: map[int64]map[int64]schedDeploy{},
 		PodLogText:  "fake engine log",
 		IngressIP:   "10.0.0.1",
+		Pools:       []ports.NodePool{{Name: "default", Size: 1}},
 	}
+}
+
+// NodePools returns the configured pools.
+func (s *Scheduler) NodePools(_ context.Context) ([]ports.NodePool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]ports.NodePool(nil), s.Pools...), nil
 }
 
 func (s *Scheduler) now() time.Time {

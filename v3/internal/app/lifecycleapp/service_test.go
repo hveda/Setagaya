@@ -374,6 +374,88 @@ func TestStop_WhenEnginesUnreachable(t *testing.T) {
 	}
 }
 
+// recordingMetrics implements lifecycleapp.Metrics and records the calls.
+type recordingMetrics struct {
+	started, stopped, purged []int64
+}
+
+func (m *recordingMetrics) Start(id int64) { m.started = append(m.started, id) }
+func (m *recordingMetrics) Stop(id int64)  { m.stopped = append(m.stopped, id) }
+func (m *recordingMetrics) Purge(id int64) { m.purged = append(m.purged, id) }
+
+func TestMetricsHooks_FireOnTriggerStopPurge(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+	rec := &recordingMetrics{}
+	e.svc.WithMetrics(rec)
+
+	if err := e.svc.Deploy(ctx, e.collectionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.collectionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	if len(rec.started) != 1 || rec.started[0] != e.collectionID {
+		t.Fatalf("started = %v, want [%d]", rec.started, e.collectionID)
+	}
+	if err := e.svc.Stop(ctx, e.collectionID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if len(rec.stopped) == 0 {
+		t.Fatal("Stop did not stop metrics")
+	}
+	if err := e.svc.Purge(ctx, e.collectionID); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if len(rec.purged) != 1 || rec.purged[0] != e.collectionID {
+		t.Fatalf("purged = %v, want [%d]", rec.purged, e.collectionID)
+	}
+}
+
+// recordingUsage implements lifecycleapp.Usage.
+type recordingUsage struct {
+	started, finished int
+	lastOwner         string
+	lastVU            int
+}
+
+func (u *recordingUsage) RecordStart(_ context.Context, _ int64, owner string, _, vu int) error {
+	u.started++
+	u.lastOwner = owner
+	u.lastVU = vu
+	return nil
+}
+
+func (u *recordingUsage) RecordFinish(_ context.Context, _ int64, _ int) error {
+	u.finished++
+	return nil
+}
+
+func TestUsageHooks_FireOnTriggerAndTeardown(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2) // 2 engines, concurrency 10 -> VU 20
+	ctx := context.Background()
+	usage := &recordingUsage{}
+	e.svc.WithUsage(usage)
+
+	if err := e.svc.Deploy(ctx, e.collectionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.collectionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	if usage.started != 1 || usage.lastOwner != "setagaya" || usage.lastVU != 20 {
+		t.Fatalf("usage start = %+v, want started=1 owner=setagaya vu=20", usage)
+	}
+	if err := e.svc.Stop(ctx, e.collectionID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if usage.finished != 1 {
+		t.Fatalf("usage finished = %d, want 1", usage.finished)
+	}
+}
+
 func TestResume_ListsRunningPlans(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)

@@ -18,18 +18,24 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	eventbus "github.com/heridotlife/Setagaya/v3/internal/adapters/eventbus/memory"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/executor/jmeter"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/httpapi"
+	promsink "github.com/heridotlife/Setagaya/v3/internal/adapters/metrics/prometheus"
 	mysqladapter "github.com/heridotlife/Setagaya/v3/internal/adapters/repo/mysql"
 	k8sscheduler "github.com/heridotlife/Setagaya/v3/internal/adapters/scheduler/k8s"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/storage/local"
+	"github.com/heridotlife/Setagaya/v3/internal/app/adminapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/lifecycleapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/metricsapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/usageapp"
 	"github.com/heridotlife/Setagaya/v3/internal/config"
 	"github.com/heridotlife/Setagaya/v3/internal/ports"
 	"github.com/heridotlife/Setagaya/v3/internal/ports/fake"
@@ -42,6 +48,7 @@ type repository interface {
 	planapp.Repo
 	collectionapp.Repo
 	lifecycleapp.Repo
+	ports.UsageRepository
 }
 
 func main() {
@@ -81,11 +88,26 @@ func run(ctx context.Context, getenv func(string) string) error {
 		return err
 	}
 
+	sink := promsink.New(prometheus.DefaultRegisterer)
+	bus := eventbus.New()
+	collector := metricsapp.NewService(repo, sched, exec, sink, bus)
+	if resumeErr := collector.Resume(ctx); resumeErr != nil {
+		slog.Warn("resume metric collection", "error", resumeErr)
+	}
+	usage := usageapp.NewService(repo)
+	lifecycle := lifecycleapp.NewService(repo, sched, exec, store, cfg.Cluster.EngineImage).
+		WithMetrics(collector).WithUsage(usage)
+	admin := adminapp.NewService(repo, sched, lifecycle)
+	startAutoPurge(ctx, admin, cfg.Cluster)
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
 		Plans:         planapp.NewService(repo, store),
 		Collections:   collectionapp.NewService(repo, store, cfg.Limits.MaxEnginesInCollection),
-		Lifecycle:     lifecycleapp.NewService(repo, sched, exec, store, cfg.Cluster.EngineImage),
+		Lifecycle:     lifecycle,
+		Usage:         usage,
+		Admin:         admin,
+		Events:        bus,
 		Store:         store,
 		DefaultOwners: []string{"setagaya"},
 	})
@@ -143,6 +165,30 @@ func newRepository(cfg config.DBConfig, deployContext string) (repository, error
 	default:
 		return nil, fmt.Errorf("db driver %q not supported", cfg.Driver)
 	}
+}
+
+// startAutoPurge launches the idle-engine sweeper unless it is disabled
+// (interval zero). It stops when ctx is cancelled.
+func startAutoPurge(ctx context.Context, admin *adminapp.Service, cfg config.ClusterConfig) {
+	if cfg.AutoPurgeInterval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(cfg.AutoPurgeInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if purged, err := admin.AutoPurgeStale(ctx, cfg.AutoPurgeIdle); err != nil {
+					slog.Warn("auto-purge sweep", "error", err)
+				} else if len(purged) > 0 {
+					slog.Info("auto-purged idle collections", "collections", purged)
+				}
+			}
+		}
+	}()
 }
 
 // newScheduler selects the Scheduler adapter. "fake" is in-memory; "k8s" uses

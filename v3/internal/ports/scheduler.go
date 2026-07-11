@@ -55,6 +55,13 @@ type CollectionDetail struct {
 	Engines   []EngineDetail `json:"engines"`
 }
 
+// NodePool summarises a cluster node pool backing engine capacity.
+type NodePool struct {
+	Name       string    `json:"name"`
+	Size       int       `json:"size"`
+	LaunchTime time.Time `json:"launch_time"`
+}
+
 // Scheduler manages the compute (pods, services, ingress) backing a
 // collection's engines in a cluster. It is orchestration only: what a test
 // tool does on an engine is the Executor's concern.
@@ -78,4 +85,6 @@ type Scheduler interface {
 	// DeployedCollections maps deployed collection id to its earliest deploy
 	// time; used by the auto-purge garbage collector.
 	DeployedCollections(ctx context.Context) (map[int64]time.Time, error)
+	// NodePools summarises the cluster node pools backing engine capacity.
+	NodePools(ctx context.Context) ([]NodePool, error)
 }

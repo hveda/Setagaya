@@ -18,10 +18,15 @@ type Executor struct {
 	Running bool
 	// Metrics is replayed (in order) by Subscribe, then the channel closes.
 	Metrics []engine.Metric
+	// Repeat, when true, makes Subscribe loop over Metrics until ctx is
+	// cancelled instead of closing after one pass (for long-lived stream tests).
+	Repeat bool
 	// TriggerErr, when set, is returned by Trigger.
 	TriggerErr error
 	// StopErr, when set, is returned by Stop.
 	StopErr error
+	// SubscribeErr, when set, is returned by Subscribe.
+	SubscribeErr error
 }
 
 // NewExecutor returns an empty in-memory Executor.
@@ -59,16 +64,25 @@ func (e *Executor) Progress(_ context.Context, _ string) (bool, error) {
 	return e.Running, nil
 }
 
-// Subscribe replays Metrics then closes the channel.
+// Subscribe replays Metrics then closes the channel, or loops until ctx is
+// cancelled when Repeat is set.
 func (e *Executor) Subscribe(ctx context.Context, _ string) (<-chan engine.Metric, error) {
+	if e.SubscribeErr != nil {
+		return nil, e.SubscribeErr
+	}
 	ch := make(chan engine.Metric)
 	go func() {
 		defer close(ch)
-		for _, m := range e.Metrics {
-			select {
-			case <-ctx.Done():
+		for {
+			for _, m := range e.Metrics {
+				select {
+				case <-ctx.Done():
+					return
+				case ch <- m:
+				}
+			}
+			if !e.Repeat {
 				return
-			case ch <- m:
 			}
 		}
 	}()

@@ -36,6 +36,11 @@ type ClusterConfig struct {
 	EngineImage string
 	EnginePort  int
 	Context     string // deployment context scoping running_plan rows
+	// AutoPurgeInterval is how often idle engines are swept; zero disables the
+	// sweeper. AutoPurgeIdle is how long engines may sit idle before a sweep
+	// purges them.
+	AutoPurgeInterval time.Duration
+	AutoPurgeIdle     time.Duration
 }
 
 // StorageConfig configures the object store used for uploaded artifacts.
@@ -93,12 +98,13 @@ func Load(getenv func(string) string) (Config, error) {
 		Storage: StorageConfig{Root: "storage-data"},
 		Limits:  LimitsConfig{MaxEnginesInCollection: 500},
 		Cluster: ClusterConfig{
-			Scheduler:   "fake",
-			Executor:    "fake",
-			Namespace:   "default",
-			EngineImage: "setagaya/jmeter:latest",
-			EnginePort:  8080,
-			Context:     "default",
+			Scheduler:     "fake",
+			Executor:      "fake",
+			Namespace:     "default",
+			EngineImage:   "setagaya/jmeter:latest",
+			EnginePort:    8080,
+			Context:       "default",
+			AutoPurgeIdle: time.Hour,
 		},
 	}
 
@@ -130,6 +136,12 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Cluster.EngineImage = strEnv(getenv, "ENGINE_IMAGE", cfg.Cluster.EngineImage)
 	cfg.Cluster.Context = strEnv(getenv, "DEPLOY_CONTEXT", cfg.Cluster.Context)
 	if cfg.Cluster.EnginePort, err = intEnv(getenv, "ENGINE_PORT", cfg.Cluster.EnginePort); err != nil {
+		return Config{}, err
+	}
+	if cfg.Cluster.AutoPurgeInterval, err = durEnv(getenv, "AUTOPURGE_INTERVAL", cfg.Cluster.AutoPurgeInterval); err != nil {
+		return Config{}, err
+	}
+	if cfg.Cluster.AutoPurgeIdle, err = durEnv(getenv, "AUTOPURGE_IDLE", cfg.Cluster.AutoPurgeIdle); err != nil {
 		return Config{}, err
 	}
 
