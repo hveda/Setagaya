@@ -58,6 +58,44 @@ scripts/
   coverage.sh   coverage gate used by CI
 ```
 
+### Component overview
+
+Requests enter through the inbound HTTP adapter and flow into the pure
+application core; the core reaches the outside world only through ports, each
+backed by an interchangeable adapter (and an in-memory fake in tests).
+
+```mermaid
+flowchart TB
+    client["REST client / SPA"]
+
+    subgraph core["Application core — no infrastructure imports"]
+        direction TB
+        api["httpapi<br/>(inbound adapter)"]
+        app["use-cases<br/>project · collection · plan · lifecycle<br/>metrics · usage · admin · auth · tenant"]
+        domain["domain<br/>pure types + rules"]
+        ports{{"ports (interfaces)<br/>Repository · Scheduler · Executor · ObjectStore<br/>AuthProvider · MetricsSink · EventBus · AuditLog"}}
+        api --> app
+        app --> domain
+        app --> ports
+    end
+
+    client -->|HTTP + SSE| api
+
+    ports --> repo["repo/mysql"]
+    ports --> sched["scheduler/k8s"]
+    ports --> exec["executor<br/>jmeter · k6"]
+    ports --> store["storage<br/>local · nexus"]
+    ports --> authp["auth<br/>noauth · token · oidc"]
+    ports --> metrics["metrics/prometheus"]
+
+    repo --> db[("MySQL")]
+    sched --> k8s["Kubernetes"]
+    exec --> engines["JMeter / k6 engines"]
+    store --> blob[("Filesystem / Nexus")]
+    metrics --> prom[("Prometheus")]
+    authp --> idp["OIDC provider"]
+```
+
 **Principles**
 
 - The domain imports no infrastructure; use-cases depend on ports, not adapters.
@@ -65,6 +103,51 @@ scripts/
   conformance suite as the fake (`internal/ports/*test`), keeping them
   interchangeable.
 - Configuration and collaborators are injected — there is no global state.
+
+## Test lifecycle
+
+A load test moves through **deploy → trigger → stream → stop → purge**. Every
+request is authenticated and (when RBAC is enabled) authorized against the
+caller's tenant before the lifecycle use-case orchestrates the scheduler and
+executor; metrics stream back live over SSE while the test runs.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant API as httpapi
+    participant Auth as auth (OIDC / RBAC)
+    participant LC as lifecycle use-case
+    participant Sched as scheduler (k8s)
+    participant Exec as executor (JMeter / k6)
+    participant Eng as engines
+    participant Prom as Prometheus
+
+    User->>API: POST /collections/{id}/deploy
+    API->>Auth: authenticate + authorize
+    Auth-->>API: account (tenant-scoped)
+    API->>LC: Deploy
+    LC->>Sched: create engine pods
+    Sched-->>Eng: schedule
+
+    User->>API: POST /collections/{id}/trigger
+    API->>LC: Trigger
+    LC->>Exec: Trigger(config) per engine
+    Exec->>Eng: start test
+
+    loop while running
+        Eng-->>Exec: metric samples
+        Exec-->>LC: engine.Metric
+        LC->>Prom: record
+    end
+
+    User->>API: GET /collections/{id}/stream
+    API-->>User: live metrics (SSE)
+
+    User->>API: POST /collections/{id}/stop
+    LC->>Exec: Stop
+    User->>API: POST /collections/{id}/purge
+    LC->>Sched: delete engine pods
+```
 
 ## Testing
 
