@@ -14,7 +14,6 @@ SDK
 testify
 ginkgo
 gocov
-hveda
 stretchr
 github
 algorithms

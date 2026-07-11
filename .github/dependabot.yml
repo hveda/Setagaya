@@ -3,18 +3,18 @@
 
 version: 2
 updates:
-  # Go dependencies in setagaya
+  # Go module (repository root)
   - package-ecosystem: "gomod"
-    directory: "/setagaya"
+    directory: "/"
     schedule:
       interval: "daily"
       time: "06:00"
       timezone: "Asia/Tokyo"
     open-pull-requests-limit: 5
     reviewers:
-      - "hveda"
+      - "heridotlife"
     assignees:
-      - "hveda"
+      - "heridotlife"
     labels:
       - "dependencies"
       - "go"
@@ -26,69 +26,7 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
-  # Go dependencies in local_storage
-  - package-ecosystem: "gomod"
-    directory: "/local_storage"
-    schedule:
-      interval: "daily"
-      time: "06:00"
-      timezone: "Asia/Tokyo"
-    open-pull-requests-limit: 3
-    reviewers:
-      - "hveda"
-    labels:
-      - "dependencies"
-      - "go"
-      - "local-storage"
-    commit-message:
-      prefix: "build"
-
-  # Go dependencies in ingress-controller
-  - package-ecosystem: "gomod"
-    directory: "/ingress-controller"
-    schedule:
-      interval: "daily"
-      time: "06:00"
-      timezone: "Asia/Tokyo"
-    open-pull-requests-limit: 3
-    reviewers:
-      - "hveda"
-    labels:
-      - "dependencies"
-      - "go"
-      - "ingress-controller"
-    commit-message:
-      prefix: "build"
-
-  # Docker base images
-  - package-ecosystem: "docker"
-    directory: "/setagaya"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "Asia/Tokyo"
-    open-pull-requests-limit: 3
-    reviewers:
-      - "hveda"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "build"
-
-  - package-ecosystem: "docker"
-    directory: "/local_storage"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "Asia/Tokyo"
-    open-pull-requests-limit: 2
-    labels:
-      - "dependencies"
-      - "docker"
-
+  # Docker base images (Grafana dashboards image)
   - package-ecosystem: "docker"
     directory: "/grafana"
     schedule:
@@ -101,8 +39,9 @@ updates:
       - "dependencies"
       - "docker"
 
-  - package-ecosystem: "docker"
-    directory: "/ingress-controller"
+  # npm dev tooling (prettier / yamllint helpers)
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -111,7 +50,7 @@ updates:
     open-pull-requests-limit: 2
     labels:
       - "dependencies"
-      - "docker"
+      - "javascript"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -123,7 +62,7 @@ updates:
       timezone: "Asia/Tokyo"
     open-pull-requests-limit: 5
     reviewers:
-      - "hveda"
+      - "heridotlife"
     labels:
       - "dependencies"
       - "github-actions"
