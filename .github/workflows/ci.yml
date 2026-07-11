@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  # Run once per change: pull_request covers feature->develop and
+  # develop->main; push only on main (post-merge). Scoping push to main
+  # avoids a duplicate run when a merge to develop also syncs the open
+  # develop->main PR.
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
 
 permissions:

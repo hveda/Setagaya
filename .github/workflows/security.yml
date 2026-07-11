@@ -1,8 +1,11 @@
 name: Security
 
 on:
+  # pull_request covers feature->develop and develop->main; push only on
+  # main (post-merge) so a merge to develop does not also run via the open
+  # develop->main PR.
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
   schedule:
     - cron: "17 4 * * 1"
