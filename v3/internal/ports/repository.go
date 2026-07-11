@@ -28,6 +28,11 @@ type ProjectRepository interface {
 	// ListProjectsByOwners returns all projects owned by any of owners.
 	// An empty owners slice returns an empty result and no error.
 	ListProjectsByOwners(ctx context.Context, owners []string) ([]project.Project, error)
+	// ListAllProjects returns every project (service-provider admin view).
+	ListAllProjects(ctx context.Context) ([]project.Project, error)
+	// ListProjectsByTenants returns all projects belonging to any of tenantIDs.
+	// An empty tenantIDs slice returns an empty result and no error.
+	ListProjectsByTenants(ctx context.Context, tenantIDs []int64) ([]project.Project, error)
 	// DeleteProject removes the project with the given ID, or ErrNotFound.
 	DeleteProject(ctx context.Context, id int64) error
 }

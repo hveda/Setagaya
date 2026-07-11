@@ -29,3 +29,17 @@ func TestFakeObjectStore_Contract(t *testing.T) {
 		return fake.NewObjectStore()
 	})
 }
+
+func TestFakeStore_TenantContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunTenantRepositoryContract(t, func(_ *testing.T) ports.TenantRepository {
+		return fake.NewStore()
+	})
+}
+
+func TestFakeStore_RoleAssignmentContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunRoleAssignmentRepositoryContract(t, func(_ *testing.T) ports.RoleAssignmentRepository {
+		return fake.NewStore()
+	})
+}

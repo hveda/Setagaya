@@ -9,11 +9,13 @@ import (
 	"github.com/heridotlife/Setagaya/v3/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/tenantapp"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/run"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/tenant"
 	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
@@ -32,6 +34,9 @@ var badRequestErrors = []error{
 	collectionapp.ErrInvalidFilename, collectionapp.ErrCollectionMismatch,
 	collectionapp.ErrPlanNotInProject, collectionapp.ErrEngineLimit,
 	run.ErrNoPlans, lifecycleapp.ErrNoTestFile,
+	tenant.ErrNameRequired, tenant.ErrNameTooLong, tenant.ErrNameInvalid,
+	tenant.ErrDisplayNameRequired, tenant.ErrStatusInvalid,
+	tenantapp.ErrUnknownRole, tenantapp.ErrGlobalRoleScoped,
 }
 
 // conflictErrors are state conflicts → HTTP 409.

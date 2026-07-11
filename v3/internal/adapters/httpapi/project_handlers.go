@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/rbac"
 )
 
 // projectResponse is the JSON wire shape for a Project. Keeping it separate
@@ -35,7 +37,7 @@ func toProjectResponse(p project.Project) projectResponse {
 }
 
 func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := h.deps.Projects.List(r.Context(), h.deps.DefaultOwners)
+	projects, err := h.visibleProjects(r)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -45,6 +47,20 @@ func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
 		out = append(out, toProjectResponse(p))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// visibleProjects returns the projects the caller may see: their owned projects
+// in legacy mode; every project for a service-provider admin, or the projects of
+// the caller's tenants otherwise, under RBAC.
+func (h *handlers) visibleProjects(r *http.Request) ([]project.Project, error) {
+	if !h.rbacEnabled() {
+		return h.deps.Projects.List(r.Context(), h.deps.DefaultOwners)
+	}
+	acct := accountFrom(r.Context())
+	if acct.HasGlobalRole(rbac.RoleServiceProviderAdmin) {
+		return h.deps.Projects.ListAll(r.Context())
+	}
+	return h.deps.Projects.ListByTenants(r.Context(), acct.TenantIDs())
 }
 
 func (h *handlers) getProject(w http.ResponseWriter, r *http.Request) {
@@ -67,16 +83,39 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := r.PostForm.Get("owner")
-	if !h.owns(owner) {
+	tenantID, ok := parseOptionalInt(r.PostForm.Get("tenant_id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid tenant_id")
+		return
+	}
+	if h.rbacEnabled() {
+		if err := h.authorize(r.Context(), owner, tenantID, rbac.ResourceProject, rbac.ActionCreate); err != nil {
+			respondError(w, err)
+			return
+		}
+	} else if !h.owns(owner) {
 		writeError(w, http.StatusForbidden, "you are not a member of "+owner)
 		return
 	}
-	p, err := h.deps.Projects.Create(r.Context(), r.PostForm.Get("name"), owner, r.PostForm.Get("sid"))
+	p, err := h.deps.Projects.CreateInTenant(r.Context(), r.PostForm.Get("name"), owner, r.PostForm.Get("sid"), tenantID)
 	if err != nil {
 		respondError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, toProjectResponse(p))
+}
+
+// parseOptionalInt parses an optional int64 form value. An empty string yields
+// (nil, true); a non-numeric value yields (nil, false).
+func parseOptionalInt(s string) (*int64, bool) {
+	if s == "" {
+		return nil, true
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return nil, false
+	}
+	return &v, true
 }
 
 func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {

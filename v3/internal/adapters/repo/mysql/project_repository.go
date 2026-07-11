@@ -77,6 +77,55 @@ func (r *Repository) ListProjectsByOwners(ctx context.Context, owners []string) 
 	return out, nil
 }
 
+// ListAllProjects returns every project.
+func (r *Repository) ListAllProjects(ctx context.Context) ([]project.Project, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT "+projectColumns+" FROM project")
+	if err != nil {
+		return nil, fmt.Errorf("mysql: list all projects: %w", err)
+	}
+	return collectProjects(rows)
+}
+
+// ListProjectsByTenants returns all projects belonging to any of tenantIDs.
+func (r *Repository) ListProjectsByTenants(ctx context.Context, tenantIDs []int64) ([]project.Project, error) {
+	out := []project.Project{}
+	if len(tenantIDs) == 0 {
+		return out, nil
+	}
+
+	placeholders := make([]string, len(tenantIDs))
+	args := make([]any, len(tenantIDs))
+	for i, id := range tenantIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	// #nosec G201 -- placeholders are fixed "?" tokens; tenant ids are bound params.
+	query := fmt.Sprintf("SELECT %s FROM project WHERE tenant_id IN (%s)", projectColumns, strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: list projects by tenants: %w", err)
+	}
+	return collectProjects(rows)
+}
+
+// collectProjects scans every row of a project query, closing rows.
+func collectProjects(rows *sql.Rows) ([]project.Project, error) {
+	defer func() { _ = rows.Close() }()
+	out := []project.Project{}
+	for rows.Next() {
+		p, scanErr := scanProject(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("mysql: scan project: %w", scanErr)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterate projects: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteProject removes the project with id, or returns ports.ErrNotFound.
 func (r *Repository) DeleteProject(ctx context.Context, id int64) error {
 	return execDelete(ctx, r.db, "DELETE FROM project WHERE id = ?", id)

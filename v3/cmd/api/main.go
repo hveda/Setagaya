@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,6 +23,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	auditmem "github.com/heridotlife/Setagaya/v3/internal/adapters/audit/memory"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/auth/noauth"
+	"github.com/heridotlife/Setagaya/v3/internal/adapters/auth/oidc"
 	eventbus "github.com/heridotlife/Setagaya/v3/internal/adapters/eventbus/memory"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/executor/jmeter"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/httpapi"
@@ -30,11 +34,13 @@ import (
 	k8sscheduler "github.com/heridotlife/Setagaya/v3/internal/adapters/scheduler/k8s"
 	"github.com/heridotlife/Setagaya/v3/internal/adapters/storage/local"
 	"github.com/heridotlife/Setagaya/v3/internal/app/adminapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/authapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/collectionapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/metricsapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/v3/internal/app/tenantapp"
 	"github.com/heridotlife/Setagaya/v3/internal/app/usageapp"
 	"github.com/heridotlife/Setagaya/v3/internal/config"
 	"github.com/heridotlife/Setagaya/v3/internal/ports"
@@ -49,6 +55,8 @@ type repository interface {
 	collectionapp.Repo
 	lifecycleapp.Repo
 	ports.UsageRepository
+	ports.TenantRepository
+	ports.RoleAssignmentRepository
 }
 
 func main() {
@@ -100,6 +108,13 @@ func run(ctx context.Context, getenv func(string) string) error {
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 
+	authProvider, err := newAuthProvider(ctx, cfg.Auth)
+	if err != nil {
+		return err
+	}
+	audit := auditmem.New(slog.Default())
+	slog.Info("auth configured", "mode", cfg.Auth.Mode, "rbac_enabled", cfg.Auth.EnableRBAC)
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
 		Plans:         planapp.NewService(repo, store),
@@ -109,6 +124,9 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Admin:         admin,
 		Events:        bus,
 		Store:         store,
+		Auth:          authapp.NewService(authProvider, repo, cfg.Auth.EnableRBAC),
+		Tenants:       tenantapp.NewService(repo, repo),
+		Audit:         audit,
 		DefaultOwners: []string{"setagaya"},
 	})
 
@@ -210,6 +228,47 @@ func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
 	default:
 		return nil, fmt.Errorf("scheduler %q not supported", cfg.Scheduler)
 	}
+}
+
+// newAuthProvider selects the authentication adapter. "none" authenticates
+// every request as the fixed service-provider admin (local dev); "oidc" verifies
+// bearer ID tokens against the issuer's JWKS, fetched once at startup.
+func newAuthProvider(ctx context.Context, cfg config.AuthConfig) (ports.AuthProvider, error) {
+	switch cfg.Mode {
+	case "none":
+		return noauth.New("setagaya"), nil
+	case "oidc":
+		keys, err := fetchJWKS(ctx, cfg.OIDC.JWKSURL)
+		if err != nil {
+			return nil, fmt.Errorf("oidc jwks: %w", err)
+		}
+		return oidc.New(keys, cfg.OIDC.Issuer, oidc.WithAudience(cfg.OIDC.Audience)), nil
+	default:
+		return nil, fmt.Errorf("auth mode %q not supported", cfg.Mode)
+	}
+}
+
+// fetchJWKS retrieves and parses the JSON Web Key Set from url.
+func fetchJWKS(ctx context.Context, url string) (*oidc.StaticKeySet, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("jwks endpoint returned %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	return oidc.ParseJWKS(body)
 }
 
 // newExecutor selects the Executor adapter. "fake" records triggers; "jmeter"

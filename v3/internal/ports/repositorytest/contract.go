@@ -92,6 +92,49 @@ func RunProjectRepositoryContract(t *testing.T, newRepo NewProjectRepo) {
 		}
 	})
 
+	t.Run("ListAllAndByTenants", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		t1, t2 := int64(101), int64(202)
+		mustCreateInTenant(t, repo, "a1", "team-a", &t1)
+		mustCreateInTenant(t, repo, "a2", "team-a", &t1)
+		mustCreateInTenant(t, repo, "b1", "team-b", &t2)
+		mustCreateInTenant(t, repo, "u1", "team-c", nil) // untenanted
+
+		all, err := repo.ListAllProjects(ctx)
+		if err != nil {
+			t.Fatalf("ListAllProjects: %v", err)
+		}
+		if len(all) != 4 {
+			t.Fatalf("ListAllProjects len = %d, want 4", len(all))
+		}
+
+		got, err := repo.ListProjectsByTenants(ctx, []int64{t1})
+		if err != nil {
+			t.Fatalf("ListProjectsByTenants: %v", err)
+		}
+		if names := projectNames(got); !equalStringSet(names, []string{"a1", "a2"}) {
+			t.Fatalf("ListProjectsByTenants(t1) = %v, want [a1 a2]", names)
+		}
+
+		both, err := repo.ListProjectsByTenants(ctx, []int64{t1, t2})
+		if err != nil {
+			t.Fatalf("ListProjectsByTenants(both): %v", err)
+		}
+		if len(both) != 3 {
+			t.Fatalf("ListProjectsByTenants(both) len = %d, want 3", len(both))
+		}
+
+		empty, err := repo.ListProjectsByTenants(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListProjectsByTenants(nil): %v", err)
+		}
+		if len(empty) != 0 {
+			t.Fatalf("ListProjectsByTenants(nil) len = %d, want 0", len(empty))
+		}
+	})
+
 	t.Run("DeleteRemovesAndIsIdempotentlyNotFound", func(t *testing.T) {
 		repo := newRepo(t)
 		ctx := context.Background()
@@ -115,6 +158,20 @@ func mustCreate(t *testing.T, repo ports.ProjectRepository, name, owner, sid str
 	if err != nil {
 		t.Fatalf("build project %q: %v", name, err)
 	}
+	id, err := repo.CreateProject(context.Background(), p)
+	if err != nil {
+		t.Fatalf("CreateProject %q: %v", name, err)
+	}
+	return id
+}
+
+func mustCreateInTenant(t *testing.T, repo ports.ProjectRepository, name, owner string, tenantID *int64) int64 {
+	t.Helper()
+	p, err := project.New(name, owner, "")
+	if err != nil {
+		t.Fatalf("build project %q: %v", name, err)
+	}
+	p.TenantID = tenantID
 	id, err := repo.CreateProject(context.Background(), p)
 	if err != nil {
 		t.Fatalf("CreateProject %q: %v", name, err)

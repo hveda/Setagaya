@@ -14,6 +14,7 @@ import (
 	"github.com/heridotlife/Setagaya/v3/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/v3/internal/domain/project"
+	"github.com/heridotlife/Setagaya/v3/internal/domain/tenant"
 	"github.com/heridotlife/Setagaya/v3/internal/ports"
 )
 
@@ -43,6 +44,10 @@ type Store struct {
 	deployContext string
 	openLaunch    map[int64]*ports.LaunchRecord // collectionID -> open launch
 	launchHistory []*ports.LaunchRecord
+
+	tenantSeq int64
+	tenants   map[int64]tenant.Tenant
+	grants    []ports.RoleGrant // role assignments, deduped by subject/role/tenant
 }
 
 // NewStore returns an empty in-memory Store.
@@ -61,6 +66,7 @@ func NewStore() *Store {
 		running:       make(map[int64]map[int64]time.Time),
 		deployContext: "default",
 		openLaunch:    make(map[int64]*ports.LaunchRecord),
+		tenants:       make(map[int64]tenant.Tenant),
 	}
 }
 
@@ -76,11 +82,13 @@ func (s *Store) SetNow(now func() time.Time) {
 }
 
 var (
-	_ ports.ProjectRepository    = (*Store)(nil)
-	_ ports.PlanRepository       = (*Store)(nil)
-	_ ports.CollectionRepository = (*Store)(nil)
-	_ ports.RunRepository        = (*Store)(nil)
-	_ ports.UsageRepository      = (*Store)(nil)
+	_ ports.ProjectRepository        = (*Store)(nil)
+	_ ports.PlanRepository           = (*Store)(nil)
+	_ ports.CollectionRepository     = (*Store)(nil)
+	_ ports.RunRepository            = (*Store)(nil)
+	_ ports.UsageRepository          = (*Store)(nil)
+	_ ports.TenantRepository         = (*Store)(nil)
+	_ ports.RoleAssignmentRepository = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------
@@ -114,6 +122,35 @@ func (s *Store) ListProjectsByOwners(_ context.Context, owners []string) ([]proj
 	out := []project.Project{}
 	for _, p := range s.projects {
 		if _, ok := want[p.Owner]; ok {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) ListAllProjects(_ context.Context) ([]project.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]project.Project, 0, len(s.projects))
+	for _, p := range s.projects {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (s *Store) ListProjectsByTenants(_ context.Context, tenantIDs []int64) ([]project.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want := make(map[int64]struct{}, len(tenantIDs))
+	for _, id := range tenantIDs {
+		want[id] = struct{}{}
+	}
+	out := []project.Project{}
+	for _, p := range s.projects {
+		if p.TenantID == nil {
+			continue
+		}
+		if _, ok := want[*p.TenantID]; ok {
 			out = append(out, p)
 		}
 	}

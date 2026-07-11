@@ -46,6 +46,34 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Limits.MaxEnginesInCollection != 500 {
 		t.Errorf("Limits.MaxEnginesInCollection = %d, want 500", cfg.Limits.MaxEnginesInCollection)
 	}
+	if cfg.Auth.Mode != "none" {
+		t.Errorf("Auth.Mode = %q, want none", cfg.Auth.Mode)
+	}
+	if cfg.Auth.EnableRBAC {
+		t.Error("Auth.EnableRBAC = true, want false by default (not hardcoded)")
+	}
+}
+
+func TestLoad_AuthOverrides(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(envMap(map[string]string{
+		"SETAGAYA_AUTH_MODE":     "oidc",
+		"SETAGAYA_ENABLE_RBAC":   "true",
+		"SETAGAYA_OIDC_ISSUER":   "https://issuer.example",
+		"SETAGAYA_OIDC_AUDIENCE": "setagaya",
+		"SETAGAYA_OIDC_JWKS_URL": "https://issuer.example/jwks",
+	}))
+	if err != nil {
+		t.Fatalf("Load auth overrides: %v", err)
+	}
+	if cfg.Auth.Mode != "oidc" || !cfg.Auth.EnableRBAC {
+		t.Fatalf("Auth = %+v, want oidc + rbac enabled", cfg.Auth)
+	}
+	if cfg.Auth.OIDC.Issuer != "https://issuer.example" || cfg.Auth.OIDC.Audience != "setagaya" ||
+		cfg.Auth.OIDC.JWKSURL != "https://issuer.example/jwks" {
+		t.Fatalf("OIDC = %+v", cfg.Auth.OIDC)
+	}
 }
 
 func TestLoad_Overrides(t *testing.T) {
@@ -119,6 +147,10 @@ func TestLoad_ValidationErrors(t *testing.T) {
 		"non-numeric port":    {"SETAGAYA_ENGINE_PORT": "eighty"},
 		"bad purge interval":  {"SETAGAYA_AUTOPURGE_INTERVAL": "soon"},
 		"bad purge idle":      {"SETAGAYA_AUTOPURGE_IDLE": "forever"},
+		"unknown auth mode":   {"SETAGAYA_AUTH_MODE": "ldap"},
+		"bad enable rbac":     {"SETAGAYA_ENABLE_RBAC": "maybe"},
+		"oidc without issuer": {"SETAGAYA_AUTH_MODE": "oidc", "SETAGAYA_OIDC_JWKS_URL": "https://x/jwks"},
+		"oidc without jwks":   {"SETAGAYA_AUTH_MODE": "oidc", "SETAGAYA_OIDC_ISSUER": "https://x"},
 	}
 
 	for name, env := range cases {
