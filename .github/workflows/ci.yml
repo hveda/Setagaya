@@ -48,6 +48,13 @@ jobs:
           COVERAGE_THRESHOLD: "90"
           # GitHub-hosted runners provide Docker for testcontainers.
           TESTCONTAINERS_RYUK_DISABLED: "true"
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./cover.out
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage profile
         if: always()
         uses: actions/upload-artifact@v4

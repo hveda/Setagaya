@@ -1,5 +1,13 @@
 # Setagaya
 
+[![CI](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml)
+[![Security](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/heridotlife/Setagaya)](https://goreportcard.com/report/github.com/heridotlife/Setagaya)
+[![codecov](https://codecov.io/gh/heridotlife/Setagaya/graph/badge.svg)](https://codecov.io/gh/heridotlife/Setagaya)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/heridotlife/Setagaya)](go.mod)
+[![License](https://img.shields.io/github/license/heridotlife/Setagaya)](LICENSE)
+
 Setagaya is a cloud-native, distributed load-testing platform written in Go. It
 orchestrates load-generation engines (JMeter and k6) on Kubernetes, streams live
 metrics to Prometheus, and exposes a REST API for managing projects, test plans,
