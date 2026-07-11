@@ -1,513 +1,218 @@
-# Setagaya Load Testing Platform
+# Setagaya
 
-[![Release](https://img.shields.io/badge/version-2.0.0--rc.1-blue.svg)](https://github.com/hveda/Setagaya/releases)
-[![Go Version](https://img.shields.io/badge/Go-1.25.1-00ADD8.svg?logo=go)](https://golang.org)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hveda/Setagaya/setagaya)](https://goreportcard.com/report/github.com/hveda/Setagaya/setagaya)
-[![codecov](https://codecov.io/gh/hveda/Setagaya/graph/badge.svg)](https://codecov.io/gh/hveda/Setagaya)
-[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0.3-green.svg?logo=openapi-initiative)](docs/api/openapi.yaml)
-[![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg?logo=docker)](setagaya/Dockerfile)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.21%2B-blue.svg?logo=kubernetes)](kubernetes/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml)
+[![Security](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml)
+[![golangci-lint](https://img.shields.io/badge/golangci--lint-enabled-4c1)](.golangci.yml)
+[![codecov](https://codecov.io/gh/heridotlife/Setagaya/graph/badge.svg)](https://codecov.io/gh/heridotlife/Setagaya)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/heridotlife/Setagaya)](go.mod)
+[![License](https://img.shields.io/github/license/heridotlife/Setagaya)](LICENSE)
 
-[![Security Check](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-check.yml)
-[![Code Quality](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/code-quality.yml)
-[![PR Validation](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/pr-validation.yml)
-[![Security Monitoring](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/security-monitoring.yml)
-[![Build & Release](https://github.com/hveda/Setagaya/actions/workflows/build-publish.yml/badge.svg)](https://github.com/hveda/Setagaya/actions/workflows/build-publish.yml)
+Setagaya is a cloud-native, distributed load-testing platform written in Go. It
+orchestrates load-generation engines (JMeter and k6) on Kubernetes, streams live
+metrics to Prometheus, and exposes a REST API for managing projects, test plans,
+and runs — with pluggable authentication, RBAC, and multi-tenancy.
 
-Setagaya is a cloud-native, distributed load testing platform that orchestrates Apache JMeter engines across Kubernetes
-clusters. It provides enterprise-grade scalability, real-time metrics, and centralized management for performance
-testing at scale.
+The codebase is a test-driven, hexagonal (ports-and-adapters) implementation:
+the domain is pure, use-cases depend on interfaces (ports), and every adapter is
+validated by the same conformance suite as its in-memory fake. CI enforces a
+**≥90%** coverage gate over production packages.
 
-## 🚀 Key Features
-
-- **Kubernetes-Native**: Deploy and scale load generators across K8s clusters
-- **Real-Time Monitoring**: Live metrics streaming with Grafana dashboards
-- **Multi-Version Support**: JMeter 3.3 (legacy) and 5.6.3 (modern) compatibility
-- **Enterprise RBAC**: Multi-tenant architecture with role-based access control and fine-grained permissions
-- **Hybrid Authentication**: RBAC for enterprise deployments with LDAP backward compatibility
-- **Tenant Management**: Complete tenant lifecycle with quota management and data isolation
-- **Flexible Storage**: Multiple backends (Local, GCP Buckets, Nexus)
-- **Container Security**: Non-root execution, minimal attack surface
-- **High Scalability**: Horizontal scaling with configurable resource allocation
-- **Security Automation**: Comprehensive security scanning and monitoring
-- **CI/CD Integration**: GitHub Actions workflows for security and quality
-
-## 📚 Documentation
-
-- **[Documentation Index](docs/README.md)** - Complete documentation guide and navigation
-- **[Technical Specifications](TECHNICAL_SPECS.md)** - Comprehensive technical documentation
-- **[Best Practices](docs/BEST_PRACTICES.md)** - CodeQL, Docker security, and workflow optimization
-- **[API Documentation](docs/api/openapi.yaml)** - OpenAPI 3.0 REST API specification
-- **[Security Policy](SECURITY.md)** - Security measures and vulnerability disclosure
-- **[JMeter Build Options](setagaya/JMETER_BUILD_OPTIONS.md)** - JMeter version compatibility guide
-- **[Development Guidelines](.github/instructions/copilot.instructions.md)** - AI coding guidelines and patterns
-- **[Security Checklist](.github/SECURITY_CHECKLIST.md)** - Release security validation
-- **[Changelog](CHANGELOG.md)** - Version history and release notes
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Web UI    │◄──►│ API Server  │◄──►│ Controller  │
-└─────────────┘    └─────────────┘    └─────────────┘
-                           │                   │
-                           ▼                   ▼
-                   ┌─────────────┐    ┌─────────────┐
-                   │  Scheduler  │◄──►│   Engines   │
-                   └─────────────┘    └─────────────┘
-                           │                   │
-                           ▼                   ▼
-                   ┌─────────────┐    ┌─────────────┐
-                   │ Kubernetes  │    │   JMeter    │
-                   └─────────────┘    └─────────────┘
+cmd/
+  api/          REST API server (wires adapters -> app)
+  controller/   orchestrator entrypoint
+  agent/        engine-side metrics agent
+internal/
+  domain/       pure business types + rules, zero I/O imports
+                (project, collection, plan, execution, run, engine,
+                 usage, account, rbac, tenant)
+  ports/        interfaces the app depends on
+                (Repository, Scheduler, Executor, ObjectStore,
+                 AuthProvider, MetricsSink, EventBus, AuditLog, ...)
+    fake/       in-memory port implementations for fast tests
+    *test/      reusable conformance suites run against every adapter
+  app/          use-cases orchestrating the domain over ports
+                (project, collection, plan, lifecycle, metrics, usage,
+                 admin, auth, tenant)
+  adapters/
+    httpapi/          inbound REST adapter (net/http)
+    repo/mysql/       MySQL repository adapter
+    scheduler/k8s/    Kubernetes engine scheduler
+    executor/jmeter/  JMeter executor
+    executor/k6/      k6 executor
+    storage/local/    filesystem object store
+    storage/nexus/    Sonatype Nexus raw-repo object store
+    auth/{noauth,token,oidc}/   authentication providers
+    metrics/prometheus/         Prometheus metrics sink
+    eventbus/memory/            in-process event bus
+    audit/memory/               audit log
+  config/       typed, injected configuration (no globals)
+migrations/     embedded, ordered SQL migrations
+test/
+  dbtest/       testcontainers MySQL helper (integration/e2e only)
+  e2e/          full-stack end-to-end tests
+scripts/
+  coverage.sh   coverage gate used by CI
 ```
 
-**Domain Model**: `Project → Collection → Plan → ExecutionPlan`
+### Component overview
 
-- **Collections** are the execution unit containing multiple plans running simultaneously
-- **Plans** define test configurations; **ExecutionPlans** specify engines/concurrency per plan
-- **Results** converge at collection level for unified reporting via Grafana dashboards
+Requests enter through the inbound HTTP adapter and flow into the pure
+application core; the core reaches the outside world only through ports, each
+backed by an interchangeable adapter (and an in-memory fake in tests).
 
-## 🚀 Quick Start
+```mermaid
+flowchart TB
+    client["REST client / SPA"]
 
-### Prerequisites
+    subgraph core["Application core — no infrastructure imports"]
+        direction TB
+        api["httpapi<br/>(inbound adapter)"]
+        app["use-cases<br/>project · collection · plan · lifecycle<br/>metrics · usage · admin · auth · tenant"]
+        domain["domain<br/>pure types + rules"]
+        ports{{"ports (interfaces)<br/>Repository · Scheduler · Executor · ObjectStore<br/>AuthProvider · MetricsSink · EventBus · AuditLog"}}
+        api --> app
+        app --> domain
+        app --> ports
+    end
 
-- [Kind](https://kind.sigs.k8s.io) - Kubernetes in Docker
-- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl) - Kubernetes CLI
-- [Helm](https://helm.sh/docs/intro/install/) - Package manager for Kubernetes
-- [Docker](https://docs.docker.com/install) or [Podman](https://podman.io) - Container runtime
+    client -->|HTTP + SSE| api
 
-### 🎯 Kubernetes Compatibility
+    ports --> repo["repo/mysql"]
+    ports --> sched["scheduler/k8s"]
+    ports --> exec["executor<br/>jmeter · k6"]
+    ports --> store["storage<br/>local · nexus"]
+    ports --> authp["auth<br/>noauth · token · oidc"]
+    ports --> metrics["metrics/prometheus"]
 
-Setagaya supports multiple Kubernetes versions with automatic API version compatibility:
+    repo --> db[("MySQL")]
+    sched --> k8s["Kubernetes"]
+    exec --> engines["JMeter / k6 engines"]
+    store --> blob[("Filesystem / Nexus")]
+    metrics --> prom[("Prometheus")]
+    authp --> idp["OIDC provider"]
+```
 
-| Kubernetes Version | Status | API Versions | Notes |
-|-------------------|--------|--------------|-------|
-| 1.21.x | ✅ Supported | policy/v1 | Minimum supported version |
-| 1.25.x | ✅ LTS | policy/v1 | Long-term support |
-| 1.28.x | ✅ Stable | policy/v1 | Current stable |
-| 1.34.x | ✅ Latest | policy/v1 | Latest features |
+**Principles**
 
-#### Multi-Version Testing
+- The domain imports no infrastructure; use-cases depend on ports, not adapters.
+- Every port ships an in-memory fake. Real adapters must pass the *same*
+  conformance suite as the fake (`internal/ports/*test`), keeping them
+  interchangeable.
+- Configuration and collaborators are injected — there is no global state.
 
-Test manifests against multiple Kubernetes versions:
+## Test lifecycle
+
+A load test moves through **deploy → trigger → stream → stop → purge**. Every
+request is authenticated and (when RBAC is enabled) authorized against the
+caller's tenant before the lifecycle use-case orchestrates the scheduler and
+executor; metrics stream back live over SSE while the test runs.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant API as httpapi
+    participant Auth as auth (OIDC / RBAC)
+    participant LC as lifecycle use-case
+    participant Sched as scheduler (k8s)
+    participant Exec as executor (JMeter / k6)
+    participant Eng as engines
+    participant Prom as Prometheus
+
+    User->>API: POST /collections/{id}/deploy
+    API->>Auth: authenticate + authorize
+    Auth-->>API: account (tenant-scoped)
+    API->>LC: Deploy
+    LC->>Sched: create engine pods
+    Sched-->>Eng: schedule
+
+    User->>API: POST /collections/{id}/trigger
+    API->>LC: Trigger
+    LC->>Exec: Trigger(config) per engine
+    Exec->>Eng: start test
+
+    loop while running
+        Eng-->>Exec: metric samples
+        Exec-->>LC: engine.Metric
+        LC->>Prom: record
+    end
+
+    User->>API: GET /collections/{id}/stream
+    API-->>User: live metrics (SSE)
+
+    User->>API: POST /collections/{id}/stop
+    LC->>Exec: Stop
+    User->>API: POST /collections/{id}/purge
+    LC->>Sched: delete engine pods
+```
+
+## Testing
+
+Three layers, gated in CI at **≥90%** coverage over production packages:
+
+| Lane | Command | Needs Docker |
+|------|---------|:---:|
+| Unit | `make test` | no |
+| Integration (adapter contract tests) | `make integration` | yes |
+| End-to-end (real HTTP → services → MySQL) | `make e2e` | yes |
+| Coverage gate (all of the above) | `make cover-gate` | yes |
+
+Integration/e2e tests are guarded by the `integration` / `e2e` build tags, so
+the default build and unit lane stay free of Docker dependencies.
+
+## Run locally
 
 ```bash
-# Test single version
-./scripts/kubernetes-compatibility.sh validate 1.21.0
+# Walking skeleton against the in-memory repository:
+go run ./cmd/api                 # serves :8080
 
-# Test matrix of versions
-./scripts/kubernetes-compatibility.sh matrix
-
-# Adapt manifests for specific version
-./scripts/kubernetes-compatibility.sh adapt 1.21.0
-
-# Check current API versions
-./scripts/kubernetes-compatibility.sh check
+curl localhost:8080/healthz      # {"status":"ok"}
+curl localhost:8080/api/projects # []
+curl localhost:8080/metrics      # Prometheus exposition
 ```
 
-#### CI/CD Integration
-
-Our GitHub Actions workflows automatically test against multiple Kubernetes versions:
-- **Integrated Compatibility Testing**: Code Quality workflow validates against 1.21, 1.25, 1.28, and 1.34
-- **Comprehensive Validation**: Includes kubeconform validation with matrix strategy
-- **Auto-detection**: Automatically adapts API versions based on target version
-
-#### API Version Matrix
-
-| Resource | K8s 1.21+ | K8s 1.25+ | Auto-Adapted | Test Status |
-|----------|-----------|-----------|-------------|------------|
-| PodDisruptionBudget | policy/v1 | policy/v1 | ✅ | ✅ |
-| Deployment | apps/v1 | apps/v1 | ✅ | ✅ |
-| Service | v1 | v1 | ✅ | ✅ |
-| RBAC | rbac.authorization.k8s.io/v1 | rbac.authorization.k8s.io/v1 | ✅ | ✅ |
-
-#### Compatibility Test Results
-
-| Kubernetes Version | Core Manifests | Helm Templates | Overall Status |
-|-------------------|----------------|----------------|----------------|
-| 1.21.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
-| 1.25.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
-| 1.28.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
-| 1.34.x | ✅ Native | ✅ (fixed syntax) | ✅ Compatible |
-
-> **Note**: Helm template validation warnings are expected due to Go templating syntax and do not affect actual deployment compatibility.
-
-### Local Development Setup
-
-1. **Start local cluster:**
-
-   ```bash
-   make              # Creates kind cluster, deploys all components
-   ```
-
-2. **Expose services:**
-
-   ```bash
-   make expose       # Port-forwards Setagaya (8080) and Grafana (3000)
-   ```
-
-3. **Access the platform:**
-   - **Setagaya UI**: http://localhost:8080
-   - **Grafana Dashboards**: http://localhost:3000
-
-4. **Development workflow:**
-
-   ```bash
-   make setagaya     # Rebuilds and redeploys controller changes
-   make clean        # Destroys local cluster
-   ```
-
-### Authentication Note
-
-Local Setagaya runs without authentication. Use `setagaya` as the project owner when creating resources.
-
-## 🐳 Container Images
-
-The platform uses modern, security-hardened container images:
-
-| Component         | JMeter Version | Build Method     | Usage                                                                                       |
-| ----------------- | -------------- | ---------------- | ------------------------------------------------------------------------------------------- |
-| **Modern Engine** | 5.6.3          | Source build     | `docker build -f setagaya/Dockerfile.engines.jmeter .`                                      |
-| **Legacy Engine** | 3.3            | Pre-built binary | `./setagaya/build.sh jmeter && docker build -f setagaya/Dockerfile.engines.jmeter.legacy .` |
-| **API Server**    | N/A            | Source build     | `docker build -f setagaya/Dockerfile .`                                                     |
-| **Controller**    | N/A            | Source build     | `docker build -f setagaya/Dockerfile.controller .`                                          |
-
-All images run as non-root user (`setagaya`, UID 1001) with security-first design.
-
-## 🔧 Configuration
-
-The platform uses a centralized configuration system:
-
-- **Development**: `setagaya/config_tmpl.json` (template)
-- **Production**: `config.json` with environment-specific settings
-- **Key Areas**: Executors, storage, authentication, monitoring
-
-Example configuration structure:
-
-```json
-{
-  "executor_config": {
-    "jmeter": {
-      "image": "setagaya:jmeter",
-      "cpu": "1000m",
-      "memory": "2Gi"
-    }
-  },
-  "storage": {
-    "type": "local|gcp|nexus"
-  },
-  "auth": {
-    "no_auth": false,
-    "ldap_config": {
-      "host": "ldap.example.com",
-      "port": 389
-    }
-  }
-}
-```
-
-## 🔒 Security & Updates
-
-### Recent Security Improvements (v2.0.0-rc.1)
-
-The platform includes comprehensive security updates across all components:
-
-#### Critical Dependency Updates
-- **MySQL Driver**: Updated to v1.9.3 with security fixes and performance improvements
-- **Session Management**: Gorilla sessions v1.4.0 with enhanced cookie security for Chrome's 3rd party cookie changes
-- **Logging**: Logrus v1.9.3 addressing DoS vulnerabilities in log processing
-- **Go Dependencies**: Latest security patches for crypto, net, and gRPC modules
-- **Google APIs**: Updated to v0.248.0 with security improvements
-- **Kubernetes Client**: Updated to v0.34.0 with security patches
-
-#### Security Features
-- **Container Hardening**: All images run as non-root user (UID 1001)
-- **Multi-stage Builds**: Minimal attack surface with scratch/alpine base images
-- **Static Compilation**: CGO_ENABLED=0 with security flags (`-w -s -extldflags=-static`)
-- **Dependency Scanning**: Automated security monitoring with GitHub Actions
-- **SBOM Generation**: Software Bill of Materials for transparency
-
-### Security Automation
-- **Weekly Security Scans**: Multi-tool coverage (Gosec, CodeQL, Trivy, TruffleHog)
-- **Dependabot Integration**: Automated security updates with testing
-- **Critical Vulnerability Response**: Automated detection and escalation
-- **Security Policies**: Comprehensive incident response procedures
-
-For security issues, see [SECURITY.md](SECURITY.md).
-
-## 🏢 Production Deployment
-
-### Required Components
-
-1. **Kubernetes Cluster** - Any CNCF-compliant distribution
-2. **MySQL Database** - MariaDB v10.0.23+ compatible
-3. **Prometheus** - Metrics collection and storage
-4. **Grafana** - Visualization with pre-built dashboards
-5. **Storage Backend** - Nexus, GCP Buckets, or local storage
-6. **LDAP Server** - Authentication and authorization (optional)
-
-### Deployment Options
-
-- **In-cluster**: Deploy engines to the same cluster as the controller
-- **Cross-cluster**: Deploy engines to external Kubernetes clusters
-- **Multi-cloud**: Support for different cloud providers
-
-### Security Configuration
-
-- **RBAC**: Kubernetes role-based access control (see `kubernetes/roles.yaml`)
-- **Service Accounts**: Proper isolation and permissions
-- **Network Policies**: Kubernetes-native network isolation
-- **Authentication**: LDAP integration with group-based ownership
-
-## 🔄 Distributed Mode
-
-The platform supports distributed architecture for improved scalability:
-
-- **API Server**: REST endpoints and UI serving
-- **Controller**: Test orchestration and metrics aggregation
-- **Scheduler**: Kubernetes resource management
-- **Engines**: Distributed load generation
-
-Enable distributed mode by setting `runtime.distributed_mode: true` in configuration.
-
-## 📊 Monitoring & Metrics
-
-### Real-time Metrics Pipeline
-
-```
-JMeter Engines → setagaya-agent → Controller → Prometheus → Grafana
-```
-
-### Pre-built Dashboards
-
-- **Platform Overview**: `grafana/dashboards/setagaya.json`
-- **Performance Metrics**: `grafana/dashboards/setagaya_perf.json`
-- **Engine Details**: `grafana/dashboards/setagaya_engine.json`
-
-### Live Updates
-
-- Server-sent events for real-time dashboard updates
-- Collection-level metrics aggregation
-- Configurable retention and alerting
-
-## 🧪 Testing Lifecycle
-
-1. **Deploy**: Create Kubernetes resources, engines come online
-2. **Trigger**: Start load generation across all engines in collection
-3. **Terminate**: Stop tests, keep engines deployed for result collection
-4. **Purge**: Remove all Kubernetes resources and clean up storage
-
-## 🛠️ Development
-
-### Code Organization
-
-```
-setagaya/                 # Main application
-├── api/                 # REST API server
-├── controller/          # Test orchestration
-├── scheduler/           # Kubernetes management
-├── engines/             # Load generation engines
-├── model/               # Domain models
-├── config/              # Configuration system
-└── object_storage/      # Storage abstraction
-```
-
-### Auto-Formatting Infrastructure
-
-Setagaya includes comprehensive auto-formatting tools for consistent code quality:
-
-- **golangci-lint**: Go linting with 75+ enabled checkers
-- **Prettier**: Auto-formats YAML, Markdown, JSON, and JavaScript files
-- **yamllint**: YAML validation with formatter-friendly rules
-- **Git Hooks**: Pre-commit hooks with automatic formatting
-- **npm Scripts**: Convenient formatting and linting commands
-
-### Test Coverage & Quality Assurance
-
-#### Recent Test Coverage Improvements (v2.0.0-rc.1)
-
-| Package | Previous | Current | Key Areas Tested |
-|---------|----------|---------|------------------|
-| **API** | 0% | **7.3%** | Error handling, validation, network utilities |
-| **Config** | 0% | **24.0%** | HTTP client setup, MySQL endpoints, context loading |
-| **Model** | ~2% | **4.6%** | Authentication, admin privileges, ownership validation |
-| **Object Storage** | ~10% | **12.0%** | Provider detection, factory functions |
-| **Controller** | 0% | **0.2%** | Error handling functions |
-| **Engines/Model** | ~80% | **100%** | Complete engine data structure coverage |
-
-**Overall Platform Coverage**: **2.1% → 4.6%** (118% improvement)
-
-#### Testing Strategy
-- **Security-First Testing**: Comprehensive validation of authentication and authorization functions
-- **Edge Case Coverage**: Extensive testing with nil inputs, special characters, and boundary conditions
-- **Error Handling**: 100% coverage of all error creation and handling functions
-- **Database-Independent**: Tests run without requiring database connections using mock configurations
-
-#### Available Commands
+## Configuration
+
+Configuration is read from `SETAGAYA_*` environment variables (see
+`internal/config`); there are no config files or global singletons. Everything
+has a local-dev default, so `go run ./cmd/api` works with no environment set.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SETAGAYA_HTTP_PORT` | `8080` | API listen port |
+| `SETAGAYA_DB_DRIVER` | `fake` | `fake` (in-memory) or `mysql` |
+| `SETAGAYA_DB_DSN` | – | MySQL DSN (required when driver is `mysql`) |
+| `SETAGAYA_STORAGE_DRIVER` | `local` | `local` or `nexus` |
+| `SETAGAYA_STORAGE_ROOT` | `storage-data` | filesystem root (local store) |
+| `SETAGAYA_STORAGE_BASE_URL` | – | retrieval base URL (local) / Nexus server URL |
+| `SETAGAYA_NEXUS_REPO` | – | Nexus raw repository (required for `nexus`) |
+| `SETAGAYA_NEXUS_USERNAME` / `_PASSWORD` | – | Nexus basic-auth credentials |
+| `SETAGAYA_SCHEDULER` | `fake` | `fake` or `k8s` |
+| `SETAGAYA_EXECUTOR` | `fake` | `fake`, `jmeter`, or `k6` |
+| `SETAGAYA_ENGINE_IMAGE` | `setagaya/jmeter:latest` | engine container image |
+| `SETAGAYA_AUTH_MODE` | `none` | `none` (fixed admin) or `oidc` |
+| `SETAGAYA_ENABLE_RBAC` | `false` | enable tenant-scoped RBAC |
+| `SETAGAYA_OIDC_ISSUER` / `_AUDIENCE` / `_JWKS_URL` | – | OIDC ID-token verification (required for `oidc`) |
+| `SETAGAYA_MAX_ENGINES` | `500` | per-collection engine guardrail |
+| `SETAGAYA_LOG_LEVEL` / `_FORMAT` | `info` / `json` | structured logging |
+
+Run against MySQL with the JMeter executor on Kubernetes, for example:
 
 ```bash
-# Install development tools
-./scripts/setup-dev-tools.sh
-
-# Format all files automatically
-npm run format
-
-# Lint and auto-fix markdown
-npm run lint:md
-
-# Validate YAML files
-npm run lint:yaml
-
-# Fix all linting issues
-npm run fix
+SETAGAYA_DB_DRIVER=mysql SETAGAYA_DB_DSN='user:pw@tcp(db:3306)/setagaya' \
+SETAGAYA_SCHEDULER=k8s SETAGAYA_EXECUTOR=jmeter \
+SETAGAYA_AUTH_MODE=oidc SETAGAYA_ENABLE_RBAC=true \
+SETAGAYA_OIDC_ISSUER=https://issuer.example \
+SETAGAYA_OIDC_JWKS_URL=https://issuer.example/.well-known/jwks.json \
+go run ./cmd/api
 ```
 
-#### Git Hook Integration
+Migrations are embedded and applied automatically on startup when the MySQL
+driver is selected.
 
-The platform automatically formats files on commit via pre-commit hooks that:
+## License
 
-- Run prettier for YAML, Markdown, and JSON formatting
-- Validate YAML syntax with yamllint
-- Provide clear error reporting and fallback handling
-
-### Extension Points
-
-- **New Schedulers**: Implement `scheduler.EngineScheduler` interface
-- **Storage Backends**: Implement `object_storage.Storage` interface
-- **Engine Types**: Follow agent sidecar pattern with metrics reporting
-
-## 📈 Scalability & Performance
-
-- **Horizontal Scaling**: Multiple engine pods per test plan
-- **Resource Isolation**: Kubernetes namespace separation
-- **Load Distribution**: Configurable engine placement and affinity
-- **Efficient Metrics**: Streaming aggregation and collection
-
-## 🚧 Current Limitations
-
-- One controller manages one Kubernetes cluster (multi-cluster support planned)
-- Sequential context execution (parallel execution planned)
-- JMeter-focused (additional executors like Gatling planned)
-
-## 🗺️ Development Roadmap
-
-### ✅ Completed (v2.0.0-rc.1)
-
-- **Security Automation**: Comprehensive security scanning and monitoring
-- **Container Modernization**: Security-hardened multi-stage Docker builds
-- **JMeter Compatibility**: Support for multiple JMeter versions (3.3 and 5.6.3)
-- **CI/CD Integration**: GitHub Actions workflows for security and quality
-- **Documentation Overhaul**: Complete technical specifications and security policies
-- **Auto-Formatting Infrastructure**: Prettier, yamllint with git hooks
-- **Code Quality Improvements**: Reduced complexity, enhanced error handling
-
-### 🚧 In Progress (v2.1.0)
-
-- **Multi-Executor Support**: Gatling, K6, custom executors
-- **Multi-Context Management**: Single controller, multiple clusters
-- **Performance Optimization**: Enhanced metrics aggregation and caching
-
-### 🎯 Next Major Release (v3.0.0) - Enterprise RBAC
-
-**Target**: Q2 2026 | **Focus**: Enterprise Identity & Multi-Tenancy
-
-#### 🏢 Role-Based Access Control (RBAC) with Okta Integration
-
-**Planning Documents**:
-- **[RBAC Development Plan](docs/RBAC_DEVELOPMENT_PLAN.md)** - Comprehensive development strategy
-- **[RBAC Technical Specification](docs/RBAC_TECHNICAL_SPECIFICATION.md)** - Implementation details
-
-**Role Hierarchy**:
-```
-Service Provider:
-├── Admin (Full platform control)
-└── Support (Read-only + troubleshooting)
-
-Project Management:
-└── PJM Loadtest (Cross-tenant oversight)
-
-Tenant-Scoped:
-├── Tenant Admin (Full tenant control)
-├── Tenant Editor (Create/modify resources)
-└── Tenant Viewer (Read-only access)
-```
-
-**Key Features**:
-- **Modern Authentication**: Okta OIDC/OAuth2 integration replacing LDAP
-- **Multi-Tenant Architecture**: Complete tenant isolation and resource scoping
-- **Fine-Grained Permissions**: Resource-level authorization with audit trails
-- **Enterprise Integration**: SSO, group-based access, automated provisioning
-- **Security Enhancements**: Comprehensive audit logging and compliance support
-
-**Development Timeline** (14 weeks):
-- **Phase 1** (4 weeks): Okta integration and authentication infrastructure
-- **Phase 2** (3 weeks): Authorization engine and permission framework
-- **Phase 3** (3 weeks): Multi-tenant support and quota management
-- **Phase 4** (2 weeks): API security enhancement and endpoint protection
-- **Phase 5** (2 weeks): Monitoring, audit, and compliance features
-
-**Migration Strategy**:
-- Parallel authentication systems during transition
-- Gradual role migration with validation
-- Feature flag controlled rollout
-- Zero-downtime migration path
-
-### 🔮 Future Releases
-
-#### v3.1.0 - Advanced Scheduling (Q3 2026)
-- **Time-Based Triggers**: Cron-style scheduling and recurring tests
-- **Dependency Chains**: Sequential test execution with conditions
-- **Load Profiles**: Dynamic load adjustment and spike testing
-- **Test Templates**: Reusable test configurations and best practices
-
-#### v3.2.0 - Cloud Integration (Q4 2026)
-- **Multi-Cloud Support**: AWS, GCP, Azure native integrations
-- **Serverless Executors**: Lambda, Cloud Functions, Cloud Run support
-- **Cost Optimization**: Spot instances, preemptible nodes, auto-scaling
-- **Regional Distribution**: Global load testing from multiple regions
-
-#### v4.0.0 - AI-Powered Testing (2027)
-- **Intelligent Load Patterns**: ML-driven realistic traffic simulation
-- **Automated Performance Analysis**: AI-powered bottleneck detection
-- **Predictive Scaling**: Proactive resource allocation
-- **Smart Test Generation**: AI-assisted test plan creation
-
-### 🎯 Strategic Initiatives
-
-#### Enterprise Readiness
-- **High Availability**: Multi-region deployment and disaster recovery
-- **Compliance**: SOC2, PCI-DSS, GDPR compliance frameworks
-- **Professional Services**: Training, consulting, and support tiers
-- **Integration Ecosystem**: Plugin architecture for third-party tools
-
-#### Developer Experience
-- **CLI Tools**: Command-line interface for test management
-- **IDE Plugins**: VS Code, IntelliJ integration
-- **API First**: Comprehensive REST and GraphQL APIs
-- **SDK Development**: Client libraries for popular languages
-
-## 🤝 Contributing
-
-1. Read the [Technical Specifications](TECHNICAL_SPECS.md)
-2. Follow [Development Guidelines](.github/instructions/copilot.instructions.md)
-3. Review [Security Policy](SECURITY.md) for security considerations
-4. Ensure documentation updates for any changes
-5. Test with both JMeter versions (3.3 and 5.6.3)
-6. Run auto-formatting and linting before commits
-7. Run security checks via GitHub Actions workflows
-
-### Security Contributions
-
-- Security vulnerabilities should be reported privately via [Security Policy](SECURITY.md)
-- Security improvements and hardening are welcome via standard PR process
-- All PRs undergo automated security scanning and validation
-
-## 📄 License
-
-See [LICENSE](LICENSE) file for details.
-
----
-
-**Setagaya** - Scalable, Cloud-Native Load Testing Platform
+See [LICENSE](LICENSE).

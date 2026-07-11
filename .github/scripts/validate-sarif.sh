@@ -38,7 +38,7 @@ validate_sarif() {
         ."$schema" = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json" |
         .runs[] |= (
             .tool.driver.name = $tool_name |
-            if .tool.driver.informationUri then . else .tool.driver.informationUri = "https://github.com/hveda/Setagaya" end |
+            if .tool.driver.informationUri then . else .tool.driver.informationUri = "https://github.com/heridotlife/Setagaya" end |
             .results[]? |= (
                 if .locations[]?.physicalLocation.artifactLocation then . 
                 else (.locations[]?.physicalLocation.artifactLocation = {"uri": "."}) end
@@ -66,7 +66,7 @@ create_empty_sarif() {
         "driver": {
           "name": "$tool_name",
           "version": "1.0.0",
-          "informationUri": "https://github.com/hveda/Setagaya"
+          "informationUri": "https://github.com/heridotlife/Setagaya"
         }
       },
       "results": []

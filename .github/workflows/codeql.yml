@@ -1,0 +1,37 @@
+name: CodeQL
+
+on:
+  # pull_request covers develop->main; push only on main (post-merge) so a
+  # merge to develop does not also run via the open develop->main PR.
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "31 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (Go)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go.sum
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          build-mode: autobuild
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:go"

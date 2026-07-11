@@ -57,12 +57,7 @@ ignore: |
   # Ignore GitHub Actions workflows
   .github/workflows/*.yml
   .github/workflows/*.yaml
-  # Ignore Kubernetes infrastructure files (different formatting standards)
-  kubernetes/*.yaml
-  kubernetes/*.yml
-  # Ignore Grafana dashboard and Helm chart files
+  # Ignore Grafana dashboard files
   grafana/metrics-dashboard/**
   grafana/dashboards/**
-  # Ignore specific files that may have different formatting requirements
-  setagaya/install/setagaya/templates/configmap.yaml
   grafana/plugins/grafana-piechart-panel/**
