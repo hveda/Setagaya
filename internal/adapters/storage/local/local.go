@@ -16,7 +16,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// Store persists objects as files beneath Root.
+// Store persists objects as files beneath root.
 type Store struct {
 	root    string
 	baseURL string
@@ -30,34 +30,37 @@ func New(root, baseURL string) *Store {
 
 var _ ports.ObjectStore = (*Store)(nil)
 
-// resolve maps a storage key to an absolute filesystem path, rejecting any key
-// that would escape the root directory (path traversal).
-func (s *Store) resolve(key string) (string, error) {
-	key = filepath.ToSlash(key)
-	for _, seg := range strings.Split(key, "/") {
-		if seg == ".." {
-			return "", fmt.Errorf("local: invalid key %q", key)
-		}
+// openRoot returns an *os.Root confined to the store's root directory. All file
+// operations go through the returned root, so the OS itself rejects any key
+// that would escape it (via "..", absolute paths, or symlinks) — no manual path
+// sanitisation required. The caller must Close the root.
+func (s *Store) openRoot() (*os.Root, error) {
+	if err := os.MkdirAll(s.root, 0o750); err != nil {
+		return nil, fmt.Errorf("local: mkdir root: %w", err)
 	}
-	full := filepath.Join(s.root, filepath.FromSlash(key))
-	// Defense in depth: the resolved path must stay within root.
-	if full != s.root && !strings.HasPrefix(full, s.root+string(os.PathSeparator)) {
-		return "", fmt.Errorf("local: invalid key %q", key)
+	root, err := os.OpenRoot(s.root)
+	if err != nil {
+		return nil, fmt.Errorf("local: open root: %w", err)
 	}
-	return full, nil
+	return root, nil
 }
 
 // Upload writes content to the file for key, creating parent directories and
 // overwriting any existing file.
 func (s *Store) Upload(_ context.Context, key string, content io.Reader) error {
-	full, err := s.resolve(key)
+	root, err := s.openRoot()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
-		return fmt.Errorf("local: mkdir: %w", err)
+	defer func() { _ = root.Close() }()
+
+	name := filepath.FromSlash(key)
+	if dir := filepath.Dir(name); dir != "." {
+		if err := root.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("local: mkdir: %w", err)
+		}
 	}
-	f, err := os.Create(full) // #nosec G304 -- path is validated by resolve()
+	f, err := root.Create(name)
 	if err != nil {
 		return fmt.Errorf("local: create: %w", err)
 	}
@@ -70,11 +73,13 @@ func (s *Store) Upload(_ context.Context, key string, content io.Reader) error {
 
 // Download reads the object bytes, or returns ports.ErrObjectNotFound.
 func (s *Store) Download(_ context.Context, key string) ([]byte, error) {
-	full, err := s.resolve(key)
+	root, err := s.openRoot()
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(full) // #nosec G304 -- path is validated by resolve()
+	defer func() { _ = root.Close() }()
+
+	data, err := root.ReadFile(filepath.FromSlash(key))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ports.ErrObjectNotFound
 	}
@@ -86,11 +91,13 @@ func (s *Store) Download(_ context.Context, key string) ([]byte, error) {
 
 // Delete removes the file for key. A missing file is not an error.
 func (s *Store) Delete(_ context.Context, key string) error {
-	full, err := s.resolve(key)
+	root, err := s.openRoot()
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(full); err != nil && !errors.Is(err, os.ErrNotExist) {
+	defer func() { _ = root.Close() }()
+
+	if err := root.Remove(filepath.FromSlash(key)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("local: delete: %w", err)
 	}
 	return nil
@@ -101,9 +108,5 @@ func (s *Store) URL(key string) string {
 	if s.baseURL != "" {
 		return s.baseURL + "/" + key
 	}
-	full, err := s.resolve(key)
-	if err != nil {
-		return ""
-	}
-	return "file://" + full
+	return "file://" + filepath.Join(s.root, filepath.FromSlash(key))
 }

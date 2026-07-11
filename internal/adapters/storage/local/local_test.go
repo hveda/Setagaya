@@ -3,6 +3,8 @@ package local_test
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,6 +30,29 @@ func TestLocalStore_RejectsPathTraversal(t *testing.T) {
 	}
 	if _, err := store.Download(ctx, "../../etc/passwd"); err == nil {
 		t.Fatal("Download with traversal key: expected error, got nil")
+	}
+}
+
+func TestLocalStore_UnusableRoot(t *testing.T) {
+	t.Parallel()
+	// Root sits beneath a regular file, so it can never be created: every
+	// operation must surface the error rather than panic or silently succeed.
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := local.New(filepath.Join(blocker, "root"), "")
+	ctx := context.Background()
+
+	if err := store.Upload(ctx, "k", bytes.NewReader([]byte("x"))); err == nil {
+		t.Error("Upload with unusable root: expected error, got nil")
+	}
+	if _, err := store.Download(ctx, "k"); err == nil {
+		t.Error("Download with unusable root: expected error, got nil")
+	}
+	if err := store.Delete(ctx, "k"); err == nil {
+		t.Error("Delete with unusable root: expected error, got nil")
 	}
 }
 
