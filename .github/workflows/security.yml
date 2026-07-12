@@ -57,13 +57,93 @@ jobs:
   trivy:
     name: trivy
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v7
-      - name: Trivy filesystem scan
-        # Advisory table output to the job log (deps, secrets, misconfig).
+      - name: Trivy filesystem scan (SARIF)
+        # Advisory (exit-code 0); deps, secrets, misconfig. Results upload to
+        # code scanning so the Trivy tool reports on the Security tab.
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scanners: vuln,secret,misconfig
-          format: table
+          format: sarif
+          output: trivy.sarif
           exit-code: "0"
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  grype:
+    name: grype
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Grype filesystem scan (SARIF)
+        id: grype
+        # Advisory (fail-build false); dependency vulnerability scan.
+        uses: anchore/scan-action@v7
+        with:
+          path: "."
+          fail-build: false
+      - name: Upload Grype SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: grype
+
+  hadolint:
+    name: hadolint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Hadolint grafana/Dockerfile (SARIF)
+        # Advisory (no-fail); Dockerfile lint.
+        uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: grafana/Dockerfile
+          format: sarif
+          output-file: hadolint.sarif
+          no-fail: true
+      - name: Upload Hadolint SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: hadolint.sarif
+          category: hadolint
+
+  scorecard:
+    name: scorecard
+    runs-on: ubuntu-latest
+    # Scorecard analyses repo-level posture (branch protection, tokens, etc.),
+    # which is only meaningful on the default branch — skip pull_request runs.
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: OSSF Scorecard
+        uses: ossf/scorecard-action@v2.4.3
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: false
+      - name: Upload Scorecard SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scorecard.sarif
+          category: scorecard

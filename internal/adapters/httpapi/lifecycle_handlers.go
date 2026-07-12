@@ -98,5 +98,7 @@ func (h *handlers) planPodLog(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- Content-Type is text/plain (set above), so the browser does
+	// not interpret the pod log as HTML/JS; there is no XSS sink here.
 	_, _ = w.Write([]byte(log))
 }

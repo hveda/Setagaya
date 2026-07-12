@@ -8,6 +8,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -63,6 +64,21 @@ func New(client kubernetes.Interface, cfg Config) *Scheduler {
 
 var _ ports.Scheduler = (*Scheduler)(nil)
 
+// int32Bounded converts n (a port or replica count) to int32, clamping to the
+// valid int32 range. The clamp is unreachable in practice — ports are <=65535
+// and replica counts are small — but it makes the narrowing conversion provably
+// overflow-free (gosec G115).
+func int32Bounded(n int) int32 {
+	switch {
+	case n < 0:
+		return 0
+	case n > math.MaxInt32:
+		return math.MaxInt32
+	default:
+		return int32(n) // #nosec G115 -- bounds checked above
+	}
+}
+
 // DeployPlan creates (or scales) the StatefulSet and headless Service for a
 // plan. It is idempotent.
 func (s *Scheduler) DeployPlan(ctx context.Context, spec ports.DeploySpec) error {
@@ -82,7 +98,7 @@ func (s *Scheduler) ensureService(ctx context.Context, name string, labels map[s
 		Spec: corev1.ServiceSpec{
 			ClusterIP: corev1.ClusterIPNone, // headless
 			Selector:  map[string]string{"app": name},
-			Ports:     []corev1.ServicePort{{Port: int32(s.port), Name: "agent"}},
+			Ports:     []corev1.ServicePort{{Port: int32Bounded(s.port), Name: "agent"}},
 		},
 	}
 	_, err := s.client.CoreV1().Services(s.ns).Create(ctx, svc, metav1.CreateOptions{})
@@ -93,7 +109,7 @@ func (s *Scheduler) ensureService(ctx context.Context, name string, labels map[s
 }
 
 func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels map[string]string, spec ports.DeploySpec) error {
-	replicas := int32(spec.Engines)
+	replicas := int32Bounded(spec.Engines)
 	podLabels := map[string]string{}
 	for k, v := range labels {
 		podLabels[k] = v
@@ -112,7 +128,7 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 					Containers: []corev1.Container{{
 						Name:      "engine",
 						Image:     spec.Image,
-						Ports:     []corev1.ContainerPort{{ContainerPort: int32(s.port)}},
+						Ports:     []corev1.ContainerPort{{ContainerPort: int32Bounded(s.port)}},
 						Resources: resourceRequirements(spec),
 					}},
 				},
