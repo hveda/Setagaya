@@ -1,5 +1,5 @@
-# Use latest stable Grafana with security updates
-FROM grafana/grafana:12.4.4
+# Use latest stable Grafana with security updates (pinned by digest)
+FROM grafana/grafana:12.4.4@sha256:378f94b054e5384cd74322cbf7542cff6a43e068e4011f81ea5e75323247df02
 
 # Security environment variables
 ENV GF_SECURITY_ADMIN_USER=setagaya
