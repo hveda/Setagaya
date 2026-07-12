@@ -43,7 +43,7 @@ fi
 # Install goimports for Go formatting
 if command -v go >/dev/null 2>&1; then
     echo "Installing goimports..."
-    go install golang.org/x/tools/cmd/goimports@latest
+    go install golang.org/x/tools/cmd/goimports@v0.48.0
 else
     echo "⚠️  Go not found. goimports will not be available."
 fi
