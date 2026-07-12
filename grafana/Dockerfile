@@ -35,5 +35,9 @@ RUN chown -R 472:0 /etc/grafana/provisioning /var/lib/grafana/dashboards /var/li
 # Use non-root grafana user
 USER grafana
 
+# Container health check against Grafana's health endpoint (DS-0026)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+
 # Expose Grafana port
 EXPOSE 3000

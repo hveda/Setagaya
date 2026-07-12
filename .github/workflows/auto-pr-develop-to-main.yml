@@ -14,10 +14,10 @@ on:
     branches:
       - develop
 
-# Required permissions for creating/updating PRs
+# GITHUB_TOKEN only needs to read the repo for checkout; PR creation/updates use
+# PAT_TOKEN (see above), so keep the default token least-privilege.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   auto-pr:
@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0 # Fetch all history for proper diff
 
