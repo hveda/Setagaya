@@ -31,6 +31,9 @@ jobs:
   gosec:
     name: gosec
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
@@ -40,11 +43,16 @@ jobs:
       - name: Install gosec
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
       - name: Run gosec
-        # Advisory: findings are printed to the job log (respecting existing
-        # #nosec annotations); govulncheck is the hard vulnerability gate. SARIF
-        # upload to code scanning is intentionally omitted so the workflow does
-        # not depend on Advanced Security being enabled.
-        run: gosec -no-fail ./...
+        # Advisory: -no-fail keeps findings non-blocking (govulncheck remains the
+        # hard vulnerability gate, respecting existing #nosec annotations). SARIF
+        # is emitted so results surface on the Security tab / code-scanning "gosec"
+        # tool.
+        run: gosec -no-fail -fmt sarif -out gosec.sarif ./...
+      - name: Upload gosec SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
 
   trivy:
     name: trivy
