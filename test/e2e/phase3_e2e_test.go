@@ -89,7 +89,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	_ = resp.Body.Close()
 
 	// Admin lists the collection as deployed.
-	var running []adminapp.RunningCollection
+	var running []adminapp.RunningExecution
 	getJSON(t, client, srv.URL+"/api/admin/collections", http.StatusOK, &running)
 	if len(running) != 1 || running[0].ExecutionID != collID {
 		t.Fatalf("admin collections = %+v", running)

@@ -40,9 +40,9 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, ScenarioID: planA, Engines: 2, Image: "jmeter"})
 		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, ScenarioID: planB, Engines: 3, Image: "jmeter"})
 
-		deployed, err := s.DeployedCollections(ctx)
+		deployed, err := s.DeployedExecutions(ctx)
 		if err != nil {
-			t.Fatalf("DeployedCollections: %v", err)
+			t.Fatalf("DeployedExecutions: %v", err)
 		}
 		if _, ok := deployed[collection]; !ok {
 			t.Fatalf("collection %d not reported deployed: %v", collection, deployed)
@@ -59,15 +59,15 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("EngineURLs len = %d, want 2 (%v)", len(urls), urls)
 		}
 
-		status, err := s.CollectionStatus(ctx, collection, []ports.PlanRef{{ScenarioID: planA, Engines: 2}, {ScenarioID: planB, Engines: 3}})
+		status, err := s.ExecutionStatus(ctx, collection, []ports.ScenarioRef{{ScenarioID: planA, Engines: 2}, {ScenarioID: planB, Engines: 3}})
 		if err != nil {
-			t.Fatalf("CollectionStatus: %v", err)
+			t.Fatalf("ExecutionStatus: %v", err)
 		}
-		if len(status.Plans) != 2 {
-			t.Fatalf("status plans = %d, want 2", len(status.Plans))
+		if len(status.Scenarios) != 2 {
+			t.Fatalf("status plans = %d, want 2", len(status.Scenarios))
 		}
-		byPlan := map[int64]ports.PlanReadiness{}
-		for _, p := range status.Plans {
+		byPlan := map[int64]ports.ScenarioReadiness{}
+		for _, p := range status.Scenarios {
 			byPlan[p.ScenarioID] = p
 		}
 		if got := byPlan[planA]; got.EnginesWanted != 2 || got.EnginesDeployed != 2 || !got.Reachable {
@@ -92,12 +92,12 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("PodLog: %v", err)
 		}
 
-		if err := s.PurgeCollection(ctx, collection); err != nil {
-			t.Fatalf("PurgeCollection: %v", err)
+		if err := s.PurgeExecution(ctx, collection); err != nil {
+			t.Fatalf("PurgeExecution: %v", err)
 		}
-		deployed, err = s.DeployedCollections(ctx)
+		deployed, err = s.DeployedExecutions(ctx)
 		if err != nil {
-			t.Fatalf("DeployedCollections after purge: %v", err)
+			t.Fatalf("DeployedExecutions after purge: %v", err)
 		}
 		if _, ok := deployed[collection]; ok {
 			t.Fatalf("collection still deployed after purge: %v", deployed)
@@ -109,7 +109,7 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 
 	t.Run("purge with nothing deployed is not an error", func(t *testing.T) {
 		h := newHarness(t)
-		if err := h.Scheduler.PurgeCollection(ctx, 999); err != nil {
+		if err := h.Scheduler.PurgeExecution(ctx, 999); err != nil {
 			t.Fatalf("purge empty: %v", err)
 		}
 	})
@@ -117,7 +117,7 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 
 func mustDeploy(t *testing.T, s ports.Scheduler, spec ports.DeploySpec) {
 	t.Helper()
-	if err := s.DeployPlan(context.Background(), spec); err != nil {
-		t.Fatalf("DeployPlan(plan %d): %v", spec.ScenarioID, err)
+	if err := s.DeployScenario(context.Background(), spec); err != nil {
+		t.Fatalf("DeployScenario(plan %d): %v", spec.ScenarioID, err)
 	}
 }

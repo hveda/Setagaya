@@ -79,9 +79,9 @@ func int32Bounded(n int) int32 {
 	}
 }
 
-// DeployPlan creates (or scales) the StatefulSet and headless Service for a
+// DeployScenario creates (or scales) the StatefulSet and headless Service for a
 // plan. It is idempotent.
-func (s *Scheduler) DeployPlan(ctx context.Context, spec ports.DeploySpec) error {
+func (s *Scheduler) DeployScenario(ctx context.Context, spec ports.DeploySpec) error {
 	name := engine.PlanName(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
 	labels := engine.PlanLabels(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
 	labels[managedByLabel] = managedByValue
@@ -198,22 +198,22 @@ func (s *Scheduler) projectOf(ctx context.Context, executionID int64) (int64, er
 	return projectID, nil
 }
 
-// CollectionStatus counts ready pods per plan.
-func (s *Scheduler) CollectionStatus(ctx context.Context, executionID int64, plans []ports.PlanRef) (ports.CollectionStatus, error) {
-	status := ports.CollectionStatus{}
+// ExecutionStatus counts ready pods per plan.
+func (s *Scheduler) ExecutionStatus(ctx context.Context, executionID int64, plans []ports.ScenarioRef) (ports.ExecutionStatus, error) {
+	status := ports.ExecutionStatus{}
 	for _, ref := range plans {
 		ready, err := s.readyPods(ctx, executionID, ref.ScenarioID)
 		if err != nil {
-			return ports.CollectionStatus{}, err
+			return ports.ExecutionStatus{}, err
 		}
-		pr := ports.PlanReadiness{
+		pr := ports.ScenarioReadiness{
 			ScenarioID:      ref.ScenarioID,
 			EnginesWanted:   ref.Engines,
 			EnginesDeployed: ready,
 			Reachable:       ref.Engines > 0 && ready >= ref.Engines,
 		}
 		status.PoolSize += ready
-		status.Plans = append(status.Plans, pr)
+		status.Scenarios = append(status.Scenarios, pr)
 	}
 	return status, nil
 }
@@ -246,14 +246,14 @@ func podReady(p *corev1.Pod) bool {
 }
 
 // EngineDetail lists all engine pods of a collection.
-func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int64) (ports.CollectionDetail, error) {
+func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int64) (ports.ExecutionDetail, error) {
 	sel := fmt.Sprintf("project=%d,collection=%d", projectID, executionID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
-		return ports.CollectionDetail{}, err
+		return ports.ExecutionDetail{}, err
 	}
 	sort.Slice(pods.Items, func(i, j int) bool { return pods.Items[i].Name < pods.Items[j].Name })
-	detail := ports.CollectionDetail{}
+	detail := ports.ExecutionDetail{}
 	for i := range pods.Items {
 		p := &pods.Items[i]
 		detail.Engines = append(detail.Engines, ports.EngineDetail{
@@ -265,8 +265,8 @@ func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int
 	return detail, nil
 }
 
-// PurgeCollection deletes every StatefulSet, Service, and Pod of a collection.
-func (s *Scheduler) PurgeCollection(ctx context.Context, executionID int64) error {
+// PurgeExecution deletes every StatefulSet, Service, and Pod of a collection.
+func (s *Scheduler) PurgeExecution(ctx context.Context, executionID int64) error {
 	sel := fmt.Sprintf("collection=%d,%s=%s", executionID, managedByLabel, managedByValue)
 	opts := metav1.ListOptions{LabelSelector: sel}
 	del := metav1.DeleteOptions{}
@@ -346,8 +346,8 @@ func (s *Scheduler) NodePools(ctx context.Context) ([]ports.NodePool, error) {
 	return pools, nil
 }
 
-// DeployedCollections maps collection id to its earliest StatefulSet creation.
-func (s *Scheduler) DeployedCollections(ctx context.Context) (map[int64]time.Time, error) {
+// DeployedExecutions maps collection id to its earliest StatefulSet creation.
+func (s *Scheduler) DeployedExecutions(ctx context.Context) (map[int64]time.Time, error) {
 	sel := fmt.Sprintf("%s=%s", managedByLabel, managedByValue)
 	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {

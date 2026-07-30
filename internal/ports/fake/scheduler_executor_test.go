@@ -27,15 +27,15 @@ func TestFakeScheduler_Branches(t *testing.T) {
 	}
 
 	spec := ports.DeploySpec{ProjectID: 9, ExecutionID: 1, ScenarioID: 2, Engines: 2}
-	if err := s.DeployPlan(ctx, spec); err != nil {
+	if err := s.DeployScenario(ctx, spec); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	// Re-deploy keeps the original deploy time (idempotent).
 	spec.Engines = 4
-	if err := s.DeployPlan(ctx, spec); err != nil {
+	if err := s.DeployScenario(ctx, spec); err != nil {
 		t.Fatalf("redeploy: %v", err)
 	}
-	deployed, _ := s.DeployedCollections(ctx)
+	deployed, _ := s.DeployedExecutions(ctx)
 	if !deployed[1].Equal(fixed) {
 		t.Fatalf("deploy time = %v, want %v", deployed[1], fixed)
 	}

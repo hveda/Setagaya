@@ -43,7 +43,7 @@ func setup(t *testing.T, engines ...int) *env {
 		scenarioID, _ := store.CreateScenario(ctx, pl)
 		planIDs = append(planIDs, scenarioID)
 		tests = append(tests, loadprofile.Entry{ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: n, Duration: 1})
-		_ = sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: executionID, ScenarioID: scenarioID, Engines: n})
+		_ = sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: executionID, ScenarioID: scenarioID, Engines: n})
 	}
 	_ = store.StoreLoadProfile(ctx, executionID, false, tests)
 	runID, _ := store.StartRun(ctx, executionID)

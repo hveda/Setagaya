@@ -23,7 +23,7 @@ func TestAdminEndpoints(t *testing.T) {
 	sched := fake.NewScheduler()
 	c, _ := execution.New("peak", 1)
 	collID, _ := store.CreateExecution(ctx, c)
-	_ = sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: collID, ScenarioID: 1, Engines: 1})
+	_ = sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: collID, ScenarioID: 1, Engines: 1})
 
 	h := httpapi.NewRouter(httpapi.Deps{
 		Admin:         adminapp.NewService(store, sched, noopPurger{}),

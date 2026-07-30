@@ -72,12 +72,12 @@ func TestK8sScheduler_DeployIsIdempotentAndScales(t *testing.T) {
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
 
 	spec := ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Engines: 2, Image: "jmeter", CPU: "500m", Memory: "256Mi"}
-	if err := s.DeployPlan(ctx, spec); err != nil {
+	if err := s.DeployScenario(ctx, spec); err != nil {
 		t.Fatalf("deploy 1: %v", err)
 	}
 	// Re-deploy with more engines: no duplicate object, replicas updated.
 	spec.Engines = 5
-	if err := s.DeployPlan(ctx, spec); err != nil {
+	if err := s.DeployScenario(ctx, spec); err != nil {
 		t.Fatalf("deploy 2: %v", err)
 	}
 	name := engine.PlanName(1, 2, 3)
@@ -105,7 +105,7 @@ func TestK8sScheduler_EngineURLsFormat(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns, EnginePort: 8080})
 
-	if err := s.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Engines: 2, Image: "x"}); err != nil {
+	if err := s.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Engines: 2, Image: "x"}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	urls, err := s.EngineURLs(ctx, 2, 3, 2)
@@ -169,7 +169,7 @@ func TestK8sScheduler_StatusCountsOnlyReadyPods(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
 
-	if err := s.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Engines: 3, Image: "x"}); err != nil {
+	if err := s.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Engines: 3, Image: "x"}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	// Only 2 of 3 pods are ready; one is Pending.
@@ -184,11 +184,11 @@ func TestK8sScheduler_StatusCountsOnlyReadyPods(t *testing.T) {
 		t.Fatalf("create pending pod: %v", err)
 	}
 
-	status, err := s.CollectionStatus(ctx, 2, []ports.PlanRef{{ScenarioID: 3, Engines: 3}})
+	status, err := s.ExecutionStatus(ctx, 2, []ports.ScenarioRef{{ScenarioID: 3, Engines: 3}})
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Plans[0].EnginesDeployed != 2 || status.Plans[0].Reachable {
-		t.Fatalf("readiness = %+v, want deployed=2 not reachable", status.Plans[0])
+	if status.Scenarios[0].EnginesDeployed != 2 || status.Scenarios[0].Reachable {
+		t.Fatalf("readiness = %+v, want deployed=2 not reachable", status.Scenarios[0])
 	}
 }

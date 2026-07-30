@@ -125,7 +125,7 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 			Engines:     ep.Engines,
 			Image:       s.engineImage,
 		}
-		if err := s.sched.DeployPlan(ctx, spec); err != nil {
+		if err := s.sched.DeployScenario(ctx, spec); err != nil {
 			return err
 		}
 	}
@@ -153,7 +153,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	if err != nil {
 		return err
 	}
-	status, err := s.sched.CollectionStatus(ctx, executionID, planRefs(plans))
+	status, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(plans))
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func (s *Service) Purge(ctx context.Context, executionID int64) error {
 			return err
 		}
 	}
-	if err := s.sched.PurgeCollection(ctx, executionID); err != nil {
+	if err := s.sched.PurgeExecution(ctx, executionID); err != nil {
 		return err
 	}
 	s.metrics.Purge(executionID)
@@ -308,7 +308,7 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 	if err != nil {
 		return Status{}, err
 	}
-	sched, err := s.sched.CollectionStatus(ctx, executionID, planRefs(plans))
+	sched, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(plans))
 	if err != nil {
 		return Status{}, err
 	}
@@ -322,7 +322,7 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 	}
 
 	out := Status{Phase: run.DerivePhase(sched.PoolSize, running), PoolSize: sched.PoolSize}
-	for _, pr := range sched.Plans {
+	for _, pr := range sched.Scenarios {
 		ps := PlanStatus{
 			ScenarioID:      pr.ScenarioID,
 			EnginesWanted:   pr.EnginesWanted,
@@ -339,7 +339,7 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 }
 
 // EnginesDetail reports the engine pods and ingress of a collection.
-func (s *Service) EnginesDetail(ctx context.Context, projectID, executionID int64) (ports.CollectionDetail, error) {
+func (s *Service) EnginesDetail(ctx context.Context, projectID, executionID int64) (ports.ExecutionDetail, error) {
 	return s.sched.EngineDetail(ctx, projectID, executionID)
 }
 
@@ -407,10 +407,10 @@ func (s *Service) runningByPlan(ctx context.Context, executionID int64) (map[int
 	return out, nil
 }
 
-func planRefs(plans []loadprofile.Entry) []ports.PlanRef {
-	refs := make([]ports.PlanRef, 0, len(plans))
+func planRefs(plans []loadprofile.Entry) []ports.ScenarioRef {
+	refs := make([]ports.ScenarioRef, 0, len(plans))
 	for _, ep := range plans {
-		refs = append(refs, ports.PlanRef{ScenarioID: ep.ScenarioID, Engines: ep.Engines})
+		refs = append(refs, ports.ScenarioRef{ScenarioID: ep.ScenarioID, Engines: ep.Engines})
 	}
 	return refs
 }

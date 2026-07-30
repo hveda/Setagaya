@@ -58,8 +58,8 @@ func (s *Scheduler) now() time.Time {
 	return time.Now()
 }
 
-// DeployPlan records the deployment, keeping the earliest deploy time per plan.
-func (s *Scheduler) DeployPlan(_ context.Context, spec ports.DeploySpec) error {
+// DeployScenario records the deployment, keeping the earliest deploy time per plan.
+func (s *Scheduler) DeployScenario(_ context.Context, spec ports.DeploySpec) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	plans, ok := s.deployments[spec.ExecutionID]
@@ -91,28 +91,28 @@ func (s *Scheduler) EngineURLs(_ context.Context, executionID, scenarioID int64,
 	return urls, nil
 }
 
-// CollectionStatus reports deployed/wanted engines and reachability per plan.
-func (s *Scheduler) CollectionStatus(_ context.Context, executionID int64, plans []ports.PlanRef) (ports.CollectionStatus, error) {
+// ExecutionStatus reports deployed/wanted engines and reachability per plan.
+func (s *Scheduler) ExecutionStatus(_ context.Context, executionID int64, plans []ports.ScenarioRef) (ports.ExecutionStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	status := ports.CollectionStatus{}
+	status := ports.ExecutionStatus{}
 	for _, ref := range plans {
-		pr := ports.PlanReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Engines}
+		pr := ports.ScenarioReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Engines}
 		if d, ok := s.deployments[executionID][ref.ScenarioID]; ok {
 			pr.EnginesDeployed = d.spec.Engines
 			pr.Reachable = !s.Unreachable
 		}
 		status.PoolSize += pr.EnginesDeployed
-		status.Plans = append(status.Plans, pr)
+		status.Scenarios = append(status.Scenarios, pr)
 	}
 	return status, nil
 }
 
 // EngineDetail lists the engine pods of a collection.
-func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports.CollectionDetail, error) {
+func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports.ExecutionDetail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	detail := ports.CollectionDetail{IngressIP: s.IngressIP}
+	detail := ports.ExecutionDetail{IngressIP: s.IngressIP}
 	planIDs := make([]int64, 0, len(s.deployments[executionID]))
 	for scenarioID := range s.deployments[executionID] {
 		planIDs = append(planIDs, scenarioID)
@@ -131,8 +131,8 @@ func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports
 	return detail, nil
 }
 
-// PurgeCollection removes all record of a collection's deployments.
-func (s *Scheduler) PurgeCollection(_ context.Context, executionID int64) error {
+// PurgeExecution removes all record of a collection's deployments.
+func (s *Scheduler) PurgeExecution(_ context.Context, executionID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.deployments, executionID)
@@ -149,8 +149,8 @@ func (s *Scheduler) PodLog(_ context.Context, executionID, scenarioID int64) (st
 	return s.PodLogText, nil
 }
 
-// DeployedCollections maps collection id to its earliest deploy time.
-func (s *Scheduler) DeployedCollections(_ context.Context) (map[int64]time.Time, error) {
+// DeployedExecutions maps collection id to its earliest deploy time.
+func (s *Scheduler) DeployedExecutions(_ context.Context) (map[int64]time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[int64]time.Time{}

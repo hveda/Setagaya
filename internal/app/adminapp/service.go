@@ -36,8 +36,8 @@ func NewService(repo Repo, sched ports.Scheduler, purger Purger) *Service {
 	return &Service{repo: repo, sched: sched, purger: purger, now: time.Now}
 }
 
-// RunningCollection describes a collection currently holding engines.
-type RunningCollection struct {
+// RunningExecution describes a collection currently holding engines.
+type RunningExecution struct {
 	ExecutionID int64     `json:"collection_id"`
 	Name        string    `json:"name"`
 	ProjectID   int64     `json:"project_id"`
@@ -45,16 +45,16 @@ type RunningCollection struct {
 	Running     bool      `json:"running"`
 }
 
-// RunningCollections lists every deployed collection, enriched with its name,
+// RunningExecutions lists every deployed collection, enriched with its name,
 // project, and whether a run is in progress.
-func (s *Service) RunningCollections(ctx context.Context) ([]RunningCollection, error) {
-	deployed, err := s.sched.DeployedCollections(ctx)
+func (s *Service) RunningExecutions(ctx context.Context) ([]RunningExecution, error) {
+	deployed, err := s.sched.DeployedExecutions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]RunningCollection, 0, len(deployed))
+	out := make([]RunningExecution, 0, len(deployed))
 	for executionID, deployedAt := range deployed {
-		rc := RunningCollection{ExecutionID: executionID, DeployedAt: deployedAt}
+		rc := RunningExecution{ExecutionID: executionID, DeployedAt: deployedAt}
 		if c, err := s.repo.GetExecution(ctx, executionID); err == nil {
 			rc.Name = c.Name
 			rc.ProjectID = c.ProjectID
@@ -76,7 +76,7 @@ func (s *Service) NodePools(ctx context.Context) ([]ports.NodePool, error) {
 // AutoPurgeStale purges every collection whose engines have been deployed longer
 // than idleFor and which has no run in progress. It returns the purged ids.
 func (s *Service) AutoPurgeStale(ctx context.Context, idleFor time.Duration) ([]int64, error) {
-	deployed, err := s.sched.DeployedCollections(ctx)
+	deployed, err := s.sched.DeployedExecutions(ctx)
 	if err != nil {
 		return nil, err
 	}
