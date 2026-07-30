@@ -41,8 +41,8 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 
 	h := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         scenarioapp.NewService(store, obj),
-		Collections:   executionapp.NewService(store, obj, 100),
+		Scenarios:     scenarioapp.NewService(store, obj),
+		Executions:    executionapp.NewService(store, obj, 100),
 		Lifecycle:     lifecycleapp.NewService(store, sched, exec, obj, "img"),
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},

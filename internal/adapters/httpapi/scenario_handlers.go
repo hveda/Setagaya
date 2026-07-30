@@ -18,18 +18,18 @@ type planResponse struct {
 	Data        []scenarioapp.FileRef `json:"data"`
 }
 
-func (h *handlers) getPlan(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) getScenario(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
 	}
-	p, err := h.deps.Plans.Get(r.Context(), id)
+	p, err := h.deps.Scenarios.Get(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
 		return
 	}
-	files, err := h.deps.Plans.Files(r.Context(), id)
+	files, err := h.deps.Scenarios.Files(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -44,7 +44,7 @@ func (h *handlers) getPlan(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *handlers) createPlan(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) createScenario(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, "failed to parse form")
 		return
@@ -58,7 +58,7 @@ func (h *handlers) createPlan(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	p, err := h.deps.Plans.Create(r.Context(), r.PostForm.Get("name"), projectID)
+	p, err := h.deps.Scenarios.Create(r.Context(), r.PostForm.Get("name"), projectID)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -66,7 +66,7 @@ func (h *handlers) createPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toPlanResponse(p))
 }
 
-func (h *handlers) deletePlan(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) deleteScenario(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
@@ -76,20 +76,20 @@ func (h *handlers) deletePlan(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	if err := h.deps.Plans.Delete(r.Context(), id); err != nil {
+	if err := h.deps.Scenarios.Delete(r.Context(), id); err != nil {
 		respondError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "plan deleted"})
 }
 
-func (h *handlers) listPlanFiles(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) listScenarioFiles(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
 	}
-	files, err := h.deps.Plans.Files(r.Context(), id)
+	files, err := h.deps.Scenarios.Files(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -97,7 +97,7 @@ func (h *handlers) listPlanFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, files)
 }
 
-func (h *handlers) uploadPlanFile(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) uploadScenarioFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
@@ -113,14 +113,14 @@ func (h *handlers) uploadPlanFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = file.Close() }()
-	if err := h.deps.Plans.UploadFile(r.Context(), id, header.Filename, file); err != nil {
+	if err := h.deps.Scenarios.UploadFile(r.Context(), id, header.Filename, file); err != nil {
 		respondError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "uploaded"})
 }
 
-func (h *handlers) deletePlanFile(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
@@ -130,7 +130,7 @@ func (h *handlers) deletePlanFile(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	if err := h.deps.Plans.DeleteFile(r.Context(), id, r.URL.Query().Get("filename")); err != nil {
+	if err := h.deps.Scenarios.DeleteFile(r.Context(), id, r.URL.Query().Get("filename")); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -139,7 +139,7 @@ func (h *handlers) deletePlanFile(w http.ResponseWriter, r *http.Request) {
 
 // authorizePlan loads a plan and verifies the caller owns its project.
 func (h *handlers) authorizePlan(r *http.Request, scenarioID int64) error {
-	p, err := h.deps.Plans.Get(r.Context(), scenarioID)
+	p, err := h.deps.Scenarios.Get(r.Context(), scenarioID)
 	if err != nil {
 		return err
 	}

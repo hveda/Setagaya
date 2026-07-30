@@ -2,8 +2,8 @@ package httpapi
 
 import "net/http"
 
-// adminCollections lists the collections currently holding engines.
-func (h *handlers) adminCollections(w http.ResponseWriter, r *http.Request) {
+// adminExecutions lists the collections currently holding engines.
+func (h *handlers) adminExecutions(w http.ResponseWriter, r *http.Request) {
 	running, err := h.deps.Admin.RunningExecutions(r.Context())
 	if err != nil {
 		respondError(w, err)

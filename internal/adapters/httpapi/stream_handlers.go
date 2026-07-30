@@ -5,10 +5,10 @@ import (
 	"net/http"
 )
 
-// streamCollection serves a Server-Sent Events stream of a collection's live
+// streamExecution serves a Server-Sent Events stream of a collection's live
 // metrics. Each event is a JSON-encoded engine.Metric. The stream ends when the
 // client disconnects.
-func (h *handlers) streamCollection(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) streamExecution(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")

@@ -122,8 +122,8 @@ func run(ctx context.Context, getenv func(string) string) error {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         scenarioapp.NewService(repo, store),
-		Collections:   executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
+		Scenarios:     scenarioapp.NewService(repo, store),
+		Executions:    executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
 		Lifecycle:     lifecycle,
 		Usage:         usage,
 		Admin:         admin,

@@ -93,8 +93,8 @@ func failEnv(t *testing.T) (http.Handler, *failStore, ids) {
 	obj := fake.NewObjectStore()
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(fs),
-		Plans:         scenarioapp.NewService(fs, obj),
-		Collections:   executionapp.NewService(fs, obj, 100),
+		Scenarios:     scenarioapp.NewService(fs, obj),
+		Executions:    executionapp.NewService(fs, obj, 100),
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},
 	})
@@ -114,43 +114,43 @@ type ids struct{ project, plan, collection int64 }
 func TestHandlers_ServiceErrors_500(t *testing.T) {
 	t.Parallel()
 
-	t.Run("createPlan", func(t *testing.T) {
+	t.Run("createScenario", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "CreateScenario"
 		rec := postForm(t, h, "/api/scenarios", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
 		assert500(t, rec.Code)
 	})
-	t.Run("createCollection", func(t *testing.T) {
+	t.Run("createExecution", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "CreateExecution"
 		rec := postForm(t, h, "/api/executions", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
 		assert500(t, rec.Code)
 	})
-	t.Run("uploadPlanFile", func(t *testing.T) {
+	t.Run("uploadScenarioFile", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "AddScenarioFile"
 		rec := putMultipart(t, h, "/api/scenarios/"+itoa(id.plan)+"/files", "a.csv", "x")
 		assert500(t, rec.Code)
 	})
-	t.Run("uploadCollectionFile", func(t *testing.T) {
+	t.Run("uploadExecutionFile", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "AddExecutionFile"
 		rec := putMultipart(t, h, "/api/executions/"+itoa(id.collection)+"/files", "a.csv", "x")
 		assert500(t, rec.Code)
 	})
-	t.Run("listPlanFiles", func(t *testing.T) {
+	t.Run("listScenarioFiles", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "ScenarioFilesFor"
 		rec := do(t, h, http.MethodGet, "/api/scenarios/"+itoa(id.plan)+"/files")
 		assert500(t, rec.Code)
 	})
-	t.Run("listCollectionFiles", func(t *testing.T) {
+	t.Run("listExecutionFiles", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "ExecutionFilesFor"
 		rec := do(t, h, http.MethodGet, "/api/executions/"+itoa(id.collection)+"/files")
 		assert500(t, rec.Code)
 	})
-	t.Run("uploadCollectionConfig", func(t *testing.T) {
+	t.Run("uploadExecutionConfig", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "StoreLoadProfile"
 		yamlCfg := "multi-test:\n  collectionid: " + itoa(id.collection) + "\n  tests:\n    - testid: " + itoa(id.plan) + "\n      concurrency: 1\n      rampup: 1\n      engines: 1\n      duration: 1\n"

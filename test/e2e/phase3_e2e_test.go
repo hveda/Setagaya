@@ -50,8 +50,8 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         scenarioapp.NewService(repo, store),
-		Collections:   executionapp.NewService(repo, store, 500),
+		Scenarios:     scenarioapp.NewService(repo, store),
+		Executions:    executionapp.NewService(repo, store, 500),
 		Lifecycle:     lifecycle,
 		Usage:         usage,
 		Admin:         admin,

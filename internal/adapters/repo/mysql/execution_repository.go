@@ -32,7 +32,7 @@ func (r *Repository) CreateExecution(ctx context.Context, c execution.Execution)
 // GetExecution returns the execution with id, or ports.ErrNotFound.
 func (r *Repository) GetExecution(ctx context.Context, id int64) (execution.Execution, error) {
 	row := r.db.QueryRowContext(ctx, "SELECT "+executionColumns+" FROM execution WHERE id = ?", id)
-	c, err := scanCollection(row)
+	c, err := scanExecution(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return execution.Execution{}, ports.ErrNotFound
 	}
@@ -52,7 +52,7 @@ func (r *Repository) ListExecutionsByProject(ctx context.Context, projectID int6
 
 	out := []execution.Execution{}
 	for rows.Next() {
-		c, scanErr := scanCollection(rows)
+		c, scanErr := scanExecution(rows)
 		if scanErr != nil {
 			return nil, fmt.Errorf("mysql: scan execution: %w", scanErr)
 		}
@@ -177,7 +177,7 @@ func (r *Repository) LoadProfileFor(ctx context.Context, executionID int64) ([]l
 	return out, nil
 }
 
-func scanCollection(s rowScanner) (execution.Execution, error) {
+func scanExecution(s rowScanner) (execution.Execution, error) {
 	var (
 		c         execution.Execution
 		csvSplit  int64

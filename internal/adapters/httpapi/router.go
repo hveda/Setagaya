@@ -23,14 +23,14 @@ import (
 
 // Deps are the collaborators the HTTP layer needs.
 type Deps struct {
-	Projects    *projectapp.Service
-	Plans       *scenarioapp.Service
-	Collections *executionapp.Service
-	Lifecycle   *lifecycleapp.Service
-	Usage       *usageapp.Service
-	Admin       *adminapp.Service
-	Events      ports.EventBus
-	Store       ports.ObjectStore
+	Projects   *projectapp.Service
+	Scenarios  *scenarioapp.Service
+	Executions *executionapp.Service
+	Lifecycle  *lifecycleapp.Service
+	Usage      *usageapp.Service
+	Admin      *adminapp.Service
+	Events     ports.EventBus
+	Store      ports.ObjectStore
 	// Auth authenticates requests and authorizes actions. When nil or disabled,
 	// the legacy no-auth owner path applies (DefaultOwners).
 	Auth *authapp.Service
@@ -57,40 +57,40 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/projects/{project_id}", h.getProject)
 	mux.HandleFunc("DELETE /api/projects/{project_id}", h.deleteProject)
 
-	// Plans
-	mux.HandleFunc("POST /api/scenarios", h.createPlan)
-	mux.HandleFunc("GET /api/scenarios/{scenario_id}", h.getPlan)
-	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}", h.deletePlan)
-	mux.HandleFunc("GET /api/scenarios/{scenario_id}/files", h.listPlanFiles)
-	mux.HandleFunc("PUT /api/scenarios/{scenario_id}/files", h.uploadPlanFile)
-	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}/files", h.deletePlanFile)
+	// Scenarios
+	mux.HandleFunc("POST /api/scenarios", h.createScenario)
+	mux.HandleFunc("GET /api/scenarios/{scenario_id}", h.getScenario)
+	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}", h.deleteScenario)
+	mux.HandleFunc("GET /api/scenarios/{scenario_id}/files", h.listScenarioFiles)
+	mux.HandleFunc("PUT /api/scenarios/{scenario_id}/files", h.uploadScenarioFile)
+	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}/files", h.deleteScenarioFile)
 
-	// Collections
-	mux.HandleFunc("POST /api/executions", h.createCollection)
-	mux.HandleFunc("GET /api/executions/{execution_id}", h.getCollection)
-	mux.HandleFunc("DELETE /api/executions/{execution_id}", h.deleteCollection)
-	mux.HandleFunc("GET /api/executions/{execution_id}/files", h.listCollectionFiles)
-	mux.HandleFunc("PUT /api/executions/{execution_id}/files", h.uploadCollectionFile)
-	mux.HandleFunc("DELETE /api/executions/{execution_id}/files", h.deleteCollectionFile)
-	mux.HandleFunc("PUT /api/executions/{execution_id}/config", h.uploadCollectionConfig)
-	mux.HandleFunc("GET /api/executions/{execution_id}/config", h.getCollectionConfig)
+	// Executions
+	mux.HandleFunc("POST /api/executions", h.createExecution)
+	mux.HandleFunc("GET /api/executions/{execution_id}", h.getExecution)
+	mux.HandleFunc("DELETE /api/executions/{execution_id}", h.deleteExecution)
+	mux.HandleFunc("GET /api/executions/{execution_id}/files", h.listExecutionFiles)
+	mux.HandleFunc("PUT /api/executions/{execution_id}/files", h.uploadExecutionFile)
+	mux.HandleFunc("DELETE /api/executions/{execution_id}/files", h.deleteExecutionFile)
+	mux.HandleFunc("PUT /api/executions/{execution_id}/config", h.uploadExecutionConfig)
+	mux.HandleFunc("GET /api/executions/{execution_id}/config", h.getExecutionConfig)
 
 	// Lifecycle
-	mux.HandleFunc("POST /api/executions/{execution_id}/deploy", h.deployCollection)
-	mux.HandleFunc("POST /api/executions/{execution_id}/trigger", h.triggerCollection)
-	mux.HandleFunc("POST /api/executions/{execution_id}/stop", h.stopCollection)
-	mux.HandleFunc("POST /api/executions/{execution_id}/purge", h.purgeCollection)
-	mux.HandleFunc("GET /api/executions/{execution_id}/status", h.collectionStatus)
-	mux.HandleFunc("GET /api/executions/{execution_id}/engines", h.collectionEngines)
-	mux.HandleFunc("GET /api/executions/{execution_id}/scenarios/{scenario_id}/logs", h.planPodLog)
-	mux.HandleFunc("GET /api/executions/{execution_id}/stream", h.streamCollection)
+	mux.HandleFunc("POST /api/executions/{execution_id}/deploy", h.deployExecution)
+	mux.HandleFunc("POST /api/executions/{execution_id}/trigger", h.triggerExecution)
+	mux.HandleFunc("POST /api/executions/{execution_id}/stop", h.stopExecution)
+	mux.HandleFunc("POST /api/executions/{execution_id}/purge", h.purgeExecution)
+	mux.HandleFunc("GET /api/executions/{execution_id}/status", h.executionStatus)
+	mux.HandleFunc("GET /api/executions/{execution_id}/engines", h.executionEngines)
+	mux.HandleFunc("GET /api/executions/{execution_id}/scenarios/{scenario_id}/logs", h.scenarioPodLog)
+	mux.HandleFunc("GET /api/executions/{execution_id}/stream", h.streamExecution)
 
 	// Usage
 	mux.HandleFunc("GET /api/usage/history", h.usageHistory)
 	mux.HandleFunc("GET /api/usage/summary", h.usageSummary)
 
 	// Admin
-	mux.HandleFunc("GET /api/admin/executions", h.adminCollections)
+	mux.HandleFunc("GET /api/admin/executions", h.adminExecutions)
 	mux.HandleFunc("GET /api/admin/nodes", h.adminNodes)
 
 	// Tenants & role grants (multi-tenancy administration)

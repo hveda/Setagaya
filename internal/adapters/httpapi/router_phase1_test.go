@@ -25,8 +25,8 @@ func newFullRouter(t *testing.T) http.Handler {
 	obj := fake.NewObjectStore()
 	return httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         scenarioapp.NewService(store, obj),
-		Collections:   executionapp.NewService(store, obj, 100),
+		Scenarios:     scenarioapp.NewService(store, obj),
+		Executions:    executionapp.NewService(store, obj, 100),
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},
 	})
@@ -139,7 +139,7 @@ func TestProjectPlanCollectionFlow(t *testing.T) {
 		t.Fatalf("get collection = %d", rec.Code)
 	}
 	var coll struct {
-		ExecutionPlans []struct {
+		LoadProfile []struct {
 			ScenarioID int64 `json:"scenario_id"`
 			Engines    int   `json:"engines"`
 		} `json:"load_profile"`
@@ -148,8 +148,8 @@ func TestProjectPlanCollectionFlow(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &coll); err != nil {
 		t.Fatalf("decode collection: %v", err)
 	}
-	if len(coll.ExecutionPlans) != 1 || coll.ExecutionPlans[0].ScenarioID != scenarioID || coll.ExecutionPlans[0].Engines != 2 {
-		t.Fatalf("execution plans = %+v", coll.ExecutionPlans)
+	if len(coll.LoadProfile) != 1 || coll.LoadProfile[0].ScenarioID != scenarioID || coll.LoadProfile[0].Engines != 2 {
+		t.Fatalf("execution plans = %+v", coll.LoadProfile)
 	}
 	if !coll.CSVSplit {
 		t.Fatalf("csv_split not persisted")
@@ -195,8 +195,8 @@ func TestConfigUpload_EngineLimit_400(t *testing.T) {
 	obj := fake.NewObjectStore()
 	h := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         scenarioapp.NewService(store, obj),
-		Collections:   executionapp.NewService(store, obj, 1), // limit of 1 engine
+		Scenarios:     scenarioapp.NewService(store, obj),
+		Executions:    executionapp.NewService(store, obj, 1), // limit of 1 engine
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},
 	})

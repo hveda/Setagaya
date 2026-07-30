@@ -5,23 +5,23 @@ import (
 	"net/http"
 )
 
-// deployCollection provisions the engines for a collection.
-func (h *handlers) deployCollection(w http.ResponseWriter, r *http.Request) {
+// deployExecution provisions the engines for a collection.
+func (h *handlers) deployExecution(w http.ResponseWriter, r *http.Request) {
 	h.lifecycleMutation(w, r, "engines deploying", h.deps.Lifecycle.Deploy)
 }
 
-// triggerCollection starts a run across the deployed engines.
-func (h *handlers) triggerCollection(w http.ResponseWriter, r *http.Request) {
+// triggerExecution starts a run across the deployed engines.
+func (h *handlers) triggerExecution(w http.ResponseWriter, r *http.Request) {
 	h.lifecycleMutation(w, r, "run triggered", h.deps.Lifecycle.Trigger)
 }
 
-// stopCollection halts the in-progress run.
-func (h *handlers) stopCollection(w http.ResponseWriter, r *http.Request) {
+// stopExecution halts the in-progress run.
+func (h *handlers) stopExecution(w http.ResponseWriter, r *http.Request) {
 	h.lifecycleMutation(w, r, "run stopped", h.deps.Lifecycle.Stop)
 }
 
-// purgeCollection stops any run and removes the engines.
-func (h *handlers) purgeCollection(w http.ResponseWriter, r *http.Request) {
+// purgeExecution stops any run and removes the engines.
+func (h *handlers) purgeExecution(w http.ResponseWriter, r *http.Request) {
 	h.lifecycleMutation(w, r, "collection purged", h.deps.Lifecycle.Purge)
 }
 
@@ -33,7 +33,7 @@ func (h *handlers) lifecycleMutation(w http.ResponseWriter, r *http.Request, msg
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
 	}
-	if err := h.authorizeCollection(r, id); err != nil {
+	if err := h.authorizeExecution(r, id); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -44,8 +44,8 @@ func (h *handlers) lifecycleMutation(w http.ResponseWriter, r *http.Request, msg
 	writeJSON(w, http.StatusOK, map[string]string{"message": msg})
 }
 
-// collectionStatus reports the deployment/run status of a collection.
-func (h *handlers) collectionStatus(w http.ResponseWriter, r *http.Request) {
+// executionStatus reports the deployment/run status of a collection.
+func (h *handlers) executionStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
@@ -59,14 +59,14 @@ func (h *handlers) collectionStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-// collectionEngines reports the engine pods and ingress of a collection.
-func (h *handlers) collectionEngines(w http.ResponseWriter, r *http.Request) {
+// executionEngines reports the engine pods and ingress of a collection.
+func (h *handlers) executionEngines(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
 	}
-	c, err := h.deps.Collections.Get(r.Context(), id)
+	c, err := h.deps.Executions.Get(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -79,8 +79,8 @@ func (h *handlers) collectionEngines(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
-// planPodLog streams the current logs of a plan's engine pod.
-func (h *handlers) planPodLog(w http.ResponseWriter, r *http.Request) {
+// scenarioPodLog streams the current logs of a plan's engine pod.
+func (h *handlers) scenarioPodLog(w http.ResponseWriter, r *http.Request) {
 	executionID, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")

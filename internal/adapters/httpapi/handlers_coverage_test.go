@@ -23,8 +23,8 @@ func routerWithStore(t *testing.T) (http.Handler, *fake.Store, *fake.ObjectStore
 	obj := fake.NewObjectStore()
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         scenarioapp.NewService(store, obj),
-		Collections:   executionapp.NewService(store, obj, 100),
+		Scenarios:     scenarioapp.NewService(store, obj),
+		Executions:    executionapp.NewService(store, obj, 100),
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},
 	})

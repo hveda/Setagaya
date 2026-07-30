@@ -121,7 +121,7 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatal("ScenarioInUse = true for an unused plan")
 		}
 
-		collID := mustCreateCollection(t, repo, "peak", 10)
+		collID := mustCreateExecution(t, repo, "peak", 10)
 		if err := repo.StoreLoadProfile(ctx, collID, false, []loadprofile.Entry{
 			{Name: "smoke", ScenarioID: scenarioID, Engines: 1, Concurrency: 1, Duration: 60},
 		}); err != nil {
@@ -146,7 +146,7 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		repo := newRepo(t)
 		ctx := context.Background()
 
-		id := mustCreateCollection(t, repo, "peak", 10)
+		id := mustCreateExecution(t, repo, "peak", 10)
 		got, err := repo.GetExecution(ctx, id)
 		if err != nil {
 			t.Fatalf("GetExecution: %v", err)
@@ -155,7 +155,7 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("GetExecution = %+v, want id=%d name=peak project=10 csv_split=false with timestamp", got, id)
 		}
 
-		mustCreateCollection(t, repo, "other", 99)
+		mustCreateExecution(t, repo, "other", 99)
 		inProject, err := repo.ListExecutionsByProject(ctx, 10)
 		if err != nil {
 			t.Fatalf("ListExecutionsByProject: %v", err)
@@ -175,7 +175,7 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 	t.Run("Files", func(t *testing.T) {
 		repo := newRepo(t)
 		ctx := context.Background()
-		id := mustCreateCollection(t, repo, "peak", 10)
+		id := mustCreateExecution(t, repo, "peak", 10)
 
 		if err := repo.AddExecutionFile(ctx, id, "shared.csv"); err != nil {
 			t.Fatalf("AddExecutionFile: %v", err)
@@ -201,7 +201,7 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 	t.Run("ExecutionPlansStoreReplacesAndSetsCSVSplit", func(t *testing.T) {
 		repo := newRepo(t)
 		ctx := context.Background()
-		id := mustCreateCollection(t, repo, "peak", 10)
+		id := mustCreateExecution(t, repo, "peak", 10)
 
 		first := []loadprofile.Entry{
 			{Name: "a", ScenarioID: 1, Engines: 2, Concurrency: 10, Duration: 60},
@@ -258,7 +258,7 @@ func mustCreatePlan(t *testing.T, repo Repository, name string, projectID int64)
 	return id
 }
 
-func mustCreateCollection(t *testing.T, repo Repository, name string, projectID int64) int64 {
+func mustCreateExecution(t *testing.T, repo Repository, name string, projectID int64) int64 {
 	t.Helper()
 	c, err := execution.New(name, projectID)
 	if err != nil {
