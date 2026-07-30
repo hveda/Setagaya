@@ -1,0 +1,9 @@
+execution:
+    - executor: k6
+      concurrency: 50
+      ramp-up: 30s
+      hold-for: 10m
+      scenario: checkout-11
+scenarios:
+    checkout-11:
+        script: /honryu/scenario/11/checkout.js

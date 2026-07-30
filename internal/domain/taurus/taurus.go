@@ -86,7 +86,7 @@ type Config struct {
 // Execution is one load phase: an engine driving one scenario at a given load.
 // It is the unit Honryu shards across engine pods.
 type Execution struct {
-	Executor    string   `yaml:"executor,omitempty" json:"executor,omitempty"`
+	Executor    Executor `yaml:"executor,omitempty" json:"executor,omitempty"`
 	Concurrency int      `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
 	RampUp      Duration `yaml:"ramp-up,omitempty" json:"ramp-up,omitempty"`
 	HoldFor     Duration `yaml:"hold-for,omitempty" json:"hold-for,omitempty"`
