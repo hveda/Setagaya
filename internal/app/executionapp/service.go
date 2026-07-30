@@ -1,6 +1,6 @@
 // Package executionapp implements the application use-cases for executions:
 // CRUD, data files, and the execution configuration (which scenarios run, with how
-// many engines). Storage keys follow "collection/{id}/{filename}".
+// many engines). Storage keys follow "execution/{id}/{filename}".
 package executionapp
 
 import (
@@ -200,7 +200,7 @@ func (s *Service) GetConfig(ctx context.Context, executionID int64) (loadprofile
 }
 
 func collectionKey(executionID int64, filename string) string {
-	return fmt.Sprintf("collection/%d/%s", executionID, filename)
+	return fmt.Sprintf("execution/%d/%s", executionID, filename)
 }
 
 func validateFilename(filename string) error {

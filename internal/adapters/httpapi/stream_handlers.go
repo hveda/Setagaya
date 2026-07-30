@@ -9,7 +9,7 @@ import (
 // metrics. Each event is a JSON-encoded engine.Metric. The stream ends when the
 // client disconnects.
 func (h *handlers) streamCollection(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return

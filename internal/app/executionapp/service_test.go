@@ -67,7 +67,7 @@ func TestFileLifecycle(t *testing.T) {
 	if err := svc.UploadFile(ctx, c.ID, "shared.csv", bytes.NewReader([]byte("x,y"))); err != nil {
 		t.Fatalf("UploadFile: %v", err)
 	}
-	if _, err := obj.Download(ctx, "collection/1/shared.csv"); err != nil {
+	if _, err := obj.Download(ctx, "execution/1/shared.csv"); err != nil {
 		t.Fatalf("object not stored: %v", err)
 	}
 	files, err := svc.Files(ctx, c.ID)
@@ -84,7 +84,7 @@ func TestFileLifecycle(t *testing.T) {
 	if err := svc.DeleteFile(ctx, c.ID, "shared.csv"); err != nil {
 		t.Fatalf("DeleteFile: %v", err)
 	}
-	if _, err := obj.Download(ctx, "collection/1/shared.csv"); !errors.Is(err, ports.ErrObjectNotFound) {
+	if _, err := obj.Download(ctx, "execution/1/shared.csv"); !errors.Is(err, ports.ErrObjectNotFound) {
 		t.Fatalf("object survived delete: %v", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestDelete_RemovesFiles(t *testing.T) {
 	if err := svc.Delete(ctx, c.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := obj.Download(ctx, "collection/1/shared.csv"); !errors.Is(err, ports.ErrObjectNotFound) {
+	if _, err := obj.Download(ctx, "execution/1/shared.csv"); !errors.Is(err, ports.ErrObjectNotFound) {
 		t.Fatalf("file survived execution delete: %v", err)
 	}
 }

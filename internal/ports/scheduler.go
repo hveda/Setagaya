@@ -30,7 +30,7 @@ type ScenarioRef struct {
 // ScenarioReadiness reports how many of a scenario's engines are up and whether they
 // are reachable for triggering.
 type ScenarioReadiness struct {
-	ScenarioID      int64 `json:"plan_id"`
+	ScenarioID      int64 `json:"scenario_id"`
 	EnginesWanted   int   `json:"engines"`
 	EnginesDeployed int   `json:"engines_deployed"`
 	Reachable       bool  `json:"engines_reachable"`

@@ -20,12 +20,15 @@ const (
 
 // Resource types.
 const (
-	ResourceProject    = "project"
-	ResourceCollection = "collection"
-	ResourcePlan       = "plan"
-	ResourceExecution  = "execution"
-	ResourceTenant     = "tenant"
-	ResourceSystem     = "system"
+	ResourceProject   = "project"
+	ResourceExecution = "execution"
+	ResourceScenario  = "scenario"
+	// ResourceRun guards the lifecycle actions (deploy, trigger, stop) as
+	// opposed to CRUD on the execution itself. It was named "execution" before
+	// the Honryu rename, which now belongs to the aggregate above.
+	ResourceRun    = "run"
+	ResourceTenant = "tenant"
+	ResourceSystem = "system"
 )
 
 // Wildcard matches any resource or action.
@@ -130,9 +133,9 @@ func DefaultCatalog() map[string]Role {
 			TenantScoped: true,
 			Permissions: []Permission{
 				{Resource: ResourceProject, Actions: all},
-				{Resource: ResourceCollection, Actions: all},
-				{Resource: ResourcePlan, Actions: all},
 				{Resource: ResourceExecution, Actions: all},
+				{Resource: ResourceScenario, Actions: all},
+				{Resource: ResourceRun, Actions: all},
 			},
 		},
 		RoleTenantEditor: {
@@ -140,9 +143,9 @@ func DefaultCatalog() map[string]Role {
 			TenantScoped: true,
 			Permissions: []Permission{
 				{Resource: ResourceProject, Actions: write},
-				{Resource: ResourceCollection, Actions: write},
-				{Resource: ResourcePlan, Actions: write},
 				{Resource: ResourceExecution, Actions: write},
+				{Resource: ResourceScenario, Actions: write},
+				{Resource: ResourceRun, Actions: write},
 			},
 		},
 		RoleTenantViewer: {
@@ -150,9 +153,9 @@ func DefaultCatalog() map[string]Role {
 			TenantScoped: true,
 			Permissions: []Permission{
 				{Resource: ResourceProject, Actions: read},
-				{Resource: ResourceCollection, Actions: read},
-				{Resource: ResourcePlan, Actions: read},
 				{Resource: ResourceExecution, Actions: read},
+				{Resource: ResourceScenario, Actions: read},
+				{Resource: ResourceRun, Actions: read},
 			},
 		},
 	}

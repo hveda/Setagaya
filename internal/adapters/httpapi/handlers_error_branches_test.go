@@ -117,44 +117,44 @@ func TestHandlers_ServiceErrors_500(t *testing.T) {
 	t.Run("createPlan", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "CreateScenario"
-		rec := postForm(t, h, "/api/plans", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
+		rec := postForm(t, h, "/api/scenarios", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
 		assert500(t, rec.Code)
 	})
 	t.Run("createCollection", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "CreateExecution"
-		rec := postForm(t, h, "/api/collections", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
+		rec := postForm(t, h, "/api/executions", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
 		assert500(t, rec.Code)
 	})
 	t.Run("uploadPlanFile", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "AddScenarioFile"
-		rec := putMultipart(t, h, "/api/plans/"+itoa(id.plan)+"/files", "a.csv", "x")
+		rec := putMultipart(t, h, "/api/scenarios/"+itoa(id.plan)+"/files", "a.csv", "x")
 		assert500(t, rec.Code)
 	})
 	t.Run("uploadCollectionFile", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "AddExecutionFile"
-		rec := putMultipart(t, h, "/api/collections/"+itoa(id.collection)+"/files", "a.csv", "x")
+		rec := putMultipart(t, h, "/api/executions/"+itoa(id.collection)+"/files", "a.csv", "x")
 		assert500(t, rec.Code)
 	})
 	t.Run("listPlanFiles", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "ScenarioFilesFor"
-		rec := do(t, h, http.MethodGet, "/api/plans/"+itoa(id.plan)+"/files")
+		rec := do(t, h, http.MethodGet, "/api/scenarios/"+itoa(id.plan)+"/files")
 		assert500(t, rec.Code)
 	})
 	t.Run("listCollectionFiles", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "ExecutionFilesFor"
-		rec := do(t, h, http.MethodGet, "/api/collections/"+itoa(id.collection)+"/files")
+		rec := do(t, h, http.MethodGet, "/api/executions/"+itoa(id.collection)+"/files")
 		assert500(t, rec.Code)
 	})
 	t.Run("uploadCollectionConfig", func(t *testing.T) {
 		h, fs, id := failEnv(t)
 		fs.fail = "StoreLoadProfile"
 		yamlCfg := "multi-test:\n  collectionid: " + itoa(id.collection) + "\n  tests:\n    - testid: " + itoa(id.plan) + "\n      concurrency: 1\n      rampup: 1\n      engines: 1\n      duration: 1\n"
-		rec := putMultipart(t, h, "/api/collections/"+itoa(id.collection)+"/config", "c.yaml", yamlCfg)
+		rec := putMultipart(t, h, "/api/executions/"+itoa(id.collection)+"/config", "c.yaml", yamlCfg)
 		assert500(t, rec.Code)
 	})
 	t.Run("deleteProject", func(t *testing.T) {

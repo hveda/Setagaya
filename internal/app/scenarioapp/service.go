@@ -1,6 +1,6 @@
 // Package scenarioapp implements the application use-cases for scenarios and their
 // files (a JMX test file plus data files). It coordinates the scenario repository
-// and the object store; the storage key convention is "plan/{id}/{filename}".
+// and the object store; the storage key convention is "scenario/{id}/{filename}".
 package scenarioapp
 
 import (
@@ -163,7 +163,7 @@ func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename str
 }
 
 func planKey(scenarioID int64, filename string) string {
-	return fmt.Sprintf("plan/%d/%s", scenarioID, filename)
+	return fmt.Sprintf("scenario/%d/%s", scenarioID, filename)
 }
 
 func isJMX(filename string) bool {

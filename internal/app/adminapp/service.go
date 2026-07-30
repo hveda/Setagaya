@@ -38,7 +38,7 @@ func NewService(repo Repo, sched ports.Scheduler, purger Purger) *Service {
 
 // RunningExecution describes an execution currently holding engines.
 type RunningExecution struct {
-	ExecutionID int64     `json:"collection_id"`
+	ExecutionID int64     `json:"execution_id"`
 	Name        string    `json:"name"`
 	ProjectID   int64     `json:"project_id"`
 	DeployedAt  time.Time `json:"deployed_at"`

@@ -71,10 +71,10 @@ func TestAuthorize_ViewerCannotWrite(t *testing.T) {
 	catalog := rbac.DefaultCatalog()
 	acct := account.Account{Subject: "v", Tenants: map[int64][]string{1: {rbac.RoleTenantViewer}}}
 
-	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceCollection, Action: rbac.ActionRead, TenantID: ptr(1)}); !d.Allowed {
+	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceExecution, Action: rbac.ActionRead, TenantID: ptr(1)}); !d.Allowed {
 		t.Fatalf("viewer read denied: %+v", d)
 	}
-	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceCollection, Action: rbac.ActionDelete, TenantID: ptr(1)}); d.Allowed {
+	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceExecution, Action: rbac.ActionDelete, TenantID: ptr(1)}); d.Allowed {
 		t.Fatalf("viewer delete should be denied: %+v", d)
 	}
 }

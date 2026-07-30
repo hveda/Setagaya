@@ -287,7 +287,7 @@ func (s *Service) teardown(ctx context.Context, executionID int64) error {
 
 // ScenarioStatus is the lifecycle view of one scenario's engines.
 type ScenarioStatus struct {
-	ScenarioID      int64     `json:"plan_id"`
+	ScenarioID      int64     `json:"scenario_id"`
 	EnginesWanted   int       `json:"engines"`
 	EnginesDeployed int       `json:"engines_deployed"`
 	Reachable       bool      `json:"engines_reachable"`
@@ -376,14 +376,14 @@ func (s *Service) collectionFiles(ctx context.Context, executionID int64) ([]eng
 	}
 	files := make([]engine.File, 0, len(names))
 	for _, name := range names {
-		key := fmt.Sprintf("collection/%d/%s", executionID, name)
+		key := fmt.Sprintf("execution/%d/%s", executionID, name)
 		files = append(files, engine.File{Filename: name, Filepath: key, Filelink: s.store.URL(key)})
 	}
 	return files, nil
 }
 
 func (s *Service) planFile(scenarioID int64, name string) engine.File {
-	key := fmt.Sprintf("plan/%d/%s", scenarioID, name)
+	key := fmt.Sprintf("scenario/%d/%s", scenarioID, name)
 	return engine.File{Filename: name, Filepath: key, Filelink: s.store.URL(key)}
 }
 

@@ -25,7 +25,7 @@ func parseUpload(r *http.Request) (multipart.File, *multipart.FileHeader, error)
 // downloadFile serves an artifact from the object store by kind/id/name.
 func (h *handlers) downloadFile(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
-	if kind != "plan" && kind != "collection" {
+	if kind != "scenario" && kind != "execution" {
 		writeError(w, http.StatusBadRequest, "invalid kind")
 		return
 	}

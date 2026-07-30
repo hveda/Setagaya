@@ -71,7 +71,7 @@ func TestFileLifecycle(t *testing.T) {
 	}
 
 	// The object store holds them under the scenario key convention.
-	if _, err := obj.Download(ctx, "plan/1/scenario.jmx"); err != nil {
+	if _, err := obj.Download(ctx, "scenario/1/scenario.jmx"); err != nil {
 		t.Fatalf("object not stored at scenario/1/scenario.jmx: %v", err)
 	}
 
@@ -104,7 +104,7 @@ func TestFileLifecycle(t *testing.T) {
 	if err := svc.DeleteFile(ctx, p.ID, "users.csv"); err != nil {
 		t.Fatalf("DeleteFile: %v", err)
 	}
-	if _, err := obj.Download(ctx, "plan/1/users.csv"); !errors.Is(err, ports.ErrObjectNotFound) {
+	if _, err := obj.Download(ctx, "scenario/1/users.csv"); !errors.Is(err, ports.ErrObjectNotFound) {
 		t.Fatalf("object still present after delete: %v", err)
 	}
 }
@@ -159,7 +159,7 @@ func TestDelete_RemovesFiles(t *testing.T) {
 	if err := svc.Delete(ctx, p.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := obj.Download(ctx, "plan/1/scenario.jmx"); !errors.Is(err, ports.ErrObjectNotFound) {
+	if _, err := obj.Download(ctx, "scenario/1/scenario.jmx"); !errors.Is(err, ports.ErrObjectNotFound) {
 		t.Fatalf("file survived scenario delete: %v", err)
 	}
 	if _, err := svc.Get(ctx, p.ID); !errors.Is(err, ports.ErrNotFound) {

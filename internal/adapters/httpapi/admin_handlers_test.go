@@ -30,7 +30,7 @@ func TestAdminEndpoints(t *testing.T) {
 		DefaultOwners: []string{"setagaya"},
 	})
 
-	if rec := do(t, h, http.MethodGet, "/api/admin/collections"); rec.Code != http.StatusOK {
+	if rec := do(t, h, http.MethodGet, "/api/admin/executions"); rec.Code != http.StatusOK {
 		t.Fatalf("admin collections = %d", rec.Code)
 	}
 	if rec := do(t, h, http.MethodGet, "/api/admin/nodes"); rec.Code != http.StatusOK {

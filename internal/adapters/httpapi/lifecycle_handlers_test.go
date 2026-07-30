@@ -68,7 +68,7 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.executionID)
+	base := "/api/executions/" + itoa(e.executionID)
 
 	if rec := do(t, e.h, http.MethodPost, base+"/deploy"); rec.Code != http.StatusOK {
 		t.Fatalf("deploy = %d (%s)", rec.Code, rec.Body.String())
@@ -98,7 +98,7 @@ func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 	if rec := do(t, e.h, http.MethodGet, base+"/engines"); rec.Code != http.StatusOK {
 		t.Fatalf("engines = %d", rec.Code)
 	}
-	if rec := do(t, e.h, http.MethodGet, base+"/plans/"+itoa(e.scenarioID)+"/logs"); rec.Code != http.StatusOK {
+	if rec := do(t, e.h, http.MethodGet, base+"/scenarios/"+itoa(e.scenarioID)+"/logs"); rec.Code != http.StatusOK {
 		t.Fatalf("logs = %d", rec.Code)
 	}
 
@@ -113,7 +113,7 @@ func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 func TestLifecycleHTTP_TriggerBeforeDeployConflicts(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.executionID)
+	base := "/api/executions/" + itoa(e.executionID)
 	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusConflict {
 		t.Fatalf("trigger before deploy = %d, want 409", rec.Code)
 	}
@@ -122,7 +122,7 @@ func TestLifecycleHTTP_TriggerBeforeDeployConflicts(t *testing.T) {
 func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.executionID)
+	base := "/api/executions/" + itoa(e.executionID)
 	if rec := do(t, e.h, http.MethodPost, base+"/stop"); rec.Code != http.StatusConflict {
 		t.Fatalf("stop without run = %d, want 409", rec.Code)
 	}
@@ -131,7 +131,7 @@ func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
 func TestLifecycleHTTP_Forbidden(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "other-team")
-	base := "/api/collections/" + itoa(e.executionID)
+	base := "/api/executions/" + itoa(e.executionID)
 	for _, op := range []string{"/deploy", "/trigger", "/stop", "/purge"} {
 		if rec := do(t, e.h, http.MethodPost, base+op); rec.Code != http.StatusForbidden {
 			t.Errorf("%s on foreign collection = %d, want 403", op, rec.Code)
@@ -143,14 +143,14 @@ func TestLifecycleHTTP_InvalidIDs(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
 	cases := []struct{ method, path string }{
-		{http.MethodPost, "/api/collections/x/deploy"},
-		{http.MethodPost, "/api/collections/x/trigger"},
-		{http.MethodPost, "/api/collections/x/stop"},
-		{http.MethodPost, "/api/collections/x/purge"},
-		{http.MethodGet, "/api/collections/x/status"},
-		{http.MethodGet, "/api/collections/x/engines"},
-		{http.MethodGet, "/api/collections/x/plans/1/logs"},
-		{http.MethodGet, "/api/collections/1/plans/x/logs"},
+		{http.MethodPost, "/api/executions/x/deploy"},
+		{http.MethodPost, "/api/executions/x/trigger"},
+		{http.MethodPost, "/api/executions/x/stop"},
+		{http.MethodPost, "/api/executions/x/purge"},
+		{http.MethodGet, "/api/executions/x/status"},
+		{http.MethodGet, "/api/executions/x/engines"},
+		{http.MethodGet, "/api/executions/x/scenarios/1/logs"},
+		{http.MethodGet, "/api/executions/1/scenarios/x/logs"},
 	}
 	for _, tc := range cases {
 		if rec := do(t, e.h, tc.method, tc.path); rec.Code != http.StatusBadRequest {
@@ -162,7 +162,7 @@ func TestLifecycleHTTP_InvalidIDs(t *testing.T) {
 func TestLifecycleHTTP_DeployMissingCollection(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	if rec := do(t, e.h, http.MethodPost, "/api/collections/9999/deploy"); rec.Code != http.StatusNotFound {
+	if rec := do(t, e.h, http.MethodPost, "/api/executions/9999/deploy"); rec.Code != http.StatusNotFound {
 		t.Fatalf("deploy missing = %d, want 404", rec.Code)
 	}
 }
@@ -176,7 +176,7 @@ func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
 	bare, _ := execution.New("bare", c.ProjectID)
 	bareID, _ := e.store.CreateExecution(ctx, bare)
 
-	rec := do(t, e.h, http.MethodPost, "/api/collections/"+itoa(bareID)+"/deploy")
+	rec := do(t, e.h, http.MethodPost, "/api/executions/"+itoa(bareID)+"/deploy")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("deploy no plans = %d, want 400", rec.Code)
 	}
@@ -185,7 +185,7 @@ func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
 func TestLifecycleHTTP_EnginesMissingCollection(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	if rec := do(t, e.h, http.MethodGet, "/api/collections/9999/engines"); rec.Code != http.StatusNotFound {
+	if rec := do(t, e.h, http.MethodGet, "/api/executions/9999/engines"); rec.Code != http.StatusNotFound {
 		t.Fatalf("engines missing = %d, want 404", rec.Code)
 	}
 }
@@ -194,7 +194,7 @@ func TestLifecycleHTTP_PodLogNotDeployed(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
 	// No deploy: the plan's engines are unreachable -> 409 conflict.
-	rec := do(t, e.h, http.MethodGet, "/api/collections/"+itoa(e.executionID)+"/plans/"+itoa(e.scenarioID)+"/logs")
+	rec := do(t, e.h, http.MethodGet, "/api/executions/"+itoa(e.executionID)+"/scenarios/"+itoa(e.scenarioID)+"/logs")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("logs not deployed = %d, want 409", rec.Code)
 	}

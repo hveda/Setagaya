@@ -23,7 +23,7 @@ var (
 // a single Taurus execution block.
 type Entry struct {
 	Name        string `yaml:"name" json:"name"`
-	ScenarioID  int64  `yaml:"testid" json:"plan_id"`
+	ScenarioID  int64  `yaml:"testid" json:"scenario_id"`
 	Concurrency int    `yaml:"concurrency" json:"concurrency"`
 	Rampup      int    `yaml:"rampup" json:"rampup"`
 	Engines     int    `yaml:"engines" json:"engines"`
@@ -50,7 +50,7 @@ func (ep Entry) Validate() error {
 type Profile struct {
 	Name        string  `yaml:"name" json:"name"`
 	ProjectID   int64   `yaml:"projectid" json:"project_id"`
-	ExecutionID int64   `yaml:"collectionid" json:"collection_id"`
+	ExecutionID int64   `yaml:"collectionid" json:"execution_id"`
 	Tests       []Entry `yaml:"tests" json:"tests"`
 	CSVSplit    bool    `yaml:"csv_split" json:"csv_split"`
 }

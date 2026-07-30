@@ -48,13 +48,13 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 	client := srv.Client()
 
 	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
-	scenarioID := postForm(t, client, srv.URL+"/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
-	putMultipart(t, client, srv.URL+"/api/plans/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
-	collID := postForm(t, client, srv.URL+"/api/collections", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
+	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
+	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
+	collID := postForm(t, client, srv.URL+"/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
 	cfg := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 2\n      duration: 30\n", collID, scenarioID)
-	putMultipart(t, client, srv.URL+"/api/collections/"+itoa(collID)+"/config", "config.yaml", cfg)
+	putMultipart(t, client, srv.URL+"/api/executions/"+itoa(collID)+"/config", "config.yaml", cfg)
 
-	base := srv.URL + "/api/collections/" + itoa(collID)
+	base := srv.URL + "/api/executions/" + itoa(collID)
 
 	postAction(t, client, base+"/deploy", http.StatusOK)
 	if st := getStatus(t, client, base+"/status"); st.Phase != run.PhaseDeployed || st.PoolSize != 2 {

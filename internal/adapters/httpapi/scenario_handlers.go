@@ -19,7 +19,7 @@ type planResponse struct {
 }
 
 func (h *handlers) getPlan(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "plan_id")
+	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
@@ -67,7 +67,7 @@ func (h *handlers) createPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) deletePlan(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "plan_id")
+	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
@@ -84,7 +84,7 @@ func (h *handlers) deletePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) listPlanFiles(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "plan_id")
+	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
@@ -98,7 +98,7 @@ func (h *handlers) listPlanFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) uploadPlanFile(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "plan_id")
+	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
@@ -121,7 +121,7 @@ func (h *handlers) uploadPlanFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) deletePlanFile(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "plan_id")
+	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return

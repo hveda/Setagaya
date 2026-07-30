@@ -19,12 +19,12 @@ type collectionResponse struct {
 	ProjectID      int64                  `json:"project_id"`
 	CSVSplit       bool                   `json:"csv_split"`
 	CreatedTime    time.Time              `json:"created_time"`
-	ExecutionPlans []loadprofile.Entry    `json:"execution_plans"`
+	ExecutionPlans []loadprofile.Entry    `json:"load_profile"`
 	Data           []executionapp.FileRef `json:"data"`
 }
 
 func (h *handlers) getCollection(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
@@ -78,7 +78,7 @@ func (h *handlers) createCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) deleteCollection(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
@@ -95,7 +95,7 @@ func (h *handlers) deleteCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) listCollectionFiles(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
@@ -109,7 +109,7 @@ func (h *handlers) listCollectionFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) uploadCollectionFile(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
@@ -132,7 +132,7 @@ func (h *handlers) uploadCollectionFile(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *handlers) deleteCollectionFile(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
@@ -149,7 +149,7 @@ func (h *handlers) deleteCollectionFile(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *handlers) uploadCollectionConfig(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
@@ -182,7 +182,7 @@ func (h *handlers) uploadCollectionConfig(w http.ResponseWriter, r *http.Request
 }
 
 func (h *handlers) getCollectionConfig(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathInt(r, "collection_id")
+	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return

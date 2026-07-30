@@ -58,39 +58,39 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/projects/{project_id}", h.deleteProject)
 
 	// Plans
-	mux.HandleFunc("POST /api/plans", h.createPlan)
-	mux.HandleFunc("GET /api/plans/{plan_id}", h.getPlan)
-	mux.HandleFunc("DELETE /api/plans/{plan_id}", h.deletePlan)
-	mux.HandleFunc("GET /api/plans/{plan_id}/files", h.listPlanFiles)
-	mux.HandleFunc("PUT /api/plans/{plan_id}/files", h.uploadPlanFile)
-	mux.HandleFunc("DELETE /api/plans/{plan_id}/files", h.deletePlanFile)
+	mux.HandleFunc("POST /api/scenarios", h.createPlan)
+	mux.HandleFunc("GET /api/scenarios/{scenario_id}", h.getPlan)
+	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}", h.deletePlan)
+	mux.HandleFunc("GET /api/scenarios/{scenario_id}/files", h.listPlanFiles)
+	mux.HandleFunc("PUT /api/scenarios/{scenario_id}/files", h.uploadPlanFile)
+	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}/files", h.deletePlanFile)
 
 	// Collections
-	mux.HandleFunc("POST /api/collections", h.createCollection)
-	mux.HandleFunc("GET /api/collections/{collection_id}", h.getCollection)
-	mux.HandleFunc("DELETE /api/collections/{collection_id}", h.deleteCollection)
-	mux.HandleFunc("GET /api/collections/{collection_id}/files", h.listCollectionFiles)
-	mux.HandleFunc("PUT /api/collections/{collection_id}/files", h.uploadCollectionFile)
-	mux.HandleFunc("DELETE /api/collections/{collection_id}/files", h.deleteCollectionFile)
-	mux.HandleFunc("PUT /api/collections/{collection_id}/config", h.uploadCollectionConfig)
-	mux.HandleFunc("GET /api/collections/{collection_id}/config", h.getCollectionConfig)
+	mux.HandleFunc("POST /api/executions", h.createCollection)
+	mux.HandleFunc("GET /api/executions/{execution_id}", h.getCollection)
+	mux.HandleFunc("DELETE /api/executions/{execution_id}", h.deleteCollection)
+	mux.HandleFunc("GET /api/executions/{execution_id}/files", h.listCollectionFiles)
+	mux.HandleFunc("PUT /api/executions/{execution_id}/files", h.uploadCollectionFile)
+	mux.HandleFunc("DELETE /api/executions/{execution_id}/files", h.deleteCollectionFile)
+	mux.HandleFunc("PUT /api/executions/{execution_id}/config", h.uploadCollectionConfig)
+	mux.HandleFunc("GET /api/executions/{execution_id}/config", h.getCollectionConfig)
 
 	// Lifecycle
-	mux.HandleFunc("POST /api/collections/{collection_id}/deploy", h.deployCollection)
-	mux.HandleFunc("POST /api/collections/{collection_id}/trigger", h.triggerCollection)
-	mux.HandleFunc("POST /api/collections/{collection_id}/stop", h.stopCollection)
-	mux.HandleFunc("POST /api/collections/{collection_id}/purge", h.purgeCollection)
-	mux.HandleFunc("GET /api/collections/{collection_id}/status", h.collectionStatus)
-	mux.HandleFunc("GET /api/collections/{collection_id}/engines", h.collectionEngines)
-	mux.HandleFunc("GET /api/collections/{collection_id}/plans/{plan_id}/logs", h.planPodLog)
-	mux.HandleFunc("GET /api/collections/{collection_id}/stream", h.streamCollection)
+	mux.HandleFunc("POST /api/executions/{execution_id}/deploy", h.deployCollection)
+	mux.HandleFunc("POST /api/executions/{execution_id}/trigger", h.triggerCollection)
+	mux.HandleFunc("POST /api/executions/{execution_id}/stop", h.stopCollection)
+	mux.HandleFunc("POST /api/executions/{execution_id}/purge", h.purgeCollection)
+	mux.HandleFunc("GET /api/executions/{execution_id}/status", h.collectionStatus)
+	mux.HandleFunc("GET /api/executions/{execution_id}/engines", h.collectionEngines)
+	mux.HandleFunc("GET /api/executions/{execution_id}/scenarios/{scenario_id}/logs", h.planPodLog)
+	mux.HandleFunc("GET /api/executions/{execution_id}/stream", h.streamCollection)
 
 	// Usage
 	mux.HandleFunc("GET /api/usage/history", h.usageHistory)
 	mux.HandleFunc("GET /api/usage/summary", h.usageSummary)
 
 	// Admin
-	mux.HandleFunc("GET /api/admin/collections", h.adminCollections)
+	mux.HandleFunc("GET /api/admin/executions", h.adminCollections)
 	mux.HandleFunc("GET /api/admin/nodes", h.adminNodes)
 
 	// Tenants & role grants (multi-tenancy administration)

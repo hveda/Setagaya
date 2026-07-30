@@ -84,20 +84,20 @@ func TestProjectPlanCollectionFlow(t *testing.T) {
 	projectID := decodeID(t, rec)
 
 	// Create a plan under the project.
-	rec = postForm(t, h, "/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
+	rec = postForm(t, h, "/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create plan = %d (%s)", rec.Code, rec.Body.String())
 	}
 	scenarioID := decodeID(t, rec)
 
 	// Upload a JMX test file to the plan.
-	rec = putMultipart(t, h, "/api/plans/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
+	rec = putMultipart(t, h, "/api/scenarios/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload plan file = %d (%s)", rec.Code, rec.Body.String())
 	}
 
 	// Plan detail now reports the test file.
-	rec = do(t, h, http.MethodGet, "/api/plans/"+itoa(scenarioID))
+	rec = do(t, h, http.MethodGet, "/api/scenarios/"+itoa(scenarioID))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get plan = %d", rec.Code)
 	}
@@ -106,13 +106,13 @@ func TestProjectPlanCollectionFlow(t *testing.T) {
 	}
 
 	// Download the uploaded artifact.
-	rec = do(t, h, http.MethodGet, "/api/files/plan/"+itoa(scenarioID)+"/plan.jmx")
+	rec = do(t, h, http.MethodGet, "/api/files/scenario/"+itoa(scenarioID)+"/plan.jmx")
 	if rec.Code != http.StatusOK || rec.Body.String() != "<jmx/>" {
 		t.Fatalf("download = %d %q", rec.Code, rec.Body.String())
 	}
 
 	// Create a collection and store its execution config.
-	rec = postForm(t, h, "/api/collections", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
+	rec = postForm(t, h, "/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create collection = %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -128,21 +128,21 @@ func TestProjectPlanCollectionFlow(t *testing.T) {
       engines: 2
       duration: 60
 `, collID, scenarioID)
-	rec = putMultipart(t, h, "/api/collections/"+itoa(collID)+"/config", "config.yaml", configYAML)
+	rec = putMultipart(t, h, "/api/executions/"+itoa(collID)+"/config", "config.yaml", configYAML)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload config = %d (%s)", rec.Code, rec.Body.String())
 	}
 
 	// The collection now reports its execution plan.
-	rec = do(t, h, http.MethodGet, "/api/collections/"+itoa(collID))
+	rec = do(t, h, http.MethodGet, "/api/executions/"+itoa(collID))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get collection = %d", rec.Code)
 	}
 	var coll struct {
 		ExecutionPlans []struct {
-			ScenarioID int64 `json:"plan_id"`
+			ScenarioID int64 `json:"scenario_id"`
 			Engines    int   `json:"engines"`
-		} `json:"execution_plans"`
+		} `json:"load_profile"`
 		CSVSplit bool `json:"csv_split"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &coll); err != nil {
@@ -156,7 +156,7 @@ func TestProjectPlanCollectionFlow(t *testing.T) {
 	}
 
 	// The plan is now in use: deleting it is a 409.
-	rec = do(t, h, http.MethodDelete, "/api/plans/"+itoa(scenarioID))
+	rec = do(t, h, http.MethodDelete, "/api/scenarios/"+itoa(scenarioID))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("delete in-use plan = %d, want 409", rec.Code)
 	}
@@ -183,7 +183,7 @@ func TestCreatePlan_InvalidName_400(t *testing.T) {
 	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
 	projectID := decodeID(t, rec)
 
-	rec = postForm(t, h, "/api/plans", url.Values{"name": {""}, "project_id": {itoa(projectID)}})
+	rec = postForm(t, h, "/api/scenarios", url.Values{"name": {""}, "project_id": {itoa(projectID)}})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("create plan (empty name) = %d, want 400", rec.Code)
 	}
@@ -203,13 +203,13 @@ func TestConfigUpload_EngineLimit_400(t *testing.T) {
 
 	pr := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
 	projectID := decodeID(t, pr)
-	pl := postForm(t, h, "/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
+	pl := postForm(t, h, "/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 	scenarioID := decodeID(t, pl)
-	cl := postForm(t, h, "/api/collections", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
+	cl := postForm(t, h, "/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
 	collID := decodeID(t, cl)
 
 	configYAML := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 1\n      rampup: 1\n      engines: 5\n      duration: 60\n", collID, scenarioID)
-	rec := putMultipart(t, h, "/api/collections/"+itoa(collID)+"/config", "config.yaml", configYAML)
+	rec := putMultipart(t, h, "/api/executions/"+itoa(collID)+"/config", "config.yaml", configYAML)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("config over engine limit = %d, want 400 (%s)", rec.Code, rec.Body.String())
 	}

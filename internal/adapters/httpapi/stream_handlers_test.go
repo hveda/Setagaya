@@ -23,7 +23,7 @@ func TestStreamCollection_DeliversSSE(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/collections/5/stream", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/executions/5/stream", nil)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatalf("GET stream: %v", err)
@@ -58,7 +58,7 @@ func TestStreamCollection_InvalidID(t *testing.T) {
 	t.Parallel()
 	bus := membus.New()
 	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"setagaya"}})
-	rec := do(t, router, http.MethodGet, "/api/collections/x/stream")
+	rec := do(t, router, http.MethodGet, "/api/executions/x/stream")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid id = %d, want 400", rec.Code)
 	}
