@@ -50,6 +50,9 @@ func (s *Store) StopRun(_ context.Context, executionID int64) error {
 func (s *Store) MarkScenarioRunning(_ context.Context, executionID, scenarioID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.MarkRunningErr != nil {
+		return s.MarkRunningErr
+	}
 	scenarios, ok := s.running[executionID]
 	if !ok {
 		scenarios = map[int64]time.Time{}

@@ -23,7 +23,6 @@ type lifecycleEnv struct {
 	h           http.Handler
 	store       *fake.Store
 	sched       *fake.Scheduler
-	exec        *fake.Executor
 	executionID int64
 	scenarioID  int64
 	owner       string
@@ -37,13 +36,12 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	store := fake.NewStore()
 	obj := fake.NewObjectStore()
 	sched := fake.NewScheduler()
-	exec := fake.NewExecutor()
 
 	h := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
 		Scenarios:     scenarioapp.NewService(store, obj),
 		Executions:    executionapp.NewService(store, obj, 100),
-		Lifecycle:     lifecycleapp.NewService(store, sched, exec, obj, "img"),
+		Lifecycle:     lifecycleapp.NewService(store, sched, obj, "img"),
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},
 	})
@@ -62,7 +60,7 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	}); err != nil {
 		t.Fatalf("store exec: %v", err)
 	}
-	return lifecycleEnv{h: h, store: store, sched: sched, exec: exec, executionID: executionID, scenarioID: scenarioID, owner: owner}
+	return lifecycleEnv{h: h, store: store, sched: sched, executionID: executionID, scenarioID: scenarioID, owner: owner}
 }
 
 func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
@@ -90,9 +88,8 @@ func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusOK {
 		t.Fatalf("trigger = %d (%s)", rec.Code, rec.Body.String())
 	}
-	if e.exec.TriggerCount() != 2 {
-		t.Fatalf("triggered engines = %d, want 2", e.exec.TriggerCount())
-	}
+	// No engine call on trigger under Taurus: a pod generates load from the
+	// moment it starts, so trigger records that the run is under way.
 
 	// Engines detail and pod log.
 	if rec := do(t, e.h, http.MethodGet, base+"/engines"); rec.Code != http.StatusOK {

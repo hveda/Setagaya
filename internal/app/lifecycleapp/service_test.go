@@ -20,7 +20,6 @@ const image = "honryu/jmeter:latest"
 type env struct {
 	store *fake.Store
 	sched *fake.Scheduler
-	exec  *fake.Executor
 	svc   *lifecycleapp.Service
 
 	projectID   int64
@@ -61,9 +60,8 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	}
 
 	sched := fake.NewScheduler()
-	exec := fake.NewExecutor()
-	svc := lifecycleapp.NewService(store, sched, exec, fake.NewObjectStore(), image)
-	return &env{store: store, sched: sched, exec: exec, svc: svc, projectID: projectID, executionID: executionID, planIDs: planIDs}
+	svc := lifecycleapp.NewService(store, sched, fake.NewObjectStore(), image)
+	return &env{store: store, sched: sched, svc: svc, projectID: projectID, executionID: executionID, planIDs: planIDs}
 }
 
 func TestDeploy_HappyPath(t *testing.T) {
@@ -112,7 +110,7 @@ func TestDeploy_MissingExecution(t *testing.T) {
 	}
 }
 
-func TestTrigger_HappyPathMarksRunningAndConfigures(t *testing.T) {
+func TestTrigger_HappyPathStartsRunAndMarksScenariosRunning(t *testing.T) {
 	t.Parallel()
 	e := setup(t, true, 2, 3) // 5 engines total, execution CSV split on
 	ctx := context.Background()
@@ -122,9 +120,8 @@ func TestTrigger_HappyPathMarksRunningAndConfigures(t *testing.T) {
 	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
 		t.Fatalf("Trigger: %v", err)
 	}
-	if got := e.exec.TriggerCount(); got != 5 {
-		t.Fatalf("triggered engines = %d, want 5", got)
-	}
+	// Under Taurus there is no engine call on trigger: a pod generates load from
+	// the moment it starts. Trigger records that the run is under way.
 	// A run is active and both scenarios are marked running.
 	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); !ok {
 		t.Fatal("no active run after trigger")
@@ -132,18 +129,6 @@ func TestTrigger_HappyPathMarksRunningAndConfigures(t *testing.T) {
 	rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID)
 	if len(rps) != 2 {
 		t.Fatalf("running scenarios = %d, want 2", len(rps))
-	}
-	// The config sent to scenario 0 engine 0 carries the run id and scenario duration.
-	url0, _ := e.sched.EngineURLs(ctx, e.executionID, e.planIDs[0], 2)
-	cfg, ok := e.exec.TriggeredConfig(url0[0])
-	if !ok {
-		t.Fatal("engine 0 was not triggered")
-	}
-	if cfg.RunID == 0 || cfg.Duration != "30" || cfg.Concurrency != "10" {
-		t.Fatalf("config = %+v", cfg)
-	}
-	if _, hasTest := cfg.Data["test.jmx"]; !hasTest {
-		t.Fatalf("config missing test file: %+v", cfg.Data)
 	}
 }
 
@@ -205,9 +190,9 @@ func TestTrigger_ErrorRollsBackRun(t *testing.T) {
 	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	e.exec.TriggerErr = errors.New("agent down")
+	e.store.MarkRunningErr = errors.New("db down")
 	if err := e.svc.Trigger(ctx, e.executionID); err == nil {
-		t.Fatal("Trigger with failing executor: want error, got nil")
+		t.Fatal("Trigger with a failing repository: want error, got nil")
 	}
 	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); ok {
 		t.Fatal("run was not rolled back after total failure")
@@ -233,9 +218,8 @@ func TestStop_HappyPath(t *testing.T) {
 	if rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID); len(rps) != 0 {
 		t.Fatalf("running scenarios after stop = %d, want 0", len(rps))
 	}
-	if e.exec.StopCount() != 5 {
-		t.Fatalf("stopped engines = %d, want 5", e.exec.StopCount())
-	}
+	// Engines are torn down by removing their pods (Purge), not by calling them,
+	// so Stop clears run state only.
 }
 
 func TestStop_NotRunning(t *testing.T) {
@@ -331,23 +315,6 @@ func TestEnginesDetailAndPodLog(t *testing.T) {
 	log, err := e.svc.PodLog(ctx, e.executionID, e.planIDs[0])
 	if err != nil || log == "" {
 		t.Fatalf("PodLog = %q, err = %v", log, err)
-	}
-}
-
-func TestTrigger_UnreachableRollsBack(t *testing.T) {
-	t.Parallel()
-	e := setup(t, false, 2)
-	ctx := context.Background()
-	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
-		t.Fatalf("Deploy: %v", err)
-	}
-	// Engines are counted deployed but routing is down: trigger fails per scenario.
-	e.sched.Unreachable = true
-	if err := e.svc.Trigger(ctx, e.executionID); err == nil {
-		t.Fatal("Trigger with unreachable engines: want error, got nil")
-	}
-	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); ok {
-		t.Fatal("run was not rolled back after unreachable failure")
 	}
 }
 

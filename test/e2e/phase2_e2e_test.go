@@ -25,7 +25,7 @@ import (
 
 // TestPhase2_LifecycleEndToEnd drives deploy → trigger → stop → purge over real
 // HTTP, with run state persisted in a real MySQL container. The scheduler and
-// executor are the in-memory fakes (a real kind+JMeter run is a nightly concern
+// scheduler is an in-memory fake (a real kind+JMeter run is a nightly concern
 // covered by the k8s/jmeter adapter tests); this exercises the full control
 // plane and its persistence.
 func TestPhase2_LifecycleEndToEnd(t *testing.T) {
@@ -33,13 +33,12 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 	repo := mysqladapter.NewRepository(db)
 	store := local.New(t.TempDir(), "")
 	sched := fake.NewScheduler()
-	exec := fake.NewExecutor()
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
 		Scenarios:     scenarioapp.NewService(repo, store),
 		Executions:    executionapp.NewService(repo, store, 500),
-		Lifecycle:     lifecycleapp.NewService(repo, sched, exec, store, "honryu/jmeter:latest"),
+		Lifecycle:     lifecycleapp.NewService(repo, sched, store, "honryu/jmeter:latest"),
 		Store:         store,
 		DefaultOwners: []string{"honryu"},
 	})
@@ -69,9 +68,8 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 	if len(st.Scenarios) != 1 || !st.Scenarios[0].InProgress {
 		t.Fatalf("after trigger scenario not in progress: %+v", st.Scenarios)
 	}
-	if exec.TriggerCount() != 2 {
-		t.Fatalf("triggered engines = %d, want 2", exec.TriggerCount())
-	}
+	// Trigger makes no engine call under Taurus: a pod generates load from the
+	// moment it starts, so the run state is what changes here.
 
 	// Triggering again while running is a conflict.
 	postAction(t, client, base+"/trigger", http.StatusConflict)

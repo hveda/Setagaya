@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/heridotlife/honryu/internal/domain/engine"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
@@ -68,7 +67,6 @@ func (noopUsage) RecordFinish(context.Context, int64, int) error             { r
 type Service struct {
 	repo        Repo
 	sched       ports.Scheduler
-	exec        ports.Executor
 	store       ports.ObjectStore
 	engineImage string
 	metrics     Metrics
@@ -77,8 +75,8 @@ type Service struct {
 
 // NewService wires the lifecycle service. engineImage is the executor container
 // image deployed for every engine.
-func NewService(repo Repo, sched ports.Scheduler, exec ports.Executor, store ports.ObjectStore, engineImage string) *Service {
-	return &Service{repo: repo, sched: sched, exec: exec, store: store, engineImage: engineImage, metrics: noopMetrics{}, usage: noopUsage{}}
+func NewService(repo Repo, sched ports.Scheduler, store ports.ObjectStore, engineImage string) *Service {
+	return &Service{repo: repo, sched: sched, store: store, engineImage: engineImage, metrics: noopMetrics{}, usage: noopUsage{}}
 }
 
 // WithMetrics attaches the metric collector started on trigger and stopped on
@@ -162,27 +160,22 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 		return err
 	}
 
-	runID, err := s.repo.StartRun(ctx, executionID)
-	if err != nil {
+	// StartRun's id identified the run to the engine agents; with the agent
+	// protocol gone, the run is identified in metrics by the ingest path (task 21).
+	if _, err := s.repo.StartRun(ctx, executionID); err != nil {
 		return err
 	}
 
-	execData, err := s.executionFiles(ctx, executionID)
-	if err != nil {
-		return err
-	}
-
+	// Under Taurus there is no separate trigger step: a pod runs bzt and starts
+	// generating load the moment it starts, so this records that the run is under
+	// way rather than instructing engines. Wiring pods to their compiled config
+	// is task 23; until then a deployed execution generates no load.
 	var triggerErrs []error
-	for i, ep := range scenarios {
-		if err := s.triggerScenario(ctx, coll, ec, execData, i, ep, runID); err != nil {
-			triggerErrs = append(triggerErrs, err)
-			continue
-		}
+	for _, ep := range scenarios {
 		if err := s.repo.MarkScenarioRunning(ctx, executionID, ep.ScenarioID); err != nil {
 			triggerErrs = append(triggerErrs, err)
 		}
 	}
-
 	if len(triggerErrs) == len(scenarios) {
 		// Every scenario failed: roll the run back so the execution is triggerable
 		// again after the operator fixes the problem.
@@ -196,38 +189,6 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	s.metrics.Start(executionID)
 	if proj, perr := s.repo.GetProject(ctx, coll.ProjectID); perr == nil {
 		_ = s.usage.RecordStart(ctx, executionID, proj.Owner, ec.TotalEngines(), run.VirtualUsers(ec))
-	}
-	return nil
-}
-
-func (s *Service) triggerScenario(ctx context.Context, coll execution.Execution, ec loadprofile.Profile, execData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
-	pf, err := s.repo.ScenarioFilesFor(ctx, ep.ScenarioID)
-	if err != nil {
-		return err
-	}
-	urls, err := s.sched.EngineURLs(ctx, coll.ID, ep.ScenarioID, ep.Engines)
-	if err != nil {
-		return err
-	}
-	in := engine.ScenarioInput{
-		ScenarioIndex:     index,
-		ScenarioCount:     len(ec.Tests),
-		ExecutionCSVSplit: coll.CSVSplit,
-		ExecutionData:     execData,
-		Engines:           ep.Engines,
-		Concurrency:       ep.Concurrency,
-		Rampup:            ep.Rampup,
-		Duration:          ep.Duration,
-		CSVSplit:          ep.CSVSplit,
-		TestFile:          s.planFile(ep.ScenarioID, pf.TestFile),
-		ScenarioData:      s.planFiles(ep.ScenarioID, pf.Data),
-		RunID:             runID,
-	}
-	configs := engine.BuildConfigs(in)
-	for i, cfg := range configs {
-		if err := s.exec.Trigger(ctx, urls[i], cfg); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -269,12 +230,8 @@ func (s *Service) teardown(ctx context.Context, executionID int64) error {
 	if err != nil {
 		return err
 	}
+	// Engines are stopped by removing their pods (Purge), not by calling them.
 	for _, ep := range scenarios {
-		if urls, err := s.sched.EngineURLs(ctx, executionID, ep.ScenarioID, ep.Engines); err == nil {
-			for _, url := range urls {
-				_ = s.exec.Stop(ctx, url)
-			}
-		}
 		if err := s.repo.ClearScenarioRunning(ctx, executionID, ep.ScenarioID); err != nil {
 			return err
 		}
@@ -367,32 +324,6 @@ func (s *Service) ensureTestFiles(ctx context.Context, scenarios []loadprofile.E
 		}
 	}
 	return nil
-}
-
-func (s *Service) executionFiles(ctx context.Context, executionID int64) ([]engine.File, error) {
-	names, err := s.repo.ExecutionFilesFor(ctx, executionID)
-	if err != nil {
-		return nil, err
-	}
-	files := make([]engine.File, 0, len(names))
-	for _, name := range names {
-		key := fmt.Sprintf("execution/%d/%s", executionID, name)
-		files = append(files, engine.File{Filename: name, Filepath: key, Filelink: s.store.URL(key)})
-	}
-	return files, nil
-}
-
-func (s *Service) planFile(scenarioID int64, name string) engine.File {
-	key := fmt.Sprintf("scenario/%d/%s", scenarioID, name)
-	return engine.File{Filename: name, Filepath: key, Filelink: s.store.URL(key)}
-}
-
-func (s *Service) planFiles(scenarioID int64, names []string) []engine.File {
-	files := make([]engine.File, 0, len(names))
-	for _, name := range names {
-		files = append(files, s.planFile(scenarioID, name))
-	}
-	return files
 }
 
 func (s *Service) runningByScenario(ctx context.Context, executionID int64) (map[int64]time.Time, error) {

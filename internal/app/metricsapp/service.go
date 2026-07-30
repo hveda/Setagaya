@@ -1,9 +1,12 @@
-// Package metricsapp is the metric-execution use-case: it reads the live
-// metric stream from every engine of a execution's running scenarios (via the
-// Executor), stamps each measurement with its execution/scenario/engine/run
-// identity, and fans it to the MetricsSink (Prometheus) and the EventBus (SSE
-// subscribers). Collecting runs in the background per execution and is started
-// and stopped by the lifecycle.
+// Package metricsapp is the metric use-case: it stamps each measurement with
+// its execution/scenario/engine/run identity and fans it to the MetricsSink
+// (Prometheus) and the EventBus (SSE subscribers). Collection is tracked per
+// execution and is started and stopped by the lifecycle.
+//
+// Measurements used to be pulled from each engine's agent. Under Taurus they
+// are pushed by a sidecar in the engine pod, so this package now offers Record
+// as the entry point ingest calls; until that lands (task 21) nothing produces
+// measurements and no live metrics flow.
 package metricsapp
 
 import (
@@ -11,6 +14,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/heridotlife/honryu/internal/domain/engine"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/ports"
 )
@@ -26,7 +30,6 @@ type Repo interface {
 type Service struct {
 	repo  Repo
 	sched ports.Scheduler
-	exec  ports.Executor
 	sink  ports.MetricsSink
 	bus   ports.EventBus
 
@@ -39,8 +42,8 @@ type Service struct {
 type collectRun struct{ cancel context.CancelFunc }
 
 // NewService wires the collector.
-func NewService(repo Repo, sched ports.Scheduler, exec ports.Executor, sink ports.MetricsSink, bus ports.EventBus) *Service {
-	return &Service{repo: repo, sched: sched, exec: exec, sink: sink, bus: bus, cancels: map[int64]*collectRun{}}
+func NewService(repo Repo, sched ports.Scheduler, sink ports.MetricsSink, bus ports.EventBus) *Service {
+	return &Service{repo: repo, sched: sched, sink: sink, bus: bus, cancels: map[int64]*collectRun{}}
 }
 
 // Start begins background execution for a execution's current run. It is
@@ -100,76 +103,33 @@ func (s *Service) Resume(ctx context.Context) error {
 	return nil
 }
 
-// CollectExecution streams metrics for every scenario of a execution's current
-// run until ctx is cancelled or all engine streams end.
+// CollectExecution is retained as the lifecycle's hook for a execution's run.
+// It resolves the current run and its scenarios, which the ingest path will need
+// to attribute pushed measurements; with the pull loop gone it does no work of
+// its own.
 func (s *Service) CollectExecution(ctx context.Context, executionID int64) error {
-	runID, ok, err := s.repo.CurrentRun(ctx, executionID)
-	if err != nil {
+	if _, ok, err := s.repo.CurrentRun(ctx, executionID); err != nil || !ok {
 		return err
 	}
-	if !ok {
-		return nil
-	}
-	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
-	if err != nil {
+	if _, err := s.repo.LoadProfileFor(ctx, executionID); err != nil {
 		return err
 	}
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var firstErr error
-	for _, ep := range scenarios {
-		wg.Add(1)
-		go func(ep loadprofile.Entry) {
-			defer wg.Done()
-			if err := s.CollectScenario(ctx, executionID, ep.ScenarioID, ep.Engines, runID); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
-			}
-		}(ep)
-	}
-	wg.Wait()
-	return firstErr
-}
-
-// CollectScenario streams metrics from every engine of a scenario.
-func (s *Service) CollectScenario(ctx context.Context, executionID, scenarioID int64, engines int, runID int64) error {
-	urls, err := s.sched.EngineURLs(ctx, executionID, scenarioID, engines)
-	if err != nil {
-		return err
-	}
-	var wg sync.WaitGroup
-	for i, url := range urls {
-		wg.Add(1)
-		go func(engineID int, url string) {
-			defer wg.Done()
-			s.pumpEngine(ctx, executionID, scenarioID, engineID, runID, url)
-		}(i, url)
-	}
-	wg.Wait()
 	return nil
 }
 
-// pumpEngine subscribes to one engine and forwards every measurement, stamped
-// with its identity, to the sink and the bus.
-func (s *Service) pumpEngine(ctx context.Context, executionID, scenarioID int64, engineID int, runID int64, url string) {
-	ch, err := s.exec.Subscribe(ctx, url)
-	if err != nil {
-		return
-	}
-	collStr := strconv.FormatInt(executionID, 10)
-	planStr := strconv.FormatInt(scenarioID, 10)
-	engStr := strconv.Itoa(engineID)
-	runStr := strconv.FormatInt(runID, 10)
-	for m := range ch {
-		m.ExecutionID = collStr
-		m.ScenarioID = planStr
-		m.EngineID = engStr
-		m.RunID = runStr
-		s.sink.Record(m)
-		s.bus.Publish(executionID, m)
-	}
+// Record stamps one measurement with the identity of the engine that produced
+// it and forwards it to the metrics sink and the event bus (which feeds SSE
+// subscribers).
+//
+// Measurements used to be pulled from each engine's agent. Under Taurus they
+// arrive the other way round -- a sidecar in the engine pod pushes them to the
+// control plane -- so this is the seam the ingest endpoint calls (task 21).
+// Until that lands nothing calls it, and no live metrics flow.
+func (s *Service) Record(executionID, scenarioID int64, engineID int, runID int64, m engine.Metric) {
+	m.ExecutionID = strconv.FormatInt(executionID, 10)
+	m.ScenarioID = strconv.FormatInt(scenarioID, 10)
+	m.EngineID = strconv.Itoa(engineID)
+	m.RunID = strconv.FormatInt(runID, 10)
+	s.sink.Record(m)
+	s.bus.Publish(executionID, m)
 }

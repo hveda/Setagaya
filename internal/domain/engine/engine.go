@@ -1,7 +1,9 @@
 // Package engine holds the pure domain for a load-test engine: its
-// naming/identity within a scheduler, the per-engine data configuration handed
-// to an Executor at trigger time, the CSV-split rules that distribute shared
-// test data across engines, and the metric event emitted back. No I/O.
+// naming/identity within a scheduler, and the measurement it emits. No I/O.
+//
+// The per-engine configuration and CSV-split rules that used to live here were
+// the JMeter agent's wire payload; under Taurus a pod is handed a compiled
+// Taurus config instead (see internal/domain/compile), so they are gone.
 package engine
 
 import (
@@ -9,32 +11,11 @@ import (
 	"strconv"
 )
 
-// File is a data or test file made available to an engine. TotalSplits and
-// CurrentSplit carry CSV-split bookkeeping so each engine reads a disjoint
-// slice of a shared CSV file (row i is read by the engine where
-// i % TotalSplits == CurrentSplit).
-type File struct {
-	Filename     string `json:"filename"`
-	Filepath     string `json:"filepath"`
-	Filelink     string `json:"filelink"`
-	TotalSplits  int    `json:"total_splits"`
-	CurrentSplit int    `json:"current_split"`
-}
-
-// Config is the payload delivered to a single engine when a scenario is triggered.
-// Duration/Concurrency/Rampup are strings to match the JMeter agent wire
-// contract carried over from v2.
-type Config struct {
-	Data        map[string]File `json:"engine_data"`
-	Duration    string          `json:"duration"`
-	Concurrency string          `json:"concurrency"`
-	Rampup      string          `json:"rampup"`
-	RunID       int64           `json:"run_id"`
-	EngineID    int             `json:"engine_id"`
-}
-
-// Metric is one measurement emitted by an engine during a run. It mirrors the
-// v2 JMeter agent's metric contract so the wire format is unchanged.
+// Metric is one measurement emitted by an engine during a run.
+//
+// It still carries the shape the JMeter agent used, because the Prometheus sink,
+// the event bus, and the SSE stream all speak it. The ingest path replaces it
+// with the sidecar's per-second aggregate, histogram buckets and all (task 21).
 type Metric struct {
 	Threads     float64 `json:"threads"`
 	Latency     float64 `json:"latency"`

@@ -66,23 +66,6 @@ func TestNewScheduler(t *testing.T) {
 	}
 }
 
-func TestNewExecutor(t *testing.T) {
-	t.Parallel()
-
-	if e, err := newExecutor(config.ClusterConfig{Executor: "fake"}); err != nil || e == nil {
-		t.Fatalf("newExecutor(fake) = %v, %v", e, err)
-	}
-	if e, err := newExecutor(config.ClusterConfig{Executor: "jmeter"}); err != nil || e == nil {
-		t.Fatalf("newExecutor(jmeter) = %v, %v", e, err)
-	}
-	if e, err := newExecutor(config.ClusterConfig{Executor: "k6"}); err != nil || e == nil || e.Kind() != "k6" {
-		t.Fatalf("newExecutor(k6) = %v, %v", e, err)
-	}
-	if _, err := newExecutor(config.ClusterConfig{Executor: "nope"}); err == nil {
-		t.Fatal("newExecutor(nope): expected error, got nil")
-	}
-}
-
 func TestNewObjectStore(t *testing.T) {
 	t.Parallel()
 

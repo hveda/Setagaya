@@ -27,8 +27,6 @@ import (
 	"github.com/heridotlife/honryu/internal/adapters/auth/noauth"
 	"github.com/heridotlife/honryu/internal/adapters/auth/oidc"
 	eventbus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
-	"github.com/heridotlife/honryu/internal/adapters/executor/jmeter"
-	"github.com/heridotlife/honryu/internal/adapters/executor/k6"
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	promsink "github.com/heridotlife/honryu/internal/adapters/metrics/prometheus"
 	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
@@ -96,19 +94,14 @@ func run(ctx context.Context, getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
-	exec, err := newExecutor(cfg.Cluster)
-	if err != nil {
-		return err
-	}
-
 	sink := promsink.New(prometheus.DefaultRegisterer)
 	bus := eventbus.New()
-	collector := metricsapp.NewService(repo, sched, exec, sink, bus)
+	collector := metricsapp.NewService(repo, sched, sink, bus)
 	if resumeErr := collector.Resume(ctx); resumeErr != nil {
 		slog.Warn("resume metric collection", "error", resumeErr)
 	}
 	usage := usageapp.NewService(repo)
-	lifecycle := lifecycleapp.NewService(repo, sched, exec, store, cfg.Cluster.EngineImage).
+	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.EngineImage).
 		WithMetrics(collector).WithUsage(usage)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
@@ -274,21 +267,6 @@ func fetchJWKS(ctx context.Context, url string) (*oidc.StaticKeySet, error) {
 		return nil, err
 	}
 	return oidc.ParseJWKS(body)
-}
-
-// newExecutor selects the Executor adapter. "fake" records triggers; "jmeter"
-// and "k6" drive their respective agents over HTTP.
-func newExecutor(cfg config.ClusterConfig) (ports.Executor, error) {
-	switch cfg.Executor {
-	case "fake":
-		return fake.NewExecutor(), nil
-	case "jmeter":
-		return jmeter.New(nil), nil
-	case "k6":
-		return k6.New(nil), nil
-	default:
-		return nil, fmt.Errorf("executor %q not supported", cfg.Executor)
-	}
 }
 
 // newObjectStore selects the ObjectStore adapter. "local" stores artifacts on

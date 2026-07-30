@@ -23,6 +23,11 @@ type Store struct {
 	mu  sync.Mutex
 	now func() time.Time
 
+	// MarkRunningErr, when set, is returned by MarkScenarioRunning. It lets a
+	// test drive the lifecycle's roll-back path, which fires when no scenario of
+	// a run could be marked running.
+	MarkRunningErr error
+
 	projectSeq int64
 	projects   map[int64]project.Project
 

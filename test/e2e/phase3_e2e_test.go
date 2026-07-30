@@ -31,21 +31,19 @@ import (
 
 // TestPhase3_MetricsUsageAdminEndToEnd drives a run and asserts the live SSE
 // metric stream, usage accounting, and admin listing over real HTTP with a real
-// MySQL container. Scheduler/executor are fakes (the executor replays metrics).
+// MySQL container. The scheduler is a fake, and measurements are pushed through
+// the ingest seam the sidecar will use.
 func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repo := mysqladapter.NewRepository(db)
 	store := local.New(t.TempDir(), "")
 	sched := fake.NewScheduler()
-	exec := fake.NewExecutor()
-	exec.Repeat = true
-	exec.Metrics = []engine.Metric{{Label: "home", Status: "200", Latency: 12.5, Threads: 8}}
 	sink := fake.NewMetricsSink()
 	bus := membus.New()
 
-	collector := metricsapp.NewService(repo, sched, exec, sink, bus)
+	collector := metricsapp.NewService(repo, sched, sink, bus)
 	usage := usageapp.NewService(repo)
-	lifecycle := lifecycleapp.NewService(repo, sched, exec, store, "jmeter").WithMetrics(collector).WithUsage(usage)
+	lifecycle := lifecycleapp.NewService(repo, sched, store, "jmeter").WithMetrics(collector).WithUsage(usage)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 
 	router := httpapi.NewRouter(httpapi.Deps{
@@ -73,6 +71,21 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	base := srv.URL + "/api/executions/" + itoa(collID)
 	postAction(t, client, base+"/deploy", http.StatusOK)
 	postAction(t, client, base+"/trigger", http.StatusOK)
+
+	// Measurements arrive by push. This is what a sidecar in an engine pod will
+	// call once task 21 exposes it over HTTP; the stamping, fan-out, SSE, and
+	// Prometheus paths downstream of it are the same ones production uses.
+	runID, _, err := repo.CurrentRun(context.Background(), collID)
+	if err != nil {
+		t.Fatalf("CurrentRun: %v", err)
+	}
+	go func() {
+		for i := 0; i < 200; i++ {
+			collector.Record(collID, scenarioID, 0, runID,
+				engine.Metric{Label: "home", Status: "200", Latency: 12.5, Threads: 8})
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 
 	// The live SSE stream delivers enriched metrics during the run.
 	streamCtx, cancelStream := context.WithCancel(context.Background())
