@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
 // Executor drives a load-testing tool (JMeter first; k6/Gatling later) on a

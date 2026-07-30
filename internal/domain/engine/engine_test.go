@@ -3,7 +3,7 @@ package engine_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
 func TestNames(t *testing.T) {

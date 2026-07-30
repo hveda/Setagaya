@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/heridotlife/Setagaya/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 func TestDuration_MarshalsInTaurusForm(t *testing.T) {

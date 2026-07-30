@@ -5,12 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func newService() *projectapp.Service {

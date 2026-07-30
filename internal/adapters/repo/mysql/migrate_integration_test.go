@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 // TestMigrate_RejectsLegacySchema guards the Shibuya -> Honryu cutover.

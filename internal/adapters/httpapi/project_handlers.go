@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 )
 
 // projectResponse is the JSON wire shape for a Project. Keeping it separate

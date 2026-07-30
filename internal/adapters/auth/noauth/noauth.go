@@ -6,9 +6,9 @@ package noauth
 import (
 	"net/http"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Provider authenticates all requests as one account.

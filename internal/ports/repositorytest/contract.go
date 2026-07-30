@@ -10,8 +10,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewProjectRepo returns a fresh, empty ProjectRepository for a single subtest.

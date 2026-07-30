@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
 )
 
 type planResponse struct {

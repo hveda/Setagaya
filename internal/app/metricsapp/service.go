@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Repo is the persistence the collector reads to know what is running.

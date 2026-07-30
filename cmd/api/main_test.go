@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/config"
+	"github.com/heridotlife/honryu/internal/config"
 )
 
 func TestNewProjectRepository_Fake(t *testing.T) {

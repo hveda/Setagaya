@@ -7,9 +7,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // ErrUnknownRole is returned when a grant names a role absent from the catalog.

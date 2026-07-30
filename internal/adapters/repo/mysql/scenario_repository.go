@@ -8,9 +8,9 @@ import (
 
 	driver "github.com/go-sql-driver/mysql"
 
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
-	"github.com/heridotlife/Setagaya/internal/domain/taurus"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 const scenarioColumns = "id, name, project_id, kind, engine, tenant_id, created_by, updated_by, created_time"

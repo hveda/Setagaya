@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 func TestAPI_ProjectsEndToEnd(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Harness wires a provider under test with a request that should authenticate

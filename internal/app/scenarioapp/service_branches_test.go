@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 )
 
 func TestDownloadFile_InvalidFilename(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewUsageRepo builds a fresh, empty UsageRepository for one test.

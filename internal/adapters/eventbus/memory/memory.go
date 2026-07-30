@@ -6,8 +6,8 @@ package memory
 import (
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // subBuffer is how many events a subscriber may fall behind before delivery to

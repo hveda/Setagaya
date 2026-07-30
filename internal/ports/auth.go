@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/account"
 )
 
 // ErrUnauthenticated is returned by AuthProvider.Authenticate when the request

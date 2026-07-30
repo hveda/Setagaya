@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 const executionColumns = "id, name, project_id, csv_split, tenant_id, created_by, updated_by, created_time"

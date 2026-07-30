@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 // MaxNameLen mirrors the persisted schema (scenario.name VARCHAR(100)).

@@ -3,8 +3,8 @@ package fake
 import (
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // MetricsSink is an in-memory ports.MetricsSink that records calls for

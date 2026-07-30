@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/executionapp"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 func TestBranches_InvalidFilename(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 )
 
 func validScenario(scenarioID int64, engines, concurrency int) loadprofile.Entry {

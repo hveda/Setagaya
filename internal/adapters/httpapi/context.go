@@ -3,7 +3,7 @@ package httpapi
 import (
 	"context"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/account"
 )
 
 // ctxKey is the private type for request-context keys.

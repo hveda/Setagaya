@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	nexusadapter "github.com/heridotlife/Setagaya/internal/adapters/storage/nexus"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/objectstoretest"
+	nexusadapter "github.com/heridotlife/honryu/internal/adapters/storage/nexus"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/objectstoretest"
 )
 
 const testRepo = "honryu-raw"

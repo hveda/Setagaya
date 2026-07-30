@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Repo is the persistence admin needs to enrich and evaluate executions.

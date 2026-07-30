@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // tenantResponse is the JSON wire shape for a Tenant.

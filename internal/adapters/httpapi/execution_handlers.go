@@ -8,9 +8,9 @@ import (
 
 	yaml "gopkg.in/yaml.v3"
 
-	"github.com/heridotlife/Setagaya/internal/app/executionapp"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 )
 
 type executionResponse struct {

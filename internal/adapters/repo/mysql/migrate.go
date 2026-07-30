@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/heridotlife/Setagaya/migrations"
+	"github.com/heridotlife/honryu/migrations"
 )
 
 const createSchemaMigrations = `CREATE TABLE IF NOT EXISTS schema_migrations (

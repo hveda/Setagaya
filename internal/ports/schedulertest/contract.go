@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Harness wires a Scheduler under test together with a Ready hook that

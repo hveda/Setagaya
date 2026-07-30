@@ -3,8 +3,8 @@ package rbac_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 )
 
 func ptr(v int64) *int64 { return &v }

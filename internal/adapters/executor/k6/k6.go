@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
 // durationMetric is the k6 metric that carries request latency; other sample

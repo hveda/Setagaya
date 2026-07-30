@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/noauth"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/ports/authtest"
+	"github.com/heridotlife/honryu/internal/adapters/auth/noauth"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/ports/authtest"
 )
 
 func TestNoAuth_Contract(t *testing.T) {

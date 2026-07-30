@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/token"
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/ports/authtest"
+	"github.com/heridotlife/honryu/internal/adapters/auth/token"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/ports/authtest"
 )
 
 func req(t *testing.T, authz string) *http.Request {

@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 )
 
 // TestOpenAPIMatchesRoutes fails when the router and the published OpenAPI

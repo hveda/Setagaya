@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Scheduler is an in-memory ports.Scheduler for fast use-case tests. It records

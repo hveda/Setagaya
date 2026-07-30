@@ -3,10 +3,10 @@ package fake_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
-	"github.com/heridotlife/Setagaya/internal/ports/objectstoretest"
-	"github.com/heridotlife/Setagaya/internal/ports/repositorytest"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/ports/objectstoretest"
+	"github.com/heridotlife/honryu/internal/ports/repositorytest"
 )
 
 func TestFakeStore_ScenarioContract(t *testing.T) {

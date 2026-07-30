@@ -1,12 +1,12 @@
 # 奔流 (Honryu)
 
-[![CI](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml)
-[![Security](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml)
+[![CI](https://github.com/heridotlife/honryu/actions/workflows/ci.yml/badge.svg)](https://github.com/heridotlife/honryu/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/heridotlife/honryu/actions/workflows/codeql.yml/badge.svg)](https://github.com/heridotlife/honryu/actions/workflows/codeql.yml)
+[![Security](https://github.com/heridotlife/honryu/actions/workflows/security.yml/badge.svg)](https://github.com/heridotlife/honryu/actions/workflows/security.yml)
 [![golangci-lint](https://img.shields.io/badge/golangci--lint-enabled-4c1)](.golangci.yml)
-[![codecov](https://codecov.io/gh/heridotlife/Setagaya/graph/badge.svg)](https://codecov.io/gh/heridotlife/Setagaya)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/heridotlife/Setagaya)](go.mod)
-[![License](https://img.shields.io/github/license/heridotlife/Setagaya)](LICENSE)
+[![codecov](https://codecov.io/gh/heridotlife/honryu/graph/badge.svg)](https://codecov.io/gh/heridotlife/honryu)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/heridotlife/honryu)](go.mod)
+[![License](https://img.shields.io/github/license/heridotlife/honryu)](LICENSE)
 
 Honryu is a cloud-native, distributed load-testing platform written in Go. It
 orchestrates load-generation engines (JMeter and k6) on Kubernetes, streams live

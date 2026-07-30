@@ -7,13 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/noauth"
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/token"
-	"github.com/heridotlife/Setagaya/internal/app/authapp"
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/adapters/auth/noauth"
+	"github.com/heridotlife/honryu/internal/adapters/auth/token"
+	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func get() *http.Request { return httptest.NewRequest(http.MethodGet, "/api/projects", nil) }

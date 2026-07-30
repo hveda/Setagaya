@@ -3,8 +3,8 @@ package fake_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
-	"github.com/heridotlife/Setagaya/internal/ports/schedulertest"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/ports/schedulertest"
 )
 
 func TestFakeScheduler_Contract(t *testing.T) {

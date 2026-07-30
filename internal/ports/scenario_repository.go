@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
 )
 
 // ScenarioFiles is the set of files attached to a scenario: one optional JMX test file

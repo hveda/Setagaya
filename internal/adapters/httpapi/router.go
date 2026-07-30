@@ -10,15 +10,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/heridotlife/Setagaya/internal/app/adminapp"
-	"github.com/heridotlife/Setagaya/internal/app/authapp"
-	"github.com/heridotlife/Setagaya/internal/app/executionapp"
-	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
-	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
-	"github.com/heridotlife/Setagaya/internal/app/usageapp"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/app/adminapp"
+	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/app/tenantapp"
+	"github.com/heridotlife/honryu/internal/app/usageapp"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Deps are the collaborators the HTTP layer needs.

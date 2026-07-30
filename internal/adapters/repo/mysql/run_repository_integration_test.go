@@ -6,10 +6,10 @@ import (
 	"context"
 	"testing"
 
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/repositorytest"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/repositorytest"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 func TestMySQLRunRepository_Contract(t *testing.T) {

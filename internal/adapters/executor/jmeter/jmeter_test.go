@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	jmeteradapter "github.com/heridotlife/Setagaya/internal/adapters/executor/jmeter"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/executortest"
+	jmeteradapter "github.com/heridotlife/honryu/internal/adapters/executor/jmeter"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/executortest"
 )
 
 // fakeAgent stands in for the JMeter sidecar agent.

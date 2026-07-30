@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	membus "github.com/heridotlife/Setagaya/internal/adapters/eventbus/memory"
-	"github.com/heridotlife/Setagaya/internal/app/metricsapp"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	membus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
+	"github.com/heridotlife/honryu/internal/app/metricsapp"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 type env struct {

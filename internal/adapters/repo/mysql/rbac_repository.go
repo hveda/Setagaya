@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // globalScope is the tenant_id sentinel for a global (service-provider) grant.

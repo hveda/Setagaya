@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 const projectColumns = "id, name, owner, sid, tenant_id, created_by, updated_by, created_time"

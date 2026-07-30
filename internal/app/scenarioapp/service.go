@@ -10,8 +10,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Business-rule errors. Callers compare with errors.Is.

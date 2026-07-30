@@ -1,4 +1,4 @@
-module github.com/heridotlife/Setagaya
+module github.com/heridotlife/honryu
 
 go 1.26.0
 

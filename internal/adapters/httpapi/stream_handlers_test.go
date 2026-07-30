@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	membus "github.com/heridotlife/Setagaya/internal/adapters/eventbus/memory"
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	membus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
 func TestStreamExecution_DeliversSSE(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewBus builds a fresh, empty EventBus for one test.

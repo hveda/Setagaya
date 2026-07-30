@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
 )
 
 func TestNew_Valid(t *testing.T) {

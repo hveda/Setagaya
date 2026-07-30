@@ -7,11 +7,11 @@ import (
 	"database/sql"
 	"testing"
 
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/scenario"
-	"github.com/heridotlife/Setagaya/internal/ports/repositorytest"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/ports/repositorytest"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 func TestMySQLScenarioRepository_Contract(t *testing.T) {

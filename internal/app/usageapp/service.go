@@ -8,7 +8,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Service implements usage recording and reporting.

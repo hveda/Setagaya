@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/config"
+	"github.com/heridotlife/honryu/internal/config"
 )
 
 func TestNewAuthProvider(t *testing.T) {

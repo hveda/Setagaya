@@ -10,16 +10,16 @@ import (
 	"strings"
 	"testing"
 
-	auditmem "github.com/heridotlife/Setagaya/internal/adapters/audit/memory"
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/token"
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/authapp"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	auditmem "github.com/heridotlife/honryu/internal/adapters/audit/memory"
+	"github.com/heridotlife/honryu/internal/adapters/auth/token"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/tenantapp"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 // rbacFixture wires a full RBAC-enabled router over one shared fake store.

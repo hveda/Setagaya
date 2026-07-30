@@ -3,7 +3,7 @@
 // an account may perform an action. No I/O.
 package rbac
 
-import "github.com/heridotlife/Setagaya/internal/domain/account"
+import "github.com/heridotlife/honryu/internal/domain/account"
 
 // Action is an operation on a resource.
 type Action string

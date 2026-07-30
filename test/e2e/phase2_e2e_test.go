@@ -11,16 +11,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/internal/adapters/storage/local"
-	"github.com/heridotlife/Setagaya/internal/app/executionapp"
-	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
-	"github.com/heridotlife/Setagaya/internal/domain/run"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/internal/adapters/storage/local"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/domain/run"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 // TestPhase2_LifecycleEndToEnd drives deploy → trigger → stop → purge over real

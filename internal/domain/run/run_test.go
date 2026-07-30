@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/run"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/run"
 )
 
 func ec(scenarios ...loadprofile.Entry) loadprofile.Profile {

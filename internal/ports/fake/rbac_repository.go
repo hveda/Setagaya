@@ -4,8 +4,8 @@ import (
 	"context"
 	"sort"
 
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // --- Tenants ----------------------------------------------------------------

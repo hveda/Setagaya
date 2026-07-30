@@ -3,8 +3,10 @@
 ## [Unreleased] — 奔流 (Honryu)
 
 The project is renamed from Setagaya to **奔流 (Honryu)**, with `honryu` as the
-technical slug. The Go module path is unchanged for now; it moves when the
-GitHub repository is renamed, so `go get` breaks once rather than twice.
+technical slug. The GitHub repository and the Go module path move together —
+`github.com/heridotlife/Setagaya` → `github.com/heridotlife/honryu` — so `go get`
+breaks once rather than twice. Importers must update their import paths; GitHub
+redirects the old repository URL, but Go module paths are not redirected.
 
 **Vocabulary realigned to Taurus and the wider load-testing community.** The
 old `plan` / `collection` terms forced users to translate on every interaction:
@@ -58,7 +60,7 @@ been removed.
 * CI enforces a ≥90% coverage gate across unit, integration (testcontainers),
   and end-to-end tests.
 
-## [2.0.0-rc.1](https://github.com/heridotlife/Setagaya/compare/v2.0.0-rc...v2.0.0-rc.1) (2025-12-15)
+## [2.0.0-rc.1](https://github.com/heridotlife/honryu/compare/v2.0.0-rc...v2.0.0-rc.1) (2025-12-15)
 
 ### 🔐 Security Scanning Fixes
 
@@ -89,7 +91,7 @@ been removed.
 * **Workflow Validation**: All YAML workflow files validated for syntax correctness
 * **Security Configuration**: Hadolint and TruffleHog configurations tested and validated
 
-## [2.0.0-rc](https://github.com/heridotlife/Setagaya/compare/v1.1.2...v2.0.0-rc) (2025-09-06)
+## [2.0.0-rc](https://github.com/heridotlife/honryu/compare/v1.1.2...v2.0.0-rc) (2025-09-06)
 
 ### 🚀 Major Platform Modernization Release Candidate
 
@@ -160,43 +162,43 @@ been removed.
 * **Legacy Support**: Dedicated legacy Dockerfile for JMeter 3.3 environments
 * **Smooth Migration**: Clear upgrade path from previous versions
 
-## [1.1.2](https://github.com/heridotlife/Setagaya/compare/v1.1.1...v1.1.2) (2024-12-16)
+## [1.1.2](https://github.com/heridotlife/honryu/compare/v1.1.1...v1.1.2) (2024-12-16)
 
 
 ### Bug Fixes
 
-* fix metric dashboard repo url ([#131](https://github.com/heridotlife/Setagaya/issues/131)) ([161c5e6](https://github.com/heridotlife/Setagaya/commit/161c5e64208dcc5637aaf899d1b81298ee40adc3))
+* fix metric dashboard repo url ([#131](https://github.com/heridotlife/honryu/issues/131)) ([161c5e6](https://github.com/heridotlife/honryu/commit/161c5e64208dcc5637aaf899d1b81298ee40adc3))
 
-## [1.1.1](https://github.com/heridotlife/Setagaya/compare/v1.1.0...v1.1.1) (2024-12-16)
+## [1.1.1](https://github.com/heridotlife/honryu/compare/v1.1.0...v1.1.1) (2024-12-16)
 
 
 ### Bug Fixes
 
-* remove logging ([#129](https://github.com/heridotlife/Setagaya/issues/129)) ([83f9353](https://github.com/heridotlife/Setagaya/commit/83f93539c5b579ce1448fbfa752e254e7c8a2d8e))
+* remove logging ([#129](https://github.com/heridotlife/honryu/issues/129)) ([83f9353](https://github.com/heridotlife/honryu/commit/83f93539c5b579ce1448fbfa752e254e7c8a2d8e))
 
-## [1.1.0](https://github.com/heridotlife/Setagaya/compare/v1.0.0...v1.1.0) (2024-10-01)
+## [1.1.0](https://github.com/heridotlife/honryu/compare/v1.0.0...v1.1.0) (2024-10-01)
 
 
 ### Features
 
-* Enable engine metrics exposing in the agent ([#112](https://github.com/heridotlife/Setagaya/issues/112)) ([d7d25ad](https://github.com/heridotlife/Setagaya/commit/d7d25adcb96451bc33d1d536f5b7017a64e1f4ba))
+* Enable engine metrics exposing in the agent ([#112](https://github.com/heridotlife/honryu/issues/112)) ([d7d25ad](https://github.com/heridotlife/honryu/commit/d7d25adcb96451bc33d1d536f5b7017a64e1f4ba))
 
 ## 1.0.0 (2024-08-30)
 
 
 ### Features
 
-* add prefix to differ from main release ([70a38f5](https://github.com/heridotlife/Setagaya/commit/70a38f574ad5593c78d77456b6a83f735d62f3e4))
-* introduce release please ([9f33ad0](https://github.com/heridotlife/Setagaya/commit/9f33ad0c7c22d1063b68fc22f7746e1ce748c86f))
+* add prefix to differ from main release ([70a38f5](https://github.com/heridotlife/honryu/commit/70a38f574ad5593c78d77456b6a83f735d62f3e4))
+* introduce release please ([9f33ad0](https://github.com/heridotlife/honryu/commit/9f33ad0c7c22d1063b68fc22f7746e1ce748c86f))
 
 
 ### Bug Fixes
 
-* add missing charts ([420cdf9](https://github.com/heridotlife/Setagaya/commit/420cdf94fa56d13b7bec7ce12dde20d14c1ffc39))
-* add missing if ([fc5622c](https://github.com/heridotlife/Setagaya/commit/fc5622ca1a59ca3dec356039145bac5f6bf15c9c))
-* better naming ([12a42de](https://github.com/heridotlife/Setagaya/commit/12a42de7e83c3e37f0e44a6fff923a5f59e48cfe))
-* chart could not be generated due to tagging. Use gh cli directly instead of chart-releaser-action ([#111](https://github.com/heridotlife/Setagaya/issues/111)) ([8ab71bb](https://github.com/heridotlife/Setagaya/commit/8ab71bb47ce99c5c4d8e42976bcb277409f1354a))
-* only build the image when it is a release ([d8fc0a1](https://github.com/heridotlife/Setagaya/commit/d8fc0a1496f591d6c9254460010b28e3187bf5d8))
-* prevent fork polluting the official release registry ([77906e5](https://github.com/heridotlife/Setagaya/commit/77906e5140365321eb881d7c1edf2db1a94e1ae9))
-* should use release action from googleapis repo ([c38a4bb](https://github.com/heridotlife/Setagaya/commit/c38a4bb2aaeb172a4d1e44296715d950724f5008))
-* wrong tag name ([4b33f75](https://github.com/heridotlife/Setagaya/commit/4b33f7506cf2863665052650b3744ec8505adf1e))
+* add missing charts ([420cdf9](https://github.com/heridotlife/honryu/commit/420cdf94fa56d13b7bec7ce12dde20d14c1ffc39))
+* add missing if ([fc5622c](https://github.com/heridotlife/honryu/commit/fc5622ca1a59ca3dec356039145bac5f6bf15c9c))
+* better naming ([12a42de](https://github.com/heridotlife/honryu/commit/12a42de7e83c3e37f0e44a6fff923a5f59e48cfe))
+* chart could not be generated due to tagging. Use gh cli directly instead of chart-releaser-action ([#111](https://github.com/heridotlife/honryu/issues/111)) ([8ab71bb](https://github.com/heridotlife/honryu/commit/8ab71bb47ce99c5c4d8e42976bcb277409f1354a))
+* only build the image when it is a release ([d8fc0a1](https://github.com/heridotlife/honryu/commit/d8fc0a1496f591d6c9254460010b28e3187bf5d8))
+* prevent fork polluting the official release registry ([77906e5](https://github.com/heridotlife/honryu/commit/77906e5140365321eb881d7c1edf2db1a94e1ae9))
+* should use release action from googleapis repo ([c38a4bb](https://github.com/heridotlife/honryu/commit/c38a4bb2aaeb172a4d1e44296715d950724f5008))
+* wrong tag name ([4b33f75](https://github.com/heridotlife/honryu/commit/4b33f7506cf2863665052650b3744ec8505adf1e))

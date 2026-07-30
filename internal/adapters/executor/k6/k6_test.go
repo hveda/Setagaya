@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	k6adapter "github.com/heridotlife/Setagaya/internal/adapters/executor/k6"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/executortest"
+	k6adapter "github.com/heridotlife/honryu/internal/adapters/executor/k6"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/executortest"
 )
 
 // fakeAgent stands in for the k6 sidecar agent.

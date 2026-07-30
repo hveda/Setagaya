@@ -1,6 +1,6 @@
 package ports
 
-import "github.com/heridotlife/Setagaya/internal/domain/engine"
+import "github.com/heridotlife/honryu/internal/domain/engine"
 
 // MetricsSink records engine measurements into a metrics backend (Prometheus in
 // production). It is write-only: scraping/exposition is the backend's concern.

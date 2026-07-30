@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
 // Executor is an in-memory ports.Executor for fast use-case tests. It records

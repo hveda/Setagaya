@@ -8,7 +8,7 @@ package mysql
 import (
 	"database/sql"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // defaultDeployContext scopes running_scenario rows when no context is configured.

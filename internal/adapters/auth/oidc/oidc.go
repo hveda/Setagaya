@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // KeySet resolves a signing key by its "kid" header.

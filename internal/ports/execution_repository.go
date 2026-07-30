@@ -3,8 +3,8 @@ package ports
 import (
 	"context"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 )
 
 // ExecutionRepository persists Execution aggregates, their data files, and

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewStore returns a fresh, empty ObjectStore for a single subtest.

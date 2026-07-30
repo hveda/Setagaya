@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/storage/local"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/objectstoretest"
+	"github.com/heridotlife/honryu/internal/adapters/storage/local"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/objectstoretest"
 )
 
 func TestLocalStore_Contract(t *testing.T) {

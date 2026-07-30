@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewRunRepo builds a fresh, empty RunRepository for one test.

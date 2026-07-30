@@ -9,10 +9,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	k8sadapter "github.com/heridotlife/Setagaya/internal/adapters/scheduler/k8s"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/schedulertest"
+	k8sadapter "github.com/heridotlife/honryu/internal/adapters/scheduler/k8s"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/schedulertest"
 )
 
 const ns = "honryu"

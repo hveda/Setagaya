@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Log is a concurrency-safe in-memory audit log.

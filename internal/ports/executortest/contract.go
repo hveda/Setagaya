@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewExecutor builds a fresh Executor for one test, along with the base URL of

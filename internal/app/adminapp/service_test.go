@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/app/adminapp"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/app/adminapp"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 type recordingPurger struct{ purged []int64 }

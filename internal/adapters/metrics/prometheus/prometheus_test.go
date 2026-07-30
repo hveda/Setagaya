@@ -6,8 +6,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	promsink "github.com/heridotlife/Setagaya/internal/adapters/metrics/prometheus"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	promsink "github.com/heridotlife/honryu/internal/adapters/metrics/prometheus"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
 func metric(coll, scenario, engineNo, run, label, status string, latency, threads float64) engine.Metric {

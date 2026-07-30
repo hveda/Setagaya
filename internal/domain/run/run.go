@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 )
 
 // Phase is the lifecycle phase of a execution's engines.

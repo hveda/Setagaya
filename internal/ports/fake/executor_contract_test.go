@@ -3,9 +3,9 @@ package fake_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/executortest"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/executortest"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func TestFakeExecutor_Contract(t *testing.T) {

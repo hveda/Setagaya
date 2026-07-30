@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 func TestOutcomeFromExitCode(t *testing.T) {

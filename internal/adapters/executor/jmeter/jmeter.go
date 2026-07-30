@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
 // jtlFields is the number of pipe-separated columns the JMeter JTL writer emits:
