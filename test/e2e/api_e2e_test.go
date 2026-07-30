@@ -26,7 +26,7 @@ func TestAPI_ProjectsEndToEnd(t *testing.T) {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      svc,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
@@ -47,7 +47,7 @@ func TestAPI_ProjectsEndToEnd(t *testing.T) {
 	}
 
 	// Seed a project through the real service → MySQL write path.
-	created, err := svc.Create(context.Background(), "web-api", "setagaya", "77")
+	created, err := svc.Create(context.Background(), "web-api", "honryu", "77")
 	if err != nil {
 		t.Fatalf("seed create: %v", err)
 	}

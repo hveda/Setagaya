@@ -15,7 +15,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports/schedulertest"
 )
 
-const ns = "setagaya"
+const ns = "honryu"
 
 // readyEngines simulates the StatefulSet controller: it creates the ordinal
 // pods a plan would spawn and marks them Running+Ready so the adapter's
@@ -23,7 +23,7 @@ const ns = "setagaya"
 func readyEngines(t *testing.T, client *fake.Clientset, executionID, scenarioID int64, engines int) {
 	t.Helper()
 	ctx := context.Background()
-	sel := fmt.Sprintf("collection=%d,plan=%d", executionID, scenarioID)
+	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
 	sets, err := client.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil || len(sets.Items) == 0 {
 		t.Fatalf("no statefulset for collection %d plan %d: %v", executionID, scenarioID, err)
@@ -80,7 +80,7 @@ func TestK8sScheduler_DeployIsIdempotentAndScales(t *testing.T) {
 	if err := s.DeployScenario(ctx, spec); err != nil {
 		t.Fatalf("deploy 2: %v", err)
 	}
-	name := engine.PlanName(1, 2, 3)
+	name := engine.ScenarioName(1, 2, 3)
 	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get statefulset: %v", err)
@@ -112,7 +112,7 @@ func TestK8sScheduler_EngineURLsFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EngineURLs: %v", err)
 	}
-	want := "http://engine-1-2-3-0.engine-1-2-3.setagaya.svc:8080"
+	want := "http://engine-1-2-3-0.engine-1-2-3.honryu.svc:8080"
 	if urls[0] != want {
 		t.Fatalf("url[0] = %q, want %q", urls[0], want)
 	}
@@ -176,7 +176,7 @@ func TestK8sScheduler_StatusCountsOnlyReadyPods(t *testing.T) {
 	readyEngines(t, client, 2, 3, 2)
 	pending := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "engine-1-2-3-2", Namespace: ns, Labels: map[string]string{
-			"collection": "2", "project": "1", "plan": "3", "kind": "executor",
+			"execution": "2", "project": "1", "scenario": "3", "kind": "executor",
 		}},
 		Status: corev1.PodStatus{Phase: corev1.PodPending},
 	}

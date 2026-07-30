@@ -89,7 +89,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "(sum(setagaya_status_counter{run_id=\"$runID\", status=~\"2..\"}) by (run_id) / sum(setagaya_status_counter{run_id=\"$runID\"}) by (run_id))*100",
+          "expr": "(sum(honryu_status_counter{run_id=\"$runID\", status=~\"2..\"}) by (run_id) / sum(honryu_status_counter{run_id=\"$runID\"}) by (run_id))*100",
           "format": "time_series",
           "intervalFactor": 1,
           "refId": "A"
@@ -142,7 +142,7 @@
       "strokeWidth": 1,
       "targets": [
         {
-          "expr": "sum(setagaya_status_counter{run_id=\"$runID\"}) by (status)",
+          "expr": "sum(honryu_status_counter{run_id=\"$runID\"}) by (status)",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "{{status}}",
@@ -159,7 +159,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
-      "datasource": "setagaya_prom",
+      "datasource": "honryu_prom",
       "fill": 1,
       "gridPos": {
         "h": 5,
@@ -196,7 +196,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "(sum(rate(setagaya_latency_collection_sum{run_id=\"$runID\"}[2s])) by (run_id)) / (sum(rate(setagaya_status_counter{run_id=\"$runID\"}[2s])) by (run_id))",
+          "expr": "(sum(rate(honryu_latency_execution_sum{run_id=\"$runID\"}[2s])) by (run_id)) / (sum(rate(honryu_status_counter{run_id=\"$runID\"}[2s])) by (run_id))",
           "format": "time_series",
           "hide": false,
           "instant": false,
@@ -206,7 +206,7 @@
           "refId": "A"
         },
         {
-          "expr": "setagaya_latency_collection{run_id=\"$runID\"}",
+          "expr": "honryu_latency_execution{run_id=\"$runID\"}",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 1,
@@ -312,7 +312,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(setagaya_status_counter{run_id=\"$runID\"})",
+          "expr": "sum(honryu_status_counter{run_id=\"$runID\"})",
           "format": "time_series",
           "interval": "1s",
           "intervalFactor": 1,
@@ -390,7 +390,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "count(setagaya_threads_gauge{run_id=\"$runID\"})",
+          "expr": "count(honryu_threads_gauge{run_id=\"$runID\"})",
           "format": "time_series",
           "instant": false,
           "intervalFactor": 1,
@@ -416,7 +416,7 @@
       "bars": true,
       "dashLength": 10,
       "dashes": false,
-      "datasource": "setagaya_prom",
+      "datasource": "honryu_prom",
       "fill": 1,
       "gridPos": {
         "h": 6,
@@ -453,7 +453,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(setagaya_status_counter{run_id=\"$runID\"}[30s])) by (run_id)",
+          "expr": "sum(rate(honryu_status_counter{run_id=\"$runID\"}[30s])) by (run_id)",
           "format": "time_series",
           "instant": false,
           "interval": "1s",
@@ -462,11 +462,11 @@
           "refId": "A"
         },
         {
-          "expr": "sum(rate(setagaya_status_counter{run_id=\"$runID\"}[30s])) by (plan_id)",
+          "expr": "sum(rate(honryu_status_counter{run_id=\"$runID\"}[30s])) by (scenario_id)",
           "format": "time_series",
           "interval": "1s",
           "intervalFactor": 1,
-          "legendFormat": "{{plan_id}}",
+          "legendFormat": "{{scenario_id}}",
           "refId": "B"
         }
       ],
@@ -552,7 +552,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(setagaya_threads_gauge{run_id=\"$runID\"})",
+          "expr": "sum(honryu_threads_gauge{run_id=\"$runID\"})",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": " ",
@@ -651,7 +651,7 @@
           "dateFormat": "YYYY-MM-DD HH:mm:ss",
           "decimals": 2,
           "mappingType": 1,
-          "pattern": "collection_id",
+          "pattern": "execution_id",
           "thresholds": [],
           "type": "hidden",
           "unit": "short"
@@ -707,7 +707,7 @@
       ],
       "targets": [
         {
-          "expr": "sum(setagaya_status_counter{run_id=\"$runID\"}) by (label, plan_id, status)",
+          "expr": "sum(honryu_status_counter{run_id=\"$runID\"}) by (label, scenario_id, status)",
           "format": "table",
           "hide": false,
           "instant": true,
@@ -727,7 +727,7 @@
       "bars": true,
       "dashLength": 10,
       "dashes": false,
-      "datasource": "setagaya_prom",
+      "datasource": "honryu_prom",
       "fill": 1,
       "gridPos": {
         "h": 8,
@@ -764,7 +764,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(increase(setagaya_status_counter{run_id=\"$runID\", status!=\"200\"}[2s])) by (status)",
+          "expr": "sum(increase(honryu_status_counter{run_id=\"$runID\", status!=\"200\"}[2s])) by (status)",
           "format": "time_series",
           "instant": false,
           "interval": "1s",
@@ -881,7 +881,7 @@
           "tableColumn": "",
           "targets": [
             {
-              "expr": "(sum(setagaya_status_counter{run_id=\"$runID\", plan_id=\"$planID\", status=~\"2..\"}) by (plan_id) / sum(setagaya_status_counter{run_id=\"$runID\", plan_id=\"$planID\"}) by (plan_id))*100",
+              "expr": "(sum(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\", status=~\"2..\"}) by (scenario_id) / sum(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\"}) by (scenario_id))*100",
               "format": "time_series",
               "intervalFactor": 1,
               "refId": "A"
@@ -934,7 +934,7 @@
           "strokeWidth": 1,
           "targets": [
             {
-              "expr": "sum(setagaya_status_counter{run_id=\"$runID\", plan_id=\"$planID\"}) by (status)",
+              "expr": "sum(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\"}) by (status)",
               "format": "time_series",
               "intervalFactor": 1,
               "legendFormat": "{{status}}",
@@ -951,7 +951,7 @@
           "bars": false,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "setagaya_prom",
+          "datasource": "honryu_prom",
           "fill": 1,
           "gridPos": {
             "h": 5,
@@ -984,7 +984,7 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "(sum(rate(setagaya_latency_plan_sum{run_id=\"$runID\", plan_id=\"$planID\"}[2s])) by (plan_id)) / (sum(rate(setagaya_status_counter{run_id=\"$runID\", plan_id=\"$planID\"}[2s])) by (plan_id))",
+              "expr": "(sum(rate(honryu_latency_scenario_sum{run_id=\"$runID\", scenario_id=\"$scenarioID\"}[2s])) by (scenario_id)) / (sum(rate(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\"}[2s])) by (scenario_id))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -993,7 +993,7 @@
               "refId": "A"
             },
             {
-              "expr": "setagaya_latency_plan{plan_id=\"$planID\", run_id=\"$runID\"}",
+              "expr": "honryu_latency_scenario{scenario_id=\"$scenarioID\", run_id=\"$runID\"}",
               "format": "time_series",
               "intervalFactor": 1,
               "legendFormat": "{{quantile}}",
@@ -1098,7 +1098,7 @@
           "tableColumn": "",
           "targets": [
             {
-              "expr": "sum(setagaya_status_counter{run_id=\"$runID\", plan_id=\"$planID\"})",
+              "expr": "sum(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\"})",
               "format": "time_series",
               "interval": "1s",
               "intervalFactor": 1,
@@ -1176,7 +1176,7 @@
           "tableColumn": "",
           "targets": [
             {
-              "expr": "count(setagaya_threads_gauge{run_id=\"$runID\", plan_id=\"$planID\"})",
+              "expr": "count(honryu_threads_gauge{run_id=\"$runID\", scenario_id=\"$scenarioID\"})",
               "format": "time_series",
               "instant": false,
               "intervalFactor": 1,
@@ -1202,7 +1202,7 @@
           "bars": true,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "setagaya_prom",
+          "datasource": "honryu_prom",
           "fill": 1,
           "gridPos": {
             "h": 6,
@@ -1239,16 +1239,16 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "sum(rate(setagaya_status_counter{run_id=\"$runID\", plan_id=\"$planID\"}[30s])) by (plan_id)",
+              "expr": "sum(rate(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\"}[30s])) by (scenario_id)",
               "format": "time_series",
               "instant": false,
               "interval": "1s",
               "intervalFactor": 1,
-              "legendFormat": "{{plan_id}}",
+              "legendFormat": "{{scenario_id}}",
               "refId": "A"
             },
             {
-              "expr": "sum(rate(setagaya_status_counter{run_id=\"$runID\", plan_id=\"$planID\"}[30s])) by (label)",
+              "expr": "sum(rate(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\"}[30s])) by (label)",
               "format": "time_series",
               "interval": "1s",
               "intervalFactor": 1,
@@ -1338,7 +1338,7 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "sum(setagaya_threads_gauge{run_id=\"$runID\", plan_id=\"$planID\"})",
+              "expr": "sum(honryu_threads_gauge{run_id=\"$runID\", scenario_id=\"$scenarioID\"})",
               "format": "time_series",
               "intervalFactor": 1,
               "legendFormat": " ",
@@ -1390,7 +1390,7 @@
           "bars": true,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "setagaya_prom",
+          "datasource": "honryu_prom",
           "fill": 1,
           "gridPos": {
             "h": 4,
@@ -1427,7 +1427,7 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "sum(increase(setagaya_status_counter{run_id=\"$runID\", status!=\"200\", plan_id=\"$planID\"}[2s])) by (status)",
+              "expr": "sum(increase(honryu_status_counter{run_id=\"$runID\", status!=\"200\", scenario_id=\"$scenarioID\"}[2s])) by (status)",
               "format": "time_series",
               "instant": false,
               "interval": "1s",
@@ -1548,7 +1548,7 @@
           "tableColumn": "",
           "targets": [
             {
-              "expr": "(sum(setagaya_status_counter{run_id=\"$runID\", label=\"$label\", status=~\"2..\"}) by (label) / sum(setagaya_status_counter{run_id=\"$runID\", label=\"$label\"}) by (label))*100",
+              "expr": "(sum(honryu_status_counter{run_id=\"$runID\", label=\"$label\", status=~\"2..\"}) by (label) / sum(honryu_status_counter{run_id=\"$runID\", label=\"$label\"}) by (label))*100",
               "format": "time_series",
               "intervalFactor": 1,
               "legendFormat": "",
@@ -1602,7 +1602,7 @@
           "strokeWidth": 1,
           "targets": [
             {
-              "expr": "sum(setagaya_status_counter{run_id=\"$runID\", label=\"$label\"}) by (status)",
+              "expr": "sum(honryu_status_counter{run_id=\"$runID\", label=\"$label\"}) by (status)",
               "format": "time_series",
               "intervalFactor": 1,
               "legendFormat": "{{status}}",
@@ -1619,7 +1619,7 @@
           "bars": false,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "setagaya_prom",
+          "datasource": "honryu_prom",
           "fill": 1,
           "gridPos": {
             "h": 5,
@@ -1652,7 +1652,7 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "(sum(rate(setagaya_latency_label_sum{run_id=\"$runID\", label=\"$label\"}[2s])) by (label)) / (sum(rate(setagaya_status_counter{run_id=\"$runID\", label=\"$label\"}[2s])) by (label))",
+              "expr": "(sum(rate(honryu_latency_label_sum{run_id=\"$runID\", label=\"$label\"}[2s])) by (label)) / (sum(rate(honryu_status_counter{run_id=\"$runID\", label=\"$label\"}[2s])) by (label))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1661,7 +1661,7 @@
               "refId": "A"
             },
             {
-              "expr": "setagaya_latency_label{label=\"$label\", run_id=\"$runID\"}",
+              "expr": "honryu_latency_label{label=\"$label\", run_id=\"$runID\"}",
               "format": "time_series",
               "intervalFactor": 1,
               "legendFormat": "{{quantile}}",
@@ -1766,7 +1766,7 @@
           "tableColumn": "",
           "targets": [
             {
-              "expr": "sum(setagaya_status_counter{run_id=\"$runID\", label=\"$label\"})",
+              "expr": "sum(honryu_status_counter{run_id=\"$runID\", label=\"$label\"})",
               "format": "time_series",
               "interval": "1s",
               "intervalFactor": 1,
@@ -1792,7 +1792,7 @@
           "bars": true,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "setagaya_prom",
+          "datasource": "honryu_prom",
           "fill": 1,
           "gridPos": {
             "h": 6,
@@ -1830,7 +1830,7 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "sum(rate(setagaya_status_counter{run_id=\"$runID\", label=\"$label\"}[30s])) by (label)",
+              "expr": "sum(rate(honryu_status_counter{run_id=\"$runID\", label=\"$label\"}[30s])) by (label)",
               "format": "time_series",
               "instant": false,
               "interval": "1s",
@@ -1897,14 +1897,14 @@
           "text": "1",
           "value": "1"
         },
-        "datasource": "setagaya_prom",
+        "datasource": "honryu_prom",
         "hide": 2,
         "includeAll": false,
         "label": "Collection ID",
         "multi": false,
-        "name": "collectionID",
+        "name": "executionID",
         "options": [],
-        "query": "label_values(collection_id)",
+        "query": "label_values(execution_id)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1921,14 +1921,14 @@
           "text": "1",
           "value": "1"
         },
-        "datasource": "setagaya_prom",
+        "datasource": "honryu_prom",
         "hide": 0,
         "includeAll": false,
         "label": "Plan ID",
         "multi": false,
-        "name": "planID",
+        "name": "scenarioID",
         "options": [],
-        "query": "label_values(plan_id)",
+        "query": "label_values(scenario_id)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1945,7 +1945,7 @@
           "text": "harryHelp",
           "value": "harryHelp"
         },
-        "datasource": "setagaya_prom",
+        "datasource": "honryu_prom",
         "hide": 0,
         "includeAll": false,
         "label": "Label",
@@ -1969,7 +1969,7 @@
           "text": "5",
           "value": "5"
         },
-        "datasource": "setagaya_prom",
+        "datasource": "honryu_prom",
         "hide": 2,
         "includeAll": false,
         "label": "Run ID",
@@ -1998,7 +1998,7 @@
     "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
   },
   "timezone": "",
-  "title": "setagaya",
+  "title": "honryu",
   "uid": "RXY8nM1mk2",
   "version": 1
 }

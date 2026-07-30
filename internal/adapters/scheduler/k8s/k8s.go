@@ -24,7 +24,7 @@ import (
 )
 
 const managedByLabel = "managed-by"
-const managedByValue = "setagaya-v3"
+const managedByValue = "honryu"
 
 // defaultPoolLabel groups nodes into pools when Config.PoolLabel is unset.
 const defaultPoolLabel = "cloud.google.com/gke-nodepool"
@@ -82,8 +82,8 @@ func int32Bounded(n int) int32 {
 // DeployScenario creates (or scales) the StatefulSet and headless Service for a
 // plan. It is idempotent.
 func (s *Scheduler) DeployScenario(ctx context.Context, spec ports.DeploySpec) error {
-	name := engine.PlanName(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
-	labels := engine.PlanLabels(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
+	name := engine.ScenarioName(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
+	labels := engine.ScenarioLabels(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
 	labels[managedByLabel] = managedByValue
 
 	if err := s.ensureService(ctx, name, labels); err != nil {
@@ -171,7 +171,7 @@ func (s *Scheduler) EngineURLs(ctx context.Context, executionID, scenarioID int6
 	if err != nil {
 		return nil, err
 	}
-	name := engine.PlanName(projectID, executionID, scenarioID)
+	name := engine.ScenarioName(projectID, executionID, scenarioID)
 	if _, err := s.client.CoreV1().Services(s.ns).Get(ctx, name, metav1.GetOptions{}); err != nil {
 		return nil, ports.ErrEnginesUnreachable
 	}
@@ -185,7 +185,7 @@ func (s *Scheduler) EngineURLs(ctx context.Context, executionID, scenarioID int6
 // projectOf recovers the project id from any pod/statefulset labelled with the
 // collection; deploy specs carry the project but query methods do not.
 func (s *Scheduler) projectOf(ctx context.Context, executionID int64) (int64, error) {
-	sel := fmt.Sprintf("collection=%d,%s=%s", executionID, managedByLabel, managedByValue)
+	sel := fmt.Sprintf("execution=%d,%s=%s", executionID, managedByLabel, managedByValue)
 	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return 0, err
@@ -219,7 +219,7 @@ func (s *Scheduler) ExecutionStatus(ctx context.Context, executionID int64, plan
 }
 
 func (s *Scheduler) readyPods(ctx context.Context, executionID, scenarioID int64) (int, error) {
-	sel := fmt.Sprintf("collection=%d,plan=%d", executionID, scenarioID)
+	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return 0, err
@@ -247,7 +247,7 @@ func podReady(p *corev1.Pod) bool {
 
 // EngineDetail lists all engine pods of a collection.
 func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int64) (ports.ExecutionDetail, error) {
-	sel := fmt.Sprintf("project=%d,collection=%d", projectID, executionID)
+	sel := fmt.Sprintf("project=%d,execution=%d", projectID, executionID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return ports.ExecutionDetail{}, err
@@ -267,7 +267,7 @@ func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int
 
 // PurgeExecution deletes every StatefulSet, Service, and Pod of a collection.
 func (s *Scheduler) PurgeExecution(ctx context.Context, executionID int64) error {
-	sel := fmt.Sprintf("collection=%d,%s=%s", executionID, managedByLabel, managedByValue)
+	sel := fmt.Sprintf("execution=%d,%s=%s", executionID, managedByLabel, managedByValue)
 	opts := metav1.ListOptions{LabelSelector: sel}
 	del := metav1.DeleteOptions{}
 
@@ -293,12 +293,12 @@ func (s *Scheduler) PurgeExecution(ctx context.Context, executionID int64) error
 	// consistent under the fake clientset too.
 	// DeleteCollection here is the Kubernetes client API (delete a collection of
 	// pods), not a Honryu concept -- it keeps its upstream name.
-	return s.client.CoreV1().Pods(s.ns).DeleteCollection(ctx, del, metav1.ListOptions{LabelSelector: fmt.Sprintf("collection=%d", executionID)})
+	return s.client.CoreV1().Pods(s.ns).DeleteCollection(ctx, del, metav1.ListOptions{LabelSelector: fmt.Sprintf("execution=%d", executionID)})
 }
 
 // PodLog returns the logs of a plan's first engine pod.
 func (s *Scheduler) PodLog(ctx context.Context, executionID, scenarioID int64) (string, error) {
-	sel := fmt.Sprintf("collection=%d,plan=%d", executionID, scenarioID)
+	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return "", err
@@ -356,7 +356,7 @@ func (s *Scheduler) DeployedExecutions(ctx context.Context) (map[int64]time.Time
 	out := map[int64]time.Time{}
 	for i := range sets.Items {
 		var cid int64
-		if _, err := fmt.Sscanf(sets.Items[i].Labels["collection"], "%d", &cid); err != nil {
+		if _, err := fmt.Sscanf(sets.Items[i].Labels["execution"], "%d", &cid); err != nil {
 			continue
 		}
 		created := sets.Items[i].CreationTimestamp.Time

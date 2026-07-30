@@ -21,7 +21,7 @@ import (
 const (
 	testKid    = "test-key-1"
 	testIssuer = "https://issuer.example"
-	testAud    = "setagaya"
+	testAud    = "honryu"
 )
 
 // signer mints signed JWTs for tests.

@@ -30,7 +30,7 @@ func newTestRouter(t *testing.T, seed ...project.Project) (http.Handler, []int64
 	}
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	return router, ids
 }
@@ -95,7 +95,7 @@ func TestListProjects_Empty(t *testing.T) {
 
 func TestListProjects_Populated(t *testing.T) {
 	t.Parallel()
-	mine := mustProject(t, "web-api", "setagaya", "1")
+	mine := mustProject(t, "web-api", "honryu", "1")
 	other := mustProject(t, "other", "someone-else", "2")
 	router, _ := newTestRouter(t, mine, other)
 
@@ -111,15 +111,15 @@ func TestListProjects_Populated(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	// Default owner is "setagaya" so only the matching project is returned.
-	if len(got) != 1 || got[0].Name != "web-api" || got[0].Owner != "setagaya" {
-		t.Fatalf("projects = %+v, want only web-api owned by setagaya", got)
+	// Default owner is "honryu" so only the matching project is returned.
+	if len(got) != 1 || got[0].Name != "web-api" || got[0].Owner != "honryu" {
+		t.Fatalf("projects = %+v, want only web-api owned by honryu", got)
 	}
 }
 
 func TestGetProject_FoundAndNotFound(t *testing.T) {
 	t.Parallel()
-	mine := mustProject(t, "web-api", "setagaya", "1")
+	mine := mustProject(t, "web-api", "honryu", "1")
 	router, ids := newTestRouter(t, mine)
 
 	rec := do(t, router, http.MethodGet, "/api/projects/"+strconv.FormatInt(ids[0], 10))

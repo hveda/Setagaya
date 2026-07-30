@@ -27,7 +27,7 @@ func TestAdminEndpoints(t *testing.T) {
 
 	h := httpapi.NewRouter(httpapi.Deps{
 		Admin:         adminapp.NewService(store, sched, noopPurger{}),
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 
 	if rec := do(t, h, http.MethodGet, "/api/admin/executions"); rec.Code != http.StatusOK {

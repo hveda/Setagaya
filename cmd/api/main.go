@@ -1,4 +1,4 @@
-// Command api is the Setagaya v3 REST API server.
+// Command api is the Honryu REST API server.
 //
 // It wires configuration and adapters into the application services and serves
 // HTTP. Wiring lives in run() so it can be unit-tested and so main stays a thin
@@ -132,7 +132,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Auth:          authapp.NewService(authProvider, repo, cfg.Auth.EnableRBAC),
 		Tenants:       tenantapp.NewService(repo, repo),
 		Audit:         audit,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 
 	srv := &http.Server{
@@ -241,7 +241,7 @@ func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
 func newAuthProvider(ctx context.Context, cfg config.AuthConfig) (ports.AuthProvider, error) {
 	switch cfg.Mode {
 	case "none":
-		return noauth.New("setagaya"), nil
+		return noauth.New("honryu"), nil
 	case "oidc":
 		keys, err := fetchJWKS(ctx, cfg.OIDC.JWKSURL)
 		if err != nil {

@@ -22,7 +22,7 @@ var _ ports.AuthProvider = (*Provider)(nil)
 // given global roles. With no roles, the account is a service-provider admin.
 func New(subject string, globalRoles ...string) *Provider {
 	if subject == "" {
-		subject = "setagaya"
+		subject = "honryu"
 	}
 	if len(globalRoles) == 0 {
 		globalRoles = []string{rbac.RoleServiceProviderAdmin}

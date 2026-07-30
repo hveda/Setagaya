@@ -1,4 +1,4 @@
-// Package jmeter implements ports.Executor by speaking the Setagaya JMeter
+// Package jmeter implements ports.Executor by speaking the Honryu JMeter
 // agent's HTTP protocol: POST /start (JSON engine.Config), POST /stop,
 // GET /progress (200 running / 404 idle), and GET /stream (SSE of pipe-
 // delimited JTL lines). The agent URL is injected, so the adapter is tested

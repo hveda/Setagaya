@@ -28,7 +28,7 @@ func (boomRepo) ListProjectsByOwners(context.Context, []string) ([]project.Proje
 func boomRouter() http.Handler {
 	return httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(boomRepo{Store: fake.NewStore()}),
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 }
 

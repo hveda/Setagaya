@@ -57,13 +57,13 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 		Admin:         admin,
 		Events:        bus,
 		Store:         store,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 	client := srv.Client()
 
-	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
+	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
 	collID := postForm(t, client, srv.URL+"/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
@@ -82,7 +82,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 		t.Fatalf("open stream: %v", err)
 	}
 	line := readFirstSSE(t, resp.Body)
-	if !strings.Contains(line, `"label":"home"`) || !strings.Contains(line, `"collection_id":"`+itoa(collID)+`"`) {
+	if !strings.Contains(line, `"label":"home"`) || !strings.Contains(line, `"execution_id":"`+itoa(collID)+`"`) {
 		t.Fatalf("SSE metric = %q", line)
 	}
 	cancelStream()

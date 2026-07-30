@@ -96,11 +96,11 @@ func failEnv(t *testing.T) (http.Handler, *failStore, ids) {
 		Plans:         scenarioapp.NewService(fs, obj),
 		Collections:   executionapp.NewService(fs, obj, 100),
 		Store:         obj,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 
 	ctx := context.Background()
-	p, _ := project.New("web", "setagaya", "")
+	p, _ := project.New("web", "honryu", "")
 	projectID, _ := fs.CreateProject(ctx, p)
 	pl, _ := scenario.New("smoke", projectID)
 	scenarioID, _ := fs.Store.CreateScenario(ctx, pl)

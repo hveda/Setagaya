@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] — 奔流 (Honryu)
+
+The project is renamed from Setagaya to **奔流 (Honryu)**, with `honryu` as the
+technical slug. The Go module path is unchanged for now; it moves when the
+GitHub repository is renamed, so `go get` breaks once rather than twice.
+
+**Vocabulary realigned to Taurus and the wider load-testing community.** The
+old `plan` / `collection` terms forced users to translate on every interaction:
+
+* `plan` → **scenario** — the reusable workload definition.
+* `collection` → **execution** — the runnable unit that groups scenarios.
+* the former `execution` config (concurrency, ramp-up, duration, engines) →
+  **loadprofile**, whose `Entry` maps onto one Taurus execution block.
+
+This runs through the domain, ports, use-cases, HTTP API (`/api/scenarios`,
+`/api/executions`), JSON fields, object-store keys, RBAC resources, Kubernetes
+labels, Prometheus metric and label names, and the Grafana dashboards.
+
+* RBAC's previous `execution` resource (lifecycle actions: deploy, trigger,
+  stop) is now `run`, since `execution` names the aggregate.
+* Environment variables move from the `SETAGAYA_` prefix to `HONRYU_`.
+* Prometheus metrics move from `setagaya_*` to `honryu_*`;
+  `latency_collection` → `latency_execution` and `latency_plan` →
+  `latency_scenario`; the `collection_id` / `plan_id` labels become
+  `execution_id` / `scenario_id`. Bundled dashboards are updated to match.
+* The database schema is restated as a fresh baseline in the new vocabulary.
+  The previous migrations existed so v2 and v3 could share one database during a
+  strangler cutover; Honryu migrates from Shibuya by importing JMX assets only,
+  so there is no data to carry across.
+
+**Breaking:** every API route, JSON field, environment variable, metric name,
+and table name changes. There is no compatibility shim — this release expects a
+fresh deployment.
+
 ## [Unreleased] — v3 rewrite
 
 Ground-up, test-driven rebuild on a hexagonal (ports-and-adapters) architecture,

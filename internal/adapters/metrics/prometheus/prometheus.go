@@ -31,25 +31,25 @@ var objectives = map[float64]float64{0.9: 0.01, 0.99: 0.001}
 func New(reg prometheus.Registerer) *Sink {
 	s := &Sink{
 		collectionLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Namespace: "setagaya", Name: "latency_collection",
+			Namespace: "honryu", Name: "latency_execution",
 			Help: "Percentile latency of a collection", Objectives: objectives,
-		}, []string{"collection_id", "run_id"}),
+		}, []string{"execution_id", "run_id"}),
 		planLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Namespace: "setagaya", Name: "latency_plan",
+			Namespace: "honryu", Name: "latency_scenario",
 			Help: "Percentile latency of a plan", Objectives: objectives,
-		}, []string{"collection_id", "plan_id", "run_id"}),
+		}, []string{"execution_id", "scenario_id", "run_id"}),
 		labelLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Namespace: "setagaya", Name: "latency_label",
+			Namespace: "honryu", Name: "latency_label",
 			Help: "Percentile latency of a label", Objectives: objectives,
-		}, []string{"collection_id", "label", "run_id"}),
+		}, []string{"execution_id", "label", "run_id"}),
 		statusCounter: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "setagaya", Name: "status_counter",
+			Namespace: "honryu", Name: "status_counter",
 			Help: "Count of responses grouped by response code",
-		}, []string{"collection_id", "plan_id", "run_id", "engine_no", "label", "status"}),
+		}, []string{"execution_id", "scenario_id", "run_id", "engine_no", "label", "status"}),
 		threadsGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: "setagaya", Name: "threads_gauge",
+			Namespace: "honryu", Name: "threads_gauge",
 			Help: "Current number of threads running in the engine",
-		}, []string{"collection_id", "plan_id", "run_id", "engine_no"}),
+		}, []string{"execution_id", "scenario_id", "run_id", "engine_no"}),
 	}
 	reg.MustRegister(s.collectionLatency, s.planLatency, s.labelLatency, s.statusCounter, s.threadsGauge)
 	return s
@@ -67,7 +67,7 @@ func (s *Sink) Record(m engine.Metric) {
 // DeleteExecution drops every series carrying the collection's id label.
 func (s *Sink) DeleteExecution(executionID int64) {
 	id := strconv.FormatInt(executionID, 10)
-	match := prometheus.Labels{"collection_id": id}
+	match := prometheus.Labels{"execution_id": id}
 	s.collectionLatency.DeletePartialMatch(match)
 	s.planLatency.DeletePartialMatch(match)
 	s.labelLatency.DeletePartialMatch(match)

@@ -35,13 +35,13 @@ func TestPhase1_FullFlowEndToEnd(t *testing.T) {
 		Plans:         scenarioapp.NewService(repo, store),
 		Collections:   executionapp.NewService(repo, store, 500),
 		Store:         store,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 	client := srv.Client()
 
-	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
+	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 
 	// Upload a JMX file, then download it back through the file endpoint.

@@ -26,8 +26,8 @@ func StartMySQLDSN(t *testing.T) string {
 	ctx := context.Background()
 
 	ctr, err := tcmysql.Run(ctx, "mysql:8.4",
-		tcmysql.WithDatabase("setagaya"),
-		tcmysql.WithUsername("setagaya"),
+		tcmysql.WithDatabase("honryu"),
+		tcmysql.WithUsername("honryu"),
 		tcmysql.WithPassword("secret"),
 	)
 	if err != nil {

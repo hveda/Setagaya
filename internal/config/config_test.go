@@ -61,11 +61,11 @@ func TestLoad_AuthOverrides(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := Load(envMap(map[string]string{
-		"SETAGAYA_AUTH_MODE":     "oidc",
-		"SETAGAYA_ENABLE_RBAC":   "true",
-		"SETAGAYA_OIDC_ISSUER":   "https://issuer.example",
-		"SETAGAYA_OIDC_AUDIENCE": "setagaya",
-		"SETAGAYA_OIDC_JWKS_URL": "https://issuer.example/jwks",
+		"HONRYU_AUTH_MODE":     "oidc",
+		"HONRYU_ENABLE_RBAC":   "true",
+		"HONRYU_OIDC_ISSUER":   "https://issuer.example",
+		"HONRYU_OIDC_AUDIENCE": "honryu",
+		"HONRYU_OIDC_JWKS_URL": "https://issuer.example/jwks",
 	}))
 	if err != nil {
 		t.Fatalf("Load auth overrides: %v", err)
@@ -73,7 +73,7 @@ func TestLoad_AuthOverrides(t *testing.T) {
 	if cfg.Auth.Mode != "oidc" || !cfg.Auth.EnableRBAC {
 		t.Fatalf("Auth = %+v, want oidc + rbac enabled", cfg.Auth)
 	}
-	if cfg.Auth.OIDC.Issuer != "https://issuer.example" || cfg.Auth.OIDC.Audience != "setagaya" ||
+	if cfg.Auth.OIDC.Issuer != "https://issuer.example" || cfg.Auth.OIDC.Audience != "honryu" ||
 		cfg.Auth.OIDC.JWKSURL != "https://issuer.example/jwks" {
 		t.Fatalf("OIDC = %+v", cfg.Auth.OIDC)
 	}
@@ -83,12 +83,12 @@ func TestLoad_StorageAndExecutorOverrides(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := Load(envMap(map[string]string{
-		"SETAGAYA_EXECUTOR":         "k6",
-		"SETAGAYA_STORAGE_DRIVER":   "nexus",
-		"SETAGAYA_STORAGE_BASE_URL": "https://nexus.example",
-		"SETAGAYA_NEXUS_REPO":       "setagaya-raw",
-		"SETAGAYA_NEXUS_USERNAME":   "admin",
-		"SETAGAYA_NEXUS_PASSWORD":   "s3cret",
+		"HONRYU_EXECUTOR":         "k6",
+		"HONRYU_STORAGE_DRIVER":   "nexus",
+		"HONRYU_STORAGE_BASE_URL": "https://nexus.example",
+		"HONRYU_NEXUS_REPO":       "honryu-raw",
+		"HONRYU_NEXUS_USERNAME":   "admin",
+		"HONRYU_NEXUS_PASSWORD":   "s3cret",
 	}))
 	if err != nil {
 		t.Fatalf("Load storage/executor overrides: %v", err)
@@ -96,7 +96,7 @@ func TestLoad_StorageAndExecutorOverrides(t *testing.T) {
 	if cfg.Cluster.Executor != "k6" {
 		t.Fatalf("Executor = %q, want k6", cfg.Cluster.Executor)
 	}
-	if cfg.Storage.Driver != "nexus" || cfg.Storage.Repo != "setagaya-raw" ||
+	if cfg.Storage.Driver != "nexus" || cfg.Storage.Repo != "honryu-raw" ||
 		cfg.Storage.Username != "admin" || cfg.Storage.Password != "s3cret" {
 		t.Fatalf("Storage = %+v", cfg.Storage)
 	}
@@ -106,22 +106,22 @@ func TestLoad_Overrides(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := Load(envMap(map[string]string{
-		"SETAGAYA_HTTP_PORT":          "9090",
-		"SETAGAYA_HTTP_READ_TIMEOUT":  "5s",
-		"SETAGAYA_HTTP_WRITE_TIMEOUT": "7s",
-		"SETAGAYA_HTTP_IDLE_TIMEOUT":  "2m",
-		"SETAGAYA_DB_DRIVER":          "mysql",
-		"SETAGAYA_DB_DSN":             "user:pw@tcp(db:3306)/setagaya",
-		"SETAGAYA_LOG_LEVEL":          "debug",
-		"SETAGAYA_LOG_FORMAT":         "text",
-		"SETAGAYA_STORAGE_ROOT":       "/data/setagaya",
-		"SETAGAYA_STORAGE_BASE_URL":   "https://cdn.example.com",
-		"SETAGAYA_MAX_ENGINES":        "42",
+		"HONRYU_HTTP_PORT":          "9090",
+		"HONRYU_HTTP_READ_TIMEOUT":  "5s",
+		"HONRYU_HTTP_WRITE_TIMEOUT": "7s",
+		"HONRYU_HTTP_IDLE_TIMEOUT":  "2m",
+		"HONRYU_DB_DRIVER":          "mysql",
+		"HONRYU_DB_DSN":             "user:pw@tcp(db:3306)/honryu",
+		"HONRYU_LOG_LEVEL":          "debug",
+		"HONRYU_LOG_FORMAT":         "text",
+		"HONRYU_STORAGE_ROOT":       "/data/honryu",
+		"HONRYU_STORAGE_BASE_URL":   "https://cdn.example.com",
+		"HONRYU_MAX_ENGINES":        "42",
 	}))
 	if err != nil {
 		t.Fatalf("Load with overrides: unexpected error: %v", err)
 	}
-	if cfg.Storage.Root != "/data/setagaya" || cfg.Storage.BaseURL != "https://cdn.example.com" {
+	if cfg.Storage.Root != "/data/honryu" || cfg.Storage.BaseURL != "https://cdn.example.com" {
 		t.Errorf("Storage = %+v, want overridden root/baseURL", cfg.Storage)
 	}
 	if cfg.Limits.MaxEnginesInExecution != 42 {
@@ -140,7 +140,7 @@ func TestLoad_Overrides(t *testing.T) {
 	if cfg.DB.Driver != "mysql" {
 		t.Errorf("DB.Driver = %q, want mysql", cfg.DB.Driver)
 	}
-	if cfg.DB.DSN != "user:pw@tcp(db:3306)/setagaya" {
+	if cfg.DB.DSN != "user:pw@tcp(db:3306)/honryu" {
 		t.Errorf("DB.DSN = %q, want the mysql DSN", cfg.DB.DSN)
 	}
 	if cfg.Log.Level != "debug" {
@@ -155,31 +155,31 @@ func TestLoad_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]map[string]string{
-		"port not a number":   {"SETAGAYA_HTTP_PORT": "abc"},
-		"port out of range":   {"SETAGAYA_HTTP_PORT": "70000"},
-		"port zero":           {"SETAGAYA_HTTP_PORT": "0"},
-		"bad read timeout":    {"SETAGAYA_HTTP_READ_TIMEOUT": "soon"},
-		"bad write timeout":   {"SETAGAYA_HTTP_WRITE_TIMEOUT": "later"},
-		"bad idle timeout":    {"SETAGAYA_HTTP_IDLE_TIMEOUT": "never"},
-		"unknown log level":   {"SETAGAYA_LOG_LEVEL": "verbose"},
-		"unknown log format":  {"SETAGAYA_LOG_FORMAT": "yaml"},
-		"unknown db driver":   {"SETAGAYA_DB_DRIVER": "postgres"},
-		"mysql without dsn":   {"SETAGAYA_DB_DRIVER": "mysql"},
-		"bad max engines":     {"SETAGAYA_MAX_ENGINES": "-3"},
-		"non-numeric engines": {"SETAGAYA_MAX_ENGINES": "lots"},
-		"unknown scheduler":   {"SETAGAYA_SCHEDULER": "nomad"},
-		"unknown executor":    {"SETAGAYA_EXECUTOR": "locust"},
-		"bad engine port":     {"SETAGAYA_ENGINE_PORT": "99999"},
-		"non-numeric port":    {"SETAGAYA_ENGINE_PORT": "eighty"},
-		"bad purge interval":  {"SETAGAYA_AUTOPURGE_INTERVAL": "soon"},
-		"bad purge idle":      {"SETAGAYA_AUTOPURGE_IDLE": "forever"},
-		"unknown auth mode":   {"SETAGAYA_AUTH_MODE": "ldap"},
-		"bad enable rbac":     {"SETAGAYA_ENABLE_RBAC": "maybe"},
-		"oidc without issuer": {"SETAGAYA_AUTH_MODE": "oidc", "SETAGAYA_OIDC_JWKS_URL": "https://x/jwks"},
-		"oidc without jwks":   {"SETAGAYA_AUTH_MODE": "oidc", "SETAGAYA_OIDC_ISSUER": "https://x"},
-		"unknown storage":     {"SETAGAYA_STORAGE_DRIVER": "s3"},
-		"nexus without url":   {"SETAGAYA_STORAGE_DRIVER": "nexus", "SETAGAYA_NEXUS_REPO": "raw"},
-		"nexus without repo":  {"SETAGAYA_STORAGE_DRIVER": "nexus", "SETAGAYA_STORAGE_BASE_URL": "https://x"},
+		"port not a number":   {"HONRYU_HTTP_PORT": "abc"},
+		"port out of range":   {"HONRYU_HTTP_PORT": "70000"},
+		"port zero":           {"HONRYU_HTTP_PORT": "0"},
+		"bad read timeout":    {"HONRYU_HTTP_READ_TIMEOUT": "soon"},
+		"bad write timeout":   {"HONRYU_HTTP_WRITE_TIMEOUT": "later"},
+		"bad idle timeout":    {"HONRYU_HTTP_IDLE_TIMEOUT": "never"},
+		"unknown log level":   {"HONRYU_LOG_LEVEL": "verbose"},
+		"unknown log format":  {"HONRYU_LOG_FORMAT": "yaml"},
+		"unknown db driver":   {"HONRYU_DB_DRIVER": "postgres"},
+		"mysql without dsn":   {"HONRYU_DB_DRIVER": "mysql"},
+		"bad max engines":     {"HONRYU_MAX_ENGINES": "-3"},
+		"non-numeric engines": {"HONRYU_MAX_ENGINES": "lots"},
+		"unknown scheduler":   {"HONRYU_SCHEDULER": "nomad"},
+		"unknown executor":    {"HONRYU_EXECUTOR": "locust"},
+		"bad engine port":     {"HONRYU_ENGINE_PORT": "99999"},
+		"non-numeric port":    {"HONRYU_ENGINE_PORT": "eighty"},
+		"bad purge interval":  {"HONRYU_AUTOPURGE_INTERVAL": "soon"},
+		"bad purge idle":      {"HONRYU_AUTOPURGE_IDLE": "forever"},
+		"unknown auth mode":   {"HONRYU_AUTH_MODE": "ldap"},
+		"bad enable rbac":     {"HONRYU_ENABLE_RBAC": "maybe"},
+		"oidc without issuer": {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_JWKS_URL": "https://x/jwks"},
+		"oidc without jwks":   {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_ISSUER": "https://x"},
+		"unknown storage":     {"HONRYU_STORAGE_DRIVER": "s3"},
+		"nexus without url":   {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_NEXUS_REPO": "raw"},
+		"nexus without repo":  {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_STORAGE_BASE_URL": "https://x"},
 	}
 
 	for name, env := range cases {
@@ -207,7 +207,7 @@ func TestLoad_NilGetenvUsesDefaults(t *testing.T) {
 func TestConfig_HTTPAddr(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := Load(envMap(map[string]string{"SETAGAYA_HTTP_PORT": "1234"}))
+	cfg, err := Load(envMap(map[string]string{"HONRYU_HTTP_PORT": "1234"}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

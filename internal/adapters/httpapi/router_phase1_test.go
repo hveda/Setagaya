@@ -28,7 +28,7 @@ func newFullRouter(t *testing.T) http.Handler {
 		Plans:         scenarioapp.NewService(store, obj),
 		Collections:   executionapp.NewService(store, obj, 100),
 		Store:         obj,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 }
 
@@ -77,7 +77,7 @@ func TestProjectPlanCollectionFlow(t *testing.T) {
 	h := newFullRouter(t)
 
 	// Create a project.
-	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
+	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create project = %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -180,7 +180,7 @@ func TestCreateProject_ForbiddenOwner(t *testing.T) {
 func TestCreatePlan_InvalidName_400(t *testing.T) {
 	t.Parallel()
 	h := newFullRouter(t)
-	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
+	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	projectID := decodeID(t, rec)
 
 	rec = postForm(t, h, "/api/scenarios", url.Values{"name": {""}, "project_id": {itoa(projectID)}})
@@ -198,10 +198,10 @@ func TestConfigUpload_EngineLimit_400(t *testing.T) {
 		Plans:         scenarioapp.NewService(store, obj),
 		Collections:   executionapp.NewService(store, obj, 1), // limit of 1 engine
 		Store:         obj,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 
-	pr := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
+	pr := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	projectID := decodeID(t, pr)
 	pl := postForm(t, h, "/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 	scenarioID := decodeID(t, pl)

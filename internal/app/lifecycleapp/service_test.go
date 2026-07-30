@@ -15,7 +15,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
 
-const image = "setagaya/jmeter:latest"
+const image = "honryu/jmeter:latest"
 
 type env struct {
 	store *fake.Store
@@ -36,7 +36,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	ctx := context.Background()
 	store := fake.NewStore()
 
-	p, _ := project.New("web", "setagaya", "")
+	p, _ := project.New("web", "honryu", "")
 	projectID, _ := store.CreateProject(ctx, p)
 	coll, _ := execution.New("peak", projectID)
 	coll.CSVSplit = csvSplit
@@ -445,8 +445,8 @@ func TestUsageHooks_FireOnTriggerAndTeardown(t *testing.T) {
 	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
 		t.Fatalf("Trigger: %v", err)
 	}
-	if usage.started != 1 || usage.lastOwner != "setagaya" || usage.lastVU != 20 {
-		t.Fatalf("usage start = %+v, want started=1 owner=setagaya vu=20", usage)
+	if usage.started != 1 || usage.lastOwner != "honryu" || usage.lastVU != 20 {
+		t.Fatalf("usage start = %+v, want started=1 owner=honryu vu=20", usage)
 	}
 	if err := e.svc.Stop(ctx, e.executionID); err != nil {
 		t.Fatalf("Stop: %v", err)

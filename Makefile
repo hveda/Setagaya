@@ -1,4 +1,4 @@
-# Setagaya — developer Makefile
+# 奔流 (Honryu) — developer Makefile
 # Fast unit tests need no infra. Integration tests use Docker (testcontainers) and
 # are gated behind the `integration` build tag.
 

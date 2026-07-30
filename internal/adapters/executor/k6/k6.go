@@ -1,6 +1,6 @@
 // Package k6 implements ports.Executor for the k6 load-testing tool, proving
 // the Executor seam holds for a second engine with a different metric wire
-// format. It speaks the same Setagaya agent HTTP protocol as the JMeter adapter
+// format. It speaks the same Honryu agent HTTP protocol as the JMeter adapter
 // (POST /start with the JSON engine.Config, POST /stop, GET /progress returning
 // 200 running / 404 idle) but parses the SSE /stream as line-delimited k6 JSON
 // metric samples rather than JMeter JTL rows. The agent URL is injected, so the

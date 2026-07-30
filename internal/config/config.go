@@ -1,4 +1,4 @@
-// Package config loads and validates Setagaya v3 runtime configuration.
+// Package config loads and validates Honryu runtime configuration.
 //
 // Configuration is read from environment variables through an injected getenv
 // function so it is fully testable without mutating the process environment,
@@ -109,7 +109,7 @@ type LogConfig struct {
 	Format string // json|text
 }
 
-const envPrefix = "SETAGAYA_"
+const envPrefix = "HONRYU_"
 
 // Load resolves configuration from the given getenv function, applying
 // defaults for anything unset, then validates the result.
@@ -128,7 +128,7 @@ func Load(getenv func(string) string) (Config, error) {
 			Scheduler:     "fake",
 			Executor:      "fake",
 			Namespace:     "default",
-			EngineImage:   "setagaya/jmeter:latest",
+			EngineImage:   "honryu/jmeter:latest",
 			EnginePort:    8080,
 			Context:       "default",
 			AutoPurgeIdle: time.Hour,

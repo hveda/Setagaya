@@ -41,15 +41,14 @@ type Metric struct {
 	Label       string  `json:"label"`
 	Status      string  `json:"status"`
 	Raw         string  `json:"raw"`
-	ExecutionID string  `json:"collection_id"`
-	ScenarioID  string  `json:"plan_id"`
+	ExecutionID string  `json:"execution_id"`
+	ScenarioID  string  `json:"scenario_id"`
 	EngineID    string  `json:"engine_id"`
 	RunID       string  `json:"run_id"`
 }
 
 // Name builds the canonical name for a scheduler object of the given kind
-// (e.g. "engine", "ingress"). It matches the v2 convention so v3 and v2 can
-// address the same pods during a parallel run.
+// (e.g. "engine", "ingress").
 func Name(kind string, projectID, executionID, scenarioID int64, engineID int) string {
 	return fmt.Sprintf("%s-%d-%d-%d-%d", kind, projectID, executionID, scenarioID, engineID)
 }
@@ -59,8 +58,8 @@ func EngineName(projectID, executionID, scenarioID int64, engineID int) string {
 	return Name("engine", projectID, executionID, scenarioID, engineID)
 }
 
-// PlanName is the name shared by every engine of a plan (the deployment name).
-func PlanName(projectID, executionID, scenarioID int64) string {
+// ScenarioName is the name shared by every engine of a plan (the deployment name).
+func ScenarioName(projectID, executionID, scenarioID int64) string {
 	return fmt.Sprintf("engine-%d-%d-%d", projectID, executionID, scenarioID)
 }
 
@@ -77,22 +76,22 @@ func IngressClass(projectID int64) string {
 // BaseLabels are the selector labels shared by everything in a collection.
 func BaseLabels(projectID, executionID int64) map[string]string {
 	return map[string]string{
-		"collection": strconv.FormatInt(executionID, 10),
-		"project":    strconv.FormatInt(projectID, 10),
+		"execution": strconv.FormatInt(executionID, 10),
+		"project":   strconv.FormatInt(projectID, 10),
 	}
 }
 
-// PlanLabels label a plan's deployment (all engines of a plan).
-func PlanLabels(projectID, executionID, scenarioID int64) map[string]string {
+// ScenarioLabels label a plan's deployment (all engines of a plan).
+func ScenarioLabels(projectID, executionID, scenarioID int64) map[string]string {
 	base := BaseLabels(projectID, executionID)
-	base["plan"] = strconv.FormatInt(scenarioID, 10)
+	base["scenario"] = strconv.FormatInt(scenarioID, 10)
 	base["kind"] = "executor"
 	return base
 }
 
 // EngineLabels label a single engine, keyed by its object name.
 func EngineLabels(projectID, executionID, scenarioID int64, engineName string) map[string]string {
-	base := PlanLabels(projectID, executionID, scenarioID)
+	base := ScenarioLabels(projectID, executionID, scenarioID)
 	base["app"] = engineName
 	return base
 }

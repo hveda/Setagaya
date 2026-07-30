@@ -16,7 +16,7 @@ func usageRouter(t *testing.T) (http.Handler, *fake.Store) {
 	store := fake.NewStore()
 	h := httpapi.NewRouter(httpapi.Deps{
 		Usage:         usageapp.NewService(store),
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	return h, store
 }

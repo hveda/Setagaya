@@ -39,15 +39,15 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 		Projects:      projectapp.NewService(repo),
 		Plans:         scenarioapp.NewService(repo, store),
 		Collections:   executionapp.NewService(repo, store, 500),
-		Lifecycle:     lifecycleapp.NewService(repo, sched, exec, store, "setagaya/jmeter:latest"),
+		Lifecycle:     lifecycleapp.NewService(repo, sched, exec, store, "honryu/jmeter:latest"),
 		Store:         store,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 	client := srv.Client()
 
-	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
+	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
 	collID := postForm(t, client, srv.URL+"/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})

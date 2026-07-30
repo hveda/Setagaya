@@ -24,7 +24,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
-      "datasource": "setagaya_prom",
+      "datasource": "honryu_prom",
       "fill": 1,
       "gridPos": {
         "h": 21,
@@ -58,11 +58,11 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "setagaya_cpu_gauge{collection_id=\"$collectionID\"} /1000",
+          "expr": "honryu_cpu_gauge{execution_id=\"$executionID\"} /1000",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 1,
-          "legendFormat": "plan-{{plan_id}} egine-{{engine_no}}",
+          "legendFormat": "plan-{{scenario_id}} egine-{{engine_no}}",
           "refId": "A"
         }
       ],
@@ -113,7 +113,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
-      "datasource": "setagaya_prom",
+      "datasource": "honryu_prom",
       "fill": 1,
       "gridPos": {
         "h": 21,
@@ -147,10 +147,10 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "setagaya_mem_gauge{collection_id=\"$collectionID\"}",
+          "expr": "honryu_mem_gauge{execution_id=\"$executionID\"}",
           "format": "time_series",
           "intervalFactor": 1,
-          "legendFormat": "plan-{{plan_id}} engine-{{engine_no}}",
+          "legendFormat": "plan-{{scenario_id}} engine-{{engine_no}}",
           "refId": "A"
         }
       ],
@@ -209,14 +209,14 @@
           "text": "844",
           "value": "844"
         },
-        "datasource": "setagaya_prom",
+        "datasource": "honryu_prom",
         "hide": 0,
         "includeAll": false,
         "label": "Collection ID",
         "multi": false,
-        "name": "collectionID",
+        "name": "executionID",
         "options": [],
-        "query": "label_values(collection_id)",
+        "query": "label_values(execution_id)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -238,7 +238,7 @@
     "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
   },
   "timezone": "",
-  "title": "Setagaya Engine Health",
+  "title": "Honryu Engine Health",
   "uid": "9EH6xqTZz",
   "version": 12
 }

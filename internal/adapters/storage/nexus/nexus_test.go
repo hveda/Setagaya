@@ -15,7 +15,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports/objectstoretest"
 )
 
-const testRepo = "setagaya-raw"
+const testRepo = "honryu-raw"
 
 // fakeNexus is an in-memory stand-in for a Nexus raw repository.
 type fakeNexus struct {
@@ -115,7 +115,7 @@ func TestNexus_SendsBasicAuth(t *testing.T) {
 func TestNexus_URL(t *testing.T) {
 	t.Parallel()
 	store := nexusadapter.New("https://nexus.example.com/", testRepo)
-	want := "https://nexus.example.com/repository/setagaya-raw/plan/7/test.jmx"
+	want := "https://nexus.example.com/repository/honryu-raw/plan/7/test.jmx"
 	if got := store.URL("plan/7/test.jmx"); got != want {
 		t.Fatalf("URL = %q, want %q", got, want)
 	}

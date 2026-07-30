@@ -2,7 +2,7 @@
 *.exe
 /bin/
 /dist/
-setagaya-api
+honryu-api
 
 # Test & coverage artifacts
 cover.out

@@ -2,7 +2,7 @@ apiVersion: v1
 data:
   all.yml: |
     datasources:
-    - name: 'setagaya_prom'
+    - name: 'honryu_prom'
       type: 'prometheus'
       access: 'proxy'
       org_id: 1

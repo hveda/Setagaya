@@ -17,7 +17,7 @@ import (
 func TestStreamCollection_DeliversSSE(t *testing.T) {
 	t.Parallel()
 	bus := membus.New()
-	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"setagaya"}})
+	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"honryu"}})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -57,7 +57,7 @@ func TestStreamCollection_DeliversSSE(t *testing.T) {
 func TestStreamCollection_InvalidID(t *testing.T) {
 	t.Parallel()
 	bus := membus.New()
-	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"setagaya"}})
+	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"honryu"}})
 	rec := do(t, router, http.MethodGet, "/api/executions/x/stream")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid id = %d, want 400", rec.Code)

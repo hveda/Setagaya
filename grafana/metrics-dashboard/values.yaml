@@ -4,7 +4,7 @@
 
 replicaCount: 1
 
-namespace: "setagaya-executors"
+namespace: "honryu-executors"
 datasource: "http://prometheus:9090"
 
 image:
@@ -15,7 +15,7 @@ image:
 
 imagePullSecrets: []
 nameOverride: ""
-fullnameOverride: "setagaya-metrics-dashboard"
+fullnameOverride: "honryu-metrics-dashboard"
 
 
 
@@ -115,7 +115,7 @@ autoscaling:
 volumes:
 - name: datasource
   configMap:
-    name: setagaya-metrics-dashboard
+    name: honryu-metrics-dashboard
 
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts:

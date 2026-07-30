@@ -26,7 +26,7 @@ func routerWithStore(t *testing.T) (http.Handler, *fake.Store, *fake.ObjectStore
 		Plans:         scenarioapp.NewService(store, obj),
 		Collections:   executionapp.NewService(store, obj, 100),
 		Store:         obj,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	return router, store, obj
 }
@@ -45,7 +45,7 @@ func TestFileEndpointsHappyPath(t *testing.T) {
 	t.Parallel()
 	h := newFullRouter(t)
 
-	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}}))
+	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}}))
 	scenarioID := decodeID(t, postForm(t, h, "/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}}))
 	collID := decodeID(t, postForm(t, h, "/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}}))
 
@@ -177,7 +177,7 @@ func TestHandlers_BadFormBodies(t *testing.T) {
 	}
 
 	// Invalid YAML config upload → 400.
-	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}}))
+	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}}))
 	collID := decodeID(t, postForm(t, h, "/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}}))
 	if rec := putMultipart(t, h, "/api/executions/"+itoa(collID)+"/config", "c.yaml", "a: b: c"); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid yaml = %d, want 400", rec.Code)
