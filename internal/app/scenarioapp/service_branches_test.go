@@ -24,7 +24,7 @@ func TestDeleteFile_InvalidFilename(t *testing.T) {
 	}
 }
 
-func TestDelete_MissingPlan(t *testing.T) {
+func TestDelete_MissingScenario(t *testing.T) {
 	t.Parallel()
 	svc, _, _ := newScenarioService(t)
 	if err := svc.Delete(context.Background(), 999); err == nil {

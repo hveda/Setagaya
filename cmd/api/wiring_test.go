@@ -95,7 +95,7 @@ func TestNewObjectStore(t *testing.T) {
 	if err != nil || s == nil {
 		t.Fatalf("newObjectStore(nexus) = %v, %v", s, err)
 	}
-	if got := s.URL("plan/1/a.jmx"); got != "https://nexus.example/repository/raw/plan/1/a.jmx" {
+	if got := s.URL("scenario/1/a.jmx"); got != "https://nexus.example/repository/raw/scenario/1/a.jmx" {
 		t.Fatalf("nexus URL = %q", got)
 	}
 	if _, err := newObjectStore(config.StorageConfig{Driver: "s3"}); err == nil {

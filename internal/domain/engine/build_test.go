@@ -9,14 +9,14 @@ import (
 func TestBuildConfigs_BasicFieldsPerEngine(t *testing.T) {
 	t.Parallel()
 
-	got := engine.BuildConfigs(engine.PlanInput{
+	got := engine.BuildConfigs(engine.ScenarioInput{
 		ScenarioIndex: 0,
 		ScenarioCount: 1,
 		Engines:       3,
 		Concurrency:   10,
 		Rampup:        5,
 		Duration:      60,
-		TestFile:      engine.File{Filename: "plan.jmx"},
+		TestFile:      engine.File{Filename: "scenario.jmx"},
 		RunID:         42,
 	})
 	if len(got) != 3 {
@@ -32,7 +32,7 @@ func TestBuildConfigs_BasicFieldsPerEngine(t *testing.T) {
 		if c.Concurrency != "10" || c.Rampup != "5" || c.Duration != "60" {
 			t.Errorf("engine %d: c/r/d = %s/%s/%s", i, c.Concurrency, c.Rampup, c.Duration)
 		}
-		f, ok := c.Data["plan.jmx"]
+		f, ok := c.Data["scenario.jmx"]
 		if !ok {
 			t.Fatalf("engine %d: test file missing", i)
 		}
@@ -45,7 +45,7 @@ func TestBuildConfigs_BasicFieldsPerEngine(t *testing.T) {
 func TestBuildConfigs_NoSplit(t *testing.T) {
 	t.Parallel()
 
-	got := engine.BuildConfigs(engine.PlanInput{
+	got := engine.BuildConfigs(engine.ScenarioInput{
 		ScenarioIndex: 0,
 		ScenarioCount: 2,
 		ExecutionData: []engine.File{{Filename: "users.csv"}},
@@ -60,12 +60,12 @@ func TestBuildConfigs_NoSplit(t *testing.T) {
 	}
 }
 
-func TestBuildConfigs_CollectionSplitOnly(t *testing.T) {
+func TestBuildConfigs_ExecutionSplitOnly(t *testing.T) {
 	t.Parallel()
 
-	// Plan index 1 of 3, collection split on, plan split off: every engine sees
-	// the same collection-level slice (3 splits, current 1).
-	got := engine.BuildConfigs(engine.PlanInput{
+	// Scenario index 1 of 3, execution split on, scenario split off: every engine sees
+	// the same execution-level slice (3 splits, current 1).
+	got := engine.BuildConfigs(engine.ScenarioInput{
 		ScenarioIndex:     1,
 		ScenarioCount:     3,
 		ExecutionCSVSplit: true,
@@ -81,12 +81,12 @@ func TestBuildConfigs_CollectionSplitOnly(t *testing.T) {
 	}
 }
 
-func TestBuildConfigs_PlanSplitOnly(t *testing.T) {
+func TestBuildConfigs_ScenarioSplitOnly(t *testing.T) {
 	t.Parallel()
 
-	// Collection split off, plan split on: collection data is compounded from
-	// 1 split into Engines splits, and plan data is split across engines.
-	got := engine.BuildConfigs(engine.PlanInput{
+	// Execution split off, scenario split on: execution data is compounded from
+	// 1 split into Engines splits, and scenario data is split across engines.
+	got := engine.BuildConfigs(engine.ScenarioInput{
 		ScenarioIndex: 0,
 		ScenarioCount: 1,
 		ExecutionData: []engine.File{{Filename: "users.csv"}},
@@ -110,9 +110,9 @@ func TestBuildConfigs_PlanSplitOnly(t *testing.T) {
 func TestBuildConfigs_BothSplitsCompound(t *testing.T) {
 	t.Parallel()
 
-	// Collection split (plan 1 of 2) compounded with plan split across 3
+	// Execution split (scenario 1 of 2) compounded with scenario split across 3
 	// engines: TotalSplits = 2*3 = 6, CurrentSplit = 1*3 + i.
-	got := engine.BuildConfigs(engine.PlanInput{
+	got := engine.BuildConfigs(engine.ScenarioInput{
 		ScenarioIndex:     1,
 		ScenarioCount:     2,
 		ExecutionCSVSplit: true,
@@ -130,28 +130,28 @@ func TestBuildConfigs_BothSplitsCompound(t *testing.T) {
 	}
 }
 
-func TestBuildConfigs_PlanDataOverridesCollection(t *testing.T) {
+func TestBuildConfigs_ScenarioDataOverridesExecution(t *testing.T) {
 	t.Parallel()
 
-	// A plan data file with the same name as collection data wins, and carries
-	// the plan-level (not compounded) split.
-	got := engine.BuildConfigs(engine.PlanInput{
+	// A scenario data file with the same name as execution data wins, and carries
+	// the scenario-level (not compounded) split.
+	got := engine.BuildConfigs(engine.ScenarioInput{
 		ScenarioIndex:     0,
 		ScenarioCount:     2,
 		ExecutionCSVSplit: true,
-		ExecutionData:     []engine.File{{Filename: "shared.csv", Filepath: "collection/shared.csv"}},
+		ExecutionData:     []engine.File{{Filename: "shared.csv", Filepath: "execution/shared.csv"}},
 		Engines:           2,
 		CSVSplit:          true,
 		TestFile:          engine.File{Filename: "p.jmx"},
-		ScenarioData:      []engine.File{{Filename: "shared.csv", Filepath: "plan/shared.csv"}},
+		ScenarioData:      []engine.File{{Filename: "shared.csv", Filepath: "scenario/shared.csv"}},
 	})
 	for i, c := range got {
 		f := c.Data["shared.csv"]
-		if f.Filepath != "plan/shared.csv" {
-			t.Errorf("engine %d: filepath = %q, want plan override", i, f.Filepath)
+		if f.Filepath != "scenario/shared.csv" {
+			t.Errorf("engine %d: filepath = %q, want scenario override", i, f.Filepath)
 		}
 		if f.TotalSplits != 2 || f.CurrentSplit != i {
-			t.Errorf("engine %d: split = %d/%d, want 2/%d (plan-level)", i, f.TotalSplits, f.CurrentSplit, i)
+			t.Errorf("engine %d: split = %d/%d, want 2/%d (scenario-level)", i, f.TotalSplits, f.CurrentSplit, i)
 		}
 	}
 }
@@ -159,7 +159,7 @@ func TestBuildConfigs_PlanDataOverridesCollection(t *testing.T) {
 func TestBuildConfigs_ZeroEngines(t *testing.T) {
 	t.Parallel()
 
-	got := engine.BuildConfigs(engine.PlanInput{ScenarioCount: 1, Engines: 0, TestFile: engine.File{Filename: "p.jmx"}})
+	got := engine.BuildConfigs(engine.ScenarioInput{ScenarioCount: 1, Engines: 0, TestFile: engine.File{Filename: "p.jmx"}})
 	if len(got) != 0 {
 		t.Fatalf("len = %d, want 0", len(got))
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
-type collectionResponse struct {
+type executionResponse struct {
 	ID          int64                  `json:"id"`
 	Name        string                 `json:"name"`
 	ProjectID   int64                  `json:"project_id"`
@@ -26,7 +26,7 @@ type collectionResponse struct {
 func (h *handlers) getExecution(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	c, err := h.deps.Executions.Get(r.Context(), id)
@@ -44,7 +44,7 @@ func (h *handlers) getExecution(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, collectionResponse{
+	writeJSON(w, http.StatusOK, executionResponse{
 		ID:          c.ID,
 		Name:        c.Name,
 		ProjectID:   c.ProjectID,
@@ -80,7 +80,7 @@ func (h *handlers) createExecution(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) deleteExecution(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	if err := h.authorizeExecution(r, id); err != nil {
@@ -91,13 +91,13 @@ func (h *handlers) deleteExecution(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "collection deleted"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "execution deleted"})
 }
 
 func (h *handlers) listExecutionFiles(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	files, err := h.deps.Executions.Files(r.Context(), id)
@@ -111,7 +111,7 @@ func (h *handlers) listExecutionFiles(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) uploadExecutionFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	if err := h.authorizeExecution(r, id); err != nil {
@@ -134,7 +134,7 @@ func (h *handlers) uploadExecutionFile(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) deleteExecutionFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	if err := h.authorizeExecution(r, id); err != nil {
@@ -151,7 +151,7 @@ func (h *handlers) deleteExecutionFile(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) uploadExecutionConfig(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	if err := h.authorizeExecution(r, id); err != nil {
@@ -184,7 +184,7 @@ func (h *handlers) uploadExecutionConfig(w http.ResponseWriter, r *http.Request)
 func (h *handlers) getExecutionConfig(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	cfg, err := h.deps.Executions.GetConfig(r.Context(), id)
@@ -195,7 +195,7 @@ func (h *handlers) getExecutionConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cfg)
 }
 
-// authorizeExecution loads a collection and verifies the caller owns its
+// authorizeExecution loads a execution and verifies the caller owns its
 // project.
 func (h *handlers) authorizeExecution(r *http.Request, executionID int64) error {
 	c, err := h.deps.Executions.Get(r.Context(), executionID)
@@ -205,8 +205,8 @@ func (h *handlers) authorizeExecution(r *http.Request, executionID int64) error 
 	return h.authorizeProject(r.Context(), c.ProjectID)
 }
 
-func toExecutionResponse(c execution.Execution) collectionResponse {
-	return collectionResponse{
+func toExecutionResponse(c execution.Execution) executionResponse {
+	return executionResponse{
 		ID:          c.ID,
 		Name:        c.Name,
 		ProjectID:   c.ProjectID,

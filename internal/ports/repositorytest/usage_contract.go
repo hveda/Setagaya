@@ -43,7 +43,7 @@ func RunUsageRepositoryContract(t *testing.T, newRepo NewUsageRepo) {
 			t.Fatalf("history row = %+v", got)
 		}
 
-		// A collection may be launched again once finished, and finishing with
+		// An execution may be launched again once finished, and finishing with
 		// nothing open is a no-op.
 		if err := repo.StartLaunch(ctx, 1, "alice", 4, 40); err != nil {
 			t.Fatalf("re-StartLaunch: %v", err)

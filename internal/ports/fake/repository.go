@@ -1,7 +1,7 @@
 // Package fake provides in-memory implementations of the repository ports for
 // fast, hermetic unit tests of the application layer. A single Store backs all
-// aggregates so cross-aggregate rules (e.g. "is this plan used by a
-// collection") behave like the real shared database. Behaviour is pinned by the
+// aggregates so cross-aggregate rules (e.g. "is this scenario used by a
+// execution") behave like the real shared database. Behaviour is pinned by the
 // conformance suites in internal/ports/repositorytest.
 package fake
 
@@ -26,15 +26,15 @@ type Store struct {
 	projectSeq int64
 	projects   map[int64]project.Project
 
-	planSeq  int64
-	plans    map[int64]scenario.Scenario
-	planTest map[int64]string              // scenarioID -> JMX filename
-	planData map[int64]map[string]struct{} // scenarioID -> data filenames
+	planSeq   int64
+	scenarios map[int64]scenario.Scenario
+	planTest  map[int64]string              // scenarioID -> JMX filename
+	planData  map[int64]map[string]struct{} // scenarioID -> data filenames
 
-	collSeq     int64
-	collections map[int64]execution.Execution
-	collData    map[int64]map[string]struct{} // executionID -> data filenames
-	exec        map[int64][]loadprofile.Entry // executionID -> execution plans
+	collSeq    int64
+	executions map[int64]execution.Execution
+	execData   map[int64]map[string]struct{} // executionID -> data filenames
+	exec       map[int64][]loadprofile.Entry // executionID -> execution scenarios
 
 	runSeq     int64
 	currentRun map[int64]int64               // executionID -> active runID
@@ -55,11 +55,11 @@ func NewStore() *Store {
 	return &Store{
 		now:           time.Now,
 		projects:      make(map[int64]project.Project),
-		plans:         make(map[int64]scenario.Scenario),
+		scenarios:     make(map[int64]scenario.Scenario),
 		planTest:      make(map[int64]string),
 		planData:      make(map[int64]map[string]struct{}),
-		collections:   make(map[int64]execution.Execution),
-		collData:      make(map[int64]map[string]struct{}),
+		executions:    make(map[int64]execution.Execution),
+		execData:      make(map[int64]map[string]struct{}),
 		exec:          make(map[int64][]loadprofile.Entry),
 		currentRun:    make(map[int64]int64),
 		runHistory:    make(map[int64]*ports.RunRecord),
@@ -167,7 +167,7 @@ func (s *Store) DeleteProject(_ context.Context, id int64) error {
 	return nil
 }
 
-// --- Plans ------------------------------------------------------------------
+// --- Scenarios ------------------------------------------------------------------
 
 func (s *Store) CreateScenario(_ context.Context, p scenario.Scenario) (int64, error) {
 	s.mu.Lock()
@@ -177,14 +177,14 @@ func (s *Store) CreateScenario(_ context.Context, p scenario.Scenario) (int64, e
 	if p.CreatedTime.IsZero() {
 		p.CreatedTime = s.now()
 	}
-	s.plans[p.ID] = p
+	s.scenarios[p.ID] = p
 	return p.ID, nil
 }
 
 func (s *Store) GetScenario(_ context.Context, id int64) (scenario.Scenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.plans[id]
+	p, ok := s.scenarios[id]
 	if !ok {
 		return scenario.Scenario{}, ports.ErrNotFound
 	}
@@ -195,7 +195,7 @@ func (s *Store) ListScenariosByProject(_ context.Context, projectID int64) ([]sc
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []scenario.Scenario{}
-	for _, p := range s.plans {
+	for _, p := range s.scenarios {
 		if p.ProjectID == projectID {
 			out = append(out, p)
 		}
@@ -206,10 +206,10 @@ func (s *Store) ListScenariosByProject(_ context.Context, projectID int64) ([]sc
 func (s *Store) DeleteScenario(_ context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.plans[id]; !ok {
+	if _, ok := s.scenarios[id]; !ok {
 		return ports.ErrNotFound
 	}
-	delete(s.plans, id)
+	delete(s.scenarios, id)
 	delete(s.planTest, id)
 	delete(s.planData, id)
 	return nil
@@ -265,8 +265,8 @@ func (s *Store) DeleteScenarioFile(_ context.Context, scenarioID int64, filename
 func (s *Store) ScenarioInUse(_ context.Context, scenarioID int64) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, plans := range s.exec {
-		for _, ep := range plans {
+	for _, scenarios := range s.exec {
+		for _, ep := range scenarios {
 			if ep.ScenarioID == scenarioID {
 				return true, nil
 			}
@@ -275,7 +275,7 @@ func (s *Store) ScenarioInUse(_ context.Context, scenarioID int64) (bool, error)
 	return false, nil
 }
 
-// --- Collections ------------------------------------------------------------
+// --- Executions ------------------------------------------------------------
 
 func (s *Store) CreateExecution(_ context.Context, c execution.Execution) (int64, error) {
 	s.mu.Lock()
@@ -285,14 +285,14 @@ func (s *Store) CreateExecution(_ context.Context, c execution.Execution) (int64
 	if c.CreatedTime.IsZero() {
 		c.CreatedTime = s.now()
 	}
-	s.collections[c.ID] = c
+	s.executions[c.ID] = c
 	return c.ID, nil
 }
 
 func (s *Store) GetExecution(_ context.Context, id int64) (execution.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	c, ok := s.collections[id]
+	c, ok := s.executions[id]
 	if !ok {
 		return execution.Execution{}, ports.ErrNotFound
 	}
@@ -303,7 +303,7 @@ func (s *Store) ListExecutionsByProject(_ context.Context, projectID int64) ([]e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []execution.Execution{}
-	for _, c := range s.collections {
+	for _, c := range s.executions {
 		if c.ProjectID == projectID {
 			out = append(out, c)
 		}
@@ -314,11 +314,11 @@ func (s *Store) ListExecutionsByProject(_ context.Context, projectID int64) ([]e
 func (s *Store) DeleteExecution(_ context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.collections[id]; !ok {
+	if _, ok := s.executions[id]; !ok {
 		return ports.ErrNotFound
 	}
-	delete(s.collections, id)
-	delete(s.collData, id)
+	delete(s.executions, id)
+	delete(s.execData, id)
 	delete(s.exec, id)
 	return nil
 }
@@ -326,10 +326,10 @@ func (s *Store) DeleteExecution(_ context.Context, id int64) error {
 func (s *Store) AddExecutionFile(_ context.Context, executionID int64, filename string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	files := s.collData[executionID]
+	files := s.execData[executionID]
 	if files == nil {
 		files = make(map[string]struct{})
-		s.collData[executionID] = files
+		s.execData[executionID] = files
 	}
 	if _, exists := files[filename]; exists {
 		return ports.ErrFileExists
@@ -341,13 +341,13 @@ func (s *Store) AddExecutionFile(_ context.Context, executionID int64, filename 
 func (s *Store) ExecutionFilesFor(_ context.Context, executionID int64) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return keys(s.collData[executionID]), nil
+	return keys(s.execData[executionID]), nil
 }
 
 func (s *Store) DeleteExecutionFile(_ context.Context, executionID int64, filename string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	files := s.collData[executionID]
+	files := s.execData[executionID]
 	if _, ok := files[filename]; !ok {
 		return ports.ErrNotFound
 	}
@@ -355,23 +355,23 @@ func (s *Store) DeleteExecutionFile(_ context.Context, executionID int64, filena
 	return nil
 }
 
-func (s *Store) StoreLoadProfile(_ context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error {
+func (s *Store) StoreLoadProfile(_ context.Context, executionID int64, csvSplit bool, scenarios []loadprofile.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	c, ok := s.collections[executionID]
+	c, ok := s.executions[executionID]
 	if !ok {
 		return ports.ErrNotFound
 	}
-	// The persisted schema (execution_scenario) does not store the plan name, so
+	// The persisted schema (execution_scenario) does not store the scenario name, so
 	// the fake drops it too to stay behaviourally identical to MySQL.
-	stored := make([]loadprofile.Entry, len(plans))
-	for i, ep := range plans {
+	stored := make([]loadprofile.Entry, len(scenarios))
+	for i, ep := range scenarios {
 		ep.Name = ""
 		stored[i] = ep
 	}
 	s.exec[executionID] = stored
 	c.CSVSplit = csvSplit
-	s.collections[executionID] = c
+	s.executions[executionID] = c
 	return nil
 }
 

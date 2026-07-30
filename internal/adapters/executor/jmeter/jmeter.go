@@ -114,7 +114,7 @@ func (e *Executor) Progress(ctx context.Context, engineURL string) (bool, error)
 
 // Subscribe opens the SSE /stream and parses each JTL line into a Metric. The
 // returned channel closes when the stream ends or ctx is cancelled. Identity
-// fields (collection/plan/engine/run) are left to the caller to attach.
+// fields (execution/scenario/engine/run) are left to the caller to attach.
 func (e *Executor) Subscribe(ctx context.Context, engineURL string) (<-chan engine.Metric, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, engineURL+"/stream", nil)
 	if err != nil {

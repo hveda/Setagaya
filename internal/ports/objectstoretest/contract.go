@@ -23,10 +23,10 @@ func RunObjectStoreContract(t *testing.T, newStore NewStore) {
 		ctx := context.Background()
 		want := []byte("id,name\n1,alice\n")
 
-		if err := store.Upload(ctx, "plan/42/users.csv", bytes.NewReader(want)); err != nil {
+		if err := store.Upload(ctx, "scenario/42/users.csv", bytes.NewReader(want)); err != nil {
 			t.Fatalf("Upload: %v", err)
 		}
-		got, err := store.Download(ctx, "plan/42/users.csv")
+		got, err := store.Download(ctx, "scenario/42/users.csv")
 		if err != nil {
 			t.Fatalf("Download: %v", err)
 		}
@@ -37,7 +37,7 @@ func RunObjectStoreContract(t *testing.T, newStore NewStore) {
 
 	t.Run("DownloadMissingReturnsNotFound", func(t *testing.T) {
 		store := newStore(t)
-		if _, err := store.Download(context.Background(), "plan/1/nope.jmx"); !errors.Is(err, ports.ErrObjectNotFound) {
+		if _, err := store.Download(context.Background(), "scenario/1/nope.jmx"); !errors.Is(err, ports.ErrObjectNotFound) {
 			t.Fatalf("Download(missing) = %v, want ErrObjectNotFound", err)
 		}
 	})
@@ -45,7 +45,7 @@ func RunObjectStoreContract(t *testing.T, newStore NewStore) {
 	t.Run("UploadOverwrites", func(t *testing.T) {
 		store := newStore(t)
 		ctx := context.Background()
-		key := "collection/7/config.yaml"
+		key := "execution/7/config.yaml"
 
 		if err := store.Upload(ctx, key, bytes.NewReader([]byte("v1"))); err != nil {
 			t.Fatalf("Upload v1: %v", err)
@@ -65,7 +65,7 @@ func RunObjectStoreContract(t *testing.T, newStore NewStore) {
 	t.Run("DeleteRemovesAndIsIdempotent", func(t *testing.T) {
 		store := newStore(t)
 		ctx := context.Background()
-		key := "plan/9/test.jmx"
+		key := "scenario/9/test.jmx"
 
 		if err := store.Upload(ctx, key, bytes.NewReader([]byte("x"))); err != nil {
 			t.Fatalf("Upload: %v", err)

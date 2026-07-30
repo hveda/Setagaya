@@ -18,7 +18,7 @@ import (
 const ns = "honryu"
 
 // readyEngines simulates the StatefulSet controller: it creates the ordinal
-// pods a plan would spawn and marks them Running+Ready so the adapter's
+// pods a scenario would spawn and marks them Running+Ready so the adapter's
 // readiness queries see them. Project id is recovered from the deployed set.
 func readyEngines(t *testing.T, client *fake.Clientset, executionID, scenarioID int64, engines int) {
 	t.Helper()
@@ -26,7 +26,7 @@ func readyEngines(t *testing.T, client *fake.Clientset, executionID, scenarioID 
 	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
 	sets, err := client.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil || len(sets.Items) == 0 {
-		t.Fatalf("no statefulset for collection %d plan %d: %v", executionID, scenarioID, err)
+		t.Fatalf("no statefulset for execution %d scenario %d: %v", executionID, scenarioID, err)
 	}
 	set := sets.Items[0]
 	name := set.Name
@@ -123,7 +123,7 @@ func TestK8sScheduler_EngineURLsUnreachableWhenAbsent(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
 	if _, err := s.EngineURLs(context.Background(), 2, 3, 2); err == nil {
-		t.Fatal("EngineURLs on undeployed collection: want error, got nil")
+		t.Fatal("EngineURLs on undeployed execution: want error, got nil")
 	}
 }
 

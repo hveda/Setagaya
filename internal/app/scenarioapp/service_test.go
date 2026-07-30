@@ -122,7 +122,7 @@ func TestUploadFile_InvalidFilename(t *testing.T) {
 	}
 }
 
-func TestUploadFile_UnknownPlan(t *testing.T) {
+func TestUploadFile_UnknownScenario(t *testing.T) {
 	t.Parallel()
 	svc, _, _ := newScenarioService(t)
 	if err := svc.UploadFile(context.Background(), 999, "a.csv", bytes.NewReader(nil)); !errors.Is(err, ports.ErrNotFound) {

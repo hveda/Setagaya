@@ -30,7 +30,7 @@ func seed(t *testing.T) (*fake.Store, *fake.Scheduler, *recordingPurger, *admina
 	return store, sched, purger, svc, executionID
 }
 
-func TestRunningCollections_Enriched(t *testing.T) {
+func TestRunningExecutions_Enriched(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store, sched, _, svc, executionID := seed(t)

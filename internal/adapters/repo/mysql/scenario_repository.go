@@ -35,7 +35,7 @@ func (r *Repository) CreateScenario(ctx context.Context, p scenario.Scenario) (i
 // GetScenario returns the scenario with id, or ports.ErrNotFound.
 func (r *Repository) GetScenario(ctx context.Context, id int64) (scenario.Scenario, error) {
 	row := r.db.QueryRowContext(ctx, "SELECT "+scenarioColumns+" FROM scenario WHERE id = ?", id)
-	p, err := scanPlan(row)
+	p, err := scanScenario(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return scenario.Scenario{}, ports.ErrNotFound
 	}
@@ -55,7 +55,7 @@ func (r *Repository) ListScenariosByProject(ctx context.Context, projectID int64
 
 	out := []scenario.Scenario{}
 	for rows.Next() {
-		p, scanErr := scanPlan(rows)
+		p, scanErr := scanScenario(rows)
 		if scanErr != nil {
 			return nil, fmt.Errorf("mysql: scan scenario: %w", scanErr)
 		}
@@ -142,7 +142,7 @@ func (r *Repository) ScenarioInUse(ctx context.Context, scenarioID int64) (bool,
 	return exists, nil
 }
 
-func scanPlan(s rowScanner) (scenario.Scenario, error) {
+func scanScenario(s rowScanner) (scenario.Scenario, error) {
 	var (
 		p         scenario.Scenario
 		tenantID  sql.NullInt64

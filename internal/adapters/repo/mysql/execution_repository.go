@@ -147,8 +147,8 @@ func (r *Repository) StoreLoadProfile(ctx context.Context, executionID int64, cs
 	return nil
 }
 
-// LoadProfileFor returns the execution's current execution scenarios. Plan names
-// are not persisted, so ExecutionPlan.Name is empty.
+// LoadProfileFor returns the execution's current execution scenarios. Scenario names
+// are not persisted, so ExecutionScenario.Name is empty.
 func (r *Repository) LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error) {
 	rows, err := r.db.QueryContext(ctx,
 		"SELECT scenario_id, concurrency, rampup, duration, engines, csv_split FROM execution_scenario WHERE execution_id = ?", executionID)

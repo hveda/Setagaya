@@ -45,8 +45,8 @@ func TestPhase1_FullFlowEndToEnd(t *testing.T) {
 	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 
 	// Upload a JMX file, then download it back through the file endpoint.
-	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx>hello</jmx>")
-	body := getBody(t, client, srv.URL+"/api/files/scenario/"+itoa(scenarioID)+"/plan.jmx", http.StatusOK)
+	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "scenario.jmx", "<jmx>hello</jmx>")
+	body := getBody(t, client, srv.URL+"/api/files/scenario/"+itoa(scenarioID)+"/scenario.jmx", http.StatusOK)
 	if body != "<jmx>hello</jmx>" {
 		t.Fatalf("downloaded artifact = %q", body)
 	}

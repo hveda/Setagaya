@@ -14,7 +14,7 @@ import (
 	"github.com/heridotlife/Setagaya/test/dbtest"
 )
 
-func TestMySQLPlanRepository_Contract(t *testing.T) {
+func TestMySQLScenarioRepository_Contract(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repositorytest.RunScenarioRepositoryContract(t, func(t *testing.T) repositorytest.Repository {
 		truncateAll(t, db)
@@ -22,7 +22,7 @@ func TestMySQLPlanRepository_Contract(t *testing.T) {
 	})
 }
 
-func TestMySQLCollectionRepository_Contract(t *testing.T) {
+func TestMySQLExecutionRepository_Contract(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repositorytest.RunExecutionRepositoryContract(t, func(t *testing.T) repositorytest.Repository {
 		truncateAll(t, db)
@@ -30,8 +30,8 @@ func TestMySQLCollectionRepository_Contract(t *testing.T) {
 	})
 }
 
-// TestMySQLPlan_TenantAndAuditRoundTrip covers the nullable scenario columns.
-func TestMySQLPlan_TenantAndAuditRoundTrip(t *testing.T) {
+// TestMySQLScenario_TenantAndAuditRoundTrip covers the nullable scenario columns.
+func TestMySQLScenario_TenantAndAuditRoundTrip(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repo := mysqladapter.NewRepository(db)
 	ctx := context.Background()
@@ -52,9 +52,9 @@ func TestMySQLPlan_TenantAndAuditRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMySQLCollection_TenantAndCSVRoundTrip covers the nullable execution
+// TestMySQLExecution_TenantAndCSVRoundTrip covers the nullable execution
 // columns and the csv_split flag on create.
-func TestMySQLCollection_TenantAndCSVRoundTrip(t *testing.T) {
+func TestMySQLExecution_TenantAndCSVRoundTrip(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repo := mysqladapter.NewRepository(db)
 	ctx := context.Background()
@@ -75,9 +75,9 @@ func TestMySQLCollection_TenantAndCSVRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMySQLPlanCollection_ErrorsWhenDBClosed drives the DB-error branches of
+// TestMySQLScenarioExecution_ErrorsWhenDBClosed drives the DB-error branches of
 // every scenario and execution method by closing the pool first.
-func TestMySQLPlanCollection_ErrorsWhenDBClosed(t *testing.T) {
+func TestMySQLScenarioExecution_ErrorsWhenDBClosed(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repo := mysqladapter.NewRepository(db)
 	ctx := context.Background()

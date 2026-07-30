@@ -65,7 +65,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 
 	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
-	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
+	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "scenario.jmx", "<jmx/>")
 	collID := postForm(t, client, srv.URL+"/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
 	cfg := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 2\n      duration: 30\n", collID, scenarioID)
 	putMultipart(t, client, srv.URL+"/api/executions/"+itoa(collID)+"/config", "config.yaml", cfg)
@@ -88,16 +88,16 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	cancelStream()
 	_ = resp.Body.Close()
 
-	// Admin lists the collection as deployed.
+	// Admin lists the execution as deployed.
 	var running []adminapp.RunningExecution
 	getJSON(t, client, srv.URL+"/api/admin/executions", http.StatusOK, &running)
 	if len(running) != 1 || running[0].ExecutionID != collID {
-		t.Fatalf("admin collections = %+v", running)
+		t.Fatalf("admin executions = %+v", running)
 	}
 
 	postAction(t, client, base+"/stop", http.StatusOK)
 
-	// Usage history now has one finished launch for this collection.
+	// Usage history now has one finished launch for this execution.
 	var history []map[string]any
 	getJSON(t, client, srv.URL+"/api/usage/history", http.StatusOK, &history)
 	found := false
@@ -107,7 +107,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("usage history missing collection %d: %+v", collID, history)
+		t.Fatalf("usage history missing execution %d: %+v", collID, history)
 	}
 
 	postAction(t, client, base+"/purge", http.StatusOK)

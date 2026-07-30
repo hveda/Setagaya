@@ -8,7 +8,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// StartRun creates the active run for a collection, opening a history row.
+// StartRun creates the active run for an execution, opening a history row.
 func (s *Store) StartRun(_ context.Context, executionID int64) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -22,7 +22,7 @@ func (s *Store) StartRun(_ context.Context, executionID int64) (int64, error) {
 	return runID, nil
 }
 
-// CurrentRun returns the active run id for a collection.
+// CurrentRun returns the active run id for an execution.
 func (s *Store) CurrentRun(_ context.Context, executionID int64) (int64, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -46,22 +46,22 @@ func (s *Store) StopRun(_ context.Context, executionID int64) error {
 	return nil
 }
 
-// MarkScenarioRunning records a running plan (idempotent).
+// MarkScenarioRunning records a running scenario (idempotent).
 func (s *Store) MarkScenarioRunning(_ context.Context, executionID, scenarioID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	plans, ok := s.running[executionID]
+	scenarios, ok := s.running[executionID]
 	if !ok {
-		plans = map[int64]time.Time{}
-		s.running[executionID] = plans
+		scenarios = map[int64]time.Time{}
+		s.running[executionID] = scenarios
 	}
-	if _, exists := plans[scenarioID]; !exists {
-		plans[scenarioID] = s.now()
+	if _, exists := scenarios[scenarioID]; !exists {
+		scenarios[scenarioID] = s.now()
 	}
 	return nil
 }
 
-// ClearScenarioRunning removes a running plan marker (idempotent).
+// ClearScenarioRunning removes a running scenario marker (idempotent).
 func (s *Store) ClearScenarioRunning(_ context.Context, executionID, scenarioID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -72,21 +72,21 @@ func (s *Store) ClearScenarioRunning(_ context.Context, executionID, scenarioID 
 	return nil
 }
 
-// RunningScenarios lists every running plan across collections.
+// RunningScenarios lists every running scenario across executions.
 func (s *Store) RunningScenarios(_ context.Context) ([]ports.RunningScenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []ports.RunningScenario
-	for executionID, plans := range s.running {
-		for scenarioID, started := range plans {
+	for executionID, scenarios := range s.running {
+		for scenarioID, started := range scenarios {
 			out = append(out, ports.RunningScenario{ExecutionID: executionID, ScenarioID: scenarioID, StartedTime: started})
 		}
 	}
-	sortRunningPlans(out)
+	sortRunningScenarios(out)
 	return out, nil
 }
 
-// RunningScenariosByExecution lists running plans for one collection.
+// RunningScenariosByExecution lists running scenarios for one execution.
 func (s *Store) RunningScenariosByExecution(_ context.Context, executionID int64) ([]ports.RunningScenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -94,11 +94,11 @@ func (s *Store) RunningScenariosByExecution(_ context.Context, executionID int64
 	for scenarioID, started := range s.running[executionID] {
 		out = append(out, ports.RunningScenario{ExecutionID: executionID, ScenarioID: scenarioID, StartedTime: started})
 	}
-	sortRunningPlans(out)
+	sortRunningScenarios(out)
 	return out, nil
 }
 
-func sortRunningPlans(rps []ports.RunningScenario) {
+func sortRunningScenarios(rps []ports.RunningScenario) {
 	sort.Slice(rps, func(i, j int) bool {
 		if rps[i].ExecutionID != rps[j].ExecutionID {
 			return rps[i].ExecutionID < rps[j].ExecutionID

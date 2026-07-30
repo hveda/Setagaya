@@ -56,7 +56,7 @@ func setup(t *testing.T, engines ...int) *env {
 	return &env{svc: svc, store: store, sched: sched, exec: exec, sink: sink, bus: bus, executionID: executionID, planIDs: planIDs, runID: runID}
 }
 
-func TestCollectPlan_EnrichesAndFansOut(t *testing.T) {
+func TestCollectScenario_EnrichesAndFansOut(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2)
 	ctx := context.Background()
@@ -76,7 +76,7 @@ func TestCollectPlan_EnrichesAndFansOut(t *testing.T) {
 	}
 }
 
-func TestCollectPlan_UnreachableErrors(t *testing.T) {
+func TestCollectScenario_UnreachableErrors(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2)
 	e.sched.Unreachable = true
@@ -85,7 +85,7 @@ func TestCollectPlan_UnreachableErrors(t *testing.T) {
 	}
 }
 
-func TestCollectCollection_AllPlans(t *testing.T) {
+func TestCollectExecution_AllScenarios(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2, 3)
 	if err := e.svc.CollectExecution(context.Background(), e.executionID); err != nil {
@@ -97,7 +97,7 @@ func TestCollectCollection_AllPlans(t *testing.T) {
 	}
 }
 
-func TestCollectCollection_PropagatesPlanError(t *testing.T) {
+func TestCollectExecution_PropagatesScenarioError(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2, 3)
 	e.sched.Unreachable = true // every scenario's EngineURLs fails
@@ -106,7 +106,7 @@ func TestCollectCollection_PropagatesPlanError(t *testing.T) {
 	}
 }
 
-func TestCollectCollection_NoActiveRunIsNoop(t *testing.T) {
+func TestCollectExecution_NoActiveRunIsNoop(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2)
 	if err := e.store.StopRun(context.Background(), e.executionID); err != nil {
@@ -163,7 +163,7 @@ func TestPumpEngine_SubscribeErrorRecordsNothing(t *testing.T) {
 	}
 }
 
-func TestResume_StartsRunningCollections(t *testing.T) {
+func TestResume_StartsRunningExecutions(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 1)
 	ctx := context.Background()

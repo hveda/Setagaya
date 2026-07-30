@@ -49,33 +49,33 @@ func TestFileEndpointsHappyPath(t *testing.T) {
 	scenarioID := decodeID(t, postForm(t, h, "/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}}))
 	collID := decodeID(t, postForm(t, h, "/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}}))
 
-	// Plan data file: upload, list, delete.
+	// Scenario data file: upload, list, delete.
 	putMultipart(t, h, "/api/scenarios/"+itoa(scenarioID)+"/files", "users.csv", "a,b")
 	if rec := do(t, h, http.MethodGet, "/api/scenarios/"+itoa(scenarioID)+"/files"); rec.Code != http.StatusOK {
-		t.Fatalf("list plan files = %d", rec.Code)
+		t.Fatalf("list scenario files = %d", rec.Code)
 	}
 	if rec := deleteWithQuery(t, h, "/api/scenarios/"+itoa(scenarioID)+"/files", url.Values{"filename": {"users.csv"}}); rec.Code != http.StatusOK {
-		t.Fatalf("delete plan file = %d (%s)", rec.Code, rec.Body.String())
+		t.Fatalf("delete scenario file = %d (%s)", rec.Code, rec.Body.String())
 	}
 
-	// Collection data file: upload, list, delete.
+	// Execution data file: upload, list, delete.
 	putMultipart(t, h, "/api/executions/"+itoa(collID)+"/files", "shared.csv", "x,y")
 	if rec := do(t, h, http.MethodGet, "/api/executions/"+itoa(collID)+"/files"); rec.Code != http.StatusOK {
-		t.Fatalf("list collection files = %d", rec.Code)
+		t.Fatalf("list execution files = %d", rec.Code)
 	}
 	if rec := deleteWithQuery(t, h, "/api/executions/"+itoa(collID)+"/files", url.Values{"filename": {"shared.csv"}}); rec.Code != http.StatusOK {
-		t.Fatalf("delete collection file = %d", rec.Code)
+		t.Fatalf("delete execution file = %d", rec.Code)
 	}
 
-	// Empty config get, then delete collection, plan, and empty project.
+	// Empty config get, then delete execution, scenario, and empty project.
 	if rec := do(t, h, http.MethodGet, "/api/executions/"+itoa(collID)+"/config"); rec.Code != http.StatusOK {
 		t.Fatalf("get config = %d", rec.Code)
 	}
 	if rec := do(t, h, http.MethodDelete, "/api/executions/"+itoa(collID)); rec.Code != http.StatusOK {
-		t.Fatalf("delete collection = %d", rec.Code)
+		t.Fatalf("delete execution = %d", rec.Code)
 	}
 	if rec := do(t, h, http.MethodDelete, "/api/scenarios/"+itoa(scenarioID)); rec.Code != http.StatusOK {
-		t.Fatalf("delete plan = %d", rec.Code)
+		t.Fatalf("delete scenario = %d", rec.Code)
 	}
 	if rec := do(t, h, http.MethodDelete, "/api/projects/"+itoa(projectID)); rec.Code != http.StatusOK {
 		t.Fatalf("delete empty project = %d", rec.Code)
@@ -114,13 +114,13 @@ func TestHandlers_NotFound_404(t *testing.T) {
 	h := newFullRouter(t)
 
 	if rec := do(t, h, http.MethodGet, "/api/scenarios/999"); rec.Code != http.StatusNotFound {
-		t.Errorf("get missing plan = %d, want 404", rec.Code)
+		t.Errorf("get missing scenario = %d, want 404", rec.Code)
 	}
 	if rec := do(t, h, http.MethodGet, "/api/executions/999"); rec.Code != http.StatusNotFound {
-		t.Errorf("get missing collection = %d, want 404", rec.Code)
+		t.Errorf("get missing execution = %d, want 404", rec.Code)
 	}
 	if rec := do(t, h, http.MethodDelete, "/api/scenarios/999"); rec.Code != http.StatusNotFound {
-		t.Errorf("delete missing plan = %d, want 404", rec.Code)
+		t.Errorf("delete missing scenario = %d, want 404", rec.Code)
 	}
 	if rec := do(t, h, http.MethodGet, "/api/files/scenario/1/missing.jmx"); rec.Code != http.StatusNotFound {
 		t.Errorf("download missing file = %d, want 404", rec.Code)
@@ -155,12 +155,12 @@ func TestHandlers_Forbidden_403(t *testing.T) {
 		}
 	}
 
-	// Creating a plan/collection under a foreign project is also forbidden.
+	// Creating a scenario/execution under a foreign project is also forbidden.
 	if rec := postForm(t, h, "/api/scenarios", url.Values{"name": {"x"}, "project_id": {itoa(projectID)}}); rec.Code != http.StatusForbidden {
-		t.Errorf("create plan under foreign project = %d, want 403", rec.Code)
+		t.Errorf("create scenario under foreign project = %d, want 403", rec.Code)
 	}
 	if rec := postForm(t, h, "/api/executions", url.Values{"name": {"x"}, "project_id": {itoa(projectID)}}); rec.Code != http.StatusForbidden {
-		t.Errorf("create collection under foreign project = %d, want 403", rec.Code)
+		t.Errorf("create execution under foreign project = %d, want 403", rec.Code)
 	}
 }
 
@@ -168,12 +168,12 @@ func TestHandlers_BadFormBodies(t *testing.T) {
 	t.Parallel()
 	h := newFullRouter(t)
 
-	// Non-numeric project_id on create plan/collection → 400.
+	// Non-numeric project_id on create scenario/execution → 400.
 	if rec := postForm(t, h, "/api/scenarios", url.Values{"name": {"x"}, "project_id": {"abc"}}); rec.Code != http.StatusBadRequest {
-		t.Errorf("create plan bad project_id = %d, want 400", rec.Code)
+		t.Errorf("create scenario bad project_id = %d, want 400", rec.Code)
 	}
 	if rec := postForm(t, h, "/api/executions", url.Values{"name": {"x"}, "project_id": {"abc"}}); rec.Code != http.StatusBadRequest {
-		t.Errorf("create collection bad project_id = %d, want 400", rec.Code)
+		t.Errorf("create execution bad project_id = %d, want 400", rec.Code)
 	}
 
 	// Invalid YAML config upload → 400.

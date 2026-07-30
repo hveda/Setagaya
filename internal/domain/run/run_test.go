@@ -9,8 +9,8 @@ import (
 	"github.com/heridotlife/Setagaya/internal/domain/run"
 )
 
-func ec(plans ...loadprofile.Entry) loadprofile.Profile {
-	return loadprofile.Profile{Tests: plans}
+func ec(scenarios ...loadprofile.Entry) loadprofile.Profile {
+	return loadprofile.Profile{Tests: scenarios}
 }
 
 func TestDerivePhase(t *testing.T) {
@@ -50,8 +50,8 @@ func TestCanDeploy(t *testing.T) {
 func TestCanTrigger(t *testing.T) {
 	t.Parallel()
 
-	plan := loadprofile.Entry{ScenarioID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
-	full := ec(plan)
+	scenario := loadprofile.Entry{ScenarioID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
+	full := ec(scenario)
 
 	cases := []struct {
 		name    string
@@ -60,7 +60,7 @@ func TestCanTrigger(t *testing.T) {
 		ready   int
 		wantErr error
 	}{
-		{"no plans", run.PhaseDeployed, ec(), 0, run.ErrNoScenarios},
+		{"no scenarios", run.PhaseDeployed, ec(), 0, run.ErrNoScenarios},
 		{"not deployed", run.PhaseIdle, full, 0, run.ErrNotDeployed},
 		{"already running", run.PhaseRunning, full, 2, run.ErrAlreadyRunning},
 		{"engines not ready", run.PhaseDeployed, full, 1, run.ErrEnginesNotReady},

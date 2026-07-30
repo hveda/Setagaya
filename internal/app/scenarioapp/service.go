@@ -96,7 +96,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 	for _, name := range allFileNames(files) {
-		if delErr := s.store.Delete(ctx, planKey(id, name)); delErr != nil {
+		if delErr := s.store.Delete(ctx, scenarioKey(id, name)); delErr != nil {
 			return delErr
 		}
 	}
@@ -111,10 +111,10 @@ func (s *Service) Files(ctx context.Context, scenarioID int64) (Files, error) {
 	}
 	out := Files{Data: make([]FileRef, 0, len(pf.Data))}
 	if pf.TestFile != "" {
-		out.TestFile = &FileRef{Filename: pf.TestFile, URL: s.store.URL(planKey(scenarioID, pf.TestFile))}
+		out.TestFile = &FileRef{Filename: pf.TestFile, URL: s.store.URL(scenarioKey(scenarioID, pf.TestFile))}
 	}
 	for _, name := range pf.Data {
-		out.Data = append(out.Data, FileRef{Filename: name, URL: s.store.URL(planKey(scenarioID, name))})
+		out.Data = append(out.Data, FileRef{Filename: name, URL: s.store.URL(scenarioKey(scenarioID, name))})
 	}
 	return out, nil
 }
@@ -133,7 +133,7 @@ func (s *Service) UploadFile(ctx context.Context, scenarioID int64, filename str
 	if err := s.repo.AddScenarioFile(ctx, scenarioID, filename, isTest); err != nil {
 		return err
 	}
-	if err := s.store.Upload(ctx, planKey(scenarioID, filename), content); err != nil {
+	if err := s.store.Upload(ctx, scenarioKey(scenarioID, filename), content); err != nil {
 		// Roll back the record so it does not dangle without an object.
 		_ = s.repo.DeleteScenarioFile(ctx, scenarioID, filename, isTest)
 		return err
@@ -147,7 +147,7 @@ func (s *Service) DownloadFile(ctx context.Context, scenarioID int64, filename s
 	if err := validateFilename(filename); err != nil {
 		return nil, err
 	}
-	return s.store.Download(ctx, planKey(scenarioID, filename))
+	return s.store.Download(ctx, scenarioKey(scenarioID, filename))
 }
 
 // DeleteFile removes a scenario file record and its stored object.
@@ -159,10 +159,10 @@ func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename str
 	if err := s.repo.DeleteScenarioFile(ctx, scenarioID, filename, isTest); err != nil {
 		return err
 	}
-	return s.store.Delete(ctx, planKey(scenarioID, filename))
+	return s.store.Delete(ctx, scenarioKey(scenarioID, filename))
 }
 
-func planKey(scenarioID int64, filename string) string {
+func scenarioKey(scenarioID int64, filename string) string {
 	return fmt.Sprintf("scenario/%d/%s", scenarioID, filename)
 }
 

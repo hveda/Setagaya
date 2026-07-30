@@ -28,7 +28,7 @@ var badRequestErrors = []error{
 	project.ErrOwnerTooLong, project.ErrSIDInvalid, project.ErrSIDTooLong,
 	scenario.ErrNameRequired, scenario.ErrNameTooLong, scenario.ErrProjectRequired,
 	execution.ErrNameRequired, execution.ErrNameTooLong, execution.ErrProjectRequired,
-	loadprofile.ErrPlanRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
+	loadprofile.ErrScenarioRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
 	loadprofile.ErrDurationInvalid, loadprofile.ErrNoScenarios,
 	scenarioapp.ErrInvalidFilename,
 	executionapp.ErrInvalidFilename, executionapp.ErrExecutionMismatch,

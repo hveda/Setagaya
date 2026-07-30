@@ -41,7 +41,7 @@ func TestBranches_Delete_Missing(t *testing.T) {
 	}
 }
 
-func TestBranches_UploadFile_UnknownCollection(t *testing.T) {
+func TestBranches_UploadFile_UnknownExecution(t *testing.T) {
 	t.Parallel()
 	svc, _, _ := newCollService(t)
 	ctx := context.Background()

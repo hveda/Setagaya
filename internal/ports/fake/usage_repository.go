@@ -7,7 +7,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// StartLaunch opens a launch for a collection.
+// StartLaunch opens a launch for an execution.
 func (s *Store) StartLaunch(_ context.Context, executionID int64, owner string, engines, vu int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

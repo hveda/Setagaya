@@ -13,7 +13,7 @@ import (
 )
 
 // Repository is the full repository surface implemented by both the fake and
-// the MySQL adapter. Cross-aggregate behaviour (e.g. "is this plan in use") is
+// the MySQL adapter. Cross-aggregate behaviour (e.g. "is this scenario in use") is
 // tested against this combined interface.
 type Repository interface {
 	ports.ProjectRepository
@@ -32,7 +32,7 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 		repo := newRepo(t)
 		ctx := context.Background()
 
-		id := mustCreatePlan(t, repo, "smoke", 10)
+		id := mustCreateScenario(t, repo, "smoke", 10)
 		got, err := repo.GetScenario(ctx, id)
 		if err != nil {
 			t.Fatalf("GetScenario: %v", err)
@@ -41,8 +41,8 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("GetScenario = %+v, want id=%d name=smoke project=10 with timestamp", got, id)
 		}
 
-		mustCreatePlan(t, repo, "second", 10)
-		mustCreatePlan(t, repo, "other-project", 99)
+		mustCreateScenario(t, repo, "second", 10)
+		mustCreateScenario(t, repo, "other-project", 99)
 		inProject, err := repo.ListScenariosByProject(ctx, 10)
 		if err != nil {
 			t.Fatalf("ListScenariosByProject: %v", err)
@@ -72,7 +72,7 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 	t.Run("Files", func(t *testing.T) {
 		repo := newRepo(t)
 		ctx := context.Background()
-		id := mustCreatePlan(t, repo, "smoke", 10)
+		id := mustCreateScenario(t, repo, "smoke", 10)
 
 		if err := repo.AddScenarioFile(ctx, id, "test.jmx", true); err != nil {
 			t.Fatalf("AddScenarioFile(test): %v", err)
@@ -81,7 +81,7 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("AddScenarioFile(data): %v", err)
 		}
 
-		// One JMX slot per plan; a second test file conflicts.
+		// One JMX slot per scenario; a second test file conflicts.
 		if err := repo.AddScenarioFile(ctx, id, "other.jmx", true); !errors.Is(err, ports.ErrFileExists) {
 			t.Fatalf("AddScenarioFile(second test) = %v, want ErrFileExists", err)
 		}
@@ -111,14 +111,14 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 	t.Run("ScenarioInUse", func(t *testing.T) {
 		repo := newRepo(t)
 		ctx := context.Background()
-		scenarioID := mustCreatePlan(t, repo, "smoke", 10)
+		scenarioID := mustCreateScenario(t, repo, "smoke", 10)
 
 		inUse, err := repo.ScenarioInUse(ctx, scenarioID)
 		if err != nil {
 			t.Fatalf("ScenarioInUse: %v", err)
 		}
 		if inUse {
-			t.Fatal("ScenarioInUse = true for an unused plan")
+			t.Fatal("ScenarioInUse = true for an unused scenario")
 		}
 
 		collID := mustCreateExecution(t, repo, "peak", 10)
@@ -133,7 +133,7 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("ScenarioInUse: %v", err)
 		}
 		if !inUse {
-			t.Fatal("ScenarioInUse = false after the plan was added to a collection")
+			t.Fatal("ScenarioInUse = false after the scenario was added to an execution")
 		}
 	})
 }
@@ -198,7 +198,7 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 	})
 
-	t.Run("ExecutionPlansStoreReplacesAndSetsCSVSplit", func(t *testing.T) {
+	t.Run("ExecutionScenariosStoreReplacesAndSetsCSVSplit", func(t *testing.T) {
 		repo := newRepo(t)
 		ctx := context.Background()
 		id := mustCreateExecution(t, repo, "peak", 10)
@@ -218,38 +218,38 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("LoadProfileFor len = %d, want 2", len(got))
 		}
 		if c, _ := repo.GetExecution(ctx, id); !c.CSVSplit {
-			t.Fatalf("collection CSVSplit = false after store, want true")
+			t.Fatalf("execution CSVSplit = false after store, want true")
 		}
 
-		// Storing a smaller set replaces (not merges) the previous plans.
+		// Storing a smaller set replaces (not merges) the previous scenarios.
 		second := []loadprofile.Entry{{Name: "a", ScenarioID: 1, Engines: 5, Concurrency: 20, Duration: 60}}
 		if err := repo.StoreLoadProfile(ctx, id, false, second); err != nil {
 			t.Fatalf("StoreLoadProfile(second): %v", err)
 		}
 		got, _ = repo.LoadProfileFor(ctx, id)
 		if len(got) != 1 || got[0].ScenarioID != 1 || got[0].Engines != 5 {
-			t.Fatalf("LoadProfileFor after replace = %+v, want single plan 1 with 5 engines", got)
+			t.Fatalf("LoadProfileFor after replace = %+v, want single scenario 1 with 5 engines", got)
 		}
 		if c, _ := repo.GetExecution(ctx, id); c.CSVSplit {
-			t.Fatalf("collection CSVSplit = true after second store, want false")
+			t.Fatalf("execution CSVSplit = true after second store, want false")
 		}
 	})
 
-	t.Run("StoreOnMissingCollection", func(t *testing.T) {
+	t.Run("StoreOnMissingExecution", func(t *testing.T) {
 		repo := newRepo(t)
 		err := repo.StoreLoadProfile(context.Background(), 987654, false,
 			[]loadprofile.Entry{{ScenarioID: 1, Engines: 1, Concurrency: 1, Duration: 1}})
 		if !errors.Is(err, ports.ErrNotFound) {
-			t.Fatalf("StoreLoadProfile(missing collection) = %v, want ErrNotFound", err)
+			t.Fatalf("StoreLoadProfile(missing execution) = %v, want ErrNotFound", err)
 		}
 	})
 }
 
-func mustCreatePlan(t *testing.T, repo Repository, name string, projectID int64) int64 {
+func mustCreateScenario(t *testing.T, repo Repository, name string, projectID int64) int64 {
 	t.Helper()
 	p, err := scenario.New(name, projectID)
 	if err != nil {
-		t.Fatalf("build plan %q: %v", name, err)
+		t.Fatalf("build scenario %q: %v", name, err)
 	}
 	id, err := repo.CreateScenario(context.Background(), p)
 	if err != nil {
@@ -262,7 +262,7 @@ func mustCreateExecution(t *testing.T, repo Repository, name string, projectID i
 	t.Helper()
 	c, err := execution.New(name, projectID)
 	if err != nil {
-		t.Fatalf("build collection %q: %v", name, err)
+		t.Fatalf("build execution %q: %v", name, err)
 	}
 	id, err := repo.CreateExecution(context.Background(), c)
 	if err != nil {

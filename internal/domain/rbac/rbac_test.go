@@ -19,7 +19,7 @@ func TestPermission_Allows(t *testing.T) {
 	}{
 		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "project", rbac.ActionRead, true},
 		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "project", rbac.ActionDelete, false},
-		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "plan", rbac.ActionRead, false},
+		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "scenario", rbac.ActionRead, false},
 		{rbac.Permission{Resource: "*", Actions: []rbac.Action{rbac.ActionRead}}, "anything", rbac.ActionRead, true},
 		{rbac.Permission{Resource: "project", Actions: []rbac.Action{"*"}}, "project", rbac.ActionDelete, true},
 	}

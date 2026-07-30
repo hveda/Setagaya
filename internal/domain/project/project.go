@@ -1,6 +1,6 @@
 // Package project holds the Project aggregate — a pure domain type with no I/O
 // dependencies. A Project is the top of the domain hierarchy:
-// Project → Collection → Plan → ExecutionPlan.
+// Project → Execution → Scenario → ExecutionScenario.
 package project
 
 import (

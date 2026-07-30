@@ -2,47 +2,47 @@ package engine
 
 import "strconv"
 
-// PlanInput describes one plan's slice of a collection, carrying exactly the
+// ScenarioInput describes one scenario's slice of an execution, carrying exactly the
 // fields the config-building math needs. It is assembled by the application
-// layer from the persisted collection, its execution plan, and their files.
-type PlanInput struct {
-	// ScenarioIndex is this plan's position within the collection and ScenarioCount is
-	// the number of plans; together they drive the collection-level CSV split.
+// layer from the persisted execution, its execution scenario, and their files.
+type ScenarioInput struct {
+	// ScenarioIndex is this scenario's position within the execution and ScenarioCount is
+	// the number of scenarios; together they drive the execution-level CSV split.
 	ScenarioIndex int
 	ScenarioCount int
 
-	// ExecutionCSVSplit enables splitting the collection's shared data files
-	// across plans; ExecutionData are those shared files.
+	// ExecutionCSVSplit enables splitting the execution's shared data files
+	// across scenarios; ExecutionData are those shared files.
 	ExecutionCSVSplit bool
 	ExecutionData     []File
 
-	// Plan-level fields.
+	// Scenario-level fields.
 	Engines      int
 	Concurrency  int
 	Rampup       int
 	Duration     int
-	CSVSplit     bool // split this plan's data across its engines
+	CSVSplit     bool // split this scenario's data across its engines
 	TestFile     File
 	ScenarioData []File
 
 	RunID int64
 }
 
-// BuildConfigs produces one Config per engine for a single plan, applying the
+// BuildConfigs produces one Config per engine for a single scenario, applying the
 // two-level CSV split exactly as v2 did:
 //
-//   - Collection data is first split across plans (TotalSplits=ScenarioCount,
-//     CurrentSplit=ScenarioIndex) when the collection enables CSV split.
-//   - When the plan also enables CSV split, that collection-level split is
-//     compounded across the plan's engines: TotalSplits *= Engines and
+//   - Execution data is first split across scenarios (TotalSplits=ScenarioCount,
+//     CurrentSplit=ScenarioIndex) when the execution enables CSV split.
+//   - When the scenario also enables CSV split, that execution-level split is
+//     compounded across the scenario's engines: TotalSplits *= Engines and
 //     CurrentSplit = CurrentSplit*Engines + engineID.
-//   - The plan's own data files are split only across the plan's engines
-//     (TotalSplits=Engines, CurrentSplit=engineID) when the plan enables it.
+//   - The scenario's own data files are split only across the scenario's engines
+//     (TotalSplits=Engines, CurrentSplit=engineID) when the scenario enables it.
 //   - The test file is never split.
 //
-// Plan data overrides collection data sharing the same filename.
-func BuildConfigs(in PlanInput) []Config {
-	// Seed: collection data with the collection-level split for this plan.
+// Scenario data overrides execution data sharing the same filename.
+func BuildConfigs(in ScenarioInput) []Config {
+	// Seed: execution data with the execution-level split for this scenario.
 	seed := make(map[string]File, len(in.ExecutionData))
 	for _, f := range in.ExecutionData {
 		f.TotalSplits = 1
@@ -58,7 +58,7 @@ func BuildConfigs(in PlanInput) []Config {
 	for i := 0; i < in.Engines; i++ {
 		data := make(map[string]File, len(seed)+1+len(in.ScenarioData))
 
-		// Collection data, compounded with the plan-level split.
+		// Execution data, compounded with the scenario-level split.
 		for name, f := range seed {
 			if in.CSVSplit {
 				f.CurrentSplit = f.CurrentSplit*in.Engines + i
@@ -73,8 +73,8 @@ func BuildConfigs(in PlanInput) []Config {
 		test.CurrentSplit = 0
 		data[test.Filename] = test
 
-		// Plan data, split only across this plan's engines. Overrides
-		// collection data of the same name.
+		// Scenario data, split only across this scenario's engines. Overrides
+		// execution data of the same name.
 		for _, f := range in.ScenarioData {
 			f.TotalSplits = 1
 			f.CurrentSplit = 0

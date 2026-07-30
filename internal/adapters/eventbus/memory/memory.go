@@ -1,4 +1,4 @@
-// Package memory is the in-process ports.EventBus: per-collection fan-out to
+// Package memory is the in-process ports.EventBus: per-execution fan-out to
 // live subscribers with non-blocking delivery (slow subscribers drop events
 // rather than stalling the collector).
 package memory

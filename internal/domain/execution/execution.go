@@ -19,7 +19,7 @@ var (
 	ErrProjectRequired = errors.New("execution: a valid project id is required")
 )
 
-// Execution is a group of plans executed together against a Project.
+// Execution is a group of scenarios executed together against a Project.
 type Execution struct {
 	ID          int64
 	Name        string

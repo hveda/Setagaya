@@ -31,7 +31,7 @@ func TestAdminEndpoints(t *testing.T) {
 	})
 
 	if rec := do(t, h, http.MethodGet, "/api/admin/executions"); rec.Code != http.StatusOK {
-		t.Fatalf("admin collections = %d", rec.Code)
+		t.Fatalf("admin executions = %d", rec.Code)
 	}
 	if rec := do(t, h, http.MethodGet, "/api/admin/nodes"); rec.Code != http.StatusOK {
 		t.Fatalf("admin nodes = %d", rec.Code)

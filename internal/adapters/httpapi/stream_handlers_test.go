@@ -14,7 +14,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/domain/engine"
 )
 
-func TestStreamCollection_DeliversSSE(t *testing.T) {
+func TestStreamExecution_DeliversSSE(t *testing.T) {
 	t.Parallel()
 	bus := membus.New()
 	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"honryu"}})
@@ -54,7 +54,7 @@ func TestStreamCollection_DeliversSSE(t *testing.T) {
 	}
 }
 
-func TestStreamCollection_InvalidID(t *testing.T) {
+func TestStreamExecution_InvalidID(t *testing.T) {
 	t.Parallel()
 	bus := membus.New()
 	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"honryu"}})

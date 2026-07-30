@@ -83,7 +83,7 @@ func (r *Repository) RunningScenarios(ctx context.Context) ([]ports.RunningScena
 	if err != nil {
 		return nil, err
 	}
-	return scanRunningPlans(rows)
+	return scanRunningScenarios(rows)
 }
 
 // RunningScenariosByExecution lists running scenarios for one execution.
@@ -93,10 +93,10 @@ func (r *Repository) RunningScenariosByExecution(ctx context.Context, executionI
 	if err != nil {
 		return nil, err
 	}
-	return scanRunningPlans(rows)
+	return scanRunningScenarios(rows)
 }
 
-func scanRunningPlans(rows *sql.Rows) ([]ports.RunningScenario, error) {
+func scanRunningScenarios(rows *sql.Rows) ([]ports.RunningScenario, error) {
 	defer func() { _ = rows.Close() }()
 	var out []ports.RunningScenario
 	for rows.Next() {

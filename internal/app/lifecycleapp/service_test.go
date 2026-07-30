@@ -84,7 +84,7 @@ func TestDeploy_HappyPath(t *testing.T) {
 	}
 }
 
-func TestDeploy_NoPlans(t *testing.T) {
+func TestDeploy_NoScenarios(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false) // no scenarios
 	if err := e.svc.Deploy(context.Background(), e.executionID); !errors.Is(err, run.ErrNoScenarios) {
@@ -104,7 +104,7 @@ func TestDeploy_RejectedWhileRunning(t *testing.T) {
 	}
 }
 
-func TestDeploy_MissingCollection(t *testing.T) {
+func TestDeploy_MissingExecution(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)
 	if err := e.svc.Deploy(context.Background(), 9999); !errors.Is(err, ports.ErrNotFound) {
@@ -456,7 +456,7 @@ func TestUsageHooks_FireOnTriggerAndTeardown(t *testing.T) {
 	}
 }
 
-func TestResume_ListsRunningPlans(t *testing.T) {
+func TestResume_ListsRunningScenarios(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)
 	ctx := context.Background()

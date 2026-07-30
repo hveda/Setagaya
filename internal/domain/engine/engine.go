@@ -21,7 +21,7 @@ type File struct {
 	CurrentSplit int    `json:"current_split"`
 }
 
-// Config is the payload delivered to a single engine when a plan is triggered.
+// Config is the payload delivered to a single engine when a scenario is triggered.
 // Duration/Concurrency/Rampup are strings to match the JMeter agent wire
 // contract carried over from v2.
 type Config struct {
@@ -58,7 +58,7 @@ func EngineName(projectID, executionID, scenarioID int64, engineID int) string {
 	return Name("engine", projectID, executionID, scenarioID, engineID)
 }
 
-// ScenarioName is the name shared by every engine of a plan (the deployment name).
+// ScenarioName is the name shared by every engine of a scenario (the deployment name).
 func ScenarioName(projectID, executionID, scenarioID int64) string {
 	return fmt.Sprintf("engine-%d-%d-%d", projectID, executionID, scenarioID)
 }
@@ -73,7 +73,7 @@ func IngressClass(projectID int64) string {
 	return fmt.Sprintf("ig-%d", projectID)
 }
 
-// BaseLabels are the selector labels shared by everything in a collection.
+// BaseLabels are the selector labels shared by everything in an execution.
 func BaseLabels(projectID, executionID int64) map[string]string {
 	return map[string]string{
 		"execution": strconv.FormatInt(executionID, 10),
@@ -81,7 +81,7 @@ func BaseLabels(projectID, executionID int64) map[string]string {
 	}
 }
 
-// ScenarioLabels label a plan's deployment (all engines of a plan).
+// ScenarioLabels label a scenario's deployment (all engines of a scenario).
 func ScenarioLabels(projectID, executionID, scenarioID int64) map[string]string {
 	base := BaseLabels(projectID, executionID)
 	base["scenario"] = strconv.FormatInt(scenarioID, 10)

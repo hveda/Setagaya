@@ -167,14 +167,14 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 		return err
 	}
 
-	collData, err := s.collectionFiles(ctx, executionID)
+	execData, err := s.executionFiles(ctx, executionID)
 	if err != nil {
 		return err
 	}
 
 	var triggerErrs []error
 	for i, ep := range scenarios {
-		if err := s.triggerScenario(ctx, coll, ec, collData, i, ep, runID); err != nil {
+		if err := s.triggerScenario(ctx, coll, ec, execData, i, ep, runID); err != nil {
 			triggerErrs = append(triggerErrs, err)
 			continue
 		}
@@ -200,7 +200,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	return nil
 }
 
-func (s *Service) triggerScenario(ctx context.Context, coll execution.Execution, ec loadprofile.Profile, collData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
+func (s *Service) triggerScenario(ctx context.Context, coll execution.Execution, ec loadprofile.Profile, execData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
 	pf, err := s.repo.ScenarioFilesFor(ctx, ep.ScenarioID)
 	if err != nil {
 		return err
@@ -209,11 +209,11 @@ func (s *Service) triggerScenario(ctx context.Context, coll execution.Execution,
 	if err != nil {
 		return err
 	}
-	in := engine.PlanInput{
+	in := engine.ScenarioInput{
 		ScenarioIndex:     index,
 		ScenarioCount:     len(ec.Tests),
 		ExecutionCSVSplit: coll.CSVSplit,
-		ExecutionData:     collData,
+		ExecutionData:     execData,
 		Engines:           ep.Engines,
 		Concurrency:       ep.Concurrency,
 		Rampup:            ep.Rampup,
@@ -369,7 +369,7 @@ func (s *Service) ensureTestFiles(ctx context.Context, scenarios []loadprofile.E
 	return nil
 }
 
-func (s *Service) collectionFiles(ctx context.Context, executionID int64) ([]engine.File, error) {
+func (s *Service) executionFiles(ctx context.Context, executionID int64) ([]engine.File, error) {
 	names, err := s.repo.ExecutionFilesFor(ctx, executionID)
 	if err != nil {
 		return nil, err

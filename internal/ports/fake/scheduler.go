@@ -15,11 +15,11 @@ import (
 // pod logs are controllable via exported fields.
 type Scheduler struct {
 	mu          sync.Mutex
-	deployments map[int64]map[int64]schedDeploy // collection -> plan -> deploy
+	deployments map[int64]map[int64]schedDeploy // execution -> scenario -> deploy
 
 	// Unreachable, when true, makes engines appear deployed but not routable.
 	Unreachable bool
-	// PodLogText is returned by PodLog for deployed plans.
+	// PodLogText is returned by PodLog for deployed scenarios.
 	PodLogText string
 	// IngressIP is reported by EngineDetail.
 	IngressIP string
@@ -58,21 +58,21 @@ func (s *Scheduler) now() time.Time {
 	return time.Now()
 }
 
-// DeployScenario records the deployment, keeping the earliest deploy time per plan.
+// DeployScenario records the deployment, keeping the earliest deploy time per scenario.
 func (s *Scheduler) DeployScenario(_ context.Context, spec ports.DeploySpec) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	plans, ok := s.deployments[spec.ExecutionID]
+	scenarios, ok := s.deployments[spec.ExecutionID]
 	if !ok {
-		plans = map[int64]schedDeploy{}
-		s.deployments[spec.ExecutionID] = plans
+		scenarios = map[int64]schedDeploy{}
+		s.deployments[spec.ExecutionID] = scenarios
 	}
-	if existing, ok := plans[spec.ScenarioID]; ok {
+	if existing, ok := scenarios[spec.ScenarioID]; ok {
 		existing.spec = spec
-		plans[spec.ScenarioID] = existing // keep original deployAt (idempotent)
+		scenarios[spec.ScenarioID] = existing // keep original deployAt (idempotent)
 		return nil
 	}
-	plans[spec.ScenarioID] = schedDeploy{spec: spec, deployAt: s.now()}
+	scenarios[spec.ScenarioID] = schedDeploy{spec: spec, deployAt: s.now()}
 	return nil
 }
 
@@ -91,12 +91,12 @@ func (s *Scheduler) EngineURLs(_ context.Context, executionID, scenarioID int64,
 	return urls, nil
 }
 
-// ExecutionStatus reports deployed/wanted engines and reachability per plan.
-func (s *Scheduler) ExecutionStatus(_ context.Context, executionID int64, plans []ports.ScenarioRef) (ports.ExecutionStatus, error) {
+// ExecutionStatus reports deployed/wanted engines and reachability per scenario.
+func (s *Scheduler) ExecutionStatus(_ context.Context, executionID int64, scenarios []ports.ScenarioRef) (ports.ExecutionStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status := ports.ExecutionStatus{}
-	for _, ref := range plans {
+	for _, ref := range scenarios {
 		pr := ports.ScenarioReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Engines}
 		if d, ok := s.deployments[executionID][ref.ScenarioID]; ok {
 			pr.EnginesDeployed = d.spec.Engines
@@ -108,7 +108,7 @@ func (s *Scheduler) ExecutionStatus(_ context.Context, executionID int64, plans 
 	return status, nil
 }
 
-// EngineDetail lists the engine pods of a collection.
+// EngineDetail lists the engine pods of an execution.
 func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports.ExecutionDetail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,7 +131,7 @@ func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports
 	return detail, nil
 }
 
-// PurgeExecution removes all record of a collection's deployments.
+// PurgeExecution removes all record of a execution's deployments.
 func (s *Scheduler) PurgeExecution(_ context.Context, executionID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,7 +139,7 @@ func (s *Scheduler) PurgeExecution(_ context.Context, executionID int64) error {
 	return nil
 }
 
-// PodLog returns the canned log for a deployed plan.
+// PodLog returns the canned log for a deployed scenario.
 func (s *Scheduler) PodLog(_ context.Context, executionID, scenarioID int64) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -149,13 +149,13 @@ func (s *Scheduler) PodLog(_ context.Context, executionID, scenarioID int64) (st
 	return s.PodLogText, nil
 }
 
-// DeployedExecutions maps collection id to its earliest deploy time.
+// DeployedExecutions maps execution id to its earliest deploy time.
 func (s *Scheduler) DeployedExecutions(_ context.Context) (map[int64]time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[int64]time.Time{}
-	for executionID, plans := range s.deployments {
-		for _, d := range plans {
+	for executionID, scenarios := range s.deployments {
+		for _, d := range scenarios {
 			if cur, ok := out[executionID]; !ok || d.deployAt.Before(cur) {
 				out[executionID] = d.deployAt
 			}

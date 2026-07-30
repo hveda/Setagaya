@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// deployExecution provisions the engines for a collection.
+// deployExecution provisions the engines for a execution.
 func (h *handlers) deployExecution(w http.ResponseWriter, r *http.Request) {
 	h.lifecycleMutation(w, r, "engines deploying", h.deps.Lifecycle.Deploy)
 }
@@ -22,15 +22,15 @@ func (h *handlers) stopExecution(w http.ResponseWriter, r *http.Request) {
 
 // purgeExecution stops any run and removes the engines.
 func (h *handlers) purgeExecution(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMutation(w, r, "collection purged", h.deps.Lifecycle.Purge)
+	h.lifecycleMutation(w, r, "execution purged", h.deps.Lifecycle.Purge)
 }
 
-// lifecycleMutation runs an owner-checked collection operation of the shape
+// lifecycleMutation runs an owner-checked execution operation of the shape
 // func(ctx, executionID) error and reports a JSON message on success.
 func (h *handlers) lifecycleMutation(w http.ResponseWriter, r *http.Request, msg string, op func(context.Context, int64) error) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	if err := h.authorizeExecution(r, id); err != nil {
@@ -44,11 +44,11 @@ func (h *handlers) lifecycleMutation(w http.ResponseWriter, r *http.Request, msg
 	writeJSON(w, http.StatusOK, map[string]string{"message": msg})
 }
 
-// executionStatus reports the deployment/run status of a collection.
+// executionStatus reports the deployment/run status of a execution.
 func (h *handlers) executionStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	status, err := h.deps.Lifecycle.Status(r.Context(), id)
@@ -59,11 +59,11 @@ func (h *handlers) executionStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-// executionEngines reports the engine pods and ingress of a collection.
+// executionEngines reports the engine pods and ingress of a execution.
 func (h *handlers) executionEngines(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	c, err := h.deps.Executions.Get(r.Context(), id)
@@ -79,16 +79,16 @@ func (h *handlers) executionEngines(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
-// scenarioPodLog streams the current logs of a plan's engine pod.
+// scenarioPodLog streams the current logs of a scenario's engine pod.
 func (h *handlers) scenarioPodLog(w http.ResponseWriter, r *http.Request) {
 	executionID, ok := pathInt(r, "execution_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid collection id")
+		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
 	scenarioID, ok := pathInt(r, "scenario_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
 	log, err := h.deps.Lifecycle.PodLog(r.Context(), executionID, scenarioID)

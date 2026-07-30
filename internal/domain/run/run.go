@@ -1,4 +1,4 @@
-// Package run holds the pure lifecycle domain of a collection's test run: the
+// Package run holds the pure lifecycle domain of a execution's test run: the
 // deployment phase, run identity, the legal state transitions between them, and
 // the virtual-user usage calculation. No I/O.
 package run
@@ -10,7 +10,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
-// Phase is the lifecycle phase of a collection's engines.
+// Phase is the lifecycle phase of a execution's engines.
 type Phase string
 
 const (
@@ -31,7 +31,7 @@ var (
 	ErrNotRunning      = errors.New("run: no run is in progress")
 )
 
-// Run is an in-progress or completed test run of a collection.
+// Run is an in-progress or completed test run of an execution.
 type Run struct {
 	ID          int64
 	ExecutionID int64
@@ -72,7 +72,7 @@ func CanDeploy(phase Phase) error {
 	return nil
 }
 
-// CanTrigger validates a trigger request: at least one plan must exist, engines
+// CanTrigger validates a trigger request: at least one scenario must exist, engines
 // must be deployed and fully ready, and no run may already be in progress.
 func CanTrigger(phase Phase, ec loadprofile.Profile, enginesReady int) error {
 	if len(ec.Tests) == 0 {
@@ -98,8 +98,8 @@ func CanStop(phase Phase) error {
 	return nil
 }
 
-// VirtualUsers is the total concurrent virtual users a collection drives: the
-// sum over plans of engines * concurrency. Used for usage accounting.
+// VirtualUsers is the total concurrent virtual users an execution drives: the
+// sum over scenarios of engines * concurrency. Used for usage accounting.
 func VirtualUsers(ec loadprofile.Profile) int {
 	vu := 0
 	for _, ep := range ec.Tests {

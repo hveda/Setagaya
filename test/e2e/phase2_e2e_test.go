@@ -49,7 +49,7 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 
 	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
 	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
-	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx/>")
+	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "scenario.jmx", "<jmx/>")
 	collID := postForm(t, client, srv.URL+"/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
 	cfg := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 2\n      duration: 30\n", collID, scenarioID)
 	putMultipart(t, client, srv.URL+"/api/executions/"+itoa(collID)+"/config", "config.yaml", cfg)
@@ -67,7 +67,7 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 		t.Fatalf("after trigger phase = %q, want running", st.Phase)
 	}
 	if len(st.Scenarios) != 1 || !st.Scenarios[0].InProgress {
-		t.Fatalf("after trigger plan not in progress: %+v", st.Scenarios)
+		t.Fatalf("after trigger scenario not in progress: %+v", st.Scenarios)
 	}
 	if exec.TriggerCount() != 2 {
 		t.Fatalf("triggered engines = %d, want 2", exec.TriggerCount())

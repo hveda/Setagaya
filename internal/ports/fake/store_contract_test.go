@@ -9,14 +9,14 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports/repositorytest"
 )
 
-func TestFakeStore_PlanContract(t *testing.T) {
+func TestFakeStore_ScenarioContract(t *testing.T) {
 	t.Parallel()
 	repositorytest.RunScenarioRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
 		return fake.NewStore()
 	})
 }
 
-func TestFakeStore_CollectionContract(t *testing.T) {
+func TestFakeStore_ExecutionContract(t *testing.T) {
 	t.Parallel()
 	repositorytest.RunExecutionRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
 		return fake.NewStore()

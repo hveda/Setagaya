@@ -60,12 +60,12 @@ func TestLocalStore_URL(t *testing.T) {
 	t.Parallel()
 
 	withBase := local.New(t.TempDir(), "https://cdn.example.com/bucket/")
-	if got := withBase.URL("plan/1/a.jmx"); got != "https://cdn.example.com/bucket/plan/1/a.jmx" {
+	if got := withBase.URL("scenario/1/a.jmx"); got != "https://cdn.example.com/bucket/scenario/1/a.jmx" {
 		t.Errorf("URL with base = %q", got)
 	}
 
 	noBase := local.New(t.TempDir(), "")
-	if got := noBase.URL("plan/1/a.jmx"); !strings.HasPrefix(got, "file://") {
+	if got := noBase.URL("scenario/1/a.jmx"); !strings.HasPrefix(got, "file://") {
 		t.Errorf("URL without base = %q, want file:// prefix", got)
 	}
 }

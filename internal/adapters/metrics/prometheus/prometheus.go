@@ -14,11 +14,11 @@ import (
 
 // Sink records engine metrics into Prometheus vectors.
 type Sink struct {
-	collectionLatency *prometheus.SummaryVec
-	planLatency       *prometheus.SummaryVec
-	labelLatency      *prometheus.SummaryVec
-	statusCounter     *prometheus.CounterVec
-	threadsGauge      *prometheus.GaugeVec
+	executionLatency *prometheus.SummaryVec
+	scenarioLatency  *prometheus.SummaryVec
+	labelLatency     *prometheus.SummaryVec
+	statusCounter    *prometheus.CounterVec
+	threadsGauge     *prometheus.GaugeVec
 }
 
 var _ ports.MetricsSink = (*Sink)(nil)
@@ -30,13 +30,13 @@ var objectives = map[float64]float64{0.9: 0.01, 0.99: 0.001}
 // prometheus.DefaultRegisterer for the default /metrics endpoint).
 func New(reg prometheus.Registerer) *Sink {
 	s := &Sink{
-		collectionLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+		executionLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
 			Namespace: "honryu", Name: "latency_execution",
-			Help: "Percentile latency of a collection", Objectives: objectives,
+			Help: "Percentile latency of a execution", Objectives: objectives,
 		}, []string{"execution_id", "run_id"}),
-		planLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+		scenarioLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
 			Namespace: "honryu", Name: "latency_scenario",
-			Help: "Percentile latency of a plan", Objectives: objectives,
+			Help: "Percentile latency of a scenario", Objectives: objectives,
 		}, []string{"execution_id", "scenario_id", "run_id"}),
 		labelLatency: prometheus.NewSummaryVec(prometheus.SummaryOpts{
 			Namespace: "honryu", Name: "latency_label",
@@ -51,25 +51,25 @@ func New(reg prometheus.Registerer) *Sink {
 			Help: "Current number of threads running in the engine",
 		}, []string{"execution_id", "scenario_id", "run_id", "engine_no"}),
 	}
-	reg.MustRegister(s.collectionLatency, s.planLatency, s.labelLatency, s.statusCounter, s.threadsGauge)
+	reg.MustRegister(s.executionLatency, s.scenarioLatency, s.labelLatency, s.statusCounter, s.threadsGauge)
 	return s
 }
 
 // Record ingests one measurement into the latency, status, and threads series.
 func (s *Sink) Record(m engine.Metric) {
-	s.collectionLatency.WithLabelValues(m.ExecutionID, m.RunID).Observe(m.Latency)
-	s.planLatency.WithLabelValues(m.ExecutionID, m.ScenarioID, m.RunID).Observe(m.Latency)
+	s.executionLatency.WithLabelValues(m.ExecutionID, m.RunID).Observe(m.Latency)
+	s.scenarioLatency.WithLabelValues(m.ExecutionID, m.ScenarioID, m.RunID).Observe(m.Latency)
 	s.labelLatency.WithLabelValues(m.ExecutionID, m.Label, m.RunID).Observe(m.Latency)
 	s.statusCounter.WithLabelValues(m.ExecutionID, m.ScenarioID, m.RunID, m.EngineID, m.Label, m.Status).Inc()
 	s.threadsGauge.WithLabelValues(m.ExecutionID, m.ScenarioID, m.RunID, m.EngineID).Set(m.Threads)
 }
 
-// DeleteExecution drops every series carrying the collection's id label.
+// DeleteExecution drops every series carrying the execution's id label.
 func (s *Sink) DeleteExecution(executionID int64) {
 	id := strconv.FormatInt(executionID, 10)
 	match := prometheus.Labels{"execution_id": id}
-	s.collectionLatency.DeletePartialMatch(match)
-	s.planLatency.DeletePartialMatch(match)
+	s.executionLatency.DeletePartialMatch(match)
+	s.scenarioLatency.DeletePartialMatch(match)
 	s.labelLatency.DeletePartialMatch(match)
 	s.statusCounter.DeletePartialMatch(match)
 	s.threadsGauge.DeletePartialMatch(match)

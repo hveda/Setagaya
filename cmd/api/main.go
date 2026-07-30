@@ -207,7 +207,7 @@ func startAutoPurge(ctx context.Context, admin *adminapp.Service, cfg config.Clu
 				if purged, err := admin.AutoPurgeStale(ctx, cfg.AutoPurgeIdle); err != nil {
 					slog.Warn("auto-purge sweep", "error", err)
 				} else if len(purged) > 0 {
-					slog.Info("auto-purged idle collections", "collections", purged)
+					slog.Info("auto-purged idle executions", "executions", purged)
 				}
 			}
 		}

@@ -30,7 +30,7 @@ type lifecycleEnv struct {
 }
 
 // newLifecycleEnv wires a router with the lifecycle service and seeds an owned
-// collection with one plan (JMX test file) and a stored execution config.
+// execution with one scenario (JMX test file) and a stored execution config.
 func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	t.Helper()
 	ctx := context.Background()
@@ -134,7 +134,7 @@ func TestLifecycleHTTP_Forbidden(t *testing.T) {
 	base := "/api/executions/" + itoa(e.executionID)
 	for _, op := range []string{"/deploy", "/trigger", "/stop", "/purge"} {
 		if rec := do(t, e.h, http.MethodPost, base+op); rec.Code != http.StatusForbidden {
-			t.Errorf("%s on foreign collection = %d, want 403", op, rec.Code)
+			t.Errorf("%s on foreign execution = %d, want 403", op, rec.Code)
 		}
 	}
 }
@@ -159,7 +159,7 @@ func TestLifecycleHTTP_InvalidIDs(t *testing.T) {
 	}
 }
 
-func TestLifecycleHTTP_DeployMissingCollection(t *testing.T) {
+func TestLifecycleHTTP_DeployMissingExecution(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "honryu")
 	if rec := do(t, e.h, http.MethodPost, "/api/executions/9999/deploy"); rec.Code != http.StatusNotFound {
@@ -167,11 +167,11 @@ func TestLifecycleHTTP_DeployMissingCollection(t *testing.T) {
 	}
 }
 
-func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
+func TestLifecycleHTTP_DeployNoScenariosIsBadRequest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	e := newLifecycleEnv(t, "honryu")
-	// A fresh owned collection with no execution config.
+	// A fresh owned execution with no execution config.
 	c, _ := e.store.GetExecution(ctx, e.executionID)
 	bare, _ := execution.New("bare", c.ProjectID)
 	bareID, _ := e.store.CreateExecution(ctx, bare)
@@ -182,7 +182,7 @@ func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
 	}
 }
 
-func TestLifecycleHTTP_EnginesMissingCollection(t *testing.T) {
+func TestLifecycleHTTP_EnginesMissingExecution(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "honryu")
 	if rec := do(t, e.h, http.MethodGet, "/api/executions/9999/engines"); rec.Code != http.StatusNotFound {
@@ -193,7 +193,7 @@ func TestLifecycleHTTP_EnginesMissingCollection(t *testing.T) {
 func TestLifecycleHTTP_PodLogNotDeployed(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "honryu")
-	// No deploy: the plan's engines are unreachable -> 409 conflict.
+	// No deploy: the scenario's engines are unreachable -> 409 conflict.
 	rec := do(t, e.h, http.MethodGet, "/api/executions/"+itoa(e.executionID)+"/scenarios/"+itoa(e.scenarioID)+"/logs")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("logs not deployed = %d, want 409", rec.Code)

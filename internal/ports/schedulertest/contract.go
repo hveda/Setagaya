@@ -11,7 +11,7 @@ import (
 )
 
 // Harness wires a Scheduler under test together with a Ready hook that
-// simulates the platform bringing a plan's engines up (pods ready, routable).
+// simulates the platform bringing a scenario's engines up (pods ready, routable).
 // Real clusters do this on their own; the fake and fake-clientset adapters use
 // the hook to reach a deterministic ready state.
 type Harness struct {
@@ -27,31 +27,31 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 	t.Helper()
 	ctx := context.Background()
 	const (
-		project    = int64(1)
-		collection = int64(7)
-		planA      = int64(10)
-		planB      = int64(11)
+		project   = int64(1)
+		execution = int64(7)
+		planA     = int64(10)
+		planB     = int64(11)
 	)
 
 	t.Run("deploy status urls detail purge", func(t *testing.T) {
 		h := newHarness(t)
 		s := h.Scheduler
 
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, ScenarioID: planA, Engines: 2, Image: "jmeter"})
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, ScenarioID: planB, Engines: 3, Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: execution, ScenarioID: planA, Engines: 2, Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: execution, ScenarioID: planB, Engines: 3, Image: "jmeter"})
 
 		deployed, err := s.DeployedExecutions(ctx)
 		if err != nil {
 			t.Fatalf("DeployedExecutions: %v", err)
 		}
-		if _, ok := deployed[collection]; !ok {
-			t.Fatalf("collection %d not reported deployed: %v", collection, deployed)
+		if _, ok := deployed[execution]; !ok {
+			t.Fatalf("execution %d not reported deployed: %v", execution, deployed)
 		}
 
-		h.Ready(collection, planA, 2)
-		h.Ready(collection, planB, 3)
+		h.Ready(execution, planA, 2)
+		h.Ready(execution, planB, 3)
 
-		urls, err := s.EngineURLs(ctx, collection, planA, 2)
+		urls, err := s.EngineURLs(ctx, execution, planA, 2)
 		if err != nil {
 			t.Fatalf("EngineURLs: %v", err)
 		}
@@ -59,28 +59,28 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("EngineURLs len = %d, want 2 (%v)", len(urls), urls)
 		}
 
-		status, err := s.ExecutionStatus(ctx, collection, []ports.ScenarioRef{{ScenarioID: planA, Engines: 2}, {ScenarioID: planB, Engines: 3}})
+		status, err := s.ExecutionStatus(ctx, execution, []ports.ScenarioRef{{ScenarioID: planA, Engines: 2}, {ScenarioID: planB, Engines: 3}})
 		if err != nil {
 			t.Fatalf("ExecutionStatus: %v", err)
 		}
 		if len(status.Scenarios) != 2 {
-			t.Fatalf("status plans = %d, want 2", len(status.Scenarios))
+			t.Fatalf("status scenarios = %d, want 2", len(status.Scenarios))
 		}
-		byPlan := map[int64]ports.ScenarioReadiness{}
+		byScenario := map[int64]ports.ScenarioReadiness{}
 		for _, p := range status.Scenarios {
-			byPlan[p.ScenarioID] = p
+			byScenario[p.ScenarioID] = p
 		}
-		if got := byPlan[planA]; got.EnginesWanted != 2 || got.EnginesDeployed != 2 || !got.Reachable {
+		if got := byScenario[planA]; got.EnginesWanted != 2 || got.EnginesDeployed != 2 || !got.Reachable {
 			t.Fatalf("planA readiness = %+v, want wanted=2 deployed=2 reachable", got)
 		}
-		if got := byPlan[planB]; got.EnginesWanted != 3 || got.EnginesDeployed != 3 {
+		if got := byScenario[planB]; got.EnginesWanted != 3 || got.EnginesDeployed != 3 {
 			t.Fatalf("planB readiness = %+v, want wanted=3 deployed=3", got)
 		}
 		if status.PoolSize != 5 {
 			t.Fatalf("PoolSize = %d, want 5", status.PoolSize)
 		}
 
-		detail, err := s.EngineDetail(ctx, project, collection)
+		detail, err := s.EngineDetail(ctx, project, execution)
 		if err != nil {
 			t.Fatalf("EngineDetail: %v", err)
 		}
@@ -88,21 +88,21 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("detail engines = %d, want 5", len(detail.Engines))
 		}
 
-		if _, err := s.PodLog(ctx, collection, planA); err != nil {
+		if _, err := s.PodLog(ctx, execution, planA); err != nil {
 			t.Fatalf("PodLog: %v", err)
 		}
 
-		if err := s.PurgeExecution(ctx, collection); err != nil {
+		if err := s.PurgeExecution(ctx, execution); err != nil {
 			t.Fatalf("PurgeExecution: %v", err)
 		}
 		deployed, err = s.DeployedExecutions(ctx)
 		if err != nil {
 			t.Fatalf("DeployedExecutions after purge: %v", err)
 		}
-		if _, ok := deployed[collection]; ok {
-			t.Fatalf("collection still deployed after purge: %v", deployed)
+		if _, ok := deployed[execution]; ok {
+			t.Fatalf("execution still deployed after purge: %v", deployed)
 		}
-		if _, err := s.EngineURLs(ctx, collection, planA, 2); err == nil {
+		if _, err := s.EngineURLs(ctx, execution, planA, 2); err == nil {
 			t.Fatalf("EngineURLs after purge: want error, got nil")
 		}
 	})
@@ -118,6 +118,6 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 func mustDeploy(t *testing.T, s ports.Scheduler, spec ports.DeploySpec) {
 	t.Helper()
 	if err := s.DeployScenario(context.Background(), spec); err != nil {
-		t.Fatalf("DeployScenario(plan %d): %v", spec.ScenarioID, err)
+		t.Fatalf("DeployScenario(scenario %d): %v", spec.ScenarioID, err)
 	}
 }

@@ -34,12 +34,12 @@ func TestLabels(t *testing.T) {
 		t.Fatalf("BaseLabels = %v", base)
 	}
 	if len(base) != 2 {
-		t.Errorf("BaseLabels should have exactly project+collection, got %v", base)
+		t.Errorf("BaseLabels should have exactly project+execution, got %v", base)
 	}
 
-	plan := engine.ScenarioLabels(1, 2, 3)
-	if plan["scenario"] != "3" || plan["kind"] != "executor" {
-		t.Fatalf("ScenarioLabels = %v", plan)
+	scenario := engine.ScenarioLabels(1, 2, 3)
+	if scenario["scenario"] != "3" || scenario["kind"] != "executor" {
+		t.Fatalf("ScenarioLabels = %v", scenario)
 	}
 
 	eng := engine.EngineLabels(1, 2, 3, "engine-1-2-3-0")
@@ -47,7 +47,7 @@ func TestLabels(t *testing.T) {
 		t.Fatalf("EngineLabels = %v", eng)
 	}
 	// ScenarioLabels must not have been mutated by EngineLabels sharing a base.
-	if _, ok := plan["app"]; ok {
+	if _, ok := scenario["app"]; ok {
 		t.Error("ScenarioLabels leaked an app label")
 	}
 }

@@ -21,7 +21,7 @@ type planResponse struct {
 func (h *handlers) getScenario(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
 	p, err := h.deps.Scenarios.Get(r.Context(), id)
@@ -63,16 +63,16 @@ func (h *handlers) createScenario(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toPlanResponse(p))
+	writeJSON(w, http.StatusCreated, toScenarioResponse(p))
 }
 
 func (h *handlers) deleteScenario(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizePlan(r, id); err != nil {
+	if err := h.authorizeScenario(r, id); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -80,13 +80,13 @@ func (h *handlers) deleteScenario(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "plan deleted"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "scenario deleted"})
 }
 
 func (h *handlers) listScenarioFiles(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
 	files, err := h.deps.Scenarios.Files(r.Context(), id)
@@ -100,10 +100,10 @@ func (h *handlers) listScenarioFiles(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) uploadScenarioFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizePlan(r, id); err != nil {
+	if err := h.authorizeScenario(r, id); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -123,10 +123,10 @@ func (h *handlers) uploadScenarioFile(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizePlan(r, id); err != nil {
+	if err := h.authorizeScenario(r, id); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -137,8 +137,8 @@ func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "deleted"})
 }
 
-// authorizePlan loads a plan and verifies the caller owns its project.
-func (h *handlers) authorizePlan(r *http.Request, scenarioID int64) error {
+// authorizeScenario loads a scenario and verifies the caller owns its project.
+func (h *handlers) authorizeScenario(r *http.Request, scenarioID int64) error {
 	p, err := h.deps.Scenarios.Get(r.Context(), scenarioID)
 	if err != nil {
 		return err
@@ -146,7 +146,7 @@ func (h *handlers) authorizePlan(r *http.Request, scenarioID int64) error {
 	return h.authorizeProject(r.Context(), p.ProjectID)
 }
 
-func toPlanResponse(p scenario.Scenario) planResponse {
+func toScenarioResponse(p scenario.Scenario) planResponse {
 	return planResponse{
 		ID:          p.ID,
 		Name:        p.Name,

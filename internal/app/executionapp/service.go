@@ -92,7 +92,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 	for _, name := range files {
-		if delErr := s.store.Delete(ctx, collectionKey(id, name)); delErr != nil {
+		if delErr := s.store.Delete(ctx, executionKey(id, name)); delErr != nil {
 			return delErr
 		}
 	}
@@ -107,7 +107,7 @@ func (s *Service) Files(ctx context.Context, executionID int64) ([]FileRef, erro
 	}
 	out := make([]FileRef, 0, len(names))
 	for _, name := range names {
-		out = append(out, FileRef{Filename: name, URL: s.store.URL(collectionKey(executionID, name))})
+		out = append(out, FileRef{Filename: name, URL: s.store.URL(executionKey(executionID, name))})
 	}
 	return out, nil
 }
@@ -124,7 +124,7 @@ func (s *Service) UploadFile(ctx context.Context, executionID int64, filename st
 	if err := s.repo.AddExecutionFile(ctx, executionID, filename); err != nil {
 		return err
 	}
-	if err := s.store.Upload(ctx, collectionKey(executionID, filename), content); err != nil {
+	if err := s.store.Upload(ctx, executionKey(executionID, filename), content); err != nil {
 		_ = s.repo.DeleteExecutionFile(ctx, executionID, filename)
 		return err
 	}
@@ -136,7 +136,7 @@ func (s *Service) DownloadFile(ctx context.Context, executionID int64, filename 
 	if err := validateFilename(filename); err != nil {
 		return nil, err
 	}
-	return s.store.Download(ctx, collectionKey(executionID, filename))
+	return s.store.Download(ctx, executionKey(executionID, filename))
 }
 
 // DeleteFile removes an execution data file record and its stored object.
@@ -147,7 +147,7 @@ func (s *Service) DeleteFile(ctx context.Context, executionID int64, filename st
 	if err := s.repo.DeleteExecutionFile(ctx, executionID, filename); err != nil {
 		return err
 	}
-	return s.store.Delete(ctx, collectionKey(executionID, filename))
+	return s.store.Delete(ctx, executionKey(executionID, filename))
 }
 
 // StoreConfig validates and persists the execution configuration for a
@@ -199,7 +199,7 @@ func (s *Service) GetConfig(ctx context.Context, executionID int64) (loadprofile
 	}}, nil
 }
 
-func collectionKey(executionID int64, filename string) string {
+func executionKey(executionID int64, filename string) string {
 	return fmt.Sprintf("execution/%d/%s", executionID, filename)
 }
 
