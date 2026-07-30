@@ -24,7 +24,7 @@ const (
 
 // Lifecycle transition errors. Callers compare with errors.Is.
 var (
-	ErrNoPlans         = errors.New("run: collection has no execution plans")
+	ErrNoScenarios     = errors.New("run: execution has no load profile entries")
 	ErrNotDeployed     = errors.New("run: engines are not deployed")
 	ErrEnginesNotReady = errors.New("run: not all engines are ready")
 	ErrAlreadyRunning  = errors.New("run: a run is already in progress")
@@ -76,7 +76,7 @@ func CanDeploy(phase Phase) error {
 // must be deployed and fully ready, and no run may already be in progress.
 func CanTrigger(phase Phase, ec loadprofile.Profile, enginesReady int) error {
 	if len(ec.Tests) == 0 {
-		return ErrNoPlans
+		return ErrNoScenarios
 	}
 	switch phase {
 	case PhaseIdle:

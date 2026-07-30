@@ -108,20 +108,20 @@ func TestService_Delete_RefusesWhenNotEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// Project with a plan cannot be deleted.
-	withPlan := fake.NewStore()
-	pid, _ := withPlan.CreateProject(ctx, mustProject(t, "p", "team-a"))
-	_, _ = withPlan.CreateScenario(ctx, mustPlan(t, "smoke", pid))
-	if err := projectapp.NewService(withPlan).Delete(ctx, pid); !errors.Is(err, projectapp.ErrProjectHasPlans) {
-		t.Fatalf("Delete(project with plan) = %v, want ErrProjectHasPlans", err)
+	// Project with a scenario cannot be deleted.
+	withScenario := fake.NewStore()
+	pid, _ := withScenario.CreateProject(ctx, mustProject(t, "p", "team-a"))
+	_, _ = withScenario.CreateScenario(ctx, mustScenario(t, "smoke", pid))
+	if err := projectapp.NewService(withScenario).Delete(ctx, pid); !errors.Is(err, projectapp.ErrProjectHasScenarios) {
+		t.Fatalf("Delete(project with scenario) = %v, want ErrProjectHasScenarios", err)
 	}
 
-	// Project with a collection cannot be deleted.
+	// Project with an execution cannot be deleted.
 	withColl := fake.NewStore()
 	pid2, _ := withColl.CreateProject(ctx, mustProject(t, "p", "team-a"))
-	_, _ = withColl.CreateExecution(ctx, mustCollection(t, "peak", pid2))
-	if err := projectapp.NewService(withColl).Delete(ctx, pid2); !errors.Is(err, projectapp.ErrProjectHasCollections) {
-		t.Fatalf("Delete(project with collection) = %v, want ErrProjectHasCollections", err)
+	_, _ = withColl.CreateExecution(ctx, mustExecution(t, "peak", pid2))
+	if err := projectapp.NewService(withColl).Delete(ctx, pid2); !errors.Is(err, projectapp.ErrProjectHasExecutions) {
+		t.Fatalf("Delete(project with execution) = %v, want ErrProjectHasExecutions", err)
 	}
 }
 
@@ -134,7 +134,7 @@ func mustProject(t *testing.T, name, owner string) project.Project {
 	return p
 }
 
-func mustPlan(t *testing.T, name string, projectID int64) scenario.Scenario {
+func mustScenario(t *testing.T, name string, projectID int64) scenario.Scenario {
 	t.Helper()
 	p, err := scenario.New(name, projectID)
 	if err != nil {
@@ -143,7 +143,7 @@ func mustPlan(t *testing.T, name string, projectID int64) scenario.Scenario {
 	return p
 }
 
-func mustCollection(t *testing.T, name string, projectID int64) execution.Execution {
+func mustExecution(t *testing.T, name string, projectID int64) execution.Execution {
 	t.Helper()
 	c, err := execution.New(name, projectID)
 	if err != nil {

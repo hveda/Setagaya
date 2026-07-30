@@ -20,11 +20,11 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// ErrNoTestFile is returned when a plan to be triggered has no JMX test file.
-var ErrNoTestFile = errors.New("lifecycle: plan has no test file")
+// ErrNoTestFile is returned when a scenario to be triggered has no JMX test file.
+var ErrNoTestFile = errors.New("lifecycle: scenario has no test file")
 
 // Repo is the persistence the lifecycle use-cases need: read access to the
-// collection, its execution plans and files, plus run/running-plan state.
+// execution, its execution scenarios and files, plus run/running-scenario state.
 type Repo interface {
 	GetProject(ctx context.Context, id int64) (project.Project, error)
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
@@ -35,7 +35,7 @@ type Repo interface {
 	ports.RunRepository
 }
 
-// Metrics is the metric-collection lifecycle the run drives: Start streaming on
+// Metrics is the metric-execution lifecycle the run drives: Start streaming on
 // trigger, Stop on teardown, and Purge (stop + drop series) on purge. The
 // metricsapp service implements it; a no-op default is used when none is wired
 // (e.g. in tests that don't exercise metrics).
@@ -98,26 +98,26 @@ func (s *Service) WithUsage(u Usage) *Service {
 	return s
 }
 
-// Deploy provisions the engines for every plan of a collection. It is rejected
+// Deploy provisions the engines for every scenario of an execution. It is rejected
 // while a run is in progress and is otherwise idempotent.
 func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	plans, err := s.repo.LoadProfileFor(ctx, executionID)
+	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	if len(plans) == 0 {
-		return run.ErrNoPlans
+	if len(scenarios) == 0 {
+		return run.ErrNoScenarios
 	}
 	if _, running, err := s.repo.CurrentRun(ctx, executionID); err != nil {
 		return err
 	} else if err := run.CanDeploy(run.DerivePhase(0, running)); err != nil {
 		return err
 	}
-	for _, ep := range plans {
+	for _, ep := range scenarios {
 		spec := ports.DeploySpec{
 			ProjectID:   coll.ProjectID,
 			ExecutionID: executionID,
@@ -133,19 +133,19 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 }
 
 // Trigger starts a run across all deployed, ready engines. Engines must be
-// deployed and reachable; every plan must have a test file.
+// deployed and reachable; every scenario must have a test file.
 func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	plans, err := s.repo.LoadProfileFor(ctx, executionID)
+	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	ec := loadprofile.Profile{ExecutionID: executionID, Tests: plans, CSVSplit: coll.CSVSplit}
+	ec := loadprofile.Profile{ExecutionID: executionID, Tests: scenarios, CSVSplit: coll.CSVSplit}
 
-	if err := s.ensureTestFiles(ctx, plans); err != nil {
+	if err := s.ensureTestFiles(ctx, scenarios); err != nil {
 		return err
 	}
 
@@ -153,7 +153,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	if err != nil {
 		return err
 	}
-	status, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(plans))
+	status, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(scenarios))
 	if err != nil {
 		return err
 	}
@@ -173,8 +173,8 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	}
 
 	var triggerErrs []error
-	for i, ep := range plans {
-		if err := s.triggerPlan(ctx, coll, ec, collData, i, ep, runID); err != nil {
+	for i, ep := range scenarios {
+		if err := s.triggerScenario(ctx, coll, ec, collData, i, ep, runID); err != nil {
 			triggerErrs = append(triggerErrs, err)
 			continue
 		}
@@ -183,8 +183,8 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 		}
 	}
 
-	if len(triggerErrs) == len(plans) {
-		// Every plan failed: roll the run back so the collection is triggerable
+	if len(triggerErrs) == len(scenarios) {
+		// Every scenario failed: roll the run back so the execution is triggerable
 		// again after the operator fixes the problem.
 		_ = s.repo.StopRun(ctx, executionID)
 	}
@@ -200,7 +200,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	return nil
 }
 
-func (s *Service) triggerPlan(ctx context.Context, coll execution.Execution, ec loadprofile.Profile, collData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
+func (s *Service) triggerScenario(ctx context.Context, coll execution.Execution, ec loadprofile.Profile, collData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
 	pf, err := s.repo.ScenarioFilesFor(ctx, ep.ScenarioID)
 	if err != nil {
 		return err
@@ -210,18 +210,18 @@ func (s *Service) triggerPlan(ctx context.Context, coll execution.Execution, ec 
 		return err
 	}
 	in := engine.PlanInput{
-		PlanIndex:          index,
-		PlanCount:          len(ec.Tests),
-		CollectionCSVSplit: coll.CSVSplit,
-		CollectionData:     collData,
-		Engines:            ep.Engines,
-		Concurrency:        ep.Concurrency,
-		Rampup:             ep.Rampup,
-		Duration:           ep.Duration,
-		CSVSplit:           ep.CSVSplit,
-		TestFile:           s.planFile(ep.ScenarioID, pf.TestFile),
-		PlanData:           s.planFiles(ep.ScenarioID, pf.Data),
-		RunID:              runID,
+		ScenarioIndex:     index,
+		ScenarioCount:     len(ec.Tests),
+		ExecutionCSVSplit: coll.CSVSplit,
+		ExecutionData:     collData,
+		Engines:           ep.Engines,
+		Concurrency:       ep.Concurrency,
+		Rampup:            ep.Rampup,
+		Duration:          ep.Duration,
+		CSVSplit:          ep.CSVSplit,
+		TestFile:          s.planFile(ep.ScenarioID, pf.TestFile),
+		ScenarioData:      s.planFiles(ep.ScenarioID, pf.Data),
+		RunID:             runID,
 	}
 	configs := engine.BuildConfigs(in)
 	for i, cfg := range configs {
@@ -245,7 +245,7 @@ func (s *Service) Stop(ctx context.Context, executionID int64) error {
 	return s.teardown(ctx, executionID)
 }
 
-// Purge stops any in-progress run and removes all engines of a collection.
+// Purge stops any in-progress run and removes all engines of an execution.
 func (s *Service) Purge(ctx context.Context, executionID int64) error {
 	if _, running, err := s.repo.CurrentRun(ctx, executionID); err != nil {
 		return err
@@ -261,15 +261,15 @@ func (s *Service) Purge(ctx context.Context, executionID int64) error {
 	return nil
 }
 
-// teardown stops metric collection and engines, and clears run/running-plan
+// teardown stops metric execution and engines, and clears run/running-scenario
 // state (best effort on the engine stop calls, which may already be gone).
 func (s *Service) teardown(ctx context.Context, executionID int64) error {
 	s.metrics.Stop(executionID)
-	plans, err := s.repo.LoadProfileFor(ctx, executionID)
+	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	for _, ep := range plans {
+	for _, ep := range scenarios {
 		if urls, err := s.sched.EngineURLs(ctx, executionID, ep.ScenarioID, ep.Engines); err == nil {
 			for _, url := range urls {
 				_ = s.exec.Stop(ctx, url)
@@ -280,13 +280,13 @@ func (s *Service) teardown(ctx context.Context, executionID int64) error {
 		}
 	}
 	// Close the usage launch (best effort).
-	vu := run.VirtualUsers(loadprofile.Profile{Tests: plans})
+	vu := run.VirtualUsers(loadprofile.Profile{Tests: scenarios})
 	_ = s.usage.RecordFinish(ctx, executionID, vu)
 	return s.repo.StopRun(ctx, executionID)
 }
 
-// PlanStatus is the lifecycle view of one plan's engines.
-type PlanStatus struct {
+// ScenarioStatus is the lifecycle view of one scenario's engines.
+type ScenarioStatus struct {
 	ScenarioID      int64     `json:"plan_id"`
 	EnginesWanted   int       `json:"engines"`
 	EnginesDeployed int       `json:"engines_deployed"`
@@ -295,20 +295,20 @@ type PlanStatus struct {
 	StartedTime     time.Time `json:"started_time,omitempty"`
 }
 
-// Status is the lifecycle view of a collection.
+// Status is the lifecycle view of an execution.
 type Status struct {
-	Phase    run.Phase    `json:"phase"`
-	PoolSize int          `json:"pool_size"`
-	Plans    []PlanStatus `json:"status"`
+	Phase     run.Phase        `json:"phase"`
+	PoolSize  int              `json:"pool_size"`
+	Scenarios []ScenarioStatus `json:"status"`
 }
 
-// Status reports the deployment/run status of a collection.
+// Status reports the deployment/run status of an execution.
 func (s *Service) Status(ctx context.Context, executionID int64) (Status, error) {
-	plans, err := s.repo.LoadProfileFor(ctx, executionID)
+	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return Status{}, err
 	}
-	sched, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(plans))
+	sched, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(scenarios))
 	if err != nil {
 		return Status{}, err
 	}
@@ -316,39 +316,39 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 	if err != nil {
 		return Status{}, err
 	}
-	runningByPlan, err := s.runningByPlan(ctx, executionID)
+	runningByScenario, err := s.runningByScenario(ctx, executionID)
 	if err != nil {
 		return Status{}, err
 	}
 
 	out := Status{Phase: run.DerivePhase(sched.PoolSize, running), PoolSize: sched.PoolSize}
 	for _, pr := range sched.Scenarios {
-		ps := PlanStatus{
+		ps := ScenarioStatus{
 			ScenarioID:      pr.ScenarioID,
 			EnginesWanted:   pr.EnginesWanted,
 			EnginesDeployed: pr.EnginesDeployed,
 			Reachable:       pr.Reachable,
 		}
-		if started, ok := runningByPlan[pr.ScenarioID]; ok {
+		if started, ok := runningByScenario[pr.ScenarioID]; ok {
 			ps.InProgress = true
 			ps.StartedTime = started
 		}
-		out.Plans = append(out.Plans, ps)
+		out.Scenarios = append(out.Scenarios, ps)
 	}
 	return out, nil
 }
 
-// EnginesDetail reports the engine pods and ingress of a collection.
+// EnginesDetail reports the engine pods and ingress of an execution.
 func (s *Service) EnginesDetail(ctx context.Context, projectID, executionID int64) (ports.ExecutionDetail, error) {
 	return s.sched.EngineDetail(ctx, projectID, executionID)
 }
 
-// PodLog returns the logs of a plan's engine pod.
+// PodLog returns the logs of a scenario's engine pod.
 func (s *Service) PodLog(ctx context.Context, executionID, scenarioID int64) (string, error) {
 	return s.sched.PodLog(ctx, executionID, scenarioID)
 }
 
-// Resume returns the plans still marked running in this deployment context, so
+// Resume returns the scenarios still marked running in this deployment context, so
 // a restarted controller can re-establish tracking.
 func (s *Service) Resume(ctx context.Context) ([]ports.RunningScenario, error) {
 	return s.repo.RunningScenarios(ctx)
@@ -356,14 +356,14 @@ func (s *Service) Resume(ctx context.Context) ([]ports.RunningScenario, error) {
 
 // --- helpers ----------------------------------------------------------------
 
-func (s *Service) ensureTestFiles(ctx context.Context, plans []loadprofile.Entry) error {
-	for _, ep := range plans {
+func (s *Service) ensureTestFiles(ctx context.Context, scenarios []loadprofile.Entry) error {
+	for _, ep := range scenarios {
 		pf, err := s.repo.ScenarioFilesFor(ctx, ep.ScenarioID)
 		if err != nil {
 			return err
 		}
 		if pf.TestFile == "" {
-			return fmt.Errorf("%w: plan %d", ErrNoTestFile, ep.ScenarioID)
+			return fmt.Errorf("%w: scenario %d", ErrNoTestFile, ep.ScenarioID)
 		}
 	}
 	return nil
@@ -395,7 +395,7 @@ func (s *Service) planFiles(scenarioID int64, names []string) []engine.File {
 	return files
 }
 
-func (s *Service) runningByPlan(ctx context.Context, executionID int64) (map[int64]time.Time, error) {
+func (s *Service) runningByScenario(ctx context.Context, executionID int64) (map[int64]time.Time, error) {
 	rps, err := s.repo.RunningScenariosByExecution(ctx, executionID)
 	if err != nil {
 		return nil, err
@@ -407,9 +407,9 @@ func (s *Service) runningByPlan(ctx context.Context, executionID int64) (map[int
 	return out, nil
 }
 
-func planRefs(plans []loadprofile.Entry) []ports.ScenarioRef {
-	refs := make([]ports.ScenarioRef, 0, len(plans))
-	for _, ep := range plans {
+func planRefs(scenarios []loadprofile.Entry) []ports.ScenarioRef {
+	refs := make([]ports.ScenarioRef, 0, len(scenarios))
+	for _, ep := range scenarios {
 		refs = append(refs, ports.ScenarioRef{ScenarioID: ep.ScenarioID, Engines: ep.Engines})
 	}
 	return refs

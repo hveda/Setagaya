@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
@@ -41,8 +41,8 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 
 	h := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         planapp.NewService(store, obj),
-		Collections:   collectionapp.NewService(store, obj, 100),
+		Plans:         scenarioapp.NewService(store, obj),
+		Collections:   executionapp.NewService(store, obj, 100),
 		Lifecycle:     lifecycleapp.NewService(store, sched, exec, obj, "img"),
 		Store:         obj,
 		DefaultOwners: []string{"setagaya"},

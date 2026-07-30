@@ -6,24 +6,24 @@ import "strconv"
 // fields the config-building math needs. It is assembled by the application
 // layer from the persisted collection, its execution plan, and their files.
 type PlanInput struct {
-	// PlanIndex is this plan's position within the collection and PlanCount is
+	// ScenarioIndex is this plan's position within the collection and ScenarioCount is
 	// the number of plans; together they drive the collection-level CSV split.
-	PlanIndex int
-	PlanCount int
+	ScenarioIndex int
+	ScenarioCount int
 
-	// CollectionCSVSplit enables splitting the collection's shared data files
-	// across plans; CollectionData are those shared files.
-	CollectionCSVSplit bool
-	CollectionData     []File
+	// ExecutionCSVSplit enables splitting the collection's shared data files
+	// across plans; ExecutionData are those shared files.
+	ExecutionCSVSplit bool
+	ExecutionData     []File
 
 	// Plan-level fields.
-	Engines     int
-	Concurrency int
-	Rampup      int
-	Duration    int
-	CSVSplit    bool // split this plan's data across its engines
-	TestFile    File
-	PlanData    []File
+	Engines      int
+	Concurrency  int
+	Rampup       int
+	Duration     int
+	CSVSplit     bool // split this plan's data across its engines
+	TestFile     File
+	ScenarioData []File
 
 	RunID int64
 }
@@ -31,8 +31,8 @@ type PlanInput struct {
 // BuildConfigs produces one Config per engine for a single plan, applying the
 // two-level CSV split exactly as v2 did:
 //
-//   - Collection data is first split across plans (TotalSplits=PlanCount,
-//     CurrentSplit=PlanIndex) when the collection enables CSV split.
+//   - Collection data is first split across plans (TotalSplits=ScenarioCount,
+//     CurrentSplit=ScenarioIndex) when the collection enables CSV split.
 //   - When the plan also enables CSV split, that collection-level split is
 //     compounded across the plan's engines: TotalSplits *= Engines and
 //     CurrentSplit = CurrentSplit*Engines + engineID.
@@ -43,20 +43,20 @@ type PlanInput struct {
 // Plan data overrides collection data sharing the same filename.
 func BuildConfigs(in PlanInput) []Config {
 	// Seed: collection data with the collection-level split for this plan.
-	seed := make(map[string]File, len(in.CollectionData))
-	for _, f := range in.CollectionData {
+	seed := make(map[string]File, len(in.ExecutionData))
+	for _, f := range in.ExecutionData {
 		f.TotalSplits = 1
 		f.CurrentSplit = 0
-		if in.CollectionCSVSplit {
-			f.TotalSplits = in.PlanCount
-			f.CurrentSplit = in.PlanIndex
+		if in.ExecutionCSVSplit {
+			f.TotalSplits = in.ScenarioCount
+			f.CurrentSplit = in.ScenarioIndex
 		}
 		seed[f.Filename] = f
 	}
 
 	configs := make([]Config, 0, in.Engines)
 	for i := 0; i < in.Engines; i++ {
-		data := make(map[string]File, len(seed)+1+len(in.PlanData))
+		data := make(map[string]File, len(seed)+1+len(in.ScenarioData))
 
 		// Collection data, compounded with the plan-level split.
 		for name, f := range seed {
@@ -75,7 +75,7 @@ func BuildConfigs(in PlanInput) []Config {
 
 		// Plan data, split only across this plan's engines. Overrides
 		// collection data of the same name.
-		for _, f := range in.PlanData {
+		for _, f := range in.ScenarioData {
 			f.TotalSplits = 1
 			f.CurrentSplit = 0
 			if in.CSVSplit {

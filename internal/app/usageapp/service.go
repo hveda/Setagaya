@@ -1,5 +1,5 @@
 // Package usageapp is the usage-accounting use-case: it records a launch when a
-// collection is triggered, finishes it on teardown, and summarises virtual-user
+// execution is triggered, finishes it on teardown, and summarises virtual-user
 // hours (VUH) by owner and deployment context over a time window.
 package usageapp
 
@@ -21,13 +21,13 @@ func NewService(repo ports.UsageRepository) *Service {
 	return &Service{repo: repo}
 }
 
-// RecordStart opens a launch for a collection. Called by the lifecycle on
+// RecordStart opens a launch for an execution. Called by the lifecycle on
 // trigger.
 func (s *Service) RecordStart(ctx context.Context, executionID int64, owner string, engines, vu int) error {
 	return s.repo.StartLaunch(ctx, executionID, owner, engines, vu)
 }
 
-// RecordFinish closes the open launch for a collection. Called by the lifecycle
+// RecordFinish closes the open launch for an execution. Called by the lifecycle
 // on teardown.
 func (s *Service) RecordFinish(ctx context.Context, executionID int64, vu int) error {
 	return s.repo.FinishLaunch(ctx, executionID, vu)

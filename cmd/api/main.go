@@ -37,11 +37,11 @@ import (
 	"github.com/heridotlife/Setagaya/internal/adapters/storage/nexus"
 	"github.com/heridotlife/Setagaya/internal/app/adminapp"
 	"github.com/heridotlife/Setagaya/internal/app/authapp"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/internal/app/metricsapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
 	"github.com/heridotlife/Setagaya/internal/app/usageapp"
 	"github.com/heridotlife/Setagaya/internal/config"
@@ -53,8 +53,8 @@ import (
 // Both the in-memory fake and the MySQL adapter satisfy it.
 type repository interface {
 	projectapp.Repo
-	planapp.Repo
-	collectionapp.Repo
+	scenarioapp.Repo
+	executionapp.Repo
 	lifecycleapp.Repo
 	ports.UsageRepository
 	ports.TenantRepository
@@ -122,8 +122,8 @@ func run(ctx context.Context, getenv func(string) string) error {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         planapp.NewService(repo, store),
-		Collections:   collectionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
+		Plans:         scenarioapp.NewService(repo, store),
+		Collections:   executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
 		Lifecycle:     lifecycle,
 		Usage:         usage,
 		Admin:         admin,

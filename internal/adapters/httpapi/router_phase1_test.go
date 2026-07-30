@@ -13,9 +13,9 @@ import (
 	"testing"
 
 	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
 
@@ -25,8 +25,8 @@ func newFullRouter(t *testing.T) http.Handler {
 	obj := fake.NewObjectStore()
 	return httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         planapp.NewService(store, obj),
-		Collections:   collectionapp.NewService(store, obj, 100),
+		Plans:         scenarioapp.NewService(store, obj),
+		Collections:   executionapp.NewService(store, obj, 100),
 		Store:         obj,
 		DefaultOwners: []string{"setagaya"},
 	})
@@ -195,8 +195,8 @@ func TestConfigUpload_EngineLimit_400(t *testing.T) {
 	obj := fake.NewObjectStore()
 	h := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         planapp.NewService(store, obj),
-		Collections:   collectionapp.NewService(store, obj, 1), // limit of 1 engine
+		Plans:         scenarioapp.NewService(store, obj),
+		Collections:   executionapp.NewService(store, obj, 1), // limit of 1 engine
 		Store:         obj,
 		DefaultOwners: []string{"setagaya"},
 	})

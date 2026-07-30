@@ -18,11 +18,11 @@ import (
 	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
 	"github.com/heridotlife/Setagaya/internal/adapters/storage/local"
 	"github.com/heridotlife/Setagaya/internal/app/adminapp"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/internal/app/metricsapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/app/usageapp"
 	"github.com/heridotlife/Setagaya/internal/domain/engine"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
@@ -50,8 +50,8 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         planapp.NewService(repo, store),
-		Collections:   collectionapp.NewService(repo, store, 500),
+		Plans:         scenarioapp.NewService(repo, store),
+		Collections:   executionapp.NewService(repo, store, 500),
 		Lifecycle:     lifecycle,
 		Usage:         usage,
 		Admin:         admin,

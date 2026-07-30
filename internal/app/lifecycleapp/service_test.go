@@ -28,9 +28,9 @@ type env struct {
 	planIDs     []int64
 }
 
-// setup seeds a project, a collection, and plans (each with a JMX test file),
-// and stores an execution config. csvSplit toggles collection-level CSV split;
-// specs give each plan's engine count.
+// setup seeds a project, an execution, and scenarios (each with a JMX test file),
+// and stores an execution config. csvSplit toggles execution-level CSV split;
+// specs give each scenario's engine count.
 func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	t.Helper()
 	ctx := context.Background()
@@ -45,7 +45,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	var tests []loadprofile.Entry
 	var planIDs []int64
 	for i, n := range engines {
-		pl, _ := scenario.New("plan", projectID)
+		pl, _ := scenario.New("scenario", projectID)
 		scenarioID, _ := store.CreateScenario(ctx, pl)
 		if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
 			t.Fatalf("add test file: %v", err)
@@ -57,7 +57,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 		_ = i
 	}
 	if err := store.StoreLoadProfile(ctx, executionID, csvSplit, tests); err != nil {
-		t.Fatalf("store exec collection: %v", err)
+		t.Fatalf("store exec execution: %v", err)
 	}
 
 	sched := fake.NewScheduler()
@@ -76,7 +76,7 @@ func TestDeploy_HappyPath(t *testing.T) {
 	}
 	deployed, _ := e.sched.DeployedExecutions(ctx)
 	if _, ok := deployed[e.executionID]; !ok {
-		t.Fatalf("collection not deployed: %v", deployed)
+		t.Fatalf("execution not deployed: %v", deployed)
 	}
 	status, _ := e.sched.ExecutionStatus(ctx, e.executionID, []ports.ScenarioRef{{ScenarioID: e.planIDs[0], Engines: 2}, {ScenarioID: e.planIDs[1], Engines: 3}})
 	if status.PoolSize != 5 {
@@ -86,9 +86,9 @@ func TestDeploy_HappyPath(t *testing.T) {
 
 func TestDeploy_NoPlans(t *testing.T) {
 	t.Parallel()
-	e := setup(t, false) // no plans
-	if err := e.svc.Deploy(context.Background(), e.executionID); !errors.Is(err, run.ErrNoPlans) {
-		t.Fatalf("Deploy no plans: err = %v, want ErrNoPlans", err)
+	e := setup(t, false) // no scenarios
+	if err := e.svc.Deploy(context.Background(), e.executionID); !errors.Is(err, run.ErrNoScenarios) {
+		t.Fatalf("Deploy no scenarios: err = %v, want ErrNoScenarios", err)
 	}
 }
 
@@ -108,13 +108,13 @@ func TestDeploy_MissingCollection(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)
 	if err := e.svc.Deploy(context.Background(), 9999); !errors.Is(err, ports.ErrNotFound) {
-		t.Fatalf("Deploy missing collection: err = %v, want ErrNotFound", err)
+		t.Fatalf("Deploy missing execution: err = %v, want ErrNotFound", err)
 	}
 }
 
 func TestTrigger_HappyPathMarksRunningAndConfigures(t *testing.T) {
 	t.Parallel()
-	e := setup(t, true, 2, 3) // 5 engines total, collection CSV split on
+	e := setup(t, true, 2, 3) // 5 engines total, execution CSV split on
 	ctx := context.Background()
 	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
 		t.Fatalf("Deploy: %v", err)
@@ -125,15 +125,15 @@ func TestTrigger_HappyPathMarksRunningAndConfigures(t *testing.T) {
 	if got := e.exec.TriggerCount(); got != 5 {
 		t.Fatalf("triggered engines = %d, want 5", got)
 	}
-	// A run is active and both plans are marked running.
+	// A run is active and both scenarios are marked running.
 	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); !ok {
 		t.Fatal("no active run after trigger")
 	}
 	rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID)
 	if len(rps) != 2 {
-		t.Fatalf("running plans = %d, want 2", len(rps))
+		t.Fatalf("running scenarios = %d, want 2", len(rps))
 	}
-	// The config sent to plan 0 engine 0 carries the run id and plan duration.
+	// The config sent to scenario 0 engine 0 carries the run id and scenario duration.
 	url0, _ := e.sched.EngineURLs(ctx, e.executionID, e.planIDs[0], 2)
 	cfg, ok := e.exec.TriggeredConfig(url0[0])
 	if !ok {
@@ -231,7 +231,7 @@ func TestStop_HappyPath(t *testing.T) {
 		t.Fatal("run still active after stop")
 	}
 	if rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID); len(rps) != 0 {
-		t.Fatalf("running plans after stop = %d, want 0", len(rps))
+		t.Fatalf("running scenarios after stop = %d, want 0", len(rps))
 	}
 	if e.exec.StopCount() != 5 {
 		t.Fatalf("stopped engines = %d, want 5", e.exec.StopCount())
@@ -264,7 +264,7 @@ func TestPurge_StopsThenRemoves(t *testing.T) {
 	}
 	deployed, _ := e.sched.DeployedExecutions(ctx)
 	if _, ok := deployed[e.executionID]; ok {
-		t.Fatal("collection still deployed after purge")
+		t.Fatal("execution still deployed after purge")
 	}
 }
 
@@ -280,7 +280,7 @@ func TestPurge_WhenIdle(t *testing.T) {
 	}
 	deployed, _ := e.sched.DeployedExecutions(ctx)
 	if _, ok := deployed[e.executionID]; ok {
-		t.Fatal("collection still deployed after purge")
+		t.Fatal("execution still deployed after purge")
 	}
 }
 
@@ -296,7 +296,7 @@ func TestStatus_ReportsPhaseAndProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
-	if st.Phase != run.PhaseDeployed || st.PoolSize != 5 || len(st.Plans) != 2 {
+	if st.Phase != run.PhaseDeployed || st.PoolSize != 5 || len(st.Scenarios) != 2 {
 		t.Fatalf("status = %+v, want deployed/5/2", st)
 	}
 
@@ -307,9 +307,9 @@ func TestStatus_ReportsPhaseAndProgress(t *testing.T) {
 	if st.Phase != run.PhaseRunning {
 		t.Fatalf("phase after trigger = %q, want running", st.Phase)
 	}
-	for _, ps := range st.Plans {
+	for _, ps := range st.Scenarios {
 		if !ps.InProgress {
-			t.Fatalf("plan %d not marked in progress: %+v", ps.ScenarioID, ps)
+			t.Fatalf("scenario %d not marked in progress: %+v", ps.ScenarioID, ps)
 		}
 	}
 }
@@ -341,7 +341,7 @@ func TestTrigger_UnreachableRollsBack(t *testing.T) {
 	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	// Engines are counted deployed but routing is down: trigger fails per plan.
+	// Engines are counted deployed but routing is down: trigger fails per scenario.
 	e.sched.Unreachable = true
 	if err := e.svc.Trigger(ctx, e.executionID); err == nil {
 		t.Fatal("Trigger with unreachable engines: want error, got nil")
@@ -370,7 +370,7 @@ func TestStop_WhenEnginesUnreachable(t *testing.T) {
 		t.Fatal("run still active after stop")
 	}
 	if rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID); len(rps) != 0 {
-		t.Fatalf("running plans after stop = %d, want 0", len(rps))
+		t.Fatalf("running scenarios after stop = %d, want 0", len(rps))
 	}
 }
 
@@ -471,6 +471,6 @@ func TestResume_ListsRunningPlans(t *testing.T) {
 		t.Fatalf("Resume: %v", err)
 	}
 	if len(rps) != 1 {
-		t.Fatalf("resume running plans = %d, want 1", len(rps))
+		t.Fatalf("resume running scenarios = %d, want 1", len(rps))
 	}
 }

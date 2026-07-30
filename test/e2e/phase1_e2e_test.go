@@ -17,9 +17,9 @@ import (
 	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
 	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
 	"github.com/heridotlife/Setagaya/internal/adapters/storage/local"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/test/dbtest"
 )
 
@@ -32,8 +32,8 @@ func TestPhase1_FullFlowEndToEnd(t *testing.T) {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         planapp.NewService(repo, store),
-		Collections:   collectionapp.NewService(repo, store, 500),
+		Plans:         scenarioapp.NewService(repo, store),
+		Collections:   executionapp.NewService(repo, store, 500),
 		Store:         store,
 		DefaultOwners: []string{"setagaya"},
 	})

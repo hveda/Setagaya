@@ -1,11 +1,11 @@
-package collectionapp_test
+package executionapp_test
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -14,13 +14,13 @@ func TestBranches_InvalidFilename(t *testing.T) {
 	svc, _, _ := newCollService(t)
 	ctx := context.Background()
 
-	if _, err := svc.DownloadFile(ctx, 1, "../x"); !errors.Is(err, collectionapp.ErrInvalidFilename) {
+	if _, err := svc.DownloadFile(ctx, 1, "../x"); !errors.Is(err, executionapp.ErrInvalidFilename) {
 		t.Fatalf("DownloadFile(bad) = %v, want ErrInvalidFilename", err)
 	}
-	if err := svc.DeleteFile(ctx, 1, "a/b"); !errors.Is(err, collectionapp.ErrInvalidFilename) {
+	if err := svc.DeleteFile(ctx, 1, "a/b"); !errors.Is(err, executionapp.ErrInvalidFilename) {
 		t.Fatalf("DeleteFile(bad) = %v, want ErrInvalidFilename", err)
 	}
-	if err := svc.UploadFile(ctx, 1, "", nil); !errors.Is(err, collectionapp.ErrInvalidFilename) {
+	if err := svc.UploadFile(ctx, 1, "", nil); !errors.Is(err, executionapp.ErrInvalidFilename) {
 		t.Fatalf("UploadFile(bad) = %v, want ErrInvalidFilename", err)
 	}
 }

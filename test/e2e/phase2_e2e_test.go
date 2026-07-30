@@ -14,10 +14,10 @@ import (
 	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
 	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
 	"github.com/heridotlife/Setagaya/internal/adapters/storage/local"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 	"github.com/heridotlife/Setagaya/test/dbtest"
@@ -37,8 +37,8 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         planapp.NewService(repo, store),
-		Collections:   collectionapp.NewService(repo, store, 500),
+		Plans:         scenarioapp.NewService(repo, store),
+		Collections:   executionapp.NewService(repo, store, 500),
 		Lifecycle:     lifecycleapp.NewService(repo, sched, exec, store, "setagaya/jmeter:latest"),
 		Store:         store,
 		DefaultOwners: []string{"setagaya"},
@@ -66,8 +66,8 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 	if st.Phase != run.PhaseRunning {
 		t.Fatalf("after trigger phase = %q, want running", st.Phase)
 	}
-	if len(st.Plans) != 1 || !st.Plans[0].InProgress {
-		t.Fatalf("after trigger plan not in progress: %+v", st.Plans)
+	if len(st.Scenarios) != 1 || !st.Scenarios[0].InProgress {
+		t.Fatalf("after trigger plan not in progress: %+v", st.Scenarios)
 	}
 	if exec.TriggerCount() != 2 {
 		t.Fatalf("triggered engines = %d, want 2", exec.TriggerCount())

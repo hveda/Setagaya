@@ -8,19 +8,19 @@ import (
 
 	yaml "gopkg.in/yaml.v3"
 
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
 type collectionResponse struct {
-	ID             int64                   `json:"id"`
-	Name           string                  `json:"name"`
-	ProjectID      int64                   `json:"project_id"`
-	CSVSplit       bool                    `json:"csv_split"`
-	CreatedTime    time.Time               `json:"created_time"`
-	ExecutionPlans []loadprofile.Entry     `json:"execution_plans"`
-	Data           []collectionapp.FileRef `json:"data"`
+	ID             int64                  `json:"id"`
+	Name           string                 `json:"name"`
+	ProjectID      int64                  `json:"project_id"`
+	CSVSplit       bool                   `json:"csv_split"`
+	CreatedTime    time.Time              `json:"created_time"`
+	ExecutionPlans []loadprofile.Entry    `json:"execution_plans"`
+	Data           []executionapp.FileRef `json:"data"`
 }
 
 func (h *handlers) getCollection(w http.ResponseWriter, r *http.Request) {
@@ -213,6 +213,6 @@ func toCollectionResponse(c execution.Execution) collectionResponse {
 		CSVSplit:       c.CSVSplit,
 		CreatedTime:    c.CreatedTime,
 		ExecutionPlans: []loadprofile.Entry{},
-		Data:           []collectionapp.FileRef{},
+		Data:           []executionapp.FileRef{},
 	}
 }

@@ -71,8 +71,8 @@ func TestExecutionCollection_Validate_Errors(t *testing.T) {
 	t.Parallel()
 
 	empty := loadprofile.Profile{ExecutionID: 5}
-	if err := empty.Validate(); !errors.Is(err, loadprofile.ErrNoPlans) {
-		t.Fatalf("empty Validate = %v, want ErrNoPlans", err)
+	if err := empty.Validate(); !errors.Is(err, loadprofile.ErrNoScenarios) {
+		t.Fatalf("empty Validate = %v, want ErrNoScenarios", err)
 	}
 
 	bad := loadprofile.Profile{

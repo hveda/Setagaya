@@ -1,4 +1,4 @@
-package collectionapp_test
+package executionapp_test
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
@@ -15,15 +15,15 @@ import (
 
 const maxEngines = 5
 
-func newCollService(t *testing.T) (*collectionapp.Service, *fake.Store, *fake.ObjectStore) {
+func newCollService(t *testing.T) (*executionapp.Service, *fake.Store, *fake.ObjectStore) {
 	t.Helper()
 	store := fake.NewStore()
 	obj := fake.NewObjectStore()
-	return collectionapp.NewService(store, obj, maxEngines), store, obj
+	return executionapp.NewService(store, obj, maxEngines), store, obj
 }
 
-// seedPlan creates a plan directly in the store for the given project.
-func seedPlan(t *testing.T, store *fake.Store, name string, projectID int64) int64 {
+// seedScenario creates a scenario directly in the store for the given project.
+func seedScenario(t *testing.T, store *fake.Store, name string, projectID int64) int64 {
 	t.Helper()
 	p, err := scenario.New(name, projectID)
 	if err != nil {
@@ -100,7 +100,7 @@ func TestDelete_RemovesFiles(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 	if _, err := obj.Download(ctx, "collection/1/shared.csv"); !errors.Is(err, ports.ErrObjectNotFound) {
-		t.Fatalf("file survived collection delete: %v", err)
+		t.Fatalf("file survived execution delete: %v", err)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
 	c, _ := svc.Create(ctx, "peak", 10)
-	scenarioID := seedPlan(t, store, "smoke", 10)
+	scenarioID := seedScenario(t, store, "smoke", 10)
 
 	ec := loadprofile.Profile{
 		ExecutionID: c.ID,
@@ -139,17 +139,17 @@ func TestStoreConfig_Errors(t *testing.T) {
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
 	c, _ := svc.Create(ctx, "peak", 10)
-	scenarioID := seedPlan(t, store, "smoke", 10)
-	foreignPlan := seedPlan(t, store, "other", 99)
+	scenarioID := seedScenario(t, store, "smoke", 10)
+	foreignScenario := seedScenario(t, store, "other", 99)
 
 	valid := func() loadprofile.Entry {
 		return loadprofile.Entry{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60}
 	}
 
-	t.Run("collection id mismatch", func(t *testing.T) {
+	t.Run("execution id mismatch", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID + 100, Tests: []loadprofile.Entry{valid()}}
-		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrCollectionMismatch) {
-			t.Fatalf("= %v, want ErrCollectionMismatch", err)
+		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, executionapp.ErrExecutionMismatch) {
+			t.Fatalf("= %v, want ErrExecutionMismatch", err)
 		}
 	})
 
@@ -162,7 +162,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown plan", func(t *testing.T) {
+	t.Run("unknown scenario", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
 			{ScenarioID: 987654, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
@@ -171,12 +171,12 @@ func TestStoreConfig_Errors(t *testing.T) {
 		}
 	})
 
-	t.Run("plan in another project", func(t *testing.T) {
+	t.Run("scenario in another project", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
-			{ScenarioID: foreignPlan, Engines: 1, Concurrency: 1, Duration: 1},
+			{ScenarioID: foreignScenario, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
-		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrPlanNotInProject) {
-			t.Fatalf("= %v, want ErrPlanNotInProject", err)
+		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, executionapp.ErrScenarioNotInProject) {
+			t.Fatalf("= %v, want ErrScenarioNotInProject", err)
 		}
 	})
 
@@ -184,12 +184,12 @@ func TestStoreConfig_Errors(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
 			{ScenarioID: scenarioID, Engines: maxEngines + 1, Concurrency: 1, Duration: 1},
 		}}
-		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrEngineLimit) {
+		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, executionapp.ErrEngineLimit) {
 			t.Fatalf("= %v, want ErrEngineLimit", err)
 		}
 	})
 
-	t.Run("missing collection", func(t *testing.T) {
+	t.Run("missing execution", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: 424242, Tests: []loadprofile.Entry{valid()}}
 		if err := svc.StoreConfig(ctx, 424242, ec); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("= %v, want ErrNotFound", err)

@@ -1,7 +1,7 @@
-// Package collectionapp implements the application use-cases for collections:
-// CRUD, data files, and the execution configuration (which plans run, with how
+// Package executionapp implements the application use-cases for executions:
+// CRUD, data files, and the execution configuration (which scenarios run, with how
 // many engines). Storage keys follow "collection/{id}/{filename}".
-package collectionapp
+package executionapp
 
 import (
 	"context"
@@ -18,14 +18,14 @@ import (
 
 // Business-rule errors. Callers compare with errors.Is.
 var (
-	ErrInvalidFilename    = errors.New("collectionapp: invalid filename")
-	ErrCollectionMismatch = errors.New("collectionapp: config collection id does not match target")
-	ErrPlanNotInProject   = errors.New("collectionapp: plan does not belong to the collection's project")
-	ErrEngineLimit        = errors.New("collectionapp: requested engines exceed the cluster limit")
+	ErrInvalidFilename      = errors.New("executionapp: invalid filename")
+	ErrExecutionMismatch    = errors.New("executionapp: config execution id does not match target")
+	ErrScenarioNotInProject = errors.New("executionapp: scenario does not belong to the execution's project")
+	ErrEngineLimit          = errors.New("executionapp: requested engines exceed the cluster limit")
 )
 
-// Repo is the repository surface the collection service needs, including
-// GetScenario to validate execution config against real plans.
+// Repo is the repository surface the execution service needs, including
+// GetScenario to validate execution config against real scenarios.
 type Repo interface {
 	CreateExecution(ctx context.Context, c execution.Execution) (int64, error)
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
@@ -34,19 +34,19 @@ type Repo interface {
 	AddExecutionFile(ctx context.Context, executionID int64, filename string) error
 	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
 	DeleteExecutionFile(ctx context.Context, executionID int64, filename string) error
-	StoreLoadProfile(ctx context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error
+	StoreLoadProfile(ctx context.Context, executionID int64, csvSplit bool, scenarios []loadprofile.Entry) error
 	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
 	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
 }
 
-// Service provides collection use-cases.
+// Service provides execution use-cases.
 type Service struct {
 	repo       Repo
 	store      ports.ObjectStore
 	maxEngines int
 }
 
-// NewService wires a Service. maxEngines caps the total engines a collection's
+// NewService wires a Service. maxEngines caps the total engines a execution's
 // execution config may request.
 func NewService(repo Repo, store ports.ObjectStore, maxEngines int) *Service {
 	return &Service{repo: repo, store: store, maxEngines: maxEngines}
@@ -58,7 +58,7 @@ type FileRef struct {
 	URL      string `json:"url"`
 }
 
-// Create validates input and persists a new collection.
+// Create validates input and persists a new execution.
 func (s *Service) Create(ctx context.Context, name string, projectID int64) (execution.Execution, error) {
 	c, err := execution.New(name, projectID)
 	if err != nil {
@@ -72,17 +72,17 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64) (exe
 	return c, nil
 }
 
-// Get returns a collection by ID (ports.ErrNotFound if absent).
+// Get returns an execution by ID (ports.ErrNotFound if absent).
 func (s *Service) Get(ctx context.Context, id int64) (execution.Execution, error) {
 	return s.repo.GetExecution(ctx, id)
 }
 
-// ListByProject returns the collections of a project.
+// ListByProject returns the executions of a project.
 func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]execution.Execution, error) {
 	return s.repo.ListExecutionsByProject(ctx, projectID)
 }
 
-// Delete removes a collection and its data files.
+// Delete removes an execution and its data files.
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	if _, err := s.repo.GetExecution(ctx, id); err != nil {
 		return err
@@ -99,7 +99,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return s.repo.DeleteExecution(ctx, id)
 }
 
-// Files lists a collection's data files with retrieval URLs.
+// Files lists a execution's data files with retrieval URLs.
 func (s *Service) Files(ctx context.Context, executionID int64) ([]FileRef, error) {
 	names, err := s.repo.ExecutionFilesFor(ctx, executionID)
 	if err != nil {
@@ -112,7 +112,7 @@ func (s *Service) Files(ctx context.Context, executionID int64) ([]FileRef, erro
 	return out, nil
 }
 
-// UploadFile records and stores a collection data file. Returns
+// UploadFile records and stores an execution data file. Returns
 // ports.ErrFileExists if it is already present.
 func (s *Service) UploadFile(ctx context.Context, executionID int64, filename string, content io.Reader) error {
 	if err := validateFilename(filename); err != nil {
@@ -131,7 +131,7 @@ func (s *Service) UploadFile(ctx context.Context, executionID int64, filename st
 	return nil
 }
 
-// DownloadFile returns the bytes of a collection data file.
+// DownloadFile returns the bytes of an execution data file.
 func (s *Service) DownloadFile(ctx context.Context, executionID int64, filename string) ([]byte, error) {
 	if err := validateFilename(filename); err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func (s *Service) DownloadFile(ctx context.Context, executionID int64, filename 
 	return s.store.Download(ctx, collectionKey(executionID, filename))
 }
 
-// DeleteFile removes a collection data file record and its stored object.
+// DeleteFile removes an execution data file record and its stored object.
 func (s *Service) DeleteFile(ctx context.Context, executionID int64, filename string) error {
 	if err := validateFilename(filename); err != nil {
 		return err
@@ -151,7 +151,7 @@ func (s *Service) DeleteFile(ctx context.Context, executionID int64, filename st
 }
 
 // StoreConfig validates and persists the execution configuration for a
-// collection: every plan must exist and belong to the collection's project, and
+// execution: every scenario must exist and belong to the execution's project, and
 // the total engines must not exceed the configured limit.
 func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadprofile.Profile) error {
 	coll, err := s.repo.GetExecution(ctx, executionID)
@@ -159,7 +159,7 @@ func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadpro
 		return err
 	}
 	if ec.ExecutionID != executionID {
-		return ErrCollectionMismatch
+		return ErrExecutionMismatch
 	}
 	if err := ec.Validate(); err != nil {
 		return err
@@ -170,7 +170,7 @@ func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadpro
 			return planErr
 		}
 		if p.ProjectID != coll.ProjectID {
-			return ErrPlanNotInProject
+			return ErrScenarioNotInProject
 		}
 	}
 	if total := ec.TotalEngines(); total > s.maxEngines {
@@ -179,14 +179,14 @@ func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadpro
 	return s.repo.StoreLoadProfile(ctx, executionID, ec.CSVSplit, ec.Tests)
 }
 
-// GetConfig returns the collection's current execution configuration wrapped
+// GetConfig returns the execution's current execution configuration wrapped
 // for serialization.
 func (s *Service) GetConfig(ctx context.Context, executionID int64) (loadprofile.Wrapper, error) {
 	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return loadprofile.Wrapper{}, err
 	}
-	plans, err := s.repo.LoadProfileFor(ctx, executionID)
+	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return loadprofile.Wrapper{}, err
 	}
@@ -194,7 +194,7 @@ func (s *Service) GetConfig(ctx context.Context, executionID int64) (loadprofile
 		Name:        coll.Name,
 		ProjectID:   coll.ProjectID,
 		ExecutionID: executionID,
-		Tests:       plans,
+		Tests:       scenarios,
 		CSVSplit:    coll.CSVSplit,
 	}}, nil
 }

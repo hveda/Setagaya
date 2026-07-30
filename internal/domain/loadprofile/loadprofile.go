@@ -16,7 +16,7 @@ var (
 	ErrEnginesInvalid     = errors.New("loadprofile: engines must be greater than zero")
 	ErrConcurrencyInvalid = errors.New("loadprofile: concurrency must be greater than zero")
 	ErrDurationInvalid    = errors.New("loadprofile: duration must be greater than zero")
-	ErrNoPlans            = errors.New("loadprofile: at least one plan is required")
+	ErrNoScenarios        = errors.New("loadprofile: at least one scenario is required")
 )
 
 // Entry is one plan's load configuration within a collection; it maps onto
@@ -63,7 +63,7 @@ type Wrapper struct {
 // Validate ensures there is at least one plan and every plan is valid.
 func (ec Profile) Validate() error {
 	if len(ec.Tests) == 0 {
-		return ErrNoPlans
+		return ErrNoScenarios
 	}
 	for i, ep := range ec.Tests {
 		if err := ep.Validate(); err != nil {

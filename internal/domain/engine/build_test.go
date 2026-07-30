@@ -10,14 +10,14 @@ func TestBuildConfigs_BasicFieldsPerEngine(t *testing.T) {
 	t.Parallel()
 
 	got := engine.BuildConfigs(engine.PlanInput{
-		PlanIndex:   0,
-		PlanCount:   1,
-		Engines:     3,
-		Concurrency: 10,
-		Rampup:      5,
-		Duration:    60,
-		TestFile:    engine.File{Filename: "plan.jmx"},
-		RunID:       42,
+		ScenarioIndex: 0,
+		ScenarioCount: 1,
+		Engines:       3,
+		Concurrency:   10,
+		Rampup:        5,
+		Duration:      60,
+		TestFile:      engine.File{Filename: "plan.jmx"},
+		RunID:         42,
 	})
 	if len(got) != 3 {
 		t.Fatalf("len = %d, want 3", len(got))
@@ -46,11 +46,11 @@ func TestBuildConfigs_NoSplit(t *testing.T) {
 	t.Parallel()
 
 	got := engine.BuildConfigs(engine.PlanInput{
-		PlanIndex:      0,
-		PlanCount:      2,
-		CollectionData: []engine.File{{Filename: "users.csv"}},
-		Engines:        2,
-		TestFile:       engine.File{Filename: "p.jmx"},
+		ScenarioIndex: 0,
+		ScenarioCount: 2,
+		ExecutionData: []engine.File{{Filename: "users.csv"}},
+		Engines:       2,
+		TestFile:      engine.File{Filename: "p.jmx"},
 	})
 	for i, c := range got {
 		f := c.Data["users.csv"]
@@ -66,12 +66,12 @@ func TestBuildConfigs_CollectionSplitOnly(t *testing.T) {
 	// Plan index 1 of 3, collection split on, plan split off: every engine sees
 	// the same collection-level slice (3 splits, current 1).
 	got := engine.BuildConfigs(engine.PlanInput{
-		PlanIndex:          1,
-		PlanCount:          3,
-		CollectionCSVSplit: true,
-		CollectionData:     []engine.File{{Filename: "users.csv"}},
-		Engines:            2,
-		TestFile:           engine.File{Filename: "p.jmx"},
+		ScenarioIndex:     1,
+		ScenarioCount:     3,
+		ExecutionCSVSplit: true,
+		ExecutionData:     []engine.File{{Filename: "users.csv"}},
+		Engines:           2,
+		TestFile:          engine.File{Filename: "p.jmx"},
 	})
 	for i, c := range got {
 		f := c.Data["users.csv"]
@@ -87,13 +87,13 @@ func TestBuildConfigs_PlanSplitOnly(t *testing.T) {
 	// Collection split off, plan split on: collection data is compounded from
 	// 1 split into Engines splits, and plan data is split across engines.
 	got := engine.BuildConfigs(engine.PlanInput{
-		PlanIndex:      0,
-		PlanCount:      1,
-		CollectionData: []engine.File{{Filename: "users.csv"}},
-		Engines:        4,
-		CSVSplit:       true,
-		TestFile:       engine.File{Filename: "p.jmx"},
-		PlanData:       []engine.File{{Filename: "seed.csv"}},
+		ScenarioIndex: 0,
+		ScenarioCount: 1,
+		ExecutionData: []engine.File{{Filename: "users.csv"}},
+		Engines:       4,
+		CSVSplit:      true,
+		TestFile:      engine.File{Filename: "p.jmx"},
+		ScenarioData:  []engine.File{{Filename: "seed.csv"}},
 	})
 	for i, c := range got {
 		users := c.Data["users.csv"]
@@ -113,13 +113,13 @@ func TestBuildConfigs_BothSplitsCompound(t *testing.T) {
 	// Collection split (plan 1 of 2) compounded with plan split across 3
 	// engines: TotalSplits = 2*3 = 6, CurrentSplit = 1*3 + i.
 	got := engine.BuildConfigs(engine.PlanInput{
-		PlanIndex:          1,
-		PlanCount:          2,
-		CollectionCSVSplit: true,
-		CollectionData:     []engine.File{{Filename: "users.csv"}},
-		Engines:            3,
-		CSVSplit:           true,
-		TestFile:           engine.File{Filename: "p.jmx"},
+		ScenarioIndex:     1,
+		ScenarioCount:     2,
+		ExecutionCSVSplit: true,
+		ExecutionData:     []engine.File{{Filename: "users.csv"}},
+		Engines:           3,
+		CSVSplit:          true,
+		TestFile:          engine.File{Filename: "p.jmx"},
 	})
 	wantCurrent := []int{3, 4, 5}
 	for i, c := range got {
@@ -136,14 +136,14 @@ func TestBuildConfigs_PlanDataOverridesCollection(t *testing.T) {
 	// A plan data file with the same name as collection data wins, and carries
 	// the plan-level (not compounded) split.
 	got := engine.BuildConfigs(engine.PlanInput{
-		PlanIndex:          0,
-		PlanCount:          2,
-		CollectionCSVSplit: true,
-		CollectionData:     []engine.File{{Filename: "shared.csv", Filepath: "collection/shared.csv"}},
-		Engines:            2,
-		CSVSplit:           true,
-		TestFile:           engine.File{Filename: "p.jmx"},
-		PlanData:           []engine.File{{Filename: "shared.csv", Filepath: "plan/shared.csv"}},
+		ScenarioIndex:     0,
+		ScenarioCount:     2,
+		ExecutionCSVSplit: true,
+		ExecutionData:     []engine.File{{Filename: "shared.csv", Filepath: "collection/shared.csv"}},
+		Engines:           2,
+		CSVSplit:          true,
+		TestFile:          engine.File{Filename: "p.jmx"},
+		ScenarioData:      []engine.File{{Filename: "shared.csv", Filepath: "plan/shared.csv"}},
 	})
 	for i, c := range got {
 		f := c.Data["shared.csv"]
@@ -159,7 +159,7 @@ func TestBuildConfigs_PlanDataOverridesCollection(t *testing.T) {
 func TestBuildConfigs_ZeroEngines(t *testing.T) {
 	t.Parallel()
 
-	got := engine.BuildConfigs(engine.PlanInput{PlanCount: 1, Engines: 0, TestFile: engine.File{Filename: "p.jmx"}})
+	got := engine.BuildConfigs(engine.PlanInput{ScenarioCount: 1, Engines: 0, TestFile: engine.File{Filename: "p.jmx"}})
 	if len(got) != 0 {
 		t.Fatalf("len = %d, want 0", len(got))
 	}

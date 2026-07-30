@@ -1,4 +1,4 @@
-// Package adminapp is the operations use-case: it lists the collections
+// Package adminapp is the operations use-case: it lists the executions
 // currently holding engines, reports cluster node pools, and auto-purges engines
 // left idle past a threshold.
 package adminapp
@@ -12,13 +12,13 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// Repo is the persistence admin needs to enrich and evaluate collections.
+// Repo is the persistence admin needs to enrich and evaluate executions.
 type Repo interface {
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
 	CurrentRun(ctx context.Context, executionID int64) (int64, bool, error)
 }
 
-// Purger tears down a collection's engines. The lifecycle service satisfies it.
+// Purger tears down a execution's engines. The lifecycle service satisfies it.
 type Purger interface {
 	Purge(ctx context.Context, executionID int64) error
 }
@@ -36,7 +36,7 @@ func NewService(repo Repo, sched ports.Scheduler, purger Purger) *Service {
 	return &Service{repo: repo, sched: sched, purger: purger, now: time.Now}
 }
 
-// RunningExecution describes a collection currently holding engines.
+// RunningExecution describes an execution currently holding engines.
 type RunningExecution struct {
 	ExecutionID int64     `json:"collection_id"`
 	Name        string    `json:"name"`
@@ -45,7 +45,7 @@ type RunningExecution struct {
 	Running     bool      `json:"running"`
 }
 
-// RunningExecutions lists every deployed collection, enriched with its name,
+// RunningExecutions lists every deployed execution, enriched with its name,
 // project, and whether a run is in progress.
 func (s *Service) RunningExecutions(ctx context.Context) ([]RunningExecution, error) {
 	deployed, err := s.sched.DeployedExecutions(ctx)
@@ -73,7 +73,7 @@ func (s *Service) NodePools(ctx context.Context) ([]ports.NodePool, error) {
 	return s.sched.NodePools(ctx)
 }
 
-// AutoPurgeStale purges every collection whose engines have been deployed longer
+// AutoPurgeStale purges every execution whose engines have been deployed longer
 // than idleFor and which has no run in progress. It returns the purged ids.
 func (s *Service) AutoPurgeStale(ctx context.Context, idleFor time.Duration) ([]int64, error) {
 	deployed, err := s.sched.DeployedExecutions(ctx)

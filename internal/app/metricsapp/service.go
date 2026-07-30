@@ -1,8 +1,8 @@
-// Package metricsapp is the metric-collection use-case: it reads the live
-// metric stream from every engine of a collection's running plans (via the
-// Executor), stamps each measurement with its collection/plan/engine/run
+// Package metricsapp is the metric-execution use-case: it reads the live
+// metric stream from every engine of a execution's running scenarios (via the
+// Executor), stamps each measurement with its execution/scenario/engine/run
 // identity, and fans it to the MetricsSink (Prometheus) and the EventBus (SSE
-// subscribers). Collection runs in the background per collection and is started
+// subscribers). Collecting runs in the background per execution and is started
 // and stopped by the lifecycle.
 package metricsapp
 
@@ -34,8 +34,8 @@ type Service struct {
 	cancels map[int64]*collectRun
 }
 
-// collectRun identifies one background collection so its own goroutine can
-// clean up without clobbering a later Start for the same collection.
+// collectRun identifies one background execution so its own goroutine can
+// clean up without clobbering a later Start for the same execution.
 type collectRun struct{ cancel context.CancelFunc }
 
 // NewService wires the collector.
@@ -43,8 +43,8 @@ func NewService(repo Repo, sched ports.Scheduler, exec ports.Executor, sink port
 	return &Service{repo: repo, sched: sched, exec: exec, sink: sink, bus: bus, cancels: map[int64]*collectRun{}}
 }
 
-// Start begins background collection for a collection's current run. It is
-// idempotent: a second Start while collection is active is a no-op.
+// Start begins background execution for a execution's current run. It is
+// idempotent: a second Start while execution is active is a no-op.
 func (s *Service) Start(executionID int64) {
 	s.mu.Lock()
 	if _, ok := s.cancels[executionID]; ok {
@@ -57,7 +57,7 @@ func (s *Service) Start(executionID int64) {
 	s.mu.Unlock()
 
 	go func() {
-		_ = s.CollectCollection(ctx, executionID)
+		_ = s.CollectExecution(ctx, executionID)
 		s.mu.Lock()
 		if s.cancels[executionID] == token { // still ours
 			delete(s.cancels, executionID)
@@ -66,7 +66,7 @@ func (s *Service) Start(executionID int64) {
 	}()
 }
 
-// Stop cancels background collection for a collection.
+// Stop cancels background execution for an execution.
 func (s *Service) Stop(executionID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -76,13 +76,13 @@ func (s *Service) Stop(executionID int64) {
 	}
 }
 
-// Purge stops collection and drops the collection's metric series.
+// Purge stops execution and drops the execution's metric series.
 func (s *Service) Purge(executionID int64) {
 	s.Stop(executionID)
 	s.sink.DeleteExecution(executionID)
 }
 
-// Resume restarts collection for every collection with running plans, so a
+// Resume restarts execution for every execution with running scenarios, so a
 // restarted controller re-establishes its metric streams.
 func (s *Service) Resume(ctx context.Context) error {
 	rps, err := s.repo.RunningScenarios(ctx)
@@ -100,9 +100,9 @@ func (s *Service) Resume(ctx context.Context) error {
 	return nil
 }
 
-// CollectCollection streams metrics for every plan of a collection's current
+// CollectExecution streams metrics for every scenario of a execution's current
 // run until ctx is cancelled or all engine streams end.
-func (s *Service) CollectCollection(ctx context.Context, executionID int64) error {
+func (s *Service) CollectExecution(ctx context.Context, executionID int64) error {
 	runID, ok, err := s.repo.CurrentRun(ctx, executionID)
 	if err != nil {
 		return err
@@ -110,7 +110,7 @@ func (s *Service) CollectCollection(ctx context.Context, executionID int64) erro
 	if !ok {
 		return nil
 	}
-	plans, err := s.repo.LoadProfileFor(ctx, executionID)
+	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -118,11 +118,11 @@ func (s *Service) CollectCollection(ctx context.Context, executionID int64) erro
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
-	for _, ep := range plans {
+	for _, ep := range scenarios {
 		wg.Add(1)
 		go func(ep loadprofile.Entry) {
 			defer wg.Done()
-			if err := s.CollectPlan(ctx, executionID, ep.ScenarioID, ep.Engines, runID); err != nil {
+			if err := s.CollectScenario(ctx, executionID, ep.ScenarioID, ep.Engines, runID); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -135,8 +135,8 @@ func (s *Service) CollectCollection(ctx context.Context, executionID int64) erro
 	return firstErr
 }
 
-// CollectPlan streams metrics from every engine of a plan.
-func (s *Service) CollectPlan(ctx context.Context, executionID, scenarioID int64, engines int, runID int64) error {
+// CollectScenario streams metrics from every engine of a scenario.
+func (s *Service) CollectScenario(ctx context.Context, executionID, scenarioID int64, engines int, runID int64) error {
 	urls, err := s.sched.EngineURLs(ctx, executionID, scenarioID, engines)
 	if err != nil {
 		return err

@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
 	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
@@ -29,11 +29,11 @@ var badRequestErrors = []error{
 	scenario.ErrNameRequired, scenario.ErrNameTooLong, scenario.ErrProjectRequired,
 	execution.ErrNameRequired, execution.ErrNameTooLong, execution.ErrProjectRequired,
 	loadprofile.ErrPlanRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
-	loadprofile.ErrDurationInvalid, loadprofile.ErrNoPlans,
-	planapp.ErrInvalidFilename,
-	collectionapp.ErrInvalidFilename, collectionapp.ErrCollectionMismatch,
-	collectionapp.ErrPlanNotInProject, collectionapp.ErrEngineLimit,
-	run.ErrNoPlans, lifecycleapp.ErrNoTestFile,
+	loadprofile.ErrDurationInvalid, loadprofile.ErrNoScenarios,
+	scenarioapp.ErrInvalidFilename,
+	executionapp.ErrInvalidFilename, executionapp.ErrExecutionMismatch,
+	executionapp.ErrScenarioNotInProject, executionapp.ErrEngineLimit,
+	run.ErrNoScenarios, lifecycleapp.ErrNoTestFile,
 	tenant.ErrNameRequired, tenant.ErrNameTooLong, tenant.ErrNameInvalid,
 	tenant.ErrDisplayNameRequired, tenant.ErrStatusInvalid,
 	tenantapp.ErrUnknownRole, tenantapp.ErrGlobalRoleScoped,
@@ -42,8 +42,8 @@ var badRequestErrors = []error{
 // conflictErrors are state conflicts → HTTP 409.
 var conflictErrors = []error{
 	ports.ErrFileExists,
-	planapp.ErrPlanInUse,
-	projectapp.ErrProjectHasPlans, projectapp.ErrProjectHasCollections,
+	scenarioapp.ErrScenarioInUse,
+	projectapp.ErrProjectHasScenarios, projectapp.ErrProjectHasExecutions,
 	run.ErrNotDeployed, run.ErrEnginesNotReady, run.ErrAlreadyRunning, run.ErrNotRunning,
 	ports.ErrEnginesUnreachable, ports.ErrRunActive,
 }

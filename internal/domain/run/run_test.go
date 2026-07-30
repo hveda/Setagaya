@@ -60,7 +60,7 @@ func TestCanTrigger(t *testing.T) {
 		ready   int
 		wantErr error
 	}{
-		{"no plans", run.PhaseDeployed, ec(), 0, run.ErrNoPlans},
+		{"no plans", run.PhaseDeployed, ec(), 0, run.ErrNoScenarios},
 		{"not deployed", run.PhaseIdle, full, 0, run.ErrNotDeployed},
 		{"already running", run.PhaseRunning, full, 2, run.ErrAlreadyRunning},
 		{"engines not ready", run.PhaseDeployed, full, 1, run.ErrEnginesNotReady},

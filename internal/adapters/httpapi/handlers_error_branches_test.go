@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
@@ -93,8 +93,8 @@ func failEnv(t *testing.T) (http.Handler, *failStore, ids) {
 	obj := fake.NewObjectStore()
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(fs),
-		Plans:         planapp.NewService(fs, obj),
-		Collections:   collectionapp.NewService(fs, obj, 100),
+		Plans:         scenarioapp.NewService(fs, obj),
+		Collections:   executionapp.NewService(fs, obj, 100),
 		Store:         obj,
 		DefaultOwners: []string{"setagaya"},
 	})

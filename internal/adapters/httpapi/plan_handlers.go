@@ -5,17 +5,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 )
 
 type planResponse struct {
-	ID          int64             `json:"id"`
-	Name        string            `json:"name"`
-	ProjectID   int64             `json:"project_id"`
-	CreatedTime time.Time         `json:"created_time"`
-	TestFile    *planapp.FileRef  `json:"test_file"`
-	Data        []planapp.FileRef `json:"data"`
+	ID          int64                 `json:"id"`
+	Name        string                `json:"name"`
+	ProjectID   int64                 `json:"project_id"`
+	CreatedTime time.Time             `json:"created_time"`
+	TestFile    *scenarioapp.FileRef  `json:"test_file"`
+	Data        []scenarioapp.FileRef `json:"data"`
 }
 
 func (h *handlers) getPlan(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +152,6 @@ func toPlanResponse(p scenario.Scenario) planResponse {
 		Name:        p.Name,
 		ProjectID:   p.ProjectID,
 		CreatedTime: p.CreatedTime,
-		Data:        []planapp.FileRef{},
+		Data:        []scenarioapp.FileRef{},
 	}
 }

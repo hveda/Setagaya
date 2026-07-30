@@ -61,8 +61,8 @@ func TestCollectPlan_EnrichesAndFansOut(t *testing.T) {
 	e := setup(t, 2)
 	ctx := context.Background()
 
-	if err := e.svc.CollectPlan(ctx, e.executionID, e.planIDs[0], 2, e.runID); err != nil {
-		t.Fatalf("CollectPlan: %v", err)
+	if err := e.svc.CollectScenario(ctx, e.executionID, e.planIDs[0], 2, e.runID); err != nil {
+		t.Fatalf("CollectScenario: %v", err)
 	}
 	got := e.sink.Recorded()
 	// 2 engines x 2 metrics.
@@ -80,16 +80,16 @@ func TestCollectPlan_UnreachableErrors(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2)
 	e.sched.Unreachable = true
-	if err := e.svc.CollectPlan(context.Background(), e.executionID, e.planIDs[0], 2, e.runID); err == nil {
-		t.Fatal("CollectPlan unreachable: want error")
+	if err := e.svc.CollectScenario(context.Background(), e.executionID, e.planIDs[0], 2, e.runID); err == nil {
+		t.Fatal("CollectScenario unreachable: want error")
 	}
 }
 
 func TestCollectCollection_AllPlans(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2, 3)
-	if err := e.svc.CollectCollection(context.Background(), e.executionID); err != nil {
-		t.Fatalf("CollectCollection: %v", err)
+	if err := e.svc.CollectExecution(context.Background(), e.executionID); err != nil {
+		t.Fatalf("CollectExecution: %v", err)
 	}
 	// (2+3) engines x 2 metrics.
 	if got := len(e.sink.Recorded()); got != 10 {
@@ -100,9 +100,9 @@ func TestCollectCollection_AllPlans(t *testing.T) {
 func TestCollectCollection_PropagatesPlanError(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2, 3)
-	e.sched.Unreachable = true // every plan's EngineURLs fails
-	if err := e.svc.CollectCollection(context.Background(), e.executionID); err == nil {
-		t.Fatal("CollectCollection with unreachable engines: want error, got nil")
+	e.sched.Unreachable = true // every scenario's EngineURLs fails
+	if err := e.svc.CollectExecution(context.Background(), e.executionID); err == nil {
+		t.Fatal("CollectExecution with unreachable engines: want error, got nil")
 	}
 }
 
@@ -112,8 +112,8 @@ func TestCollectCollection_NoActiveRunIsNoop(t *testing.T) {
 	if err := e.store.StopRun(context.Background(), e.executionID); err != nil {
 		t.Fatalf("StopRun: %v", err)
 	}
-	if err := e.svc.CollectCollection(context.Background(), e.executionID); err != nil {
-		t.Fatalf("CollectCollection: %v", err)
+	if err := e.svc.CollectExecution(context.Background(), e.executionID); err != nil {
+		t.Fatalf("CollectExecution: %v", err)
 	}
 	if got := len(e.sink.Recorded()); got != 0 {
 		t.Fatalf("recorded = %d, want 0 (no active run)", got)
@@ -153,10 +153,10 @@ func TestPumpEngine_SubscribeErrorRecordsNothing(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 2)
 	e.exec.SubscribeErr = errors.New("stream down")
-	// CollectPlan still returns nil (per-engine subscribe failures are skipped),
+	// CollectScenario still returns nil (per-engine subscribe failures are skipped),
 	// but nothing is recorded.
-	if err := e.svc.CollectPlan(context.Background(), e.executionID, e.planIDs[0], 2, e.runID); err != nil {
-		t.Fatalf("CollectPlan: %v", err)
+	if err := e.svc.CollectScenario(context.Background(), e.executionID, e.planIDs[0], 2, e.runID); err != nil {
+		t.Fatalf("CollectScenario: %v", err)
 	}
 	if got := len(e.sink.Recorded()); got != 0 {
 		t.Fatalf("recorded = %d, want 0 on subscribe error", got)
@@ -179,6 +179,6 @@ func TestResume_StartsRunningCollections(t *testing.T) {
 	select {
 	case <-events:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Resume did not start collection")
+		t.Fatal("Resume did not start execution")
 	}
 }

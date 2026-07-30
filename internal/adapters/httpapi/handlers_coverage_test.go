@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
@@ -23,8 +23,8 @@ func routerWithStore(t *testing.T) (http.Handler, *fake.Store, *fake.ObjectStore
 	obj := fake.NewObjectStore()
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
-		Plans:         planapp.NewService(store, obj),
-		Collections:   collectionapp.NewService(store, obj, 100),
+		Plans:         scenarioapp.NewService(store, obj),
+		Collections:   executionapp.NewService(store, obj, 100),
 		Store:         obj,
 		DefaultOwners: []string{"setagaya"},
 	})
@@ -139,8 +139,8 @@ func TestHandlers_Forbidden_403(t *testing.T) {
 
 	foreignProject, _ := project.New("secret", "other-team", "")
 	projectID, _ := store.CreateProject(ctx, foreignProject)
-	foreignPlan, _ := scenario.New("p", projectID)
-	scenarioID, _ := store.CreateScenario(ctx, foreignPlan)
+	foreignScenario, _ := scenario.New("p", projectID)
+	scenarioID, _ := store.CreateScenario(ctx, foreignScenario)
 	foreignColl, _ := execution.New("c", projectID)
 	collID, _ := store.CreateExecution(ctx, foreignColl)
 

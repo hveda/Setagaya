@@ -1,7 +1,7 @@
-// Package planapp implements the application use-cases for plans and their
-// files (a JMX test file plus data files). It coordinates the plan repository
+// Package scenarioapp implements the application use-cases for scenarios and their
+// files (a JMX test file plus data files). It coordinates the scenario repository
 // and the object store; the storage key convention is "plan/{id}/{filename}".
-package planapp
+package scenarioapp
 
 import (
 	"context"
@@ -16,11 +16,11 @@ import (
 
 // Business-rule errors. Callers compare with errors.Is.
 var (
-	ErrPlanInUse       = errors.New("planapp: plan is in use by a collection")
-	ErrInvalidFilename = errors.New("planapp: invalid filename")
+	ErrScenarioInUse   = errors.New("scenarioapp: scenario is in use by an execution")
+	ErrInvalidFilename = errors.New("scenarioapp: invalid filename")
 )
 
-// Repo is the repository surface the plan service needs.
+// Repo is the repository surface the scenario service needs.
 type Repo interface {
 	CreateScenario(ctx context.Context, p scenario.Scenario) (int64, error)
 	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
@@ -32,13 +32,13 @@ type Repo interface {
 	ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error)
 }
 
-// Service provides plan use-cases.
+// Service provides scenario use-cases.
 type Service struct {
 	repo  Repo
 	store ports.ObjectStore
 }
 
-// NewService wires a Service to a plan repository and an object store.
+// NewService wires a Service to a scenario repository and an object store.
 func NewService(repo Repo, store ports.ObjectStore) *Service {
 	return &Service{repo: repo, store: store}
 }
@@ -49,13 +49,13 @@ type FileRef struct {
 	URL      string `json:"url"`
 }
 
-// Files lists a plan's files with retrieval URLs.
+// Files lists a scenario's files with retrieval URLs.
 type Files struct {
 	TestFile *FileRef  `json:"test_file"`
 	Data     []FileRef `json:"data"`
 }
 
-// Create validates input and persists a new plan.
+// Create validates input and persists a new scenario.
 func (s *Service) Create(ctx context.Context, name string, projectID int64) (scenario.Scenario, error) {
 	p, err := scenario.New(name, projectID)
 	if err != nil {
@@ -69,17 +69,17 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64) (sce
 	return p, nil
 }
 
-// Get returns a plan by ID (ports.ErrNotFound if absent).
+// Get returns a scenario by ID (ports.ErrNotFound if absent).
 func (s *Service) Get(ctx context.Context, id int64) (scenario.Scenario, error) {
 	return s.repo.GetScenario(ctx, id)
 }
 
-// ListByProject returns the plans belonging to a project.
+// ListByProject returns the scenarios belonging to a project.
 func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
 	return s.repo.ListScenariosByProject(ctx, projectID)
 }
 
-// Delete removes a plan (and its files) unless it is used by a collection.
+// Delete removes a scenario (and its files) unless it is used by an execution.
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	if _, err := s.repo.GetScenario(ctx, id); err != nil {
 		return err
@@ -89,7 +89,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 	if inUse {
-		return ErrPlanInUse
+		return ErrScenarioInUse
 	}
 	files, err := s.repo.ScenarioFilesFor(ctx, id)
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return s.repo.DeleteScenario(ctx, id)
 }
 
-// Files returns the plan's files with URLs.
+// Files returns the scenario's files with URLs.
 func (s *Service) Files(ctx context.Context, scenarioID int64) (Files, error) {
 	pf, err := s.repo.ScenarioFilesFor(ctx, scenarioID)
 	if err != nil {
@@ -119,8 +119,8 @@ func (s *Service) Files(ctx context.Context, scenarioID int64) (Files, error) {
 	return out, nil
 }
 
-// UploadFile records and stores a plan file. A ".jmx" file is stored as the
-// plan's single test file; anything else is a data file. Returns
+// UploadFile records and stores a scenario file. A ".jmx" file is stored as the
+// scenario's single test file; anything else is a data file. Returns
 // ports.ErrFileExists if the file is already present.
 func (s *Service) UploadFile(ctx context.Context, scenarioID int64, filename string, content io.Reader) error {
 	if err := validateFilename(filename); err != nil {
@@ -141,7 +141,7 @@ func (s *Service) UploadFile(ctx context.Context, scenarioID int64, filename str
 	return nil
 }
 
-// DownloadFile returns the bytes of a plan file (ports.ErrObjectNotFound if
+// DownloadFile returns the bytes of a scenario file (ports.ErrObjectNotFound if
 // absent).
 func (s *Service) DownloadFile(ctx context.Context, scenarioID int64, filename string) ([]byte, error) {
 	if err := validateFilename(filename); err != nil {
@@ -150,7 +150,7 @@ func (s *Service) DownloadFile(ctx context.Context, scenarioID int64, filename s
 	return s.store.Download(ctx, planKey(scenarioID, filename))
 }
 
-// DeleteFile removes a plan file record and its stored object.
+// DeleteFile removes a scenario file record and its stored object.
 func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename string) error {
 	if err := validateFilename(filename); err != nil {
 		return err

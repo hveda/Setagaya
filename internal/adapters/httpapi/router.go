@@ -12,10 +12,10 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/app/adminapp"
 	"github.com/heridotlife/Setagaya/internal/app/authapp"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
+	"github.com/heridotlife/Setagaya/internal/app/executionapp"
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
 	"github.com/heridotlife/Setagaya/internal/app/usageapp"
 	"github.com/heridotlife/Setagaya/internal/ports"
@@ -24,8 +24,8 @@ import (
 // Deps are the collaborators the HTTP layer needs.
 type Deps struct {
 	Projects    *projectapp.Service
-	Plans       *planapp.Service
-	Collections *collectionapp.Service
+	Plans       *scenarioapp.Service
+	Collections *executionapp.Service
 	Lifecycle   *lifecycleapp.Service
 	Usage       *usageapp.Service
 	Admin       *adminapp.Service

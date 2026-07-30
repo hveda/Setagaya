@@ -47,7 +47,7 @@ func TestRunningCollections_Enriched(t *testing.T) {
 		t.Fatalf("running = %d, want 1", len(list))
 	}
 	if list[0].Name != "peak" || list[0].ProjectID != 3 || list[0].Running {
-		t.Fatalf("running collection = %+v", list[0])
+		t.Fatalf("running execution = %+v", list[0])
 	}
 }
 

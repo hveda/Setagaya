@@ -1,4 +1,4 @@
-package planapp_test
+package scenarioapp_test
 
 import (
 	"bytes"
@@ -6,23 +6,23 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
+	"github.com/heridotlife/Setagaya/internal/app/scenarioapp"
 	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
 
-func newPlanService(t *testing.T) (*planapp.Service, *fake.Store, *fake.ObjectStore) {
+func newScenarioService(t *testing.T) (*scenarioapp.Service, *fake.Store, *fake.ObjectStore) {
 	t.Helper()
 	store := fake.NewStore()
 	obj := fake.NewObjectStore()
-	return planapp.NewService(store, obj), store, obj
+	return scenarioapp.NewService(store, obj), store, obj
 }
 
 func TestCreate_Get_List(t *testing.T) {
 	t.Parallel()
-	svc, _, _ := newPlanService(t)
+	svc, _, _ := newScenarioService(t)
 	ctx := context.Background()
 
 	p, err := svc.Create(ctx, "smoke", 10)
@@ -50,7 +50,7 @@ func TestCreate_Get_List(t *testing.T) {
 
 func TestCreate_InvalidName(t *testing.T) {
 	t.Parallel()
-	svc, _, _ := newPlanService(t)
+	svc, _, _ := newScenarioService(t)
 	if _, err := svc.Create(context.Background(), "", 10); err == nil {
 		t.Fatal("Create with empty name: expected error")
 	}
@@ -58,29 +58,29 @@ func TestCreate_InvalidName(t *testing.T) {
 
 func TestFileLifecycle(t *testing.T) {
 	t.Parallel()
-	svc, _, obj := newPlanService(t)
+	svc, _, obj := newScenarioService(t)
 	ctx := context.Background()
 	p, _ := svc.Create(ctx, "smoke", 10)
 
 	// Upload a JMX (test file) and a CSV (data file).
-	if err := svc.UploadFile(ctx, p.ID, "plan.jmx", bytes.NewReader([]byte("<jmx/>"))); err != nil {
+	if err := svc.UploadFile(ctx, p.ID, "scenario.jmx", bytes.NewReader([]byte("<jmx/>"))); err != nil {
 		t.Fatalf("UploadFile jmx: %v", err)
 	}
 	if err := svc.UploadFile(ctx, p.ID, "users.csv", bytes.NewReader([]byte("a,b"))); err != nil {
 		t.Fatalf("UploadFile csv: %v", err)
 	}
 
-	// The object store holds them under the plan key convention.
-	if _, err := obj.Download(ctx, "plan/1/plan.jmx"); err != nil {
-		t.Fatalf("object not stored at plan/1/plan.jmx: %v", err)
+	// The object store holds them under the scenario key convention.
+	if _, err := obj.Download(ctx, "plan/1/scenario.jmx"); err != nil {
+		t.Fatalf("object not stored at scenario/1/scenario.jmx: %v", err)
 	}
 
 	files, err := svc.Files(ctx, p.ID)
 	if err != nil {
 		t.Fatalf("Files: %v", err)
 	}
-	if files.TestFile == nil || files.TestFile.Filename != "plan.jmx" {
-		t.Fatalf("TestFile = %+v, want plan.jmx", files.TestFile)
+	if files.TestFile == nil || files.TestFile.Filename != "scenario.jmx" {
+		t.Fatalf("TestFile = %+v, want scenario.jmx", files.TestFile)
 	}
 	if len(files.Data) != 1 || files.Data[0].Filename != "users.csv" || files.Data[0].URL == "" {
 		t.Fatalf("Data = %+v, want [users.csv] with URL", files.Data)
@@ -111,12 +111,12 @@ func TestFileLifecycle(t *testing.T) {
 
 func TestUploadFile_InvalidFilename(t *testing.T) {
 	t.Parallel()
-	svc, _, _ := newPlanService(t)
+	svc, _, _ := newScenarioService(t)
 	ctx := context.Background()
 	p, _ := svc.Create(ctx, "smoke", 10)
 
 	for _, name := range []string{"", "sub/dir.csv", "..", "."} {
-		if err := svc.UploadFile(ctx, p.ID, name, bytes.NewReader(nil)); !errors.Is(err, planapp.ErrInvalidFilename) {
+		if err := svc.UploadFile(ctx, p.ID, name, bytes.NewReader(nil)); !errors.Is(err, scenarioapp.ErrInvalidFilename) {
 			t.Fatalf("UploadFile(%q) = %v, want ErrInvalidFilename", name, err)
 		}
 	}
@@ -124,15 +124,15 @@ func TestUploadFile_InvalidFilename(t *testing.T) {
 
 func TestUploadFile_UnknownPlan(t *testing.T) {
 	t.Parallel()
-	svc, _, _ := newPlanService(t)
+	svc, _, _ := newScenarioService(t)
 	if err := svc.UploadFile(context.Background(), 999, "a.csv", bytes.NewReader(nil)); !errors.Is(err, ports.ErrNotFound) {
-		t.Fatalf("UploadFile(unknown plan) = %v, want ErrNotFound", err)
+		t.Fatalf("UploadFile(unknown scenario) = %v, want ErrNotFound", err)
 	}
 }
 
 func TestDelete_RefusesWhenInUse(t *testing.T) {
 	t.Parallel()
-	svc, store, _ := newPlanService(t)
+	svc, store, _ := newScenarioService(t)
 	ctx := context.Background()
 	p, _ := svc.Create(ctx, "smoke", 10)
 
@@ -144,25 +144,25 @@ func TestDelete_RefusesWhenInUse(t *testing.T) {
 		t.Fatalf("seed execution: %v", err)
 	}
 
-	if err := svc.Delete(ctx, p.ID); !errors.Is(err, planapp.ErrPlanInUse) {
-		t.Fatalf("Delete(in use) = %v, want ErrPlanInUse", err)
+	if err := svc.Delete(ctx, p.ID); !errors.Is(err, scenarioapp.ErrScenarioInUse) {
+		t.Fatalf("Delete(in use) = %v, want ErrScenarioInUse", err)
 	}
 }
 
 func TestDelete_RemovesFiles(t *testing.T) {
 	t.Parallel()
-	svc, _, obj := newPlanService(t)
+	svc, _, obj := newScenarioService(t)
 	ctx := context.Background()
 	p, _ := svc.Create(ctx, "smoke", 10)
-	_ = svc.UploadFile(ctx, p.ID, "plan.jmx", bytes.NewReader([]byte("x")))
+	_ = svc.UploadFile(ctx, p.ID, "scenario.jmx", bytes.NewReader([]byte("x")))
 
 	if err := svc.Delete(ctx, p.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := obj.Download(ctx, "plan/1/plan.jmx"); !errors.Is(err, ports.ErrObjectNotFound) {
-		t.Fatalf("file survived plan delete: %v", err)
+	if _, err := obj.Download(ctx, "plan/1/scenario.jmx"); !errors.Is(err, ports.ErrObjectNotFound) {
+		t.Fatalf("file survived scenario delete: %v", err)
 	}
 	if _, err := svc.Get(ctx, p.ID); !errors.Is(err, ports.ErrNotFound) {
-		t.Fatalf("plan survived delete: %v", err)
+		t.Fatalf("scenario survived delete: %v", err)
 	}
 }
