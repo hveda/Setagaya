@@ -11,6 +11,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/jmx"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/run"
@@ -31,6 +32,9 @@ var badRequestErrors = []error{
 	loadprofile.ErrScenarioRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
 	loadprofile.ErrDurationInvalid, loadprofile.ErrNoScenarios,
 	scenarioapp.ErrInvalidFilename,
+	// An unusable JMeter plan is the caller's file, not a server fault: the
+	// import must say which of the three ways it was unusable.
+	jmx.ErrMalformed, jmx.ErrNotJMX, jmx.ErrNoTestPlan,
 	executionapp.ErrInvalidFilename, executionapp.ErrExecutionMismatch,
 	executionapp.ErrScenarioNotInProject, executionapp.ErrEngineLimit,
 	run.ErrNoScenarios, lifecycleapp.ErrNoTestFile,

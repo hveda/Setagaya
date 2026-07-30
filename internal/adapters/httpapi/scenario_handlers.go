@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
@@ -64,6 +65,44 @@ func (h *handlers) createScenario(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, toScenarioResponse(p))
+}
+
+// importScenario creates a scenario from an uploaded JMeter plan and returns
+// the inspector's findings alongside it. The findings are part of the success
+// response rather than a warning log: a plan that runs differently under Honryu
+// than it did under Shibuya is exactly what the importing user needs told.
+func (h *handlers) importScenario(w http.ResponseWriter, r *http.Request) {
+	file, header, err := parseUpload(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read upload")
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	projectID, err := strconv.ParseInt(r.FormValue("project_id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project_id")
+		return
+	}
+	if err := h.authorizeProject(r.Context(), projectID); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		name = strings.TrimSuffix(header.Filename, ".jmx")
+	}
+
+	res, err := h.deps.Scenarios.ImportJMX(r.Context(), name, projectID, header.Filename, file)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"scenario": toScenarioResponse(res.Scenario),
+		"report":   res.Report,
+	})
 }
 
 func (h *handlers) deleteScenario(w http.ResponseWriter, r *http.Request) {

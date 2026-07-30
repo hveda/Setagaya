@@ -271,6 +271,71 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /api/scenarios/import:
+    post:
+      tags: [scenarios]
+      summary: Import a JMeter plan as a scenario
+      description: |
+        Creates a native, JMeter-pinned scenario from an uploaded `.jmx`. The
+        plan is not converted -- Taurus runs it as-is -- so the response carries
+        an inspection report describing what Honryu will do differently: load
+        settings baked into the plan that the execution's load profile
+        overrides, data files that must be uploaded separately, and listeners
+        whose output Honryu does not read.
+
+        A plan with no `TestPlan` element is refused: it parses, but it cannot
+        run.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, project_id]
+              properties:
+                file: { type: string, format: binary }
+                project_id: { type: integer, format: int64 }
+                name:
+                  type: string
+                  description: Defaults to the uploaded filename without its extension.
+      responses:
+        '201':
+          description: Scenario created, with the inspection report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scenario: { $ref: '#/components/schemas/Scenario' }
+                  report:
+                    type: object
+                    properties:
+                      test_plan_name: { type: string }
+                      thread_groups:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name: { type: string }
+                            threads: { type: integer }
+                            ramp_up_seconds: { type: integer }
+                            duration_seconds: { type: integer }
+                      data_files:
+                        type: array
+                        items: { type: string }
+                      findings:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum: [load-overridden, unreachable-path, listener-ignored, external-reporting]
+                            element: { type: string }
+                            detail: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /api/scenarios/{scenario_id}:
     get:
       tags: [scenarios]

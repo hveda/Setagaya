@@ -69,6 +69,7 @@ var routes = []Route{
 	{"DELETE", "/api/projects/{project_id}", "projects", hf(func(h *handlers) http.HandlerFunc { return h.deleteProject })},
 
 	{"POST", "/api/scenarios", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.createScenario })},
+	{"POST", "/api/scenarios/import", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.importScenario })},
 	{"GET", "/api/scenarios/{scenario_id}", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.getScenario })},
 	{"DELETE", "/api/scenarios/{scenario_id}", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.deleteScenario })},
 	{"GET", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.listScenarioFiles })},

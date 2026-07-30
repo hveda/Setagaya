@@ -1,10 +1,14 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
@@ -181,5 +185,113 @@ func TestHandlers_BadFormBodies(t *testing.T) {
 	collID := decodeID(t, postForm(t, h, "/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}}))
 	if rec := putMultipart(t, h, "/api/executions/"+itoa(collID)+"/config", "c.yaml", "a: b: c"); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid yaml = %d, want 400", rec.Code)
+	}
+}
+
+// postMultipart posts a file plus form fields, which the import endpoint needs
+// (the shared putMultipart helper sends no extra fields and uses PUT).
+func postMultipart(t *testing.T, h http.Handler, path, filename, content string, fields map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := fw.Write([]byte(content)); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatalf("WriteField: %v", err)
+		}
+	}
+	_ = mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// Importing a Shibuya plan must produce a runnable, JMeter-pinned scenario and
+// tell the user what will differ -- the findings are the point of the endpoint,
+// so they must reach the response body.
+func TestImportJMX_CreatesNativeScenarioAndReportsFindings(t *testing.T) {
+	t.Parallel()
+	h, store, _ := routerWithStore(t)
+	proj, _ := store.CreateProject(context.Background(), mustProject(t, "web", "honryu", "1"))
+
+	plan := `<?xml version="1.0"?>
+<jmeterTestPlan version="1.2">
+  <hashTree>
+    <TestPlan testname="Checkout"/>
+    <ThreadGroup testname="Shoppers">
+      <stringProp name="ThreadGroup.num_threads">200</stringProp>
+    </ThreadGroup>
+    <CSVDataSet testname="accounts" enabled="true">
+      <stringProp name="filename">/mnt/prod/accounts.csv</stringProp>
+    </CSVDataSet>
+  </hashTree>
+</jmeterTestPlan>`
+
+	rec := postMultipart(t, h, "/api/scenarios/import", "checkout.jmx", plan,
+		map[string]string{"project_id": itoa(proj)})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("import = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Scenario struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"scenario"`
+		Report struct {
+			TestPlanName string `json:"test_plan_name"`
+			Findings     []struct {
+				Kind string `json:"kind"`
+			} `json:"findings"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.Scenario.Name != "checkout" {
+		t.Errorf("name = %q, want the filename without its extension", got.Scenario.Name)
+	}
+	if got.Report.TestPlanName != "Checkout" {
+		t.Errorf("test plan name = %q", got.Report.TestPlanName)
+	}
+	kinds := map[string]bool{}
+	for _, f := range got.Report.Findings {
+		kinds[f.Kind] = true
+	}
+	if !kinds["load-overridden"] || !kinds["unreachable-path"] {
+		t.Errorf("findings = %+v, want both the overridden load and the unreachable path", got.Report.Findings)
+	}
+
+	// The plan itself is stored as the scenario's test file, so it can run.
+	files := do(t, h, http.MethodGet, "/api/scenarios/"+itoa(got.Scenario.ID)+"/files")
+	if !strings.Contains(files.Body.String(), "checkout.jmx") {
+		t.Errorf("scenario files = %s, want the imported plan", files.Body.String())
+	}
+}
+
+// A file that parses but cannot run must be refused rather than becoming a
+// scenario that fails only when a pod starts.
+func TestImportJMX_RefusesUnrunnablePlan(t *testing.T) {
+	t.Parallel()
+	h, store, _ := routerWithStore(t)
+	proj, _ := store.CreateProject(context.Background(), mustProject(t, "web", "honryu", "1"))
+
+	workbench := `<?xml version="1.0"?><jmeterTestPlan><hashTree><WorkBench testname="WorkBench"/></hashTree></jmeterTestPlan>`
+	rec := postMultipart(t, h, "/api/scenarios/import", "wb.jmx", workbench,
+		map[string]string{"project_id": itoa(proj)})
+	if rec.Code == http.StatusCreated {
+		t.Fatalf("import of a plan with no TestPlan succeeded: %s", rec.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(rec.Body.String()), "testplan") {
+		t.Errorf("error does not state the reason: %s", rec.Body.String())
 	}
 }

@@ -4,13 +4,16 @@
 package scenarioapp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/heridotlife/honryu/internal/domain/jmx"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -101,6 +104,56 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		}
 	}
 	return s.repo.DeleteScenario(ctx, id)
+}
+
+// ImportResult is a completed JMX import: the scenario that now exists, and
+// what the inspector found in the plan.
+type ImportResult struct {
+	Scenario scenario.Scenario `json:"scenario"`
+	Report   jmx.Report        `json:"report"`
+}
+
+// ImportJMX creates a scenario from a Shibuya JMeter plan.
+//
+// The plan is not converted: Taurus runs a .jmx directly, so the scenario is
+// native and pinned to JMeter. What the import adds is the inspector's report --
+// the plan's own load settings that Honryu overrides, data files the pod must be
+// given, and listeners that will not do what their author expects. The file is
+// stored only after it has been inspected, so an unusable plan never becomes a
+// scenario.
+func (s *Service) ImportJMX(ctx context.Context, name string, projectID int64, filename string, content io.Reader) (ImportResult, error) {
+	if err := validateFilename(filename); err != nil {
+		return ImportResult{}, err
+	}
+	if !isJMX(filename) {
+		return ImportResult{}, fmt.Errorf("%w: %q is not a .jmx file", ErrInvalidFilename, filename)
+	}
+
+	raw, err := io.ReadAll(content)
+	if err != nil {
+		return ImportResult{}, fmt.Errorf("scenarioapp: read plan: %w", err)
+	}
+	report, err := jmx.Inspect(bytes.NewReader(raw))
+	if err != nil {
+		return ImportResult{}, err
+	}
+
+	sc, err := scenario.NewNative(strings.TrimSpace(name), projectID, taurus.ExecutorJMeter)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	id, err := s.repo.CreateScenario(ctx, sc)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	sc.ID = id
+
+	if err := s.UploadFile(ctx, id, filename, bytes.NewReader(raw)); err != nil {
+		// Roll back, so a failed import leaves no scenario behind.
+		_ = s.repo.DeleteScenario(ctx, id)
+		return ImportResult{}, err
+	}
+	return ImportResult{Scenario: sc, Report: report}, nil
 }
 
 // Files returns the scenario's files with URLs.
