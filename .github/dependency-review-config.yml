@@ -1,4 +1,4 @@
-# Dependency Review Configuration for Setagaya
+# Dependency Review Configuration for Honryu
 # Configuration for legitimate Go 1.25.1 ecosystem upgrade
 
 # Set higher severity threshold - only fail on high/critical vulnerabilities

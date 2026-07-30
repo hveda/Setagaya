@@ -1,7 +1,7 @@
 {
-  "name": "setagaya-dev-tools",
+  "name": "honryu-dev-tools",
   "version": "1.0.0",
-  "description": "Development tools for Setagaya load testing platform",
+  "description": "Development tools for the Honryu load testing platform",
   "private": true,
   "scripts": {
     "format": "prettier --write .",

@@ -22,8 +22,14 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 
 	documented := make(map[string]bool)
 	for path, item := range doc.Paths {
-		for method := range item {
-			documented[strings.ToUpper(method)+" "+path] = true
+		for key := range item {
+			// A path item legally holds non-operation keys ("parameters",
+			// "summary", "description", "servers", "$ref"). Only the HTTP
+			// methods describe routes.
+			if !isHTTPMethod(key) {
+				continue
+			}
+			documented[strings.ToUpper(key)+" "+path] = true
 		}
 	}
 
@@ -51,11 +57,41 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 	}
 }
 
-// TestRoutesAreServed guards the route table against becoming decorative: every
-// entry must actually be reachable through the router.
-func TestRoutesAreServed(t *testing.T) {
+// TestOpenAPITagsMatchRouteGroups keeps the document's tags trustworthy: each
+// operation's tag must be the group its route declares, so the two cannot drift.
+func TestOpenAPITagsMatchRouteGroups(t *testing.T) {
 	t.Parallel()
 
+	doc := loadOpenAPI(t)
+
+	for _, r := range httpapi.Routes() {
+		item, ok := doc.Paths[r.Pattern]
+		if !ok {
+			continue // reported by TestOpenAPIMatchesRoutes
+		}
+		op, ok := item[strings.ToLower(r.Method)].(map[string]any)
+		if !ok {
+			continue
+		}
+		tags, _ := op["tags"].([]any)
+		if len(tags) == 0 {
+			t.Errorf("%s %s: operation has no tags, want %q", r.Method, r.Pattern, r.Group)
+			continue
+		}
+		if got, _ := tags[0].(string); got != r.Group {
+			t.Errorf("%s %s: documented tag %q, route group %q", r.Method, r.Pattern, got, r.Group)
+		}
+	}
+}
+
+// TestRouteTableWellFormed checks the route table itself: entries are complete,
+// patterns are unique, and every pattern is one net/http's ServeMux accepts --
+// the last verified by building a router, which panics on a malformed or
+// duplicate pattern.
+func TestRouteTableWellFormed(t *testing.T) {
+	t.Parallel()
+
+	seen := make(map[string]bool)
 	for _, r := range httpapi.Routes() {
 		if r.Method == "" || r.Pattern == "" {
 			t.Errorf("route with empty method or pattern: %+v", r)
@@ -63,8 +99,29 @@ func TestRoutesAreServed(t *testing.T) {
 		if !strings.HasPrefix(r.Pattern, "/") {
 			t.Errorf("route pattern %q does not start with /", r.Pattern)
 		}
+		if r.Group == "" {
+			t.Errorf("route %s %s has no group", r.Method, r.Pattern)
+		}
+		key := r.Method + " " + r.Pattern
+		if seen[key] {
+			t.Errorf("duplicate route %q", key)
+		}
+		seen[key] = true
+	}
+
+	// Registers all patterns; ServeMux panics on an invalid or duplicate one.
+	if h := httpapi.NewRouter(httpapi.Deps{}); h == nil {
+		t.Fatal("NewRouter returned nil")
 	}
 }
+
+// httpMethods are the operation keys OpenAPI defines for a path item.
+var httpMethods = map[string]bool{
+	"get": true, "put": true, "post": true, "delete": true,
+	"options": true, "head": true, "patch": true, "trace": true,
+}
+
+func isHTTPMethod(key string) bool { return httpMethods[strings.ToLower(key)] }
 
 type openAPIDoc struct {
 	Paths map[string]map[string]any `yaml:"paths"`

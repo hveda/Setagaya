@@ -1,5 +1,5 @@
 personal_ws-1.1 en 0
-Setagaya
+Honryu
 JMeter
 Kubernetes
 kubernetes
@@ -13,7 +13,7 @@ RBAC
 LDAP
 MySQL
 Prometheus
-setagaya
+honryu
 namespace
 namespaces
 Dockerfile

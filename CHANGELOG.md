@@ -31,8 +31,15 @@ labels, Prometheus metric and label names, and the Grafana dashboards.
   so there is no data to carry across.
 
 **Breaking:** every API route, JSON field, environment variable, metric name,
-and table name changes. There is no compatibility shim — this release expects a
-fresh deployment.
+object-store key, and table name changes. There is no compatibility shim.
+
+Honryu requires an **empty database**. Migrations are tracked by filename, and
+the baseline renamed all but one file, so pointing Honryu at a pre-rename
+database would create the new tables empty alongside the old populated ones and
+start up looking healthy but empty. `Migrate` now refuses such a database by
+name rather than allowing that. Migrate from Shibuya by importing JMX assets
+into a fresh database; uploaded artifacts must be re-uploaded, since the
+object-store key prefixes changed with the vocabulary.
 
 ## [Unreleased] — v3 rewrite
 

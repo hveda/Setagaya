@@ -1,4 +1,4 @@
-# Trivy ignore file for Setagaya security scanning
+# Trivy ignore file for Honryu security scanning
 # This file contains security findings that are acceptable for our use case
 
 # GOOGLE_APPLICATION_CREDENTIALS is now configurable via build args

@@ -38,7 +38,7 @@ This template is for reference only.
 
 ### Affected Components
 
-<!-- Which parts of Setagaya are affected? -->
+<!-- Which parts of Honryu are affected? -->
 
 - [ ] Core API Server
 - [ ] Controller Service
@@ -89,7 +89,7 @@ This template is for reference only.
 
 - **OS**:
 - **Kubernetes Version**:
-- **Setagaya Version**:
+- **Honryu Version**:
 - **Browser** (if applicable):
 - **Network Configuration**:
 

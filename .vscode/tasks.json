@@ -54,11 +54,11 @@
       "problemMatcher": []
     },
     {
-      "label": "Build Setagaya",
+      "label": "Build Honryu",
       "type": "shell",
       "command": "make",
       "args": [
-        "setagaya"
+        "build"
       ],
       "group": {
         "kind": "build",
@@ -73,7 +73,7 @@
       "problemMatcher": "$go"
     },
     {
-      "label": "Test Setagaya",
+      "label": "Test Honryu",
       "type": "shell",
       "command": "make",
       "args": [
