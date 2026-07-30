@@ -12,44 +12,44 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-const planColumns = "id, name, project_id, tenant_id, created_by, updated_by, created_time"
+const scenarioColumns = "id, name, project_id, tenant_id, created_by, updated_by, created_time"
 
 const mysqlDupEntry = 1062
 
 // CreateScenario inserts p and returns its auto-assigned ID.
 func (r *Repository) CreateScenario(ctx context.Context, p scenario.Scenario) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		"INSERT INTO plan (name, project_id, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO scenario (name, project_id, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?)",
 		p.Name, p.ProjectID, nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
 	)
 	if err != nil {
-		return 0, fmt.Errorf("mysql: create plan: %w", err)
+		return 0, fmt.Errorf("mysql: create scenario: %w", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return 0, fmt.Errorf("mysql: create plan last id: %w", err)
+		return 0, fmt.Errorf("mysql: create scenario last id: %w", err)
 	}
 	return id, nil
 }
 
-// GetScenario returns the plan with id, or ports.ErrNotFound.
+// GetScenario returns the scenario with id, or ports.ErrNotFound.
 func (r *Repository) GetScenario(ctx context.Context, id int64) (scenario.Scenario, error) {
-	row := r.db.QueryRowContext(ctx, "SELECT "+planColumns+" FROM plan WHERE id = ?", id)
+	row := r.db.QueryRowContext(ctx, "SELECT "+scenarioColumns+" FROM scenario WHERE id = ?", id)
 	p, err := scanPlan(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return scenario.Scenario{}, ports.ErrNotFound
 	}
 	if err != nil {
-		return scenario.Scenario{}, fmt.Errorf("mysql: get plan: %w", err)
+		return scenario.Scenario{}, fmt.Errorf("mysql: get scenario: %w", err)
 	}
 	return p, nil
 }
 
-// ListScenariosByProject returns all plans belonging to projectID.
+// ListScenariosByProject returns all scenarios belonging to projectID.
 func (r *Repository) ListScenariosByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT "+planColumns+" FROM plan WHERE project_id = ?", projectID)
+	rows, err := r.db.QueryContext(ctx, "SELECT "+scenarioColumns+" FROM scenario WHERE project_id = ?", projectID)
 	if err != nil {
-		return nil, fmt.Errorf("mysql: list plans: %w", err)
+		return nil, fmt.Errorf("mysql: list scenarios: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -57,87 +57,87 @@ func (r *Repository) ListScenariosByProject(ctx context.Context, projectID int64
 	for rows.Next() {
 		p, scanErr := scanPlan(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("mysql: scan plan: %w", scanErr)
+			return nil, fmt.Errorf("mysql: scan scenario: %w", scanErr)
 		}
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("mysql: iterate plans: %w", err)
+		return nil, fmt.Errorf("mysql: iterate scenarios: %w", err)
 	}
 	return out, nil
 }
 
-// DeleteScenario removes the plan with id, or returns ports.ErrNotFound.
+// DeleteScenario removes the scenario with id, or returns ports.ErrNotFound.
 func (r *Repository) DeleteScenario(ctx context.Context, id int64) error {
-	return execDelete(ctx, r.db, "DELETE FROM plan WHERE id = ?", id)
+	return execDelete(ctx, r.db, "DELETE FROM scenario WHERE id = ?", id)
 }
 
-// AddScenarioFile records a file for the plan. isTest selects the single JMX slot
-// (plan_test_file) vs a data file (plan_data). Returns ports.ErrFileExists on
+// AddScenarioFile records a file for the scenario. isTest selects the single JMX slot
+// (scenario_test_file) vs a data file (scenario_data). Returns ports.ErrFileExists on
 // duplicate.
 func (r *Repository) AddScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error {
-	table := "plan_data"
+	table := "scenario_data"
 	if isTest {
-		table = "plan_test_file"
+		table = "scenario_test_file"
 	}
 	// #nosec G201 -- table is a fixed internal constant, not user input.
-	_, err := r.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (plan_id, filename) VALUES (?, ?)", table), scenarioID, filename)
+	_, err := r.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (scenario_id, filename) VALUES (?, ?)", table), scenarioID, filename)
 	if isDuplicateKey(err) {
 		return ports.ErrFileExists
 	}
 	if err != nil {
-		return fmt.Errorf("mysql: add plan file: %w", err)
+		return fmt.Errorf("mysql: add scenario file: %w", err)
 	}
 	return nil
 }
 
-// ScenarioFilesFor returns the plan's recorded files.
+// ScenarioFilesFor returns the scenario's recorded files.
 func (r *Repository) ScenarioFilesFor(ctx context.Context, scenarioID int64) (ports.ScenarioFiles, error) {
 	var pf ports.ScenarioFiles
 
 	var testFile sql.NullString
-	err := r.db.QueryRowContext(ctx, "SELECT filename FROM plan_test_file WHERE plan_id = ?", scenarioID).Scan(&testFile)
+	err := r.db.QueryRowContext(ctx, "SELECT filename FROM scenario_test_file WHERE scenario_id = ?", scenarioID).Scan(&testFile)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return ports.ScenarioFiles{}, fmt.Errorf("mysql: plan test file: %w", err)
+		return ports.ScenarioFiles{}, fmt.Errorf("mysql: scenario test file: %w", err)
 	}
 	pf.TestFile = testFile.String
 
-	rows, err := r.db.QueryContext(ctx, "SELECT filename FROM plan_data WHERE plan_id = ?", scenarioID)
+	rows, err := r.db.QueryContext(ctx, "SELECT filename FROM scenario_data WHERE scenario_id = ?", scenarioID)
 	if err != nil {
-		return ports.ScenarioFiles{}, fmt.Errorf("mysql: plan data files: %w", err)
+		return ports.ScenarioFiles{}, fmt.Errorf("mysql: scenario data files: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	pf.Data = []string{}
 	for rows.Next() {
 		var name string
 		if scanErr := rows.Scan(&name); scanErr != nil {
-			return ports.ScenarioFiles{}, fmt.Errorf("mysql: scan plan data: %w", scanErr)
+			return ports.ScenarioFiles{}, fmt.Errorf("mysql: scan scenario data: %w", scanErr)
 		}
 		pf.Data = append(pf.Data, name)
 	}
 	if err := rows.Err(); err != nil {
-		return ports.ScenarioFiles{}, fmt.Errorf("mysql: iterate plan data: %w", err)
+		return ports.ScenarioFiles{}, fmt.Errorf("mysql: iterate scenario data: %w", err)
 	}
 	return pf, nil
 }
 
-// DeleteScenarioFile removes a file record for the plan, or ports.ErrNotFound.
+// DeleteScenarioFile removes a file record for the scenario, or ports.ErrNotFound.
 func (r *Repository) DeleteScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error {
-	table := "plan_data"
+	table := "scenario_data"
 	if isTest {
-		table = "plan_test_file"
+		table = "scenario_test_file"
 	}
 	// #nosec G201 -- table is a fixed internal constant, not user input.
-	return execDelete(ctx, r.db, fmt.Sprintf("DELETE FROM %s WHERE plan_id = ? AND filename = ?", table), scenarioID, filename)
+	return execDelete(ctx, r.db, fmt.Sprintf("DELETE FROM %s WHERE scenario_id = ? AND filename = ?", table), scenarioID, filename)
 }
 
-// ScenarioInUse reports whether the plan is referenced by any collection's
+// ScenarioInUse reports whether the scenario is referenced by any execution's
 // execution configuration.
 func (r *Repository) ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error) {
 	var exists bool
-	err := r.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM collection_plan WHERE plan_id = ?)", scenarioID).Scan(&exists)
+	err := r.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM execution_scenario WHERE scenario_id = ?)", scenarioID).Scan(&exists)
 	if err != nil {
-		return false, fmt.Errorf("mysql: plan in use: %w", err)
+		return false, fmt.Errorf("mysql: scenario in use: %w", err)
 	}
 	return exists, nil
 }

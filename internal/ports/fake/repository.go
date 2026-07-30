@@ -362,7 +362,7 @@ func (s *Store) StoreLoadProfile(_ context.Context, executionID int64, csvSplit 
 	if !ok {
 		return ports.ErrNotFound
 	}
-	// The persisted schema (collection_plan) does not store the plan name, so
+	// The persisted schema (execution_scenario) does not store the plan name, so
 	// the fake drops it too to stay behaviourally identical to MySQL.
 	stored := make([]loadprofile.Entry, len(plans))
 	for i, ep := range plans {

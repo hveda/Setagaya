@@ -11,7 +11,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// defaultDeployContext scopes running_plan rows when no context is configured.
+// defaultDeployContext scopes running_scenario rows when no context is configured.
 const defaultDeployContext = "default"
 
 // Repository implements ProjectRepository, ScenarioRepository,
@@ -26,7 +26,7 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db, deployContext: defaultDeployContext}
 }
 
-// WithContext sets the deployment context recorded on running_plan rows and
+// WithContext sets the deployment context recorded on running_scenario rows and
 // used to scope RunningScenarios queries (mirrors v2's config.SC.Context). An empty
 // value is ignored. Returns the receiver for chaining.
 func (r *Repository) WithContext(deployContext string) *Repository {

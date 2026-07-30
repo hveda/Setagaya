@@ -166,7 +166,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 // newRepository selects the repository implementation from config.
 // "fake" is the in-memory default for local development and the walking
 // skeleton; "mysql" opens the pool and applies migrations. deployContext scopes
-// the running_plan rows this process owns.
+// the running_scenario rows this process owns.
 func newRepository(cfg config.DBConfig, deployContext string) (repository, error) {
 	switch cfg.Driver {
 	case "fake":

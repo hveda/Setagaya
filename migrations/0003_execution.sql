@@ -1,8 +1,9 @@
--- 0002_plan: baseline `plan` table (evolved v2 schema: name 100 + rbac columns).
-CREATE TABLE IF NOT EXISTS plan (
+-- 0003_execution: the runnable unit grouping scenarios (Taurus "execution").
+CREATE TABLE IF NOT EXISTS execution (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name         VARCHAR(100) NOT NULL,
     project_id   INT UNSIGNED NOT NULL,
+    csv_split    TINYINT(1)   DEFAULT 0,
     tenant_id    BIGINT       NULL,
     created_by   VARCHAR(255) NULL,
     updated_by   VARCHAR(255) NULL,

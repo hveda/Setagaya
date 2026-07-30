@@ -30,7 +30,7 @@ func TestMySQLCollectionRepository_Contract(t *testing.T) {
 	})
 }
 
-// TestMySQLPlan_TenantAndAuditRoundTrip covers the nullable plan columns.
+// TestMySQLPlan_TenantAndAuditRoundTrip covers the nullable scenario columns.
 func TestMySQLPlan_TenantAndAuditRoundTrip(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repo := mysqladapter.NewRepository(db)
@@ -48,11 +48,11 @@ func TestMySQLPlan_TenantAndAuditRoundTrip(t *testing.T) {
 		t.Fatalf("GetScenario: %v", err)
 	}
 	if got.TenantID == nil || *got.TenantID != tenant || got.CreatedBy != "okta|a" || got.UpdatedBy != "okta|b" {
-		t.Fatalf("plan round trip = %+v", got)
+		t.Fatalf("scenario round trip = %+v", got)
 	}
 }
 
-// TestMySQLCollection_TenantAndCSVRoundTrip covers the nullable collection
+// TestMySQLCollection_TenantAndCSVRoundTrip covers the nullable execution
 // columns and the csv_split flag on create.
 func TestMySQLCollection_TenantAndCSVRoundTrip(t *testing.T) {
 	db := dbtest.StartMySQL(t)
@@ -71,12 +71,12 @@ func TestMySQLCollection_TenantAndCSVRoundTrip(t *testing.T) {
 		t.Fatalf("GetExecution: %v", err)
 	}
 	if got.TenantID == nil || *got.TenantID != tenant || !got.CSVSplit || got.CreatedBy != "okta|c" {
-		t.Fatalf("collection round trip = %+v", got)
+		t.Fatalf("execution round trip = %+v", got)
 	}
 }
 
 // TestMySQLPlanCollection_ErrorsWhenDBClosed drives the DB-error branches of
-// every plan and collection method by closing the pool first.
+// every scenario and execution method by closing the pool first.
 func TestMySQLPlanCollection_ErrorsWhenDBClosed(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repo := mysqladapter.NewRepository(db)
@@ -117,11 +117,11 @@ func TestMySQLPlanCollection_ErrorsWhenDBClosed(t *testing.T) {
 func truncateAll(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, table := range []string{
-		"project", "plan", "collection", "collection_plan",
-		"plan_data", "plan_test_file", "collection_data",
-		"collection_run", "collection_run_history", "running_plan",
-		"collection_launch", "collection_launch_history2",
-		"v3_tenant", "v3_role_grant",
+		"project", "scenario", "execution", "execution_scenario",
+		"scenario_data", "scenario_test_file", "execution_data",
+		"execution_run", "execution_run_history", "running_scenario",
+		"execution_launch", "execution_launch_history",
+		"tenant", "role_grant",
 	} {
 		if _, err := db.Exec("TRUNCATE TABLE " + table); err != nil {
 			t.Fatalf("truncate %s: %v", table, err)

@@ -1,9 +1,8 @@
--- 0003_collection: baseline `collection` table (evolved v2 schema).
-CREATE TABLE IF NOT EXISTS collection (
+-- 0002_scenario: a reusable workload definition (Taurus "scenarios").
+CREATE TABLE IF NOT EXISTS scenario (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name         VARCHAR(100) NOT NULL,
     project_id   INT UNSIGNED NOT NULL,
-    csv_split    TINYINT(1)   DEFAULT 0,
     tenant_id    BIGINT       NULL,
     created_by   VARCHAR(255) NULL,
     updated_by   VARCHAR(255) NULL,

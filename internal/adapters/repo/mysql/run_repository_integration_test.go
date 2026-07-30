@@ -42,7 +42,7 @@ func TestMySQLRunRepository_ContextScoping(t *testing.T) {
 		t.Fatalf("RunningScenarios A: %v", err)
 	}
 	if len(aPlans) != 1 || aPlans[0].ExecutionID != 1 {
-		t.Fatalf("context A running plans = %+v, want only collection 1", aPlans)
+		t.Fatalf("context A running scenarios = %+v, want only execution 1", aPlans)
 	}
 }
 

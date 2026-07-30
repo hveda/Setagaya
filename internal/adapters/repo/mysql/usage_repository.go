@@ -8,7 +8,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// StartLaunch opens a launch (collection_launch guard + history row).
+// StartLaunch opens a launch (execution_launch guard + history row).
 func (r *Repository) StartLaunch(ctx context.Context, executionID int64, owner string, engines, vu int) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -16,7 +16,7 @@ func (r *Repository) StartLaunch(ctx context.Context, executionID int64, owner s
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	res, err := tx.ExecContext(ctx, "INSERT INTO collection_launch (collection_id) VALUES (?)", executionID)
+	res, err := tx.ExecContext(ctx, "INSERT INTO execution_launch (execution_id) VALUES (?)", executionID)
 	if err != nil {
 		if isDuplicateKey(err) {
 			return ports.ErrLaunchActive
@@ -28,7 +28,7 @@ func (r *Repository) StartLaunch(ctx context.Context, executionID int64, owner s
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO collection_launch_history2 (collection_id, context, owner, engines_count, vu, launch_id) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO execution_launch_history (execution_id, context, owner, engines_count, vu, launch_id) VALUES (?, ?, ?, ?, ?, ?)",
 		executionID, r.deployContext, owner, engines, vu, launchID); err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func (r *Repository) FinishLaunch(ctx context.Context, executionID int64, vu int
 	defer func() { _ = tx.Rollback() }()
 
 	var launchID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM collection_launch WHERE collection_id=?", executionID).Scan(&launchID)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM execution_launch WHERE execution_id=?", executionID).Scan(&launchID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil // nothing open
@@ -52,10 +52,10 @@ func (r *Repository) FinishLaunch(ctx context.Context, executionID int64, vu int
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE collection_launch_history2 SET end_time=NOW(), vu=? WHERE launch_id=?", vu, launchID); err != nil {
+		"UPDATE execution_launch_history SET end_time=NOW(), vu=? WHERE launch_id=?", vu, launchID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM collection_launch WHERE collection_id=?", executionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM execution_launch WHERE execution_id=?", executionID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -64,8 +64,8 @@ func (r *Repository) FinishLaunch(ctx context.Context, executionID int64, vu int
 // LaunchHistory returns finished launches within [from, to].
 func (r *Repository) LaunchHistory(ctx context.Context, from, to time.Time) ([]ports.LaunchRecord, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT collection_id, context, owner, engines_count, vu, started_time, end_time
-		 FROM collection_launch_history2
+		`SELECT execution_id, context, owner, engines_count, vu, started_time, end_time
+		 FROM execution_launch_history
 		 WHERE end_time IS NOT NULL AND started_time >= ? AND end_time <= ?`, from, to)
 	if err != nil {
 		return nil, err

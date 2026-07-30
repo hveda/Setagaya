@@ -9,7 +9,7 @@ import (
 )
 
 // globalScope is the tenant_id sentinel for a global (service-provider) grant.
-// Using 0 rather than NULL keeps the uniqueness guard on v3_role_grant
+// Using 0 rather than NULL keeps the uniqueness guard on role_grant
 // meaningful so re-granting is a no-op.
 const globalScope int64 = 0
 
@@ -23,7 +23,7 @@ var (
 // CreateTenant inserts a tenant, mapping a duplicate name to ErrFileExists.
 func (r *Repository) CreateTenant(ctx context.Context, t tenant.Tenant) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		"INSERT INTO v3_tenant (name, display_name, status) VALUES (?, ?, ?)",
+		"INSERT INTO tenant (name, display_name, status) VALUES (?, ?, ?)",
 		t.Name, t.DisplayName, t.Status)
 	if err != nil {
 		if isDuplicateKey(err) {
@@ -37,14 +37,14 @@ func (r *Repository) CreateTenant(ctx context.Context, t tenant.Tenant) (int64, 
 // GetTenant returns the tenant, or ErrNotFound.
 func (r *Repository) GetTenant(ctx context.Context, id int64) (tenant.Tenant, error) {
 	row := r.db.QueryRowContext(ctx,
-		"SELECT id, name, display_name, status, created_time FROM v3_tenant WHERE id = ?", id)
+		"SELECT id, name, display_name, status, created_time FROM tenant WHERE id = ?", id)
 	return scanTenant(row)
 }
 
 // ListTenants returns all tenants ordered by id.
 func (r *Repository) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT id, name, display_name, status, created_time FROM v3_tenant ORDER BY id")
+		"SELECT id, name, display_name, status, created_time FROM tenant ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -67,14 +67,14 @@ func (r *Repository) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 // SetTenantStatus updates a tenant's status, or returns ErrNotFound.
 func (r *Repository) SetTenantStatus(ctx context.Context, id int64, status string) error {
 	var exists int
-	err := r.db.QueryRowContext(ctx, "SELECT 1 FROM v3_tenant WHERE id = ?", id).Scan(&exists)
+	err := r.db.QueryRowContext(ctx, "SELECT 1 FROM tenant WHERE id = ?", id).Scan(&exists)
 	if err == sql.ErrNoRows {
 		return ports.ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, "UPDATE v3_tenant SET status = ? WHERE id = ?", status, id)
+	_, err = r.db.ExecContext(ctx, "UPDATE tenant SET status = ? WHERE id = ?", status, id)
 	return err
 }
 
@@ -95,7 +95,7 @@ func scanTenant(s rowScanner) (tenant.Tenant, error) {
 // guard).
 func (r *Repository) AssignRole(ctx context.Context, g ports.RoleGrant) error {
 	_, err := r.db.ExecContext(ctx,
-		"INSERT IGNORE INTO v3_role_grant (subject, email, role_name, tenant_id, granted_by) VALUES (?, ?, ?, ?, ?)",
+		"INSERT IGNORE INTO role_grant (subject, email, role_name, tenant_id, granted_by) VALUES (?, ?, ?, ?, ?)",
 		g.Subject, g.Email, g.RoleName, scopeValue(g.TenantID), g.GrantedBy)
 	return err
 }
@@ -103,7 +103,7 @@ func (r *Repository) AssignRole(ctx context.Context, g ports.RoleGrant) error {
 // RevokeRole removes a matching grant, if any.
 func (r *Repository) RevokeRole(ctx context.Context, subject, roleName string, tenantID *int64) error {
 	_, err := r.db.ExecContext(ctx,
-		"DELETE FROM v3_role_grant WHERE subject = ? AND role_name = ? AND tenant_id = ?",
+		"DELETE FROM role_grant WHERE subject = ? AND role_name = ? AND tenant_id = ?",
 		subject, roleName, scopeValue(tenantID))
 	return err
 }
@@ -111,7 +111,7 @@ func (r *Repository) RevokeRole(ctx context.Context, subject, roleName string, t
 // RolesFor resolves all grants held by a subject.
 func (r *Repository) RolesFor(ctx context.Context, subject string) (ports.RoleGrants, error) {
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT role_name, tenant_id FROM v3_role_grant WHERE subject = ?", subject)
+		"SELECT role_name, tenant_id FROM role_grant WHERE subject = ?", subject)
 	if err != nil {
 		return ports.RoleGrants{}, err
 	}

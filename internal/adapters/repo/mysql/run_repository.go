@@ -8,9 +8,9 @@ import (
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-// StartRun opens the active run for a collection and its history row.
+// StartRun opens the active run for a execution and its history row.
 func (r *Repository) StartRun(ctx context.Context, executionID int64) (int64, error) {
-	res, err := r.db.ExecContext(ctx, "INSERT INTO collection_run (collection_id) VALUES (?)", executionID)
+	res, err := r.db.ExecContext(ctx, "INSERT INTO execution_run (execution_id) VALUES (?)", executionID)
 	if err != nil {
 		if isDuplicateKey(err) {
 			return 0, ports.ErrRunActive
@@ -22,16 +22,16 @@ func (r *Repository) StartRun(ctx context.Context, executionID int64) (int64, er
 		return 0, err
 	}
 	if _, err := r.db.ExecContext(ctx,
-		"INSERT INTO collection_run_history (run_id, collection_id) VALUES (?, ?)", runID, executionID); err != nil {
+		"INSERT INTO execution_run_history (run_id, execution_id) VALUES (?, ?)", runID, executionID); err != nil {
 		return 0, err
 	}
 	return runID, nil
 }
 
-// CurrentRun returns the active run id for a collection.
+// CurrentRun returns the active run id for a execution.
 func (r *Repository) CurrentRun(ctx context.Context, executionID int64) (int64, bool, error) {
 	var runID int64
-	err := r.db.QueryRowContext(ctx, "SELECT id FROM collection_run WHERE collection_id=?", executionID).Scan(&runID)
+	err := r.db.QueryRowContext(ctx, "SELECT id FROM execution_run WHERE execution_id=?", executionID).Scan(&runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -51,17 +51,17 @@ func (r *Repository) StopRun(ctx context.Context, executionID int64) error {
 		return nil
 	}
 	if _, err := r.db.ExecContext(ctx,
-		"UPDATE collection_run_history SET end_time=NOW() WHERE collection_id=? AND run_id=?", executionID, runID); err != nil {
+		"UPDATE execution_run_history SET end_time=NOW() WHERE execution_id=? AND run_id=?", executionID, runID); err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, "DELETE FROM collection_run WHERE collection_id=?", executionID)
+	_, err = r.db.ExecContext(ctx, "DELETE FROM execution_run WHERE execution_id=?", executionID)
 	return err
 }
 
-// MarkScenarioRunning records a running plan; duplicates are ignored (idempotent).
+// MarkScenarioRunning records a running scenario; duplicates are ignored (idempotent).
 func (r *Repository) MarkScenarioRunning(ctx context.Context, executionID, scenarioID int64) error {
 	_, err := r.db.ExecContext(ctx,
-		"INSERT INTO running_plan (collection_id, plan_id, context) VALUES (?, ?, ?)",
+		"INSERT INTO running_scenario (execution_id, scenario_id, context) VALUES (?, ?, ?)",
 		executionID, scenarioID, r.deployContext)
 	if isDuplicateKey(err) {
 		return nil
@@ -69,27 +69,27 @@ func (r *Repository) MarkScenarioRunning(ctx context.Context, executionID, scena
 	return err
 }
 
-// ClearScenarioRunning removes a running plan marker (idempotent).
+// ClearScenarioRunning removes a running scenario marker (idempotent).
 func (r *Repository) ClearScenarioRunning(ctx context.Context, executionID, scenarioID int64) error {
 	_, err := r.db.ExecContext(ctx,
-		"DELETE FROM running_plan WHERE collection_id=? AND plan_id=?", executionID, scenarioID)
+		"DELETE FROM running_scenario WHERE execution_id=? AND scenario_id=?", executionID, scenarioID)
 	return err
 }
 
-// RunningScenarios lists every running plan in this deployment context.
+// RunningScenarios lists every running scenario in this deployment context.
 func (r *Repository) RunningScenarios(ctx context.Context) ([]ports.RunningScenario, error) {
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT collection_id, plan_id, started_time FROM running_plan WHERE context=?", r.deployContext)
+		"SELECT execution_id, scenario_id, started_time FROM running_scenario WHERE context=?", r.deployContext)
 	if err != nil {
 		return nil, err
 	}
 	return scanRunningPlans(rows)
 }
 
-// RunningScenariosByExecution lists running plans for one collection.
+// RunningScenariosByExecution lists running scenarios for one execution.
 func (r *Repository) RunningScenariosByExecution(ctx context.Context, executionID int64) ([]ports.RunningScenario, error) {
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT collection_id, plan_id, started_time FROM running_plan WHERE collection_id=?", executionID)
+		"SELECT execution_id, scenario_id, started_time FROM running_scenario WHERE execution_id=?", executionID)
 	if err != nil {
 		return nil, err
 	}

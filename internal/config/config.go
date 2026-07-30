@@ -55,7 +55,7 @@ type ClusterConfig struct {
 	Namespace   string
 	EngineImage string
 	EnginePort  int
-	Context     string // deployment context scoping running_plan rows
+	Context     string // deployment context scoping running_scenario rows
 	// AutoPurgeInterval is how often idle engines are swept; zero disables the
 	// sweeper. AutoPurgeIdle is how long engines may sit idle before a sweep
 	// purges them.
