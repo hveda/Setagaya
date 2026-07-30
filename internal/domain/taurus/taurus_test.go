@@ -240,3 +240,60 @@ func TestDuration_UnmarshalYAML(t *testing.T) {
 		})
 	}
 }
+
+func TestExecutor_DeclarativeSupport(t *testing.T) {
+	t.Parallel()
+
+	// Established by running each engine under bzt in the Phase 0 spike and by
+	// reading bzt 1.16's executor modules: k6 is script-only, the rest accept
+	// the declarative `requests:` form.
+	cases := []struct {
+		exec        taurus.Executor
+		declarative bool
+		known       bool
+	}{
+		{taurus.ExecutorJMeter, true, true},
+		{taurus.ExecutorGatling, true, true},
+		{taurus.ExecutorLocust, true, true},
+		{taurus.ExecutorApiritif, true, true},
+		{taurus.ExecutorAB, true, true},
+		{taurus.ExecutorSiege, true, true},
+		{taurus.ExecutorK6, false, true},
+		{taurus.Executor("nope"), false, false},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.exec), func(t *testing.T) {
+			t.Parallel()
+			if got := tc.exec.AcceptsDeclarativeRequests(); got != tc.declarative {
+				t.Errorf("%s.AcceptsDeclarativeRequests() = %v, want %v", tc.exec, got, tc.declarative)
+			}
+			if got := tc.exec.Known(); got != tc.known {
+				t.Errorf("%s.Known() = %v, want %v", tc.exec, got, tc.known)
+			}
+		})
+	}
+}
+
+func TestDeclarativeExecutors_IsStableAndExcludesK6(t *testing.T) {
+	t.Parallel()
+
+	got := taurus.DeclarativeExecutors()
+	if len(got) == 0 {
+		t.Fatal("DeclarativeExecutors() is empty")
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1] >= got[i] {
+			t.Fatalf("DeclarativeExecutors() not sorted: %v", got)
+		}
+	}
+	for _, e := range got {
+		if e == taurus.ExecutorK6 {
+			t.Error("k6 is script-only and must not be listed as declarative")
+		}
+	}
+	// Callers must not be able to mutate the package's table.
+	got[0] = taurus.Executor("mutated")
+	if taurus.DeclarativeExecutors()[0] == taurus.Executor("mutated") {
+		t.Error("DeclarativeExecutors() exposes its backing array")
+	}
+}
