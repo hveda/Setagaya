@@ -91,7 +91,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	// Admin lists the collection as deployed.
 	var running []adminapp.RunningCollection
 	getJSON(t, client, srv.URL+"/api/admin/collections", http.StatusOK, &running)
-	if len(running) != 1 || running[0].CollectionID != collID {
+	if len(running) != 1 || running[0].ExecutionID != collID {
 		t.Fatalf("admin collections = %+v", running)
 	}
 
@@ -102,7 +102,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	getJSON(t, client, srv.URL+"/api/usage/history", http.StatusOK, &history)
 	found := false
 	for _, h := range history {
-		if int64(h["CollectionID"].(float64)) == collID {
+		if int64(h["ExecutionID"].(float64)) == collID {
 			found = true
 		}
 	}

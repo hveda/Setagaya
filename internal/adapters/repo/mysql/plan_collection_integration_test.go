@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports/repositorytest"
 	"github.com/heridotlife/Setagaya/test/dbtest"
@@ -60,7 +60,7 @@ func TestMySQLCollection_TenantAndCSVRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	tenant := int64(9)
-	id, err := repo.CreateCollection(ctx, collection.Collection{
+	id, err := repo.CreateCollection(ctx, execution.Execution{
 		Name: "scoped", ProjectID: 3, CSVSplit: true, TenantID: &tenant, CreatedBy: "okta|c", UpdatedBy: "okta|d",
 	})
 	if err != nil {
@@ -95,7 +95,7 @@ func TestMySQLPlanCollection_ErrorsWhenDBClosed(t *testing.T) {
 		"DeletePlanFile":     func() error { return repo.DeletePlanFile(ctx, 1, "a", false) },
 		"PlanInUse":          func() error { _, e := repo.PlanInUse(ctx, 1); return e },
 		"CreateCollection": func() error {
-			_, e := repo.CreateCollection(ctx, collection.Collection{Name: "x", ProjectID: 1})
+			_, e := repo.CreateCollection(ctx, execution.Execution{Name: "x", ProjectID: 1})
 			return e
 		},
 		"GetCollection":            func() error { _, e := repo.GetCollection(ctx, 1); return e },

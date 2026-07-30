@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
@@ -27,15 +27,15 @@ var (
 // Repo is the repository surface the collection service needs, including
 // GetPlan to validate execution config against real plans.
 type Repo interface {
-	CreateCollection(ctx context.Context, c collection.Collection) (int64, error)
-	GetCollection(ctx context.Context, id int64) (collection.Collection, error)
-	ListCollectionsByProject(ctx context.Context, projectID int64) ([]collection.Collection, error)
+	CreateCollection(ctx context.Context, c execution.Execution) (int64, error)
+	GetCollection(ctx context.Context, id int64) (execution.Execution, error)
+	ListCollectionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
 	DeleteCollection(ctx context.Context, id int64) error
-	AddCollectionFile(ctx context.Context, collectionID int64, filename string) error
-	CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error)
-	DeleteCollectionFile(ctx context.Context, collectionID int64, filename string) error
-	StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
+	AddCollectionFile(ctx context.Context, executionID int64, filename string) error
+	CollectionFilesFor(ctx context.Context, executionID int64) ([]string, error)
+	DeleteCollectionFile(ctx context.Context, executionID int64, filename string) error
+	StoreExecutionCollection(ctx context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error
+	ExecutionPlansFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
 	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
 }
 
@@ -59,26 +59,26 @@ type FileRef struct {
 }
 
 // Create validates input and persists a new collection.
-func (s *Service) Create(ctx context.Context, name string, projectID int64) (collection.Collection, error) {
-	c, err := collection.New(name, projectID)
+func (s *Service) Create(ctx context.Context, name string, projectID int64) (execution.Execution, error) {
+	c, err := execution.New(name, projectID)
 	if err != nil {
-		return collection.Collection{}, err
+		return execution.Execution{}, err
 	}
 	id, err := s.repo.CreateCollection(ctx, c)
 	if err != nil {
-		return collection.Collection{}, err
+		return execution.Execution{}, err
 	}
 	c.ID = id
 	return c, nil
 }
 
 // Get returns a collection by ID (ports.ErrNotFound if absent).
-func (s *Service) Get(ctx context.Context, id int64) (collection.Collection, error) {
+func (s *Service) Get(ctx context.Context, id int64) (execution.Execution, error) {
 	return s.repo.GetCollection(ctx, id)
 }
 
 // ListByProject returns the collections of a project.
-func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]collection.Collection, error) {
+func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]execution.Execution, error) {
 	return s.repo.ListCollectionsByProject(ctx, projectID)
 }
 
@@ -100,65 +100,65 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 }
 
 // Files lists a collection's data files with retrieval URLs.
-func (s *Service) Files(ctx context.Context, collectionID int64) ([]FileRef, error) {
-	names, err := s.repo.CollectionFilesFor(ctx, collectionID)
+func (s *Service) Files(ctx context.Context, executionID int64) ([]FileRef, error) {
+	names, err := s.repo.CollectionFilesFor(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]FileRef, 0, len(names))
 	for _, name := range names {
-		out = append(out, FileRef{Filename: name, URL: s.store.URL(collectionKey(collectionID, name))})
+		out = append(out, FileRef{Filename: name, URL: s.store.URL(collectionKey(executionID, name))})
 	}
 	return out, nil
 }
 
 // UploadFile records and stores a collection data file. Returns
 // ports.ErrFileExists if it is already present.
-func (s *Service) UploadFile(ctx context.Context, collectionID int64, filename string, content io.Reader) error {
+func (s *Service) UploadFile(ctx context.Context, executionID int64, filename string, content io.Reader) error {
 	if err := validateFilename(filename); err != nil {
 		return err
 	}
-	if _, err := s.repo.GetCollection(ctx, collectionID); err != nil {
+	if _, err := s.repo.GetCollection(ctx, executionID); err != nil {
 		return err
 	}
-	if err := s.repo.AddCollectionFile(ctx, collectionID, filename); err != nil {
+	if err := s.repo.AddCollectionFile(ctx, executionID, filename); err != nil {
 		return err
 	}
-	if err := s.store.Upload(ctx, collectionKey(collectionID, filename), content); err != nil {
-		_ = s.repo.DeleteCollectionFile(ctx, collectionID, filename)
+	if err := s.store.Upload(ctx, collectionKey(executionID, filename), content); err != nil {
+		_ = s.repo.DeleteCollectionFile(ctx, executionID, filename)
 		return err
 	}
 	return nil
 }
 
 // DownloadFile returns the bytes of a collection data file.
-func (s *Service) DownloadFile(ctx context.Context, collectionID int64, filename string) ([]byte, error) {
+func (s *Service) DownloadFile(ctx context.Context, executionID int64, filename string) ([]byte, error) {
 	if err := validateFilename(filename); err != nil {
 		return nil, err
 	}
-	return s.store.Download(ctx, collectionKey(collectionID, filename))
+	return s.store.Download(ctx, collectionKey(executionID, filename))
 }
 
 // DeleteFile removes a collection data file record and its stored object.
-func (s *Service) DeleteFile(ctx context.Context, collectionID int64, filename string) error {
+func (s *Service) DeleteFile(ctx context.Context, executionID int64, filename string) error {
 	if err := validateFilename(filename); err != nil {
 		return err
 	}
-	if err := s.repo.DeleteCollectionFile(ctx, collectionID, filename); err != nil {
+	if err := s.repo.DeleteCollectionFile(ctx, executionID, filename); err != nil {
 		return err
 	}
-	return s.store.Delete(ctx, collectionKey(collectionID, filename))
+	return s.store.Delete(ctx, collectionKey(executionID, filename))
 }
 
 // StoreConfig validates and persists the execution configuration for a
 // collection: every plan must exist and belong to the collection's project, and
 // the total engines must not exceed the configured limit.
-func (s *Service) StoreConfig(ctx context.Context, collectionID int64, ec loadprofile.Profile) error {
-	coll, err := s.repo.GetCollection(ctx, collectionID)
+func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadprofile.Profile) error {
+	coll, err := s.repo.GetCollection(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	if ec.CollectionID != collectionID {
+	if ec.ExecutionID != executionID {
 		return ErrCollectionMismatch
 	}
 	if err := ec.Validate(); err != nil {
@@ -176,31 +176,31 @@ func (s *Service) StoreConfig(ctx context.Context, collectionID int64, ec loadpr
 	if total := ec.TotalEngines(); total > s.maxEngines {
 		return fmt.Errorf("%w: requested %d, limit %d", ErrEngineLimit, total, s.maxEngines)
 	}
-	return s.repo.StoreExecutionCollection(ctx, collectionID, ec.CSVSplit, ec.Tests)
+	return s.repo.StoreExecutionCollection(ctx, executionID, ec.CSVSplit, ec.Tests)
 }
 
 // GetConfig returns the collection's current execution configuration wrapped
 // for serialization.
-func (s *Service) GetConfig(ctx context.Context, collectionID int64) (loadprofile.Wrapper, error) {
-	coll, err := s.repo.GetCollection(ctx, collectionID)
+func (s *Service) GetConfig(ctx context.Context, executionID int64) (loadprofile.Wrapper, error) {
+	coll, err := s.repo.GetCollection(ctx, executionID)
 	if err != nil {
 		return loadprofile.Wrapper{}, err
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
+	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
 	if err != nil {
 		return loadprofile.Wrapper{}, err
 	}
 	return loadprofile.Wrapper{Content: loadprofile.Profile{
-		Name:         coll.Name,
-		ProjectID:    coll.ProjectID,
-		CollectionID: collectionID,
-		Tests:        plans,
-		CSVSplit:     coll.CSVSplit,
+		Name:        coll.Name,
+		ProjectID:   coll.ProjectID,
+		ExecutionID: executionID,
+		Tests:       plans,
+		CSVSplit:    coll.CSVSplit,
 	}}, nil
 }
 
-func collectionKey(collectionID int64, filename string) string {
-	return fmt.Sprintf("collection/%d/%s", collectionID, filename)
+func collectionKey(executionID int64, filename string) string {
+	return fmt.Sprintf("collection/%d/%s", executionID, filename)
 }
 
 func validateFilename(filename string) error {

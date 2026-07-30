@@ -1,17 +1,17 @@
-package collection_test
+package execution_test
 
 import (
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 )
 
 func TestNew_Valid(t *testing.T) {
 	t.Parallel()
 
-	c, err := collection.New("  peak-hour  ", 3)
+	c, err := execution.New("  peak-hour  ", 3)
 	if err != nil {
 		t.Fatalf("New: unexpected error: %v", err)
 	}
@@ -35,14 +35,14 @@ func TestNew_Errors(t *testing.T) {
 		project  int64
 		wantErr  error
 	}{
-		{"empty name", "", 1, collection.ErrNameRequired},
-		{"name too long", strings.Repeat("c", 101), 1, collection.ErrNameTooLong},
-		{"zero project", "peak", 0, collection.ErrProjectRequired},
+		{"empty name", "", 1, execution.ErrNameRequired},
+		{"name too long", strings.Repeat("c", 101), 1, execution.ErrNameTooLong},
+		{"zero project", "peak", 0, execution.ErrProjectRequired},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := collection.New(tc.collName, tc.project)
+			_, err := execution.New(tc.collName, tc.project)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("New(%q,%d) err = %v, want %v", tc.collName, tc.project, err, tc.wantErr)
 			}

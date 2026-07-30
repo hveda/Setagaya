@@ -9,8 +9,8 @@ import (
 )
 
 // StartRun opens the active run for a collection and its history row.
-func (r *Repository) StartRun(ctx context.Context, collectionID int64) (int64, error) {
-	res, err := r.db.ExecContext(ctx, "INSERT INTO collection_run (collection_id) VALUES (?)", collectionID)
+func (r *Repository) StartRun(ctx context.Context, executionID int64) (int64, error) {
+	res, err := r.db.ExecContext(ctx, "INSERT INTO collection_run (collection_id) VALUES (?)", executionID)
 	if err != nil {
 		if isDuplicateKey(err) {
 			return 0, ports.ErrRunActive
@@ -22,16 +22,16 @@ func (r *Repository) StartRun(ctx context.Context, collectionID int64) (int64, e
 		return 0, err
 	}
 	if _, err := r.db.ExecContext(ctx,
-		"INSERT INTO collection_run_history (run_id, collection_id) VALUES (?, ?)", runID, collectionID); err != nil {
+		"INSERT INTO collection_run_history (run_id, collection_id) VALUES (?, ?)", runID, executionID); err != nil {
 		return 0, err
 	}
 	return runID, nil
 }
 
 // CurrentRun returns the active run id for a collection.
-func (r *Repository) CurrentRun(ctx context.Context, collectionID int64) (int64, bool, error) {
+func (r *Repository) CurrentRun(ctx context.Context, executionID int64) (int64, bool, error) {
 	var runID int64
-	err := r.db.QueryRowContext(ctx, "SELECT id FROM collection_run WHERE collection_id=?", collectionID).Scan(&runID)
+	err := r.db.QueryRowContext(ctx, "SELECT id FROM collection_run WHERE collection_id=?", executionID).Scan(&runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -42,8 +42,8 @@ func (r *Repository) CurrentRun(ctx context.Context, collectionID int64) (int64,
 }
 
 // StopRun clears the active run and stamps its history end time.
-func (r *Repository) StopRun(ctx context.Context, collectionID int64) error {
-	runID, ok, err := r.CurrentRun(ctx, collectionID)
+func (r *Repository) StopRun(ctx context.Context, executionID int64) error {
+	runID, ok, err := r.CurrentRun(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -51,18 +51,18 @@ func (r *Repository) StopRun(ctx context.Context, collectionID int64) error {
 		return nil
 	}
 	if _, err := r.db.ExecContext(ctx,
-		"UPDATE collection_run_history SET end_time=NOW() WHERE collection_id=? AND run_id=?", collectionID, runID); err != nil {
+		"UPDATE collection_run_history SET end_time=NOW() WHERE collection_id=? AND run_id=?", executionID, runID); err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, "DELETE FROM collection_run WHERE collection_id=?", collectionID)
+	_, err = r.db.ExecContext(ctx, "DELETE FROM collection_run WHERE collection_id=?", executionID)
 	return err
 }
 
 // MarkPlanRunning records a running plan; duplicates are ignored (idempotent).
-func (r *Repository) MarkPlanRunning(ctx context.Context, collectionID, planID int64) error {
+func (r *Repository) MarkPlanRunning(ctx context.Context, executionID, planID int64) error {
 	_, err := r.db.ExecContext(ctx,
 		"INSERT INTO running_plan (collection_id, plan_id, context) VALUES (?, ?, ?)",
-		collectionID, planID, r.deployContext)
+		executionID, planID, r.deployContext)
 	if isDuplicateKey(err) {
 		return nil
 	}
@@ -70,9 +70,9 @@ func (r *Repository) MarkPlanRunning(ctx context.Context, collectionID, planID i
 }
 
 // ClearPlanRunning removes a running plan marker (idempotent).
-func (r *Repository) ClearPlanRunning(ctx context.Context, collectionID, planID int64) error {
+func (r *Repository) ClearPlanRunning(ctx context.Context, executionID, planID int64) error {
 	_, err := r.db.ExecContext(ctx,
-		"DELETE FROM running_plan WHERE collection_id=? AND plan_id=?", collectionID, planID)
+		"DELETE FROM running_plan WHERE collection_id=? AND plan_id=?", executionID, planID)
 	return err
 }
 
@@ -87,9 +87,9 @@ func (r *Repository) RunningPlans(ctx context.Context) ([]ports.RunningPlan, err
 }
 
 // RunningPlansByCollection lists running plans for one collection.
-func (r *Repository) RunningPlansByCollection(ctx context.Context, collectionID int64) ([]ports.RunningPlan, error) {
+func (r *Repository) RunningPlansByCollection(ctx context.Context, executionID int64) ([]ports.RunningPlan, error) {
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT collection_id, plan_id, started_time FROM running_plan WHERE collection_id=?", collectionID)
+		"SELECT collection_id, plan_id, started_time FROM running_plan WHERE collection_id=?", executionID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func scanRunningPlans(rows *sql.Rows) ([]ports.RunningPlan, error) {
 	var out []ports.RunningPlan
 	for rows.Next() {
 		var rp ports.RunningPlan
-		if err := rows.Scan(&rp.CollectionID, &rp.PlanID, &rp.StartedTime); err != nil {
+		if err := rows.Scan(&rp.ExecutionID, &rp.PlanID, &rp.StartedTime); err != nil {
 			return nil, err
 		}
 		out = append(out, rp)

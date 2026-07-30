@@ -33,10 +33,10 @@ var (
 
 // Run is an in-progress or completed test run of a collection.
 type Run struct {
-	ID           int64
-	CollectionID int64
-	StartedAt    time.Time
-	EndedAt      *time.Time
+	ID          int64
+	ExecutionID int64
+	StartedAt   time.Time
+	EndedAt     *time.Time
 }
 
 // Finished reports whether the run has ended.

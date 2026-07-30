@@ -11,7 +11,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
@@ -36,7 +36,7 @@ func (f *failStore) CreatePlan(ctx context.Context, p scenario.Scenario) (int64,
 	return f.Store.CreatePlan(ctx, p)
 }
 
-func (f *failStore) CreateCollection(ctx context.Context, c collection.Collection) (int64, error) {
+func (f *failStore) CreateCollection(ctx context.Context, c execution.Execution) (int64, error) {
 	if f.fail == "CreateCollection" {
 		return 0, errBoom
 	}
@@ -50,11 +50,11 @@ func (f *failStore) AddPlanFile(ctx context.Context, planID int64, filename stri
 	return f.Store.AddPlanFile(ctx, planID, filename, isTest)
 }
 
-func (f *failStore) AddCollectionFile(ctx context.Context, collectionID int64, filename string) error {
+func (f *failStore) AddCollectionFile(ctx context.Context, executionID int64, filename string) error {
 	if f.fail == "AddCollectionFile" {
 		return errBoom
 	}
-	return f.Store.AddCollectionFile(ctx, collectionID, filename)
+	return f.Store.AddCollectionFile(ctx, executionID, filename)
 }
 
 func (f *failStore) PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error) {
@@ -64,18 +64,18 @@ func (f *failStore) PlanFilesFor(ctx context.Context, planID int64) (ports.PlanF
 	return f.Store.PlanFilesFor(ctx, planID)
 }
 
-func (f *failStore) CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error) {
+func (f *failStore) CollectionFilesFor(ctx context.Context, executionID int64) ([]string, error) {
 	if f.fail == "CollectionFilesFor" {
 		return nil, errBoom
 	}
-	return f.Store.CollectionFilesFor(ctx, collectionID)
+	return f.Store.CollectionFilesFor(ctx, executionID)
 }
 
-func (f *failStore) StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error {
+func (f *failStore) StoreExecutionCollection(ctx context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error {
 	if f.fail == "StoreExecutionCollection" {
 		return errBoom
 	}
-	return f.Store.StoreExecutionCollection(ctx, collectionID, csvSplit, plans)
+	return f.Store.StoreExecutionCollection(ctx, executionID, csvSplit, plans)
 }
 
 func (f *failStore) ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
@@ -104,7 +104,7 @@ func failEnv(t *testing.T) (http.Handler, *failStore, ids) {
 	projectID, _ := fs.CreateProject(ctx, p)
 	pl, _ := scenario.New("smoke", projectID)
 	planID, _ := fs.Store.CreatePlan(ctx, pl)
-	c, _ := collection.New("peak", projectID)
+	c, _ := execution.New("peak", projectID)
 	collID, _ := fs.Store.CreateCollection(ctx, c)
 	return router, fs, ids{projectID, planID, collID}
 }

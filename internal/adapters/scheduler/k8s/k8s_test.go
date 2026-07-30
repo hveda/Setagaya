@@ -20,13 +20,13 @@ const ns = "setagaya"
 // readyEngines simulates the StatefulSet controller: it creates the ordinal
 // pods a plan would spawn and marks them Running+Ready so the adapter's
 // readiness queries see them. Project id is recovered from the deployed set.
-func readyEngines(t *testing.T, client *fake.Clientset, collectionID, planID int64, engines int) {
+func readyEngines(t *testing.T, client *fake.Clientset, executionID, planID int64, engines int) {
 	t.Helper()
 	ctx := context.Background()
-	sel := fmt.Sprintf("collection=%d,plan=%d", collectionID, planID)
+	sel := fmt.Sprintf("collection=%d,plan=%d", executionID, planID)
 	sets, err := client.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil || len(sets.Items) == 0 {
-		t.Fatalf("no statefulset for collection %d plan %d: %v", collectionID, planID, err)
+		t.Fatalf("no statefulset for collection %d plan %d: %v", executionID, planID, err)
 	}
 	set := sets.Items[0]
 	name := set.Name
@@ -58,8 +58,8 @@ func TestK8sScheduler_Contract(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		return schedulertest.Harness{
 			Scheduler: k8sadapter.New(client, k8sadapter.Config{Namespace: ns}),
-			Ready: func(collectionID, planID int64, engines int) {
-				readyEngines(t, client, collectionID, planID, engines)
+			Ready: func(executionID, planID int64, engines int) {
+				readyEngines(t, client, executionID, planID, engines)
 			},
 		}
 	})
@@ -71,7 +71,7 @@ func TestK8sScheduler_DeployIsIdempotentAndScales(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
 
-	spec := ports.DeploySpec{ProjectID: 1, CollectionID: 2, PlanID: 3, Engines: 2, Image: "jmeter", CPU: "500m", Memory: "256Mi"}
+	spec := ports.DeploySpec{ProjectID: 1, ExecutionID: 2, PlanID: 3, Engines: 2, Image: "jmeter", CPU: "500m", Memory: "256Mi"}
 	if err := s.DeployPlan(ctx, spec); err != nil {
 		t.Fatalf("deploy 1: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestK8sScheduler_EngineURLsFormat(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns, EnginePort: 8080})
 
-	if err := s.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, CollectionID: 2, PlanID: 3, Engines: 2, Image: "x"}); err != nil {
+	if err := s.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, PlanID: 3, Engines: 2, Image: "x"}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	urls, err := s.EngineURLs(ctx, 2, 3, 2)
@@ -169,7 +169,7 @@ func TestK8sScheduler_StatusCountsOnlyReadyPods(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
 
-	if err := s.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, CollectionID: 2, PlanID: 3, Engines: 3, Image: "x"}); err != nil {
+	if err := s.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, PlanID: 3, Engines: 3, Image: "x"}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	// Only 2 of 3 pods are ready; one is Pending.

@@ -39,7 +39,7 @@ func RunUsageRepositoryContract(t *testing.T, newRepo NewUsageRepo) {
 			t.Fatalf("history = %d rows, want 1", len(hist))
 		}
 		got := hist[0]
-		if got.CollectionID != 1 || got.Owner != "alice" || got.Engines != 4 || got.VU != 40 || got.EndTime == nil {
+		if got.ExecutionID != 1 || got.Owner != "alice" || got.Engines != 4 || got.VU != 40 || got.EndTime == nil {
 			t.Fatalf("history row = %+v", got)
 		}
 
@@ -66,7 +66,7 @@ func RunUsageRepositoryContract(t *testing.T, newRepo NewUsageRepo) {
 			t.Fatalf("LaunchHistory: %v", err)
 		}
 		for _, h := range hist {
-			if h.CollectionID == 2 {
+			if h.ExecutionID == 2 {
 				t.Fatalf("open launch leaked into history: %+v", h)
 			}
 		}

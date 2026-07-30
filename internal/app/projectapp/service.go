@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
@@ -24,7 +24,7 @@ var (
 type Repo interface {
 	ports.ProjectRepository
 	ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
-	ListCollectionsByProject(ctx context.Context, projectID int64) ([]collection.Collection, error)
+	ListCollectionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
 }
 
 // Service provides project use-cases.

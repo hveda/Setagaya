@@ -7,7 +7,7 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
 	"github.com/heridotlife/Setagaya/internal/app/adminapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
@@ -21,9 +21,9 @@ func TestAdminEndpoints(t *testing.T) {
 	ctx := context.Background()
 	store := fake.NewStore()
 	sched := fake.NewScheduler()
-	c, _ := collection.New("peak", 1)
+	c, _ := execution.New("peak", 1)
 	collID, _ := store.CreateCollection(ctx, c)
-	_ = sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, CollectionID: collID, PlanID: 1, Engines: 1})
+	_ = sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: collID, PlanID: 1, Engines: 1})
 
 	h := httpapi.NewRouter(httpapi.Deps{
 		Admin:         adminapp.NewService(store, sched, noopPurger{}),

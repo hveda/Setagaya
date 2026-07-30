@@ -48,11 +48,11 @@ func (ep Entry) Validate() error {
 
 // Profile is the full set of load entries to run for a collection.
 type Profile struct {
-	Name         string  `yaml:"name" json:"name"`
-	ProjectID    int64   `yaml:"projectid" json:"project_id"`
-	CollectionID int64   `yaml:"collectionid" json:"collection_id"`
-	Tests        []Entry `yaml:"tests" json:"tests"`
-	CSVSplit     bool    `yaml:"csv_split" json:"csv_split"`
+	Name        string  `yaml:"name" json:"name"`
+	ProjectID   int64   `yaml:"projectid" json:"project_id"`
+	ExecutionID int64   `yaml:"collectionid" json:"collection_id"`
+	Tests       []Entry `yaml:"tests" json:"tests"`
+	CSVSplit    bool    `yaml:"csv_split" json:"csv_split"`
 }
 
 // Wrapper is the top-level shape of an uploaded collection config file.

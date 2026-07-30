@@ -10,7 +10,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
 	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
@@ -27,7 +27,7 @@ var badRequestErrors = []error{
 	project.ErrNameRequired, project.ErrNameTooLong, project.ErrOwnerRequired,
 	project.ErrOwnerTooLong, project.ErrSIDInvalid, project.ErrSIDTooLong,
 	scenario.ErrNameRequired, scenario.ErrNameTooLong, scenario.ErrProjectRequired,
-	collection.ErrNameRequired, collection.ErrNameTooLong, collection.ErrProjectRequired,
+	execution.ErrNameRequired, execution.ErrNameTooLong, execution.ErrProjectRequired,
 	loadprofile.ErrPlanRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
 	loadprofile.ErrDurationInvalid, loadprofile.ErrNoPlans,
 	planapp.ErrInvalidFilename,

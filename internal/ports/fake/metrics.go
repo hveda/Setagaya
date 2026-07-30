@@ -28,10 +28,10 @@ func (s *MetricsSink) Record(m engine.Metric) {
 }
 
 // DeleteCollection records the deletion.
-func (s *MetricsSink) DeleteCollection(collectionID int64) {
+func (s *MetricsSink) DeleteCollection(executionID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.deleted = append(s.deleted, collectionID)
+	s.deleted = append(s.deleted, executionID)
 }
 
 // Recorded returns a copy of the recorded metrics.

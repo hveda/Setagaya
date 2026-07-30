@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
@@ -260,7 +260,7 @@ func mustCreatePlan(t *testing.T, repo Repository, name string, projectID int64)
 
 func mustCreateCollection(t *testing.T, repo Repository, name string, projectID int64) int64 {
 	t.Helper()
-	c, err := collection.New(name, projectID)
+	c, err := execution.New(name, projectID)
 	if err != nil {
 		t.Fatalf("build collection %q: %v", name, err)
 	}

@@ -12,7 +12,7 @@ import (
 
 func metric(coll, plan, engineNo, run, label, status string, latency, threads float64) engine.Metric {
 	return engine.Metric{
-		CollectionID: coll, PlanID: plan, EngineID: engineNo, RunID: run,
+		ExecutionID: coll, PlanID: plan, EngineID: engineNo, RunID: run,
 		Label: label, Status: status, Latency: latency, Threads: threads,
 	}
 }

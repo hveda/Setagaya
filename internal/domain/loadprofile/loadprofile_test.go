@@ -53,7 +53,7 @@ func TestExecutionCollection_Validate_And_TotalEngines(t *testing.T) {
 	t.Parallel()
 
 	ec := loadprofile.Profile{
-		CollectionID: 5,
+		ExecutionID: 5,
 		Tests: []loadprofile.Entry{
 			validPlan(1, 2, 10),
 			validPlan(2, 3, 10),
@@ -70,14 +70,14 @@ func TestExecutionCollection_Validate_And_TotalEngines(t *testing.T) {
 func TestExecutionCollection_Validate_Errors(t *testing.T) {
 	t.Parallel()
 
-	empty := loadprofile.Profile{CollectionID: 5}
+	empty := loadprofile.Profile{ExecutionID: 5}
 	if err := empty.Validate(); !errors.Is(err, loadprofile.ErrNoPlans) {
 		t.Fatalf("empty Validate = %v, want ErrNoPlans", err)
 	}
 
 	bad := loadprofile.Profile{
-		CollectionID: 5,
-		Tests:        []loadprofile.Entry{validPlan(1, 0, 1)}, // zero engines
+		ExecutionID: 5,
+		Tests:       []loadprofile.Entry{validPlan(1, 0, 1)}, // zero engines
 	}
 	if err := bad.Validate(); !errors.Is(err, loadprofile.ErrEnginesInvalid) {
 		t.Fatalf("bad Validate = %v, want ErrEnginesInvalid", err)

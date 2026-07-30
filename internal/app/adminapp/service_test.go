@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/heridotlife/Setagaya/internal/app/adminapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
@@ -22,20 +22,20 @@ func seed(t *testing.T) (*fake.Store, *fake.Scheduler, *recordingPurger, *admina
 	t.Helper()
 	ctx := context.Background()
 	store := fake.NewStore()
-	c, _ := collection.New("peak", 3)
-	collectionID, _ := store.CreateCollection(ctx, c)
+	c, _ := execution.New("peak", 3)
+	executionID, _ := store.CreateCollection(ctx, c)
 	sched := fake.NewScheduler()
 	purger := &recordingPurger{}
 	svc := adminapp.NewService(store, sched, purger)
-	return store, sched, purger, svc, collectionID
+	return store, sched, purger, svc, executionID
 }
 
 func TestRunningCollections_Enriched(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	store, sched, _, svc, collectionID := seed(t)
+	store, sched, _, svc, executionID := seed(t)
 	_ = store
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, CollectionID: collectionID, PlanID: 1, Engines: 2}); err != nil {
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, PlanID: 1, Engines: 2}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 
@@ -66,10 +66,10 @@ func TestNodePools(t *testing.T) {
 func TestAutoPurgeStale_PurgesIdle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	_, sched, purger, svc, collectionID := seed(t)
+	_, sched, purger, svc, executionID := seed(t)
 	// Engines deployed two hours ago.
 	sched.Now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, CollectionID: collectionID, PlanID: 1, Engines: 1}); err != nil {
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, PlanID: 1, Engines: 1}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 
@@ -77,8 +77,8 @@ func TestAutoPurgeStale_PurgesIdle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AutoPurgeStale: %v", err)
 	}
-	if len(purged) != 1 || purged[0] != collectionID {
-		t.Fatalf("purged = %v, want [%d]", purged, collectionID)
+	if len(purged) != 1 || purged[0] != executionID {
+		t.Fatalf("purged = %v, want [%d]", purged, executionID)
 	}
 	if len(purger.purged) != 1 {
 		t.Fatalf("purger called %d times, want 1", len(purger.purged))
@@ -88,10 +88,10 @@ func TestAutoPurgeStale_PurgesIdle(t *testing.T) {
 func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	store, sched, purger, svc, collectionID := seed(t)
+	store, sched, purger, svc, executionID := seed(t)
 
 	// Fresh deployment (now): not stale.
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, CollectionID: collectionID, PlanID: 1, Engines: 1}); err != nil {
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, PlanID: 1, Engines: 1}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	if purged, _ := svc.AutoPurgeStale(ctx, time.Hour); len(purged) != 0 {
@@ -100,9 +100,9 @@ func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 
 	// Old but running: skipped.
 	sched.Now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-	c2, _ := collection.New("busy", 3)
+	c2, _ := execution.New("busy", 3)
 	c2ID, _ := store.CreateCollection(ctx, c2)
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, CollectionID: c2ID, PlanID: 2, Engines: 1}); err != nil {
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: c2ID, PlanID: 2, Engines: 1}); err != nil {
 		t.Fatalf("deploy c2: %v", err)
 	}
 	if _, err := store.StartRun(ctx, c2ID); err != nil {

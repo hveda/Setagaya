@@ -9,7 +9,7 @@ import (
 	yaml "gopkg.in/yaml.v3"
 
 	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
@@ -197,15 +197,15 @@ func (h *handlers) getCollectionConfig(w http.ResponseWriter, r *http.Request) {
 
 // authorizeCollection loads a collection and verifies the caller owns its
 // project.
-func (h *handlers) authorizeCollection(r *http.Request, collectionID int64) error {
-	c, err := h.deps.Collections.Get(r.Context(), collectionID)
+func (h *handlers) authorizeCollection(r *http.Request, executionID int64) error {
+	c, err := h.deps.Collections.Get(r.Context(), executionID)
 	if err != nil {
 		return err
 	}
 	return h.authorizeProject(r.Context(), c.ProjectID)
 }
 
-func toCollectionResponse(c collection.Collection) collectionResponse {
+func toCollectionResponse(c execution.Execution) collectionResponse {
 	return collectionResponse{
 		ID:             c.ID,
 		Name:           c.Name,

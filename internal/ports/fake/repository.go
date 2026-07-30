@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
@@ -32,17 +32,17 @@ type Store struct {
 	planData map[int64]map[string]struct{} // planID -> data filenames
 
 	collSeq     int64
-	collections map[int64]collection.Collection
-	collData    map[int64]map[string]struct{} // collectionID -> data filenames
-	exec        map[int64][]loadprofile.Entry // collectionID -> execution plans
+	collections map[int64]execution.Execution
+	collData    map[int64]map[string]struct{} // executionID -> data filenames
+	exec        map[int64][]loadprofile.Entry // executionID -> execution plans
 
 	runSeq     int64
-	currentRun map[int64]int64               // collectionID -> active runID
+	currentRun map[int64]int64               // executionID -> active runID
 	runHistory map[int64]*ports.RunRecord    // runID -> history row
-	running    map[int64]map[int64]time.Time // collectionID -> planID -> startedTime
+	running    map[int64]map[int64]time.Time // executionID -> planID -> startedTime
 
 	deployContext string
-	openLaunch    map[int64]*ports.LaunchRecord // collectionID -> open launch
+	openLaunch    map[int64]*ports.LaunchRecord // executionID -> open launch
 	launchHistory []*ports.LaunchRecord
 
 	tenantSeq int64
@@ -58,7 +58,7 @@ func NewStore() *Store {
 		plans:         make(map[int64]scenario.Scenario),
 		planTest:      make(map[int64]string),
 		planData:      make(map[int64]map[string]struct{}),
-		collections:   make(map[int64]collection.Collection),
+		collections:   make(map[int64]execution.Execution),
 		collData:      make(map[int64]map[string]struct{}),
 		exec:          make(map[int64][]loadprofile.Entry),
 		currentRun:    make(map[int64]int64),
@@ -277,7 +277,7 @@ func (s *Store) PlanInUse(_ context.Context, planID int64) (bool, error) {
 
 // --- Collections ------------------------------------------------------------
 
-func (s *Store) CreateCollection(_ context.Context, c collection.Collection) (int64, error) {
+func (s *Store) CreateCollection(_ context.Context, c execution.Execution) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.collSeq++
@@ -289,20 +289,20 @@ func (s *Store) CreateCollection(_ context.Context, c collection.Collection) (in
 	return c.ID, nil
 }
 
-func (s *Store) GetCollection(_ context.Context, id int64) (collection.Collection, error) {
+func (s *Store) GetCollection(_ context.Context, id int64) (execution.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.collections[id]
 	if !ok {
-		return collection.Collection{}, ports.ErrNotFound
+		return execution.Execution{}, ports.ErrNotFound
 	}
 	return c, nil
 }
 
-func (s *Store) ListCollectionsByProject(_ context.Context, projectID int64) ([]collection.Collection, error) {
+func (s *Store) ListCollectionsByProject(_ context.Context, projectID int64) ([]execution.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := []collection.Collection{}
+	out := []execution.Execution{}
 	for _, c := range s.collections {
 		if c.ProjectID == projectID {
 			out = append(out, c)
@@ -323,13 +323,13 @@ func (s *Store) DeleteCollection(_ context.Context, id int64) error {
 	return nil
 }
 
-func (s *Store) AddCollectionFile(_ context.Context, collectionID int64, filename string) error {
+func (s *Store) AddCollectionFile(_ context.Context, executionID int64, filename string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	files := s.collData[collectionID]
+	files := s.collData[executionID]
 	if files == nil {
 		files = make(map[string]struct{})
-		s.collData[collectionID] = files
+		s.collData[executionID] = files
 	}
 	if _, exists := files[filename]; exists {
 		return ports.ErrFileExists
@@ -338,16 +338,16 @@ func (s *Store) AddCollectionFile(_ context.Context, collectionID int64, filenam
 	return nil
 }
 
-func (s *Store) CollectionFilesFor(_ context.Context, collectionID int64) ([]string, error) {
+func (s *Store) CollectionFilesFor(_ context.Context, executionID int64) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return keys(s.collData[collectionID]), nil
+	return keys(s.collData[executionID]), nil
 }
 
-func (s *Store) DeleteCollectionFile(_ context.Context, collectionID int64, filename string) error {
+func (s *Store) DeleteCollectionFile(_ context.Context, executionID int64, filename string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	files := s.collData[collectionID]
+	files := s.collData[executionID]
 	if _, ok := files[filename]; !ok {
 		return ports.ErrNotFound
 	}
@@ -355,10 +355,10 @@ func (s *Store) DeleteCollectionFile(_ context.Context, collectionID int64, file
 	return nil
 }
 
-func (s *Store) StoreExecutionCollection(_ context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error {
+func (s *Store) StoreExecutionCollection(_ context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	c, ok := s.collections[collectionID]
+	c, ok := s.collections[executionID]
 	if !ok {
 		return ports.ErrNotFound
 	}
@@ -369,16 +369,16 @@ func (s *Store) StoreExecutionCollection(_ context.Context, collectionID int64, 
 		ep.Name = ""
 		stored[i] = ep
 	}
-	s.exec[collectionID] = stored
+	s.exec[executionID] = stored
 	c.CSVSplit = csvSplit
-	s.collections[collectionID] = c
+	s.collections[executionID] = c
 	return nil
 }
 
-func (s *Store) ExecutionPlansFor(_ context.Context, collectionID int64) ([]loadprofile.Entry, error) {
+func (s *Store) ExecutionPlansFor(_ context.Context, executionID int64) ([]loadprofile.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]loadprofile.Entry(nil), s.exec[collectionID]...), nil
+	return append([]loadprofile.Entry(nil), s.exec[executionID]...), nil
 }
 
 // --- helpers ----------------------------------------------------------------

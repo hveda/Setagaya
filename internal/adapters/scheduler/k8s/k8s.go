@@ -82,8 +82,8 @@ func int32Bounded(n int) int32 {
 // DeployPlan creates (or scales) the StatefulSet and headless Service for a
 // plan. It is idempotent.
 func (s *Scheduler) DeployPlan(ctx context.Context, spec ports.DeploySpec) error {
-	name := engine.PlanName(spec.ProjectID, spec.CollectionID, spec.PlanID)
-	labels := engine.PlanLabels(spec.ProjectID, spec.CollectionID, spec.PlanID)
+	name := engine.PlanName(spec.ProjectID, spec.ExecutionID, spec.PlanID)
+	labels := engine.PlanLabels(spec.ProjectID, spec.ExecutionID, spec.PlanID)
 	labels[managedByLabel] = managedByValue
 
 	if err := s.ensureService(ctx, name, labels); err != nil {
@@ -166,12 +166,12 @@ func resourceRequirements(spec ports.DeploySpec) corev1.ResourceRequirements {
 
 // EngineURLs returns the stable per-engine DNS URLs, or ErrEnginesUnreachable
 // when the plan's Service is absent.
-func (s *Scheduler) EngineURLs(ctx context.Context, collectionID, planID int64, engines int) ([]string, error) {
-	projectID, err := s.projectOf(ctx, collectionID)
+func (s *Scheduler) EngineURLs(ctx context.Context, executionID, planID int64, engines int) ([]string, error) {
+	projectID, err := s.projectOf(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}
-	name := engine.PlanName(projectID, collectionID, planID)
+	name := engine.PlanName(projectID, executionID, planID)
 	if _, err := s.client.CoreV1().Services(s.ns).Get(ctx, name, metav1.GetOptions{}); err != nil {
 		return nil, ports.ErrEnginesUnreachable
 	}
@@ -184,8 +184,8 @@ func (s *Scheduler) EngineURLs(ctx context.Context, collectionID, planID int64, 
 
 // projectOf recovers the project id from any pod/statefulset labelled with the
 // collection; deploy specs carry the project but query methods do not.
-func (s *Scheduler) projectOf(ctx context.Context, collectionID int64) (int64, error) {
-	sel := fmt.Sprintf("collection=%d,%s=%s", collectionID, managedByLabel, managedByValue)
+func (s *Scheduler) projectOf(ctx context.Context, executionID int64) (int64, error) {
+	sel := fmt.Sprintf("collection=%d,%s=%s", executionID, managedByLabel, managedByValue)
 	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return 0, err
@@ -199,10 +199,10 @@ func (s *Scheduler) projectOf(ctx context.Context, collectionID int64) (int64, e
 }
 
 // CollectionStatus counts ready pods per plan.
-func (s *Scheduler) CollectionStatus(ctx context.Context, collectionID int64, plans []ports.PlanRef) (ports.CollectionStatus, error) {
+func (s *Scheduler) CollectionStatus(ctx context.Context, executionID int64, plans []ports.PlanRef) (ports.CollectionStatus, error) {
 	status := ports.CollectionStatus{}
 	for _, ref := range plans {
-		ready, err := s.readyPods(ctx, collectionID, ref.PlanID)
+		ready, err := s.readyPods(ctx, executionID, ref.PlanID)
 		if err != nil {
 			return ports.CollectionStatus{}, err
 		}
@@ -218,8 +218,8 @@ func (s *Scheduler) CollectionStatus(ctx context.Context, collectionID int64, pl
 	return status, nil
 }
 
-func (s *Scheduler) readyPods(ctx context.Context, collectionID, planID int64) (int, error) {
-	sel := fmt.Sprintf("collection=%d,plan=%d", collectionID, planID)
+func (s *Scheduler) readyPods(ctx context.Context, executionID, planID int64) (int, error) {
+	sel := fmt.Sprintf("collection=%d,plan=%d", executionID, planID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return 0, err
@@ -246,8 +246,8 @@ func podReady(p *corev1.Pod) bool {
 }
 
 // EngineDetail lists all engine pods of a collection.
-func (s *Scheduler) EngineDetail(ctx context.Context, projectID, collectionID int64) (ports.CollectionDetail, error) {
-	sel := fmt.Sprintf("project=%d,collection=%d", projectID, collectionID)
+func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int64) (ports.CollectionDetail, error) {
+	sel := fmt.Sprintf("project=%d,collection=%d", projectID, executionID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return ports.CollectionDetail{}, err
@@ -266,8 +266,8 @@ func (s *Scheduler) EngineDetail(ctx context.Context, projectID, collectionID in
 }
 
 // PurgeCollection deletes every StatefulSet, Service, and Pod of a collection.
-func (s *Scheduler) PurgeCollection(ctx context.Context, collectionID int64) error {
-	sel := fmt.Sprintf("collection=%d,%s=%s", collectionID, managedByLabel, managedByValue)
+func (s *Scheduler) PurgeCollection(ctx context.Context, executionID int64) error {
+	sel := fmt.Sprintf("collection=%d,%s=%s", executionID, managedByLabel, managedByValue)
 	opts := metav1.ListOptions{LabelSelector: sel}
 	del := metav1.DeleteOptions{}
 
@@ -291,12 +291,12 @@ func (s *Scheduler) PurgeCollection(ctx context.Context, collectionID int64) err
 	}
 	// Pods normally cascade from the StatefulSet; delete explicitly so state is
 	// consistent under the fake clientset too.
-	return s.client.CoreV1().Pods(s.ns).DeleteCollection(ctx, del, metav1.ListOptions{LabelSelector: fmt.Sprintf("collection=%d", collectionID)})
+	return s.client.CoreV1().Pods(s.ns).DeleteCollection(ctx, del, metav1.ListOptions{LabelSelector: fmt.Sprintf("collection=%d", executionID)})
 }
 
 // PodLog returns the logs of a plan's first engine pod.
-func (s *Scheduler) PodLog(ctx context.Context, collectionID, planID int64) (string, error) {
-	sel := fmt.Sprintf("collection=%d,plan=%d", collectionID, planID)
+func (s *Scheduler) PodLog(ctx context.Context, executionID, planID int64) (string, error) {
+	sel := fmt.Sprintf("collection=%d,plan=%d", executionID, planID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return "", err

@@ -12,13 +12,13 @@ var ErrEnginesUnreachable = errors.New("ports: engines unreachable")
 
 // DeploySpec describes the engines to run for a single plan of a collection.
 type DeploySpec struct {
-	ProjectID    int64
-	CollectionID int64
-	PlanID       int64
-	Engines      int
-	Image        string // executor container image
-	CPU          string // optional resource request/limit, e.g. "1"
-	Memory       string // optional resource request/limit, e.g. "512Mi"
+	ProjectID   int64
+	ExecutionID int64
+	PlanID      int64
+	Engines     int
+	Image       string // executor container image
+	CPU         string // optional resource request/limit, e.g. "1"
+	Memory      string // optional resource request/limit, e.g. "512Mi"
 }
 
 // PlanRef names a plan and how many engines it expects; used to query status.
@@ -72,16 +72,16 @@ type Scheduler interface {
 	// EngineURLs returns the reachable base URLs of a plan's engines, ordered
 	// by engine id (index 0..engines-1). Returns ErrEnginesUnreachable if the
 	// engines are not yet routable.
-	EngineURLs(ctx context.Context, collectionID, planID int64, engines int) ([]string, error)
+	EngineURLs(ctx context.Context, executionID, planID int64, engines int) ([]string, error)
 	// CollectionStatus reports per-plan readiness for the given plans.
-	CollectionStatus(ctx context.Context, collectionID int64, plans []PlanRef) (CollectionStatus, error)
+	CollectionStatus(ctx context.Context, executionID int64, plans []PlanRef) (CollectionStatus, error)
 	// EngineDetail reports the ingress IP and engine pods of a collection.
-	EngineDetail(ctx context.Context, projectID, collectionID int64) (CollectionDetail, error)
+	EngineDetail(ctx context.Context, projectID, executionID int64) (CollectionDetail, error)
 	// PurgeCollection removes all engines, services, and ingress of a
 	// collection. Purging a collection with nothing deployed is not an error.
-	PurgeCollection(ctx context.Context, collectionID int64) error
+	PurgeCollection(ctx context.Context, executionID int64) error
 	// PodLog returns the current logs of a plan's first engine pod.
-	PodLog(ctx context.Context, collectionID, planID int64) (string, error)
+	PodLog(ctx context.Context, executionID, planID int64) (string, error)
 	// DeployedCollections maps deployed collection id to its earliest deploy
 	// time; used by the auto-purge garbage collector.
 	DeployedCollections(ctx context.Context) (map[int64]time.Time, error)

@@ -9,5 +9,5 @@ type MetricsSink interface {
 	Record(m engine.Metric)
 	// DeleteCollection removes all series for a collection, called on purge so
 	// stale label sets do not accumulate.
-	DeleteCollection(collectionID int64)
+	DeleteCollection(executionID int64)
 }

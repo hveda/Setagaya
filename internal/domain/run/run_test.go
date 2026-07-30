@@ -115,7 +115,7 @@ func TestRun_FinishedAndElapsed(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
-	open := run.Run{ID: 1, CollectionID: 2, StartedAt: start}
+	open := run.Run{ID: 1, ExecutionID: 2, StartedAt: start}
 	if open.Finished() {
 		t.Error("open run should not be finished")
 	}

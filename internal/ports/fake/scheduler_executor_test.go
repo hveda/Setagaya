@@ -26,7 +26,7 @@ func TestFakeScheduler_Branches(t *testing.T) {
 		t.Fatal("PodLog undeployed: want error")
 	}
 
-	spec := ports.DeploySpec{ProjectID: 9, CollectionID: 1, PlanID: 2, Engines: 2}
+	spec := ports.DeploySpec{ProjectID: 9, ExecutionID: 1, PlanID: 2, Engines: 2}
 	if err := s.DeployPlan(ctx, spec); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
@@ -20,13 +20,13 @@ import (
 )
 
 type lifecycleEnv struct {
-	h            http.Handler
-	store        *fake.Store
-	sched        *fake.Scheduler
-	exec         *fake.Executor
-	collectionID int64
-	planID       int64
-	owner        string
+	h           http.Handler
+	store       *fake.Store
+	sched       *fake.Scheduler
+	exec        *fake.Executor
+	executionID int64
+	planID      int64
+	owner       string
 }
 
 // newLifecycleEnv wires a router with the lifecycle service and seeds an owned
@@ -50,25 +50,25 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 
 	p, _ := project.New("web", owner, "")
 	projectID, _ := store.CreateProject(ctx, p)
-	coll, _ := collection.New("peak", projectID)
-	collectionID, _ := store.CreateCollection(ctx, coll)
+	coll, _ := execution.New("peak", projectID)
+	executionID, _ := store.CreateCollection(ctx, coll)
 	pl, _ := scenario.New("smoke", projectID)
 	planID, _ := store.CreatePlan(ctx, pl)
 	if err := store.AddPlanFile(ctx, planID, "test.jmx", true); err != nil {
 		t.Fatalf("add test file: %v", err)
 	}
-	if err := store.StoreExecutionCollection(ctx, collectionID, false, []loadprofile.Entry{
+	if err := store.StoreExecutionCollection(ctx, executionID, false, []loadprofile.Entry{
 		{Name: "p", PlanID: planID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
 	}); err != nil {
 		t.Fatalf("store exec: %v", err)
 	}
-	return lifecycleEnv{h: h, store: store, sched: sched, exec: exec, collectionID: collectionID, planID: planID, owner: owner}
+	return lifecycleEnv{h: h, store: store, sched: sched, exec: exec, executionID: executionID, planID: planID, owner: owner}
 }
 
 func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.collectionID)
+	base := "/api/collections/" + itoa(e.executionID)
 
 	if rec := do(t, e.h, http.MethodPost, base+"/deploy"); rec.Code != http.StatusOK {
 		t.Fatalf("deploy = %d (%s)", rec.Code, rec.Body.String())
@@ -113,7 +113,7 @@ func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 func TestLifecycleHTTP_TriggerBeforeDeployConflicts(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.collectionID)
+	base := "/api/collections/" + itoa(e.executionID)
 	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusConflict {
 		t.Fatalf("trigger before deploy = %d, want 409", rec.Code)
 	}
@@ -122,7 +122,7 @@ func TestLifecycleHTTP_TriggerBeforeDeployConflicts(t *testing.T) {
 func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.collectionID)
+	base := "/api/collections/" + itoa(e.executionID)
 	if rec := do(t, e.h, http.MethodPost, base+"/stop"); rec.Code != http.StatusConflict {
 		t.Fatalf("stop without run = %d, want 409", rec.Code)
 	}
@@ -131,7 +131,7 @@ func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
 func TestLifecycleHTTP_Forbidden(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "other-team")
-	base := "/api/collections/" + itoa(e.collectionID)
+	base := "/api/collections/" + itoa(e.executionID)
 	for _, op := range []string{"/deploy", "/trigger", "/stop", "/purge"} {
 		if rec := do(t, e.h, http.MethodPost, base+op); rec.Code != http.StatusForbidden {
 			t.Errorf("%s on foreign collection = %d, want 403", op, rec.Code)
@@ -172,8 +172,8 @@ func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t, "setagaya")
 	// A fresh owned collection with no execution config.
-	c, _ := e.store.GetCollection(ctx, e.collectionID)
-	bare, _ := collection.New("bare", c.ProjectID)
+	c, _ := e.store.GetCollection(ctx, e.executionID)
+	bare, _ := execution.New("bare", c.ProjectID)
 	bareID, _ := e.store.CreateCollection(ctx, bare)
 
 	rec := do(t, e.h, http.MethodPost, "/api/collections/"+itoa(bareID)+"/deploy")
@@ -194,7 +194,7 @@ func TestLifecycleHTTP_PodLogNotDeployed(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
 	// No deploy: the plan's engines are unreachable -> 409 conflict.
-	rec := do(t, e.h, http.MethodGet, "/api/collections/"+itoa(e.collectionID)+"/plans/"+itoa(e.planID)+"/logs")
+	rec := do(t, e.h, http.MethodGet, "/api/collections/"+itoa(e.executionID)+"/plans/"+itoa(e.planID)+"/logs")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("logs not deployed = %d, want 409", rec.Code)
 	}

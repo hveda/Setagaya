@@ -9,14 +9,14 @@ import (
 )
 
 // StartLaunch opens a launch (collection_launch guard + history row).
-func (r *Repository) StartLaunch(ctx context.Context, collectionID int64, owner string, engines, vu int) error {
+func (r *Repository) StartLaunch(ctx context.Context, executionID int64, owner string, engines, vu int) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	res, err := tx.ExecContext(ctx, "INSERT INTO collection_launch (collection_id) VALUES (?)", collectionID)
+	res, err := tx.ExecContext(ctx, "INSERT INTO collection_launch (collection_id) VALUES (?)", executionID)
 	if err != nil {
 		if isDuplicateKey(err) {
 			return ports.ErrLaunchActive
@@ -29,14 +29,14 @@ func (r *Repository) StartLaunch(ctx context.Context, collectionID int64, owner 
 	}
 	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO collection_launch_history2 (collection_id, context, owner, engines_count, vu, launch_id) VALUES (?, ?, ?, ?, ?, ?)",
-		collectionID, r.deployContext, owner, engines, vu, launchID); err != nil {
+		executionID, r.deployContext, owner, engines, vu, launchID); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 // FinishLaunch stamps end_time/vu on the open launch and clears the guard.
-func (r *Repository) FinishLaunch(ctx context.Context, collectionID int64, vu int) error {
+func (r *Repository) FinishLaunch(ctx context.Context, executionID int64, vu int) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -44,7 +44,7 @@ func (r *Repository) FinishLaunch(ctx context.Context, collectionID int64, vu in
 	defer func() { _ = tx.Rollback() }()
 
 	var launchID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM collection_launch WHERE collection_id=?", collectionID).Scan(&launchID)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM collection_launch WHERE collection_id=?", executionID).Scan(&launchID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil // nothing open
@@ -55,7 +55,7 @@ func (r *Repository) FinishLaunch(ctx context.Context, collectionID int64, vu in
 		"UPDATE collection_launch_history2 SET end_time=NOW(), vu=? WHERE launch_id=?", vu, launchID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM collection_launch WHERE collection_id=?", collectionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM collection_launch WHERE collection_id=?", executionID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -80,7 +80,7 @@ func (r *Repository) LaunchHistory(ctx context.Context, from, to time.Time) ([]p
 			vu      sql.NullInt64
 			endTime sql.NullTime
 		)
-		if err := rows.Scan(&rec.CollectionID, &rec.Context, &rec.Owner, &engines, &vu, &rec.StartedTime, &endTime); err != nil {
+		if err := rows.Scan(&rec.ExecutionID, &rec.Context, &rec.Owner, &engines, &vu, &rec.StartedTime, &endTime); err != nil {
 			return nil, err
 		}
 		rec.Engines = int(engines.Int64)

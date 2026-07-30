@@ -36,37 +36,37 @@ type Config struct {
 // Metric is one measurement emitted by an engine during a run. It mirrors the
 // v2 JMeter agent's metric contract so the wire format is unchanged.
 type Metric struct {
-	Threads      float64 `json:"threads"`
-	Latency      float64 `json:"latency"`
-	Label        string  `json:"label"`
-	Status       string  `json:"status"`
-	Raw          string  `json:"raw"`
-	CollectionID string  `json:"collection_id"`
-	PlanID       string  `json:"plan_id"`
-	EngineID     string  `json:"engine_id"`
-	RunID        string  `json:"run_id"`
+	Threads     float64 `json:"threads"`
+	Latency     float64 `json:"latency"`
+	Label       string  `json:"label"`
+	Status      string  `json:"status"`
+	Raw         string  `json:"raw"`
+	ExecutionID string  `json:"collection_id"`
+	PlanID      string  `json:"plan_id"`
+	EngineID    string  `json:"engine_id"`
+	RunID       string  `json:"run_id"`
 }
 
 // Name builds the canonical name for a scheduler object of the given kind
 // (e.g. "engine", "ingress"). It matches the v2 convention so v3 and v2 can
 // address the same pods during a parallel run.
-func Name(kind string, projectID, collectionID, planID int64, engineID int) string {
-	return fmt.Sprintf("%s-%d-%d-%d-%d", kind, projectID, collectionID, planID, engineID)
+func Name(kind string, projectID, executionID, planID int64, engineID int) string {
+	return fmt.Sprintf("%s-%d-%d-%d-%d", kind, projectID, executionID, planID, engineID)
 }
 
 // EngineName is the per-engine object name.
-func EngineName(projectID, collectionID, planID int64, engineID int) string {
-	return Name("engine", projectID, collectionID, planID, engineID)
+func EngineName(projectID, executionID, planID int64, engineID int) string {
+	return Name("engine", projectID, executionID, planID, engineID)
 }
 
 // PlanName is the name shared by every engine of a plan (the deployment name).
-func PlanName(projectID, collectionID, planID int64) string {
-	return fmt.Sprintf("engine-%d-%d-%d", projectID, collectionID, planID)
+func PlanName(projectID, executionID, planID int64) string {
+	return fmt.Sprintf("engine-%d-%d-%d", projectID, executionID, planID)
 }
 
 // IngressName is the per-engine ingress object name.
-func IngressName(projectID, collectionID, planID int64, engineID int) string {
-	return Name("ingress", projectID, collectionID, planID, engineID)
+func IngressName(projectID, executionID, planID int64, engineID int) string {
+	return Name("ingress", projectID, executionID, planID, engineID)
 }
 
 // IngressClass is the per-project ingress class.
@@ -75,24 +75,24 @@ func IngressClass(projectID int64) string {
 }
 
 // BaseLabels are the selector labels shared by everything in a collection.
-func BaseLabels(projectID, collectionID int64) map[string]string {
+func BaseLabels(projectID, executionID int64) map[string]string {
 	return map[string]string{
-		"collection": strconv.FormatInt(collectionID, 10),
+		"collection": strconv.FormatInt(executionID, 10),
 		"project":    strconv.FormatInt(projectID, 10),
 	}
 }
 
 // PlanLabels label a plan's deployment (all engines of a plan).
-func PlanLabels(projectID, collectionID, planID int64) map[string]string {
-	base := BaseLabels(projectID, collectionID)
+func PlanLabels(projectID, executionID, planID int64) map[string]string {
+	base := BaseLabels(projectID, executionID)
 	base["plan"] = strconv.FormatInt(planID, 10)
 	base["kind"] = "executor"
 	return base
 }
 
 // EngineLabels label a single engine, keyed by its object name.
-func EngineLabels(projectID, collectionID, planID int64, engineName string) map[string]string {
-	base := PlanLabels(projectID, collectionID, planID)
+func EngineLabels(projectID, executionID, planID int64, engineName string) map[string]string {
+	base := PlanLabels(projectID, executionID, planID)
 	base["app"] = engineName
 	return base
 }

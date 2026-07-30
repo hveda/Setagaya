@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
@@ -143,11 +143,11 @@ func mustPlan(t *testing.T, name string, projectID int64) scenario.Scenario {
 	return p
 }
 
-func mustCollection(t *testing.T, name string, projectID int64) collection.Collection {
+func mustCollection(t *testing.T, name string, projectID int64) execution.Execution {
 	t.Helper()
-	c, err := collection.New(name, projectID)
+	c, err := execution.New(name, projectID)
 	if err != nil {
-		t.Fatalf("collection.New: %v", err)
+		t.Fatalf("execution.New: %v", err)
 	}
 	return c
 }

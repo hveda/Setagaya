@@ -112,8 +112,8 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	planID := seedPlan(t, store, "smoke", 10)
 
 	ec := loadprofile.Profile{
-		CollectionID: c.ID,
-		CSVSplit:     true,
+		ExecutionID: c.ID,
+		CSVSplit:    true,
 		Tests: []loadprofile.Entry{
 			{PlanID: planID, Engines: 2, Concurrency: 10, Duration: 60},
 		},
@@ -126,7 +126,7 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfig: %v", err)
 	}
-	if wrapper.Content.CollectionID != c.ID || !wrapper.Content.CSVSplit {
+	if wrapper.Content.ExecutionID != c.ID || !wrapper.Content.CSVSplit {
 		t.Fatalf("GetConfig content = %+v", wrapper.Content)
 	}
 	if len(wrapper.Content.Tests) != 1 || wrapper.Content.Tests[0].PlanID != planID || wrapper.Content.Tests[0].Engines != 2 {
@@ -147,14 +147,14 @@ func TestStoreConfig_Errors(t *testing.T) {
 	}
 
 	t.Run("collection id mismatch", func(t *testing.T) {
-		ec := loadprofile.Profile{CollectionID: c.ID + 100, Tests: []loadprofile.Entry{valid()}}
+		ec := loadprofile.Profile{ExecutionID: c.ID + 100, Tests: []loadprofile.Entry{valid()}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrCollectionMismatch) {
 			t.Fatalf("= %v, want ErrCollectionMismatch", err)
 		}
 	})
 
 	t.Run("validation error (zero engines)", func(t *testing.T) {
-		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
+		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: planID, Engines: 0, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, loadprofile.ErrEnginesInvalid) {
@@ -163,7 +163,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	})
 
 	t.Run("unknown plan", func(t *testing.T) {
-		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
+		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: 987654, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, ports.ErrNotFound) {
@@ -172,7 +172,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	})
 
 	t.Run("plan in another project", func(t *testing.T) {
-		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
+		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: foreignPlan, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrPlanNotInProject) {
@@ -181,7 +181,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	})
 
 	t.Run("engine limit exceeded", func(t *testing.T) {
-		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
+		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: planID, Engines: maxEngines + 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrEngineLimit) {
@@ -190,7 +190,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	})
 
 	t.Run("missing collection", func(t *testing.T) {
-		ec := loadprofile.Profile{CollectionID: 424242, Tests: []loadprofile.Entry{valid()}}
+		ec := loadprofile.Profile{ExecutionID: 424242, Tests: []loadprofile.Entry{valid()}}
 		if err := svc.StoreConfig(ctx, 424242, ec); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("= %v, want ErrNotFound", err)
 		}

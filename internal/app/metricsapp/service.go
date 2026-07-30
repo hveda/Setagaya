@@ -17,8 +17,8 @@ import (
 
 // Repo is the persistence the collector reads to know what is running.
 type Repo interface {
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
-	CurrentRun(ctx context.Context, collectionID int64) (int64, bool, error)
+	ExecutionPlansFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+	CurrentRun(ctx context.Context, executionID int64) (int64, bool, error)
 	RunningPlans(ctx context.Context) ([]ports.RunningPlan, error)
 }
 
@@ -45,41 +45,41 @@ func NewService(repo Repo, sched ports.Scheduler, exec ports.Executor, sink port
 
 // Start begins background collection for a collection's current run. It is
 // idempotent: a second Start while collection is active is a no-op.
-func (s *Service) Start(collectionID int64) {
+func (s *Service) Start(executionID int64) {
 	s.mu.Lock()
-	if _, ok := s.cancels[collectionID]; ok {
+	if _, ok := s.cancels[executionID]; ok {
 		s.mu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	token := &collectRun{cancel: cancel}
-	s.cancels[collectionID] = token
+	s.cancels[executionID] = token
 	s.mu.Unlock()
 
 	go func() {
-		_ = s.CollectCollection(ctx, collectionID)
+		_ = s.CollectCollection(ctx, executionID)
 		s.mu.Lock()
-		if s.cancels[collectionID] == token { // still ours
-			delete(s.cancels, collectionID)
+		if s.cancels[executionID] == token { // still ours
+			delete(s.cancels, executionID)
 		}
 		s.mu.Unlock()
 	}()
 }
 
 // Stop cancels background collection for a collection.
-func (s *Service) Stop(collectionID int64) {
+func (s *Service) Stop(executionID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if token, ok := s.cancels[collectionID]; ok {
+	if token, ok := s.cancels[executionID]; ok {
 		token.cancel()
-		delete(s.cancels, collectionID)
+		delete(s.cancels, executionID)
 	}
 }
 
 // Purge stops collection and drops the collection's metric series.
-func (s *Service) Purge(collectionID int64) {
-	s.Stop(collectionID)
-	s.sink.DeleteCollection(collectionID)
+func (s *Service) Purge(executionID int64) {
+	s.Stop(executionID)
+	s.sink.DeleteCollection(executionID)
 }
 
 // Resume restarts collection for every collection with running plans, so a
@@ -91,26 +91,26 @@ func (s *Service) Resume(ctx context.Context) error {
 	}
 	seen := map[int64]struct{}{}
 	for _, rp := range rps {
-		if _, ok := seen[rp.CollectionID]; ok {
+		if _, ok := seen[rp.ExecutionID]; ok {
 			continue
 		}
-		seen[rp.CollectionID] = struct{}{}
-		s.Start(rp.CollectionID)
+		seen[rp.ExecutionID] = struct{}{}
+		s.Start(rp.ExecutionID)
 	}
 	return nil
 }
 
 // CollectCollection streams metrics for every plan of a collection's current
 // run until ctx is cancelled or all engine streams end.
-func (s *Service) CollectCollection(ctx context.Context, collectionID int64) error {
-	runID, ok, err := s.repo.CurrentRun(ctx, collectionID)
+func (s *Service) CollectCollection(ctx context.Context, executionID int64) error {
+	runID, ok, err := s.repo.CurrentRun(ctx, executionID)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return nil
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
+	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (s *Service) CollectCollection(ctx context.Context, collectionID int64) err
 		wg.Add(1)
 		go func(ep loadprofile.Entry) {
 			defer wg.Done()
-			if err := s.CollectPlan(ctx, collectionID, ep.PlanID, ep.Engines, runID); err != nil {
+			if err := s.CollectPlan(ctx, executionID, ep.PlanID, ep.Engines, runID); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -136,8 +136,8 @@ func (s *Service) CollectCollection(ctx context.Context, collectionID int64) err
 }
 
 // CollectPlan streams metrics from every engine of a plan.
-func (s *Service) CollectPlan(ctx context.Context, collectionID, planID int64, engines int, runID int64) error {
-	urls, err := s.sched.EngineURLs(ctx, collectionID, planID, engines)
+func (s *Service) CollectPlan(ctx context.Context, executionID, planID int64, engines int, runID int64) error {
+	urls, err := s.sched.EngineURLs(ctx, executionID, planID, engines)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (s *Service) CollectPlan(ctx context.Context, collectionID, planID int64, e
 		wg.Add(1)
 		go func(engineID int, url string) {
 			defer wg.Done()
-			s.pumpEngine(ctx, collectionID, planID, engineID, runID, url)
+			s.pumpEngine(ctx, executionID, planID, engineID, runID, url)
 		}(i, url)
 	}
 	wg.Wait()
@@ -155,21 +155,21 @@ func (s *Service) CollectPlan(ctx context.Context, collectionID, planID int64, e
 
 // pumpEngine subscribes to one engine and forwards every measurement, stamped
 // with its identity, to the sink and the bus.
-func (s *Service) pumpEngine(ctx context.Context, collectionID, planID int64, engineID int, runID int64, url string) {
+func (s *Service) pumpEngine(ctx context.Context, executionID, planID int64, engineID int, runID int64, url string) {
 	ch, err := s.exec.Subscribe(ctx, url)
 	if err != nil {
 		return
 	}
-	collStr := strconv.FormatInt(collectionID, 10)
+	collStr := strconv.FormatInt(executionID, 10)
 	planStr := strconv.FormatInt(planID, 10)
 	engStr := strconv.Itoa(engineID)
 	runStr := strconv.FormatInt(runID, 10)
 	for m := range ch {
-		m.CollectionID = collStr
+		m.ExecutionID = collStr
 		m.PlanID = planStr
 		m.EngineID = engStr
 		m.RunID = runStr
 		s.sink.Record(m)
-		s.bus.Publish(collectionID, m)
+		s.bus.Publish(executionID, m)
 	}
 }

@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
@@ -27,11 +27,11 @@ var ErrNoTestFile = errors.New("lifecycle: plan has no test file")
 // collection, its execution plans and files, plus run/running-plan state.
 type Repo interface {
 	GetProject(ctx context.Context, id int64) (project.Project, error)
-	GetCollection(ctx context.Context, id int64) (collection.Collection, error)
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
+	GetCollection(ctx context.Context, id int64) (execution.Execution, error)
+	ExecutionPlansFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
 	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
 	PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error)
-	CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error)
+	CollectionFilesFor(ctx context.Context, executionID int64) ([]string, error)
 	ports.RunRepository
 }
 
@@ -40,9 +40,9 @@ type Repo interface {
 // metricsapp service implements it; a no-op default is used when none is wired
 // (e.g. in tests that don't exercise metrics).
 type Metrics interface {
-	Start(collectionID int64)
-	Stop(collectionID int64)
-	Purge(collectionID int64)
+	Start(executionID int64)
+	Stop(executionID int64)
+	Purge(executionID int64)
 }
 
 type noopMetrics struct{}
@@ -55,8 +55,8 @@ func (noopMetrics) Purge(int64) {}
 // teardown. The usageapp service implements it; a no-op default is used when
 // none is wired.
 type Usage interface {
-	RecordStart(ctx context.Context, collectionID int64, owner string, engines, vu int) error
-	RecordFinish(ctx context.Context, collectionID int64, vu int) error
+	RecordStart(ctx context.Context, executionID int64, owner string, engines, vu int) error
+	RecordFinish(ctx context.Context, executionID int64, vu int) error
 }
 
 type noopUsage struct{}
@@ -100,30 +100,30 @@ func (s *Service) WithUsage(u Usage) *Service {
 
 // Deploy provisions the engines for every plan of a collection. It is rejected
 // while a run is in progress and is otherwise idempotent.
-func (s *Service) Deploy(ctx context.Context, collectionID int64) error {
-	coll, err := s.repo.GetCollection(ctx, collectionID)
+func (s *Service) Deploy(ctx context.Context, executionID int64) error {
+	coll, err := s.repo.GetCollection(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
+	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
 	if len(plans) == 0 {
 		return run.ErrNoPlans
 	}
-	if _, running, err := s.repo.CurrentRun(ctx, collectionID); err != nil {
+	if _, running, err := s.repo.CurrentRun(ctx, executionID); err != nil {
 		return err
 	} else if err := run.CanDeploy(run.DerivePhase(0, running)); err != nil {
 		return err
 	}
 	for _, ep := range plans {
 		spec := ports.DeploySpec{
-			ProjectID:    coll.ProjectID,
-			CollectionID: collectionID,
-			PlanID:       ep.PlanID,
-			Engines:      ep.Engines,
-			Image:        s.engineImage,
+			ProjectID:   coll.ProjectID,
+			ExecutionID: executionID,
+			PlanID:      ep.PlanID,
+			Engines:     ep.Engines,
+			Image:       s.engineImage,
 		}
 		if err := s.sched.DeployPlan(ctx, spec); err != nil {
 			return err
@@ -134,26 +134,26 @@ func (s *Service) Deploy(ctx context.Context, collectionID int64) error {
 
 // Trigger starts a run across all deployed, ready engines. Engines must be
 // deployed and reachable; every plan must have a test file.
-func (s *Service) Trigger(ctx context.Context, collectionID int64) error {
-	coll, err := s.repo.GetCollection(ctx, collectionID)
+func (s *Service) Trigger(ctx context.Context, executionID int64) error {
+	coll, err := s.repo.GetCollection(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
+	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	ec := loadprofile.Profile{CollectionID: collectionID, Tests: plans, CSVSplit: coll.CSVSplit}
+	ec := loadprofile.Profile{ExecutionID: executionID, Tests: plans, CSVSplit: coll.CSVSplit}
 
 	if err := s.ensureTestFiles(ctx, plans); err != nil {
 		return err
 	}
 
-	_, running, err := s.repo.CurrentRun(ctx, collectionID)
+	_, running, err := s.repo.CurrentRun(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	status, err := s.sched.CollectionStatus(ctx, collectionID, planRefs(plans))
+	status, err := s.sched.CollectionStatus(ctx, executionID, planRefs(plans))
 	if err != nil {
 		return err
 	}
@@ -162,12 +162,12 @@ func (s *Service) Trigger(ctx context.Context, collectionID int64) error {
 		return err
 	}
 
-	runID, err := s.repo.StartRun(ctx, collectionID)
+	runID, err := s.repo.StartRun(ctx, executionID)
 	if err != nil {
 		return err
 	}
 
-	collData, err := s.collectionFiles(ctx, collectionID)
+	collData, err := s.collectionFiles(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func (s *Service) Trigger(ctx context.Context, collectionID int64) error {
 			triggerErrs = append(triggerErrs, err)
 			continue
 		}
-		if err := s.repo.MarkPlanRunning(ctx, collectionID, ep.PlanID); err != nil {
+		if err := s.repo.MarkPlanRunning(ctx, executionID, ep.PlanID); err != nil {
 			triggerErrs = append(triggerErrs, err)
 		}
 	}
@@ -186,21 +186,21 @@ func (s *Service) Trigger(ctx context.Context, collectionID int64) error {
 	if len(triggerErrs) == len(plans) {
 		// Every plan failed: roll the run back so the collection is triggerable
 		// again after the operator fixes the problem.
-		_ = s.repo.StopRun(ctx, collectionID)
+		_ = s.repo.StopRun(ctx, executionID)
 	}
 	if len(triggerErrs) > 0 {
 		return fmt.Errorf("lifecycle: trigger errors: %w", errors.Join(triggerErrs...))
 	}
 	// Begin streaming metrics from the now-running engines and open a usage
 	// launch (best effort: accounting must not fail a successful trigger).
-	s.metrics.Start(collectionID)
+	s.metrics.Start(executionID)
 	if proj, perr := s.repo.GetProject(ctx, coll.ProjectID); perr == nil {
-		_ = s.usage.RecordStart(ctx, collectionID, proj.Owner, ec.TotalEngines(), run.VirtualUsers(ec))
+		_ = s.usage.RecordStart(ctx, executionID, proj.Owner, ec.TotalEngines(), run.VirtualUsers(ec))
 	}
 	return nil
 }
 
-func (s *Service) triggerPlan(ctx context.Context, coll collection.Collection, ec loadprofile.Profile, collData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
+func (s *Service) triggerPlan(ctx context.Context, coll execution.Execution, ec loadprofile.Profile, collData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
 	pf, err := s.repo.PlanFilesFor(ctx, ep.PlanID)
 	if err != nil {
 		return err
@@ -234,55 +234,55 @@ func (s *Service) triggerPlan(ctx context.Context, coll collection.Collection, e
 
 // Stop halts the run: it stops every engine and clears run state. A run must be
 // in progress.
-func (s *Service) Stop(ctx context.Context, collectionID int64) error {
-	_, running, err := s.repo.CurrentRun(ctx, collectionID)
+func (s *Service) Stop(ctx context.Context, executionID int64) error {
+	_, running, err := s.repo.CurrentRun(ctx, executionID)
 	if err != nil {
 		return err
 	}
 	if err := run.CanStop(run.DerivePhase(0, running)); err != nil {
 		return err
 	}
-	return s.teardown(ctx, collectionID)
+	return s.teardown(ctx, executionID)
 }
 
 // Purge stops any in-progress run and removes all engines of a collection.
-func (s *Service) Purge(ctx context.Context, collectionID int64) error {
-	if _, running, err := s.repo.CurrentRun(ctx, collectionID); err != nil {
+func (s *Service) Purge(ctx context.Context, executionID int64) error {
+	if _, running, err := s.repo.CurrentRun(ctx, executionID); err != nil {
 		return err
 	} else if running {
-		if err := s.teardown(ctx, collectionID); err != nil {
+		if err := s.teardown(ctx, executionID); err != nil {
 			return err
 		}
 	}
-	if err := s.sched.PurgeCollection(ctx, collectionID); err != nil {
+	if err := s.sched.PurgeCollection(ctx, executionID); err != nil {
 		return err
 	}
-	s.metrics.Purge(collectionID)
+	s.metrics.Purge(executionID)
 	return nil
 }
 
 // teardown stops metric collection and engines, and clears run/running-plan
 // state (best effort on the engine stop calls, which may already be gone).
-func (s *Service) teardown(ctx context.Context, collectionID int64) error {
-	s.metrics.Stop(collectionID)
-	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
+func (s *Service) teardown(ctx context.Context, executionID int64) error {
+	s.metrics.Stop(executionID)
+	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
 	for _, ep := range plans {
-		if urls, err := s.sched.EngineURLs(ctx, collectionID, ep.PlanID, ep.Engines); err == nil {
+		if urls, err := s.sched.EngineURLs(ctx, executionID, ep.PlanID, ep.Engines); err == nil {
 			for _, url := range urls {
 				_ = s.exec.Stop(ctx, url)
 			}
 		}
-		if err := s.repo.ClearPlanRunning(ctx, collectionID, ep.PlanID); err != nil {
+		if err := s.repo.ClearPlanRunning(ctx, executionID, ep.PlanID); err != nil {
 			return err
 		}
 	}
 	// Close the usage launch (best effort).
 	vu := run.VirtualUsers(loadprofile.Profile{Tests: plans})
-	_ = s.usage.RecordFinish(ctx, collectionID, vu)
-	return s.repo.StopRun(ctx, collectionID)
+	_ = s.usage.RecordFinish(ctx, executionID, vu)
+	return s.repo.StopRun(ctx, executionID)
 }
 
 // PlanStatus is the lifecycle view of one plan's engines.
@@ -303,20 +303,20 @@ type Status struct {
 }
 
 // Status reports the deployment/run status of a collection.
-func (s *Service) Status(ctx context.Context, collectionID int64) (Status, error) {
-	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
+func (s *Service) Status(ctx context.Context, executionID int64) (Status, error) {
+	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
 	if err != nil {
 		return Status{}, err
 	}
-	sched, err := s.sched.CollectionStatus(ctx, collectionID, planRefs(plans))
+	sched, err := s.sched.CollectionStatus(ctx, executionID, planRefs(plans))
 	if err != nil {
 		return Status{}, err
 	}
-	_, running, err := s.repo.CurrentRun(ctx, collectionID)
+	_, running, err := s.repo.CurrentRun(ctx, executionID)
 	if err != nil {
 		return Status{}, err
 	}
-	runningByPlan, err := s.runningByPlan(ctx, collectionID)
+	runningByPlan, err := s.runningByPlan(ctx, executionID)
 	if err != nil {
 		return Status{}, err
 	}
@@ -339,13 +339,13 @@ func (s *Service) Status(ctx context.Context, collectionID int64) (Status, error
 }
 
 // EnginesDetail reports the engine pods and ingress of a collection.
-func (s *Service) EnginesDetail(ctx context.Context, projectID, collectionID int64) (ports.CollectionDetail, error) {
-	return s.sched.EngineDetail(ctx, projectID, collectionID)
+func (s *Service) EnginesDetail(ctx context.Context, projectID, executionID int64) (ports.CollectionDetail, error) {
+	return s.sched.EngineDetail(ctx, projectID, executionID)
 }
 
 // PodLog returns the logs of a plan's engine pod.
-func (s *Service) PodLog(ctx context.Context, collectionID, planID int64) (string, error) {
-	return s.sched.PodLog(ctx, collectionID, planID)
+func (s *Service) PodLog(ctx context.Context, executionID, planID int64) (string, error) {
+	return s.sched.PodLog(ctx, executionID, planID)
 }
 
 // Resume returns the plans still marked running in this deployment context, so
@@ -369,14 +369,14 @@ func (s *Service) ensureTestFiles(ctx context.Context, plans []loadprofile.Entry
 	return nil
 }
 
-func (s *Service) collectionFiles(ctx context.Context, collectionID int64) ([]engine.File, error) {
-	names, err := s.repo.CollectionFilesFor(ctx, collectionID)
+func (s *Service) collectionFiles(ctx context.Context, executionID int64) ([]engine.File, error) {
+	names, err := s.repo.CollectionFilesFor(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}
 	files := make([]engine.File, 0, len(names))
 	for _, name := range names {
-		key := fmt.Sprintf("collection/%d/%s", collectionID, name)
+		key := fmt.Sprintf("collection/%d/%s", executionID, name)
 		files = append(files, engine.File{Filename: name, Filepath: key, Filelink: s.store.URL(key)})
 	}
 	return files, nil
@@ -395,8 +395,8 @@ func (s *Service) planFiles(planID int64, names []string) []engine.File {
 	return files
 }
 
-func (s *Service) runningByPlan(ctx context.Context, collectionID int64) (map[int64]time.Time, error) {
-	rps, err := s.repo.RunningPlansByCollection(ctx, collectionID)
+func (s *Service) runningByPlan(ctx context.Context, executionID int64) (map[int64]time.Time, error) {
+	rps, err := s.repo.RunningPlansByCollection(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}

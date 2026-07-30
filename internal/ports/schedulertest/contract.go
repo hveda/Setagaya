@@ -16,7 +16,7 @@ import (
 // the hook to reach a deterministic ready state.
 type Harness struct {
 	Scheduler ports.Scheduler
-	Ready     func(collectionID, planID int64, engines int)
+	Ready     func(executionID, planID int64, engines int)
 }
 
 // NewHarness builds a fresh Harness for one test.
@@ -37,8 +37,8 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 		h := newHarness(t)
 		s := h.Scheduler
 
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, CollectionID: collection, PlanID: planA, Engines: 2, Image: "jmeter"})
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, CollectionID: collection, PlanID: planB, Engines: 3, Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, PlanID: planA, Engines: 2, Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, PlanID: planB, Engines: 3, Image: "jmeter"})
 
 		deployed, err := s.DeployedCollections(ctx)
 		if err != nil {

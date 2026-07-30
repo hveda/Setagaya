@@ -8,37 +8,37 @@ import (
 )
 
 // StartLaunch opens a launch for a collection.
-func (s *Store) StartLaunch(_ context.Context, collectionID int64, owner string, engines, vu int) error {
+func (s *Store) StartLaunch(_ context.Context, executionID int64, owner string, engines, vu int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.openLaunch[collectionID]; ok {
+	if _, ok := s.openLaunch[executionID]; ok {
 		return ports.ErrLaunchActive
 	}
 	rec := &ports.LaunchRecord{
-		CollectionID: collectionID,
-		Context:      s.deployContext,
-		Owner:        owner,
-		Engines:      engines,
-		VU:           vu,
-		StartedTime:  s.now(),
+		ExecutionID: executionID,
+		Context:     s.deployContext,
+		Owner:       owner,
+		Engines:     engines,
+		VU:          vu,
+		StartedTime: s.now(),
 	}
-	s.openLaunch[collectionID] = rec
+	s.openLaunch[executionID] = rec
 	s.launchHistory = append(s.launchHistory, rec)
 	return nil
 }
 
 // FinishLaunch stamps the open launch's end time and final VU.
-func (s *Store) FinishLaunch(_ context.Context, collectionID int64, vu int) error {
+func (s *Store) FinishLaunch(_ context.Context, executionID int64, vu int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rec, ok := s.openLaunch[collectionID]
+	rec, ok := s.openLaunch[executionID]
 	if !ok {
 		return nil
 	}
 	end := s.now()
 	rec.EndTime = &end
 	rec.VU = vu
-	delete(s.openLaunch, collectionID)
+	delete(s.openLaunch, executionID)
 	return nil
 }
 

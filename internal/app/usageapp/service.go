@@ -23,14 +23,14 @@ func NewService(repo ports.UsageRepository) *Service {
 
 // RecordStart opens a launch for a collection. Called by the lifecycle on
 // trigger.
-func (s *Service) RecordStart(ctx context.Context, collectionID int64, owner string, engines, vu int) error {
-	return s.repo.StartLaunch(ctx, collectionID, owner, engines, vu)
+func (s *Service) RecordStart(ctx context.Context, executionID int64, owner string, engines, vu int) error {
+	return s.repo.StartLaunch(ctx, executionID, owner, engines, vu)
 }
 
 // RecordFinish closes the open launch for a collection. Called by the lifecycle
 // on teardown.
-func (s *Service) RecordFinish(ctx context.Context, collectionID int64, vu int) error {
-	return s.repo.FinishLaunch(ctx, collectionID, vu)
+func (s *Service) RecordFinish(ctx context.Context, executionID int64, vu int) error {
+	return s.repo.FinishLaunch(ctx, executionID, vu)
 }
 
 // History returns finished launches within [from, to].

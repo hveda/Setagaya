@@ -9,32 +9,32 @@ import (
 )
 
 // StartRun creates the active run for a collection, opening a history row.
-func (s *Store) StartRun(_ context.Context, collectionID int64) (int64, error) {
+func (s *Store) StartRun(_ context.Context, executionID int64) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.currentRun[collectionID]; ok {
+	if _, ok := s.currentRun[executionID]; ok {
 		return 0, ports.ErrRunActive
 	}
 	s.runSeq++
 	runID := s.runSeq
-	s.currentRun[collectionID] = runID
-	s.runHistory[runID] = &ports.RunRecord{RunID: runID, CollectionID: collectionID, StartedTime: s.now()}
+	s.currentRun[executionID] = runID
+	s.runHistory[runID] = &ports.RunRecord{RunID: runID, ExecutionID: executionID, StartedTime: s.now()}
 	return runID, nil
 }
 
 // CurrentRun returns the active run id for a collection.
-func (s *Store) CurrentRun(_ context.Context, collectionID int64) (int64, bool, error) {
+func (s *Store) CurrentRun(_ context.Context, executionID int64) (int64, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runID, ok := s.currentRun[collectionID]
+	runID, ok := s.currentRun[executionID]
 	return runID, ok, nil
 }
 
 // StopRun clears the active run and stamps its history end time.
-func (s *Store) StopRun(_ context.Context, collectionID int64) error {
+func (s *Store) StopRun(_ context.Context, executionID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runID, ok := s.currentRun[collectionID]
+	runID, ok := s.currentRun[executionID]
 	if !ok {
 		return nil
 	}
@@ -42,18 +42,18 @@ func (s *Store) StopRun(_ context.Context, collectionID int64) error {
 		end := s.now()
 		rec.EndTime = &end
 	}
-	delete(s.currentRun, collectionID)
+	delete(s.currentRun, executionID)
 	return nil
 }
 
 // MarkPlanRunning records a running plan (idempotent).
-func (s *Store) MarkPlanRunning(_ context.Context, collectionID, planID int64) error {
+func (s *Store) MarkPlanRunning(_ context.Context, executionID, planID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	plans, ok := s.running[collectionID]
+	plans, ok := s.running[executionID]
 	if !ok {
 		plans = map[int64]time.Time{}
-		s.running[collectionID] = plans
+		s.running[executionID] = plans
 	}
 	if _, exists := plans[planID]; !exists {
 		plans[planID] = s.now()
@@ -62,12 +62,12 @@ func (s *Store) MarkPlanRunning(_ context.Context, collectionID, planID int64) e
 }
 
 // ClearPlanRunning removes a running plan marker (idempotent).
-func (s *Store) ClearPlanRunning(_ context.Context, collectionID, planID int64) error {
+func (s *Store) ClearPlanRunning(_ context.Context, executionID, planID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.running[collectionID], planID)
-	if len(s.running[collectionID]) == 0 {
-		delete(s.running, collectionID)
+	delete(s.running[executionID], planID)
+	if len(s.running[executionID]) == 0 {
+		delete(s.running, executionID)
 	}
 	return nil
 }
@@ -77,9 +77,9 @@ func (s *Store) RunningPlans(_ context.Context) ([]ports.RunningPlan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []ports.RunningPlan
-	for collectionID, plans := range s.running {
+	for executionID, plans := range s.running {
 		for planID, started := range plans {
-			out = append(out, ports.RunningPlan{CollectionID: collectionID, PlanID: planID, StartedTime: started})
+			out = append(out, ports.RunningPlan{ExecutionID: executionID, PlanID: planID, StartedTime: started})
 		}
 	}
 	sortRunningPlans(out)
@@ -87,12 +87,12 @@ func (s *Store) RunningPlans(_ context.Context) ([]ports.RunningPlan, error) {
 }
 
 // RunningPlansByCollection lists running plans for one collection.
-func (s *Store) RunningPlansByCollection(_ context.Context, collectionID int64) ([]ports.RunningPlan, error) {
+func (s *Store) RunningPlansByCollection(_ context.Context, executionID int64) ([]ports.RunningPlan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []ports.RunningPlan
-	for planID, started := range s.running[collectionID] {
-		out = append(out, ports.RunningPlan{CollectionID: collectionID, PlanID: planID, StartedTime: started})
+	for planID, started := range s.running[executionID] {
+		out = append(out, ports.RunningPlan{ExecutionID: executionID, PlanID: planID, StartedTime: started})
 	}
 	sortRunningPlans(out)
 	return out, nil
@@ -100,8 +100,8 @@ func (s *Store) RunningPlansByCollection(_ context.Context, collectionID int64) 
 
 func sortRunningPlans(rps []ports.RunningPlan) {
 	sort.Slice(rps, func(i, j int) bool {
-		if rps[i].CollectionID != rps[j].CollectionID {
-			return rps[i].CollectionID < rps[j].CollectionID
+		if rps[i].ExecutionID != rps[j].ExecutionID {
+			return rps[i].ExecutionID < rps[j].ExecutionID
 		}
 		return rps[i].PlanID < rps[j].PlanID
 	})

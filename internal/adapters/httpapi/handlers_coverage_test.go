@@ -11,7 +11,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
@@ -141,7 +141,7 @@ func TestHandlers_Forbidden_403(t *testing.T) {
 	projectID, _ := store.CreateProject(ctx, foreignProject)
 	foreignPlan, _ := scenario.New("p", projectID)
 	planID, _ := store.CreatePlan(ctx, foreignPlan)
-	foreignColl, _ := collection.New("c", projectID)
+	foreignColl, _ := execution.New("c", projectID)
 	collID, _ := store.CreateCollection(ctx, foreignColl)
 
 	checks := []struct{ method, path string }{

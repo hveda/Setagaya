@@ -8,19 +8,19 @@ import (
 	"sort"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
 // Repo is the persistence admin needs to enrich and evaluate collections.
 type Repo interface {
-	GetCollection(ctx context.Context, id int64) (collection.Collection, error)
-	CurrentRun(ctx context.Context, collectionID int64) (int64, bool, error)
+	GetCollection(ctx context.Context, id int64) (execution.Execution, error)
+	CurrentRun(ctx context.Context, executionID int64) (int64, bool, error)
 }
 
 // Purger tears down a collection's engines. The lifecycle service satisfies it.
 type Purger interface {
-	Purge(ctx context.Context, collectionID int64) error
+	Purge(ctx context.Context, executionID int64) error
 }
 
 // Service implements the admin use-cases.
@@ -38,11 +38,11 @@ func NewService(repo Repo, sched ports.Scheduler, purger Purger) *Service {
 
 // RunningCollection describes a collection currently holding engines.
 type RunningCollection struct {
-	CollectionID int64     `json:"collection_id"`
-	Name         string    `json:"name"`
-	ProjectID    int64     `json:"project_id"`
-	DeployedAt   time.Time `json:"deployed_at"`
-	Running      bool      `json:"running"`
+	ExecutionID int64     `json:"collection_id"`
+	Name        string    `json:"name"`
+	ProjectID   int64     `json:"project_id"`
+	DeployedAt  time.Time `json:"deployed_at"`
+	Running     bool      `json:"running"`
 }
 
 // RunningCollections lists every deployed collection, enriched with its name,
@@ -53,18 +53,18 @@ func (s *Service) RunningCollections(ctx context.Context) ([]RunningCollection, 
 		return nil, err
 	}
 	out := make([]RunningCollection, 0, len(deployed))
-	for collectionID, deployedAt := range deployed {
-		rc := RunningCollection{CollectionID: collectionID, DeployedAt: deployedAt}
-		if c, err := s.repo.GetCollection(ctx, collectionID); err == nil {
+	for executionID, deployedAt := range deployed {
+		rc := RunningCollection{ExecutionID: executionID, DeployedAt: deployedAt}
+		if c, err := s.repo.GetCollection(ctx, executionID); err == nil {
 			rc.Name = c.Name
 			rc.ProjectID = c.ProjectID
 		}
-		if _, running, err := s.repo.CurrentRun(ctx, collectionID); err == nil {
+		if _, running, err := s.repo.CurrentRun(ctx, executionID); err == nil {
 			rc.Running = running
 		}
 		out = append(out, rc)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CollectionID < out[j].CollectionID })
+	sort.Slice(out, func(i, j int) bool { return out[i].ExecutionID < out[j].ExecutionID })
 	return out, nil
 }
 
@@ -82,17 +82,17 @@ func (s *Service) AutoPurgeStale(ctx context.Context, idleFor time.Duration) ([]
 	}
 	now := s.now()
 	var purged []int64
-	for collectionID, deployedAt := range deployed {
+	for executionID, deployedAt := range deployed {
 		if now.Sub(deployedAt) < idleFor {
 			continue
 		}
-		if _, running, err := s.repo.CurrentRun(ctx, collectionID); err != nil || running {
+		if _, running, err := s.repo.CurrentRun(ctx, executionID); err != nil || running {
 			continue
 		}
-		if err := s.purger.Purge(ctx, collectionID); err != nil {
+		if err := s.purger.Purge(ctx, executionID); err != nil {
 			continue
 		}
-		purged = append(purged, collectionID)
+		purged = append(purged, executionID)
 	}
 	sort.Slice(purged, func(i, j int) bool { return purged[i] < purged[j] })
 	return purged, nil

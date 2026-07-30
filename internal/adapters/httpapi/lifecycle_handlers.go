@@ -26,7 +26,7 @@ func (h *handlers) purgeCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 // lifecycleMutation runs an owner-checked collection operation of the shape
-// func(ctx, collectionID) error and reports a JSON message on success.
+// func(ctx, executionID) error and reports a JSON message on success.
 func (h *handlers) lifecycleMutation(w http.ResponseWriter, r *http.Request, msg string, op func(context.Context, int64) error) {
 	id, ok := pathInt(r, "collection_id")
 	if !ok {
@@ -81,7 +81,7 @@ func (h *handlers) collectionEngines(w http.ResponseWriter, r *http.Request) {
 
 // planPodLog streams the current logs of a plan's engine pod.
 func (h *handlers) planPodLog(w http.ResponseWriter, r *http.Request) {
-	collectionID, ok := pathInt(r, "collection_id")
+	executionID, ok := pathInt(r, "collection_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
@@ -91,7 +91,7 @@ func (h *handlers) planPodLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
 	}
-	log, err := h.deps.Lifecycle.PodLog(r.Context(), collectionID, planID)
+	log, err := h.deps.Lifecycle.PodLog(r.Context(), executionID, planID)
 	if err != nil {
 		respondError(w, err)
 		return

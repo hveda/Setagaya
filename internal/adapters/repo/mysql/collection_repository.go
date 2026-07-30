@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
+	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
@@ -14,7 +14,7 @@ import (
 const collectionColumns = "id, name, project_id, csv_split, tenant_id, created_by, updated_by, created_time"
 
 // CreateCollection inserts c and returns its auto-assigned ID.
-func (r *Repository) CreateCollection(ctx context.Context, c collection.Collection) (int64, error) {
+func (r *Repository) CreateCollection(ctx context.Context, c execution.Execution) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		"INSERT INTO collection (name, project_id, csv_split, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?)",
 		c.Name, c.ProjectID, boolToInt(c.CSVSplit), nullInt64(c.TenantID), nullString(c.CreatedBy), nullString(c.UpdatedBy),
@@ -30,27 +30,27 @@ func (r *Repository) CreateCollection(ctx context.Context, c collection.Collecti
 }
 
 // GetCollection returns the collection with id, or ports.ErrNotFound.
-func (r *Repository) GetCollection(ctx context.Context, id int64) (collection.Collection, error) {
+func (r *Repository) GetCollection(ctx context.Context, id int64) (execution.Execution, error) {
 	row := r.db.QueryRowContext(ctx, "SELECT "+collectionColumns+" FROM collection WHERE id = ?", id)
 	c, err := scanCollection(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return collection.Collection{}, ports.ErrNotFound
+		return execution.Execution{}, ports.ErrNotFound
 	}
 	if err != nil {
-		return collection.Collection{}, fmt.Errorf("mysql: get collection: %w", err)
+		return execution.Execution{}, fmt.Errorf("mysql: get collection: %w", err)
 	}
 	return c, nil
 }
 
 // ListCollectionsByProject returns all collections belonging to projectID.
-func (r *Repository) ListCollectionsByProject(ctx context.Context, projectID int64) ([]collection.Collection, error) {
+func (r *Repository) ListCollectionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT "+collectionColumns+" FROM collection WHERE project_id = ?", projectID)
 	if err != nil {
 		return nil, fmt.Errorf("mysql: list collections: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := []collection.Collection{}
+	out := []execution.Execution{}
 	for rows.Next() {
 		c, scanErr := scanCollection(rows)
 		if scanErr != nil {
@@ -71,8 +71,8 @@ func (r *Repository) DeleteCollection(ctx context.Context, id int64) error {
 
 // AddCollectionFile records a data file for the collection, or
 // ports.ErrFileExists on duplicate.
-func (r *Repository) AddCollectionFile(ctx context.Context, collectionID int64, filename string) error {
-	_, err := r.db.ExecContext(ctx, "INSERT INTO collection_data (collection_id, filename) VALUES (?, ?)", collectionID, filename)
+func (r *Repository) AddCollectionFile(ctx context.Context, executionID int64, filename string) error {
+	_, err := r.db.ExecContext(ctx, "INSERT INTO collection_data (collection_id, filename) VALUES (?, ?)", executionID, filename)
 	if isDuplicateKey(err) {
 		return ports.ErrFileExists
 	}
@@ -83,8 +83,8 @@ func (r *Repository) AddCollectionFile(ctx context.Context, collectionID int64, 
 }
 
 // CollectionFilesFor returns the collection's data files.
-func (r *Repository) CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT filename FROM collection_data WHERE collection_id = ?", collectionID)
+func (r *Repository) CollectionFilesFor(ctx context.Context, executionID int64) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT filename FROM collection_data WHERE collection_id = ?", executionID)
 	if err != nil {
 		return nil, fmt.Errorf("mysql: collection files: %w", err)
 	}
@@ -105,14 +105,14 @@ func (r *Repository) CollectionFilesFor(ctx context.Context, collectionID int64)
 }
 
 // DeleteCollectionFile removes a data file record, or ports.ErrNotFound.
-func (r *Repository) DeleteCollectionFile(ctx context.Context, collectionID int64, filename string) error {
-	return execDelete(ctx, r.db, "DELETE FROM collection_data WHERE collection_id = ? AND filename = ?", collectionID, filename)
+func (r *Repository) DeleteCollectionFile(ctx context.Context, executionID int64, filename string) error {
+	return execDelete(ctx, r.db, "DELETE FROM collection_data WHERE collection_id = ? AND filename = ?", executionID, filename)
 }
 
 // StoreExecutionCollection replaces the collection's execution plans and updates
 // its csv_split flag atomically. Returns ports.ErrNotFound if the collection
 // does not exist.
-func (r *Repository) StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error {
+func (r *Repository) StoreExecutionCollection(ctx context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("mysql: begin tx: %w", err)
@@ -120,25 +120,25 @@ func (r *Repository) StoreExecutionCollection(ctx context.Context, collectionID 
 	defer func() { _ = tx.Rollback() }()
 
 	var exists bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM collection WHERE id = ?)", collectionID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM collection WHERE id = ?)", executionID).Scan(&exists); err != nil {
 		return fmt.Errorf("mysql: check collection: %w", err)
 	}
 	if !exists {
 		return ports.ErrNotFound
 	}
 
-	if _, err := tx.ExecContext(ctx, "DELETE FROM collection_plan WHERE collection_id = ?", collectionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM collection_plan WHERE collection_id = ?", executionID); err != nil {
 		return fmt.Errorf("mysql: clear execution plans: %w", err)
 	}
 	for _, ep := range plans {
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO collection_plan (collection_id, plan_id, concurrency, rampup, duration, engines, csv_split) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			collectionID, ep.PlanID, ep.Concurrency, ep.Rampup, ep.Duration, ep.Engines, boolToInt(ep.CSVSplit),
+			executionID, ep.PlanID, ep.Concurrency, ep.Rampup, ep.Duration, ep.Engines, boolToInt(ep.CSVSplit),
 		); err != nil {
 			return fmt.Errorf("mysql: insert execution plan: %w", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE collection SET csv_split = ? WHERE id = ?", boolToInt(csvSplit), collectionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE collection SET csv_split = ? WHERE id = ?", boolToInt(csvSplit), executionID); err != nil {
 		return fmt.Errorf("mysql: update csv_split: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -149,9 +149,9 @@ func (r *Repository) StoreExecutionCollection(ctx context.Context, collectionID 
 
 // ExecutionPlansFor returns the collection's current execution plans. Plan names
 // are not persisted, so ExecutionPlan.Name is empty.
-func (r *Repository) ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error) {
+func (r *Repository) ExecutionPlansFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error) {
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT plan_id, concurrency, rampup, duration, engines, csv_split FROM collection_plan WHERE collection_id = ?", collectionID)
+		"SELECT plan_id, concurrency, rampup, duration, engines, csv_split FROM collection_plan WHERE collection_id = ?", executionID)
 	if err != nil {
 		return nil, fmt.Errorf("mysql: execution plans: %w", err)
 	}
@@ -177,16 +177,16 @@ func (r *Repository) ExecutionPlansFor(ctx context.Context, collectionID int64) 
 	return out, nil
 }
 
-func scanCollection(s rowScanner) (collection.Collection, error) {
+func scanCollection(s rowScanner) (execution.Execution, error) {
 	var (
-		c         collection.Collection
+		c         execution.Execution
 		csvSplit  int64
 		tenantID  sql.NullInt64
 		createdBy sql.NullString
 		updatedBy sql.NullString
 	)
 	if err := s.Scan(&c.ID, &c.Name, &c.ProjectID, &csvSplit, &tenantID, &createdBy, &updatedBy, &c.CreatedTime); err != nil {
-		return collection.Collection{}, err
+		return execution.Execution{}, err
 	}
 	c.CSVSplit = csvSplit != 0
 	c.CreatedBy = createdBy.String
