@@ -9,18 +9,21 @@ import (
 	driver "github.com/go-sql-driver/mysql"
 
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
+	"github.com/heridotlife/Setagaya/internal/domain/taurus"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
-const scenarioColumns = "id, name, project_id, tenant_id, created_by, updated_by, created_time"
+const scenarioColumns = "id, name, project_id, kind, engine, tenant_id, created_by, updated_by, created_time"
 
 const mysqlDupEntry = 1062
 
 // CreateScenario inserts p and returns its auto-assigned ID.
 func (r *Repository) CreateScenario(ctx context.Context, p scenario.Scenario) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		"INSERT INTO scenario (name, project_id, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?)",
-		p.Name, p.ProjectID, nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
+		"INSERT INTO scenario (name, project_id, kind, engine, tenant_id, created_by, updated_by)"+
+			" VALUES (?, ?, ?, ?, ?, ?, ?)",
+		p.Name, p.ProjectID, string(p.Kind), string(p.Engine),
+		nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("mysql: create scenario: %w", err)
@@ -145,13 +148,18 @@ func (r *Repository) ScenarioInUse(ctx context.Context, scenarioID int64) (bool,
 func scanScenario(s rowScanner) (scenario.Scenario, error) {
 	var (
 		p         scenario.Scenario
+		kind      string
+		engine    string
 		tenantID  sql.NullInt64
 		createdBy sql.NullString
 		updatedBy sql.NullString
 	)
-	if err := s.Scan(&p.ID, &p.Name, &p.ProjectID, &tenantID, &createdBy, &updatedBy, &p.CreatedTime); err != nil {
+	if err := s.Scan(&p.ID, &p.Name, &p.ProjectID, &kind, &engine,
+		&tenantID, &createdBy, &updatedBy, &p.CreatedTime); err != nil {
 		return scenario.Scenario{}, err
 	}
+	p.Kind = scenario.Kind(kind)
+	p.Engine = taurus.Executor(engine)
 	p.CreatedBy = createdBy.String
 	p.UpdatedBy = updatedBy.String
 	if tenantID.Valid {

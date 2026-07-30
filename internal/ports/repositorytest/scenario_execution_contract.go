@@ -9,6 +9,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/domain/execution"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/scenario"
+	"github.com/heridotlife/Setagaya/internal/domain/taurus"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -27,6 +28,68 @@ type NewRepo func(t *testing.T) Repository
 // RunScenarioRepositoryContract exercises ScenarioRepository behaviour.
 func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 	t.Helper()
+
+	// Portability decides which engines a scenario may run on. If it does not
+	// survive a round trip the domain refuses every engine, so the contract
+	// pins it for the fake and every real adapter alike.
+	t.Run("PortabilityRoundTrips", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		portable, err := scenario.New("portable", 10)
+		if err != nil {
+			t.Fatalf("scenario.New: %v", err)
+		}
+		portableID, err := repo.CreateScenario(ctx, portable)
+		if err != nil {
+			t.Fatalf("CreateScenario(portable): %v", err)
+		}
+
+		native, err := scenario.NewNative("imported", 10, taurus.ExecutorJMeter)
+		if err != nil {
+			t.Fatalf("scenario.NewNative: %v", err)
+		}
+		nativeID, err := repo.CreateScenario(ctx, native)
+		if err != nil {
+			t.Fatalf("CreateScenario(native): %v", err)
+		}
+
+		gotPortable, err := repo.GetScenario(ctx, portableID)
+		if err != nil {
+			t.Fatalf("GetScenario(portable): %v", err)
+		}
+		if gotPortable.Kind != scenario.KindPortable || gotPortable.Engine != "" {
+			t.Errorf("portable round trip = kind %q engine %q, want portable with no engine",
+				gotPortable.Kind, gotPortable.Engine)
+		}
+		if err := gotPortable.Validate(); err != nil {
+			t.Errorf("portable round trip does not validate: %v", err)
+		}
+
+		gotNative, err := repo.GetScenario(ctx, nativeID)
+		if err != nil {
+			t.Fatalf("GetScenario(native): %v", err)
+		}
+		if gotNative.Kind != scenario.KindNative || gotNative.Engine != taurus.ExecutorJMeter {
+			t.Errorf("native round trip = kind %q engine %q, want native/jmeter",
+				gotNative.Kind, gotNative.Engine)
+		}
+		if err := gotNative.CanRunOn(taurus.ExecutorK6); err == nil {
+			t.Error("a JMeter-pinned scenario read back accepted k6")
+		}
+
+		// Listing must carry portability too: engine selection is offered from
+		// list views, not only from a single fetch.
+		listed, err := repo.ListScenariosByProject(ctx, 10)
+		if err != nil {
+			t.Fatalf("ListScenariosByProject: %v", err)
+		}
+		for _, s := range listed {
+			if err := s.Validate(); err != nil {
+				t.Errorf("listed scenario %q does not validate: %v", s.Name, err)
+			}
+		}
+	})
 
 	t.Run("CreateGetListDelete", func(t *testing.T) {
 		repo := newRepo(t)
