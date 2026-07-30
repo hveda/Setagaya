@@ -10,17 +10,17 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
 type collectionResponse struct {
-	ID             int64                     `json:"id"`
-	Name           string                    `json:"name"`
-	ProjectID      int64                     `json:"project_id"`
-	CSVSplit       bool                      `json:"csv_split"`
-	CreatedTime    time.Time                 `json:"created_time"`
-	ExecutionPlans []execution.ExecutionPlan `json:"execution_plans"`
-	Data           []collectionapp.FileRef   `json:"data"`
+	ID             int64                   `json:"id"`
+	Name           string                  `json:"name"`
+	ProjectID      int64                   `json:"project_id"`
+	CSVSplit       bool                    `json:"csv_split"`
+	CreatedTime    time.Time               `json:"created_time"`
+	ExecutionPlans []loadprofile.Entry     `json:"execution_plans"`
+	Data           []collectionapp.FileRef `json:"data"`
 }
 
 func (h *handlers) getCollection(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +169,7 @@ func (h *handlers) uploadCollectionConfig(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "failed to read config")
 		return
 	}
-	var wrapper execution.Wrapper
+	var wrapper loadprofile.Wrapper
 	if err := yaml.Unmarshal(raw, &wrapper); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid YAML: "+err.Error())
 		return
@@ -212,7 +212,7 @@ func toCollectionResponse(c collection.Collection) collectionResponse {
 		ProjectID:      c.ProjectID,
 		CSVSplit:       c.CSVSplit,
 		CreatedTime:    c.CreatedTime,
-		ExecutionPlans: []execution.ExecutionPlan{},
+		ExecutionPlans: []loadprofile.Entry{},
 		Data:           []collectionapp.FileRef{},
 	}
 }

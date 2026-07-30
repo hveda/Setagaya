@@ -7,7 +7,7 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
@@ -42,7 +42,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	coll.CSVSplit = csvSplit
 	collectionID, _ := store.CreateCollection(ctx, coll)
 
-	var tests []execution.ExecutionPlan
+	var tests []loadprofile.Entry
 	var planIDs []int64
 	for i, n := range engines {
 		pl, _ := plan.New("plan", projectID)
@@ -51,7 +51,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 			t.Fatalf("add test file: %v", err)
 		}
 		planIDs = append(planIDs, planID)
-		tests = append(tests, execution.ExecutionPlan{
+		tests = append(tests, loadprofile.Entry{
 			Name: "p", PlanID: planID, Concurrency: 10, Rampup: 1, Engines: n, Duration: 30,
 		})
 		_ = i

@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -112,7 +112,7 @@ func (r *Repository) DeleteCollectionFile(ctx context.Context, collectionID int6
 // StoreExecutionCollection replaces the collection's execution plans and updates
 // its csv_split flag atomically. Returns ports.ErrNotFound if the collection
 // does not exist.
-func (r *Repository) StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []execution.ExecutionPlan) error {
+func (r *Repository) StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("mysql: begin tx: %w", err)
@@ -149,7 +149,7 @@ func (r *Repository) StoreExecutionCollection(ctx context.Context, collectionID 
 
 // ExecutionPlansFor returns the collection's current execution plans. Plan names
 // are not persisted, so ExecutionPlan.Name is empty.
-func (r *Repository) ExecutionPlansFor(ctx context.Context, collectionID int64) ([]execution.ExecutionPlan, error) {
+func (r *Repository) ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error) {
 	rows, err := r.db.QueryContext(ctx,
 		"SELECT plan_id, concurrency, rampup, duration, engines, csv_split FROM collection_plan WHERE collection_id = ?", collectionID)
 	if err != nil {
@@ -157,10 +157,10 @@ func (r *Repository) ExecutionPlansFor(ctx context.Context, collectionID int64) 
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := []execution.ExecutionPlan{}
+	out := []loadprofile.Entry{}
 	for rows.Next() {
 		var (
-			ep       execution.ExecutionPlan
+			ep       loadprofile.Entry
 			engines  sql.NullInt64
 			csvSplit int64
 		)

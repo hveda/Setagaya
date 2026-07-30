@@ -13,7 +13,7 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
@@ -28,7 +28,7 @@ var ErrNoTestFile = errors.New("lifecycle: plan has no test file")
 type Repo interface {
 	GetProject(ctx context.Context, id int64) (project.Project, error)
 	GetCollection(ctx context.Context, id int64) (collection.Collection, error)
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]execution.ExecutionPlan, error)
+	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
 	GetPlan(ctx context.Context, id int64) (plan.Plan, error)
 	PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error)
 	CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error)
@@ -143,7 +143,7 @@ func (s *Service) Trigger(ctx context.Context, collectionID int64) error {
 	if err != nil {
 		return err
 	}
-	ec := execution.ExecutionCollection{CollectionID: collectionID, Tests: plans, CSVSplit: coll.CSVSplit}
+	ec := loadprofile.Profile{CollectionID: collectionID, Tests: plans, CSVSplit: coll.CSVSplit}
 
 	if err := s.ensureTestFiles(ctx, plans); err != nil {
 		return err
@@ -200,7 +200,7 @@ func (s *Service) Trigger(ctx context.Context, collectionID int64) error {
 	return nil
 }
 
-func (s *Service) triggerPlan(ctx context.Context, coll collection.Collection, ec execution.ExecutionCollection, collData []engine.File, index int, ep execution.ExecutionPlan, runID int64) error {
+func (s *Service) triggerPlan(ctx context.Context, coll collection.Collection, ec loadprofile.Profile, collData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
 	pf, err := s.repo.PlanFilesFor(ctx, ep.PlanID)
 	if err != nil {
 		return err
@@ -280,7 +280,7 @@ func (s *Service) teardown(ctx context.Context, collectionID int64) error {
 		}
 	}
 	// Close the usage launch (best effort).
-	vu := run.VirtualUsers(execution.ExecutionCollection{Tests: plans})
+	vu := run.VirtualUsers(loadprofile.Profile{Tests: plans})
 	_ = s.usage.RecordFinish(ctx, collectionID, vu)
 	return s.repo.StopRun(ctx, collectionID)
 }
@@ -356,7 +356,7 @@ func (s *Service) Resume(ctx context.Context) ([]ports.RunningPlan, error) {
 
 // --- helpers ----------------------------------------------------------------
 
-func (s *Service) ensureTestFiles(ctx context.Context, plans []execution.ExecutionPlan) error {
+func (s *Service) ensureTestFiles(ctx context.Context, plans []loadprofile.Entry) error {
 	for _, ep := range plans {
 		pf, err := s.repo.PlanFilesFor(ctx, ep.PlanID)
 		if err != nil {
@@ -407,7 +407,7 @@ func (s *Service) runningByPlan(ctx context.Context, collectionID int64) (map[in
 	return out, nil
 }
 
-func planRefs(plans []execution.ExecutionPlan) []ports.PlanRef {
+func planRefs(plans []loadprofile.Entry) []ports.PlanRef {
 	refs := make([]ports.PlanRef, 0, len(plans))
 	for _, ep := range plans {
 		refs = append(refs, ports.PlanRef{PlanID: ep.PlanID, Engines: ep.Engines})

@@ -1,14 +1,14 @@
-package execution_test
+package loadprofile_test
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
-func validPlan(planID int64, engines, concurrency int) execution.ExecutionPlan {
-	return execution.ExecutionPlan{
+func validPlan(planID int64, engines, concurrency int) loadprofile.Entry {
+	return loadprofile.Entry{
 		Name:        "p",
 		PlanID:      planID,
 		Engines:     engines,
@@ -23,14 +23,14 @@ func TestExecutionPlan_Validate(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		ep      execution.ExecutionPlan
+		ep      loadprofile.Entry
 		wantErr error
 	}{
 		{"valid", validPlan(1, 2, 10), nil},
-		{"no plan id", execution.ExecutionPlan{Engines: 1, Concurrency: 1, Duration: 1}, execution.ErrPlanRequired},
-		{"zero engines", execution.ExecutionPlan{PlanID: 1, Engines: 0, Concurrency: 1, Duration: 1}, execution.ErrEnginesInvalid},
-		{"zero concurrency", execution.ExecutionPlan{PlanID: 1, Engines: 1, Concurrency: 0, Duration: 1}, execution.ErrConcurrencyInvalid},
-		{"zero duration", execution.ExecutionPlan{PlanID: 1, Engines: 1, Concurrency: 1, Duration: 0}, execution.ErrDurationInvalid},
+		{"no plan id", loadprofile.Entry{Engines: 1, Concurrency: 1, Duration: 1}, loadprofile.ErrPlanRequired},
+		{"zero engines", loadprofile.Entry{PlanID: 1, Engines: 0, Concurrency: 1, Duration: 1}, loadprofile.ErrEnginesInvalid},
+		{"zero concurrency", loadprofile.Entry{PlanID: 1, Engines: 1, Concurrency: 0, Duration: 1}, loadprofile.ErrConcurrencyInvalid},
+		{"zero duration", loadprofile.Entry{PlanID: 1, Engines: 1, Concurrency: 1, Duration: 0}, loadprofile.ErrDurationInvalid},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,9 +52,9 @@ func TestExecutionPlan_Validate(t *testing.T) {
 func TestExecutionCollection_Validate_And_TotalEngines(t *testing.T) {
 	t.Parallel()
 
-	ec := execution.ExecutionCollection{
+	ec := loadprofile.Profile{
 		CollectionID: 5,
-		Tests: []execution.ExecutionPlan{
+		Tests: []loadprofile.Entry{
 			validPlan(1, 2, 10),
 			validPlan(2, 3, 10),
 		},
@@ -70,16 +70,16 @@ func TestExecutionCollection_Validate_And_TotalEngines(t *testing.T) {
 func TestExecutionCollection_Validate_Errors(t *testing.T) {
 	t.Parallel()
 
-	empty := execution.ExecutionCollection{CollectionID: 5}
-	if err := empty.Validate(); !errors.Is(err, execution.ErrNoPlans) {
+	empty := loadprofile.Profile{CollectionID: 5}
+	if err := empty.Validate(); !errors.Is(err, loadprofile.ErrNoPlans) {
 		t.Fatalf("empty Validate = %v, want ErrNoPlans", err)
 	}
 
-	bad := execution.ExecutionCollection{
+	bad := loadprofile.Profile{
 		CollectionID: 5,
-		Tests:        []execution.ExecutionPlan{validPlan(1, 0, 1)}, // zero engines
+		Tests:        []loadprofile.Entry{validPlan(1, 0, 1)}, // zero engines
 	}
-	if err := bad.Validate(); !errors.Is(err, execution.ErrEnginesInvalid) {
+	if err := bad.Validate(); !errors.Is(err, loadprofile.ErrEnginesInvalid) {
 		t.Fatalf("bad Validate = %v, want ErrEnginesInvalid", err)
 	}
 }

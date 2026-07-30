@@ -12,7 +12,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
@@ -57,7 +57,7 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	if err := store.AddPlanFile(ctx, planID, "test.jmx", true); err != nil {
 		t.Fatalf("add test file: %v", err)
 	}
-	if err := store.StoreExecutionCollection(ctx, collectionID, false, []execution.ExecutionPlan{
+	if err := store.StoreExecutionCollection(ctx, collectionID, false, []loadprofile.Entry{
 		{Name: "p", PlanID: planID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
 	}); err != nil {
 		t.Fatalf("store exec: %v", err)

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/tenant"
@@ -33,8 +33,8 @@ type Store struct {
 
 	collSeq     int64
 	collections map[int64]collection.Collection
-	collData    map[int64]map[string]struct{}       // collectionID -> data filenames
-	exec        map[int64][]execution.ExecutionPlan // collectionID -> execution plans
+	collData    map[int64]map[string]struct{} // collectionID -> data filenames
+	exec        map[int64][]loadprofile.Entry // collectionID -> execution plans
 
 	runSeq     int64
 	currentRun map[int64]int64               // collectionID -> active runID
@@ -60,7 +60,7 @@ func NewStore() *Store {
 		planData:      make(map[int64]map[string]struct{}),
 		collections:   make(map[int64]collection.Collection),
 		collData:      make(map[int64]map[string]struct{}),
-		exec:          make(map[int64][]execution.ExecutionPlan),
+		exec:          make(map[int64][]loadprofile.Entry),
 		currentRun:    make(map[int64]int64),
 		runHistory:    make(map[int64]*ports.RunRecord),
 		running:       make(map[int64]map[int64]time.Time),
@@ -355,7 +355,7 @@ func (s *Store) DeleteCollectionFile(_ context.Context, collectionID int64, file
 	return nil
 }
 
-func (s *Store) StoreExecutionCollection(_ context.Context, collectionID int64, csvSplit bool, plans []execution.ExecutionPlan) error {
+func (s *Store) StoreExecutionCollection(_ context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.collections[collectionID]
@@ -364,7 +364,7 @@ func (s *Store) StoreExecutionCollection(_ context.Context, collectionID int64, 
 	}
 	// The persisted schema (collection_plan) does not store the plan name, so
 	// the fake drops it too to stay behaviourally identical to MySQL.
-	stored := make([]execution.ExecutionPlan, len(plans))
+	stored := make([]loadprofile.Entry, len(plans))
 	for i, ep := range plans {
 		ep.Name = ""
 		stored[i] = ep
@@ -375,10 +375,10 @@ func (s *Store) StoreExecutionCollection(_ context.Context, collectionID int64, 
 	return nil
 }
 
-func (s *Store) ExecutionPlansFor(_ context.Context, collectionID int64) ([]execution.ExecutionPlan, error) {
+func (s *Store) ExecutionPlansFor(_ context.Context, collectionID int64) ([]loadprofile.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]execution.ExecutionPlan(nil), s.exec[collectionID]...), nil
+	return append([]loadprofile.Entry(nil), s.exec[collectionID]...), nil
 }
 
 // --- helpers ----------------------------------------------------------------

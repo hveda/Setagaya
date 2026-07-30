@@ -10,7 +10,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/metricsapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
@@ -35,14 +35,14 @@ func setup(t *testing.T, engines ...int) *env {
 	coll, _ := collection.New("peak", 1)
 	collectionID, _ := store.CreateCollection(ctx, coll)
 
-	var tests []execution.ExecutionPlan
+	var tests []loadprofile.Entry
 	var planIDs []int64
 	sched := fake.NewScheduler()
 	for _, n := range engines {
 		pl, _ := plan.New("p", 1)
 		planID, _ := store.CreatePlan(ctx, pl)
 		planIDs = append(planIDs, planID)
-		tests = append(tests, execution.ExecutionPlan{PlanID: planID, Concurrency: 1, Rampup: 1, Engines: n, Duration: 1})
+		tests = append(tests, loadprofile.Entry{PlanID: planID, Concurrency: 1, Rampup: 1, Engines: n, Duration: 1})
 		_ = sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, CollectionID: collectionID, PlanID: planID, Engines: n})
 	}
 	_ = store.StoreExecutionCollection(ctx, collectionID, false, tests)

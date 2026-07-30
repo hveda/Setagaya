@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
@@ -111,10 +111,10 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	c, _ := svc.Create(ctx, "peak", 10)
 	planID := seedPlan(t, store, "smoke", 10)
 
-	ec := execution.ExecutionCollection{
+	ec := loadprofile.Profile{
 		CollectionID: c.ID,
 		CSVSplit:     true,
-		Tests: []execution.ExecutionPlan{
+		Tests: []loadprofile.Entry{
 			{PlanID: planID, Engines: 2, Concurrency: 10, Duration: 60},
 		},
 	}
@@ -142,28 +142,28 @@ func TestStoreConfig_Errors(t *testing.T) {
 	planID := seedPlan(t, store, "smoke", 10)
 	foreignPlan := seedPlan(t, store, "other", 99)
 
-	valid := func() execution.ExecutionPlan {
-		return execution.ExecutionPlan{PlanID: planID, Engines: 2, Concurrency: 10, Duration: 60}
+	valid := func() loadprofile.Entry {
+		return loadprofile.Entry{PlanID: planID, Engines: 2, Concurrency: 10, Duration: 60}
 	}
 
 	t.Run("collection id mismatch", func(t *testing.T) {
-		ec := execution.ExecutionCollection{CollectionID: c.ID + 100, Tests: []execution.ExecutionPlan{valid()}}
+		ec := loadprofile.Profile{CollectionID: c.ID + 100, Tests: []loadprofile.Entry{valid()}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrCollectionMismatch) {
 			t.Fatalf("= %v, want ErrCollectionMismatch", err)
 		}
 	})
 
 	t.Run("validation error (zero engines)", func(t *testing.T) {
-		ec := execution.ExecutionCollection{CollectionID: c.ID, Tests: []execution.ExecutionPlan{
+		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: planID, Engines: 0, Concurrency: 1, Duration: 1},
 		}}
-		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, execution.ErrEnginesInvalid) {
+		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, loadprofile.ErrEnginesInvalid) {
 			t.Fatalf("= %v, want ErrEnginesInvalid", err)
 		}
 	})
 
 	t.Run("unknown plan", func(t *testing.T) {
-		ec := execution.ExecutionCollection{CollectionID: c.ID, Tests: []execution.ExecutionPlan{
+		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: 987654, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, ports.ErrNotFound) {
@@ -172,7 +172,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	})
 
 	t.Run("plan in another project", func(t *testing.T) {
-		ec := execution.ExecutionCollection{CollectionID: c.ID, Tests: []execution.ExecutionPlan{
+		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: foreignPlan, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrPlanNotInProject) {
@@ -181,7 +181,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	})
 
 	t.Run("engine limit exceeded", func(t *testing.T) {
-		ec := execution.ExecutionCollection{CollectionID: c.ID, Tests: []execution.ExecutionPlan{
+		ec := loadprofile.Profile{CollectionID: c.ID, Tests: []loadprofile.Entry{
 			{PlanID: planID, Engines: maxEngines + 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrEngineLimit) {
@@ -190,7 +190,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	})
 
 	t.Run("missing collection", func(t *testing.T) {
-		ec := execution.ExecutionCollection{CollectionID: 424242, Tests: []execution.ExecutionPlan{valid()}}
+		ec := loadprofile.Profile{CollectionID: 424242, Tests: []loadprofile.Entry{valid()}}
 		if err := svc.StoreConfig(ctx, 424242, ec); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("= %v, want ErrNotFound", err)
 		}

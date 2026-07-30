@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
 )
 
-func ec(plans ...execution.ExecutionPlan) execution.ExecutionCollection {
-	return execution.ExecutionCollection{Tests: plans}
+func ec(plans ...loadprofile.Entry) loadprofile.Profile {
+	return loadprofile.Profile{Tests: plans}
 }
 
 func TestDerivePhase(t *testing.T) {
@@ -50,13 +50,13 @@ func TestCanDeploy(t *testing.T) {
 func TestCanTrigger(t *testing.T) {
 	t.Parallel()
 
-	plan := execution.ExecutionPlan{PlanID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
+	plan := loadprofile.Entry{PlanID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
 	full := ec(plan)
 
 	cases := []struct {
 		name    string
 		phase   run.Phase
-		coll    execution.ExecutionCollection
+		coll    loadprofile.Profile
 		ready   int
 		wantErr error
 	}{
@@ -100,8 +100,8 @@ func TestVirtualUsers(t *testing.T) {
 	t.Parallel()
 
 	got := run.VirtualUsers(ec(
-		execution.ExecutionPlan{Engines: 2, Concurrency: 10},
-		execution.ExecutionPlan{Engines: 3, Concurrency: 5},
+		loadprofile.Entry{Engines: 2, Concurrency: 10},
+		loadprofile.Entry{Engines: 3, Concurrency: 5},
 	))
 	if got != 2*10+3*5 {
 		t.Errorf("VirtualUsers = %d, want %d", got, 2*10+3*5)

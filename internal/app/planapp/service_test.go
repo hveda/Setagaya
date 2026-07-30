@@ -8,7 +8,7 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
@@ -138,7 +138,7 @@ func TestDelete_RefusesWhenInUse(t *testing.T) {
 
 	coll, _ := collection.New("peak", 10)
 	collID, _ := store.CreateCollection(ctx, coll)
-	if err := store.StoreExecutionCollection(ctx, collID, false, []execution.ExecutionPlan{
+	if err := store.StoreExecutionCollection(ctx, collID, false, []loadprofile.Entry{
 		{PlanID: p.ID, Engines: 1, Concurrency: 1, Duration: 60},
 	}); err != nil {
 		t.Fatalf("seed execution: %v", err)

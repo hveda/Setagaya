@@ -11,7 +11,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
 	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
@@ -28,8 +28,8 @@ var badRequestErrors = []error{
 	project.ErrOwnerTooLong, project.ErrSIDInvalid, project.ErrSIDTooLong,
 	plan.ErrNameRequired, plan.ErrNameTooLong, plan.ErrProjectRequired,
 	collection.ErrNameRequired, collection.ErrNameTooLong, collection.ErrProjectRequired,
-	execution.ErrPlanRequired, execution.ErrEnginesInvalid, execution.ErrConcurrencyInvalid,
-	execution.ErrDurationInvalid, execution.ErrNoPlans,
+	loadprofile.ErrPlanRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
+	loadprofile.ErrDurationInvalid, loadprofile.ErrNoPlans,
 	planapp.ErrInvalidFilename,
 	collectionapp.ErrInvalidFilename, collectionapp.ErrCollectionMismatch,
 	collectionapp.ErrPlanNotInProject, collectionapp.ErrEngineLimit,

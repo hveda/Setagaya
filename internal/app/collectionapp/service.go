@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
@@ -34,8 +34,8 @@ type Repo interface {
 	AddCollectionFile(ctx context.Context, collectionID int64, filename string) error
 	CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error)
 	DeleteCollectionFile(ctx context.Context, collectionID int64, filename string) error
-	StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []execution.ExecutionPlan) error
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]execution.ExecutionPlan, error)
+	StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error
+	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
 	GetPlan(ctx context.Context, id int64) (plan.Plan, error)
 }
 
@@ -153,7 +153,7 @@ func (s *Service) DeleteFile(ctx context.Context, collectionID int64, filename s
 // StoreConfig validates and persists the execution configuration for a
 // collection: every plan must exist and belong to the collection's project, and
 // the total engines must not exceed the configured limit.
-func (s *Service) StoreConfig(ctx context.Context, collectionID int64, ec execution.ExecutionCollection) error {
+func (s *Service) StoreConfig(ctx context.Context, collectionID int64, ec loadprofile.Profile) error {
 	coll, err := s.repo.GetCollection(ctx, collectionID)
 	if err != nil {
 		return err
@@ -181,16 +181,16 @@ func (s *Service) StoreConfig(ctx context.Context, collectionID int64, ec execut
 
 // GetConfig returns the collection's current execution configuration wrapped
 // for serialization.
-func (s *Service) GetConfig(ctx context.Context, collectionID int64) (execution.Wrapper, error) {
+func (s *Service) GetConfig(ctx context.Context, collectionID int64) (loadprofile.Wrapper, error) {
 	coll, err := s.repo.GetCollection(ctx, collectionID)
 	if err != nil {
-		return execution.Wrapper{}, err
+		return loadprofile.Wrapper{}, err
 	}
 	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
 	if err != nil {
-		return execution.Wrapper{}, err
+		return loadprofile.Wrapper{}, err
 	}
-	return execution.Wrapper{Content: execution.ExecutionCollection{
+	return loadprofile.Wrapper{Content: loadprofile.Profile{
 		Name:         coll.Name,
 		ProjectID:    coll.ProjectID,
 		CollectionID: collectionID,

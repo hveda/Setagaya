@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
 // Phase is the lifecycle phase of a collection's engines.
@@ -74,7 +74,7 @@ func CanDeploy(phase Phase) error {
 
 // CanTrigger validates a trigger request: at least one plan must exist, engines
 // must be deployed and fully ready, and no run may already be in progress.
-func CanTrigger(phase Phase, ec execution.ExecutionCollection, enginesReady int) error {
+func CanTrigger(phase Phase, ec loadprofile.Profile, enginesReady int) error {
 	if len(ec.Tests) == 0 {
 		return ErrNoPlans
 	}
@@ -100,7 +100,7 @@ func CanStop(phase Phase) error {
 
 // VirtualUsers is the total concurrent virtual users a collection drives: the
 // sum over plans of engines * concurrency. Used for usage accounting.
-func VirtualUsers(ec execution.ExecutionCollection) int {
+func VirtualUsers(ec loadprofile.Profile) int {
 	vu := 0
 	for _, ep := range ec.Tests {
 		vu += ep.Engines * ep.Concurrency

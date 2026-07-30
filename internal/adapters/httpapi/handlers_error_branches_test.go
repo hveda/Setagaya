@@ -12,7 +12,7 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/ports"
@@ -71,7 +71,7 @@ func (f *failStore) CollectionFilesFor(ctx context.Context, collectionID int64) 
 	return f.Store.CollectionFilesFor(ctx, collectionID)
 }
 
-func (f *failStore) StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []execution.ExecutionPlan) error {
+func (f *failStore) StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error {
 	if f.fail == "StoreExecutionCollection" {
 		return errBoom
 	}

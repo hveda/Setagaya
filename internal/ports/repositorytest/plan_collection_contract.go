@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
@@ -122,7 +122,7 @@ func RunPlanRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 
 		collID := mustCreateCollection(t, repo, "peak", 10)
-		if err := repo.StoreExecutionCollection(ctx, collID, false, []execution.ExecutionPlan{
+		if err := repo.StoreExecutionCollection(ctx, collID, false, []loadprofile.Entry{
 			{Name: "smoke", PlanID: planID, Engines: 1, Concurrency: 1, Duration: 60},
 		}); err != nil {
 			t.Fatalf("StoreExecutionCollection: %v", err)
@@ -203,7 +203,7 @@ func RunCollectionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		ctx := context.Background()
 		id := mustCreateCollection(t, repo, "peak", 10)
 
-		first := []execution.ExecutionPlan{
+		first := []loadprofile.Entry{
 			{Name: "a", PlanID: 1, Engines: 2, Concurrency: 10, Duration: 60},
 			{Name: "b", PlanID: 2, Engines: 3, Concurrency: 10, Duration: 60},
 		}
@@ -222,7 +222,7 @@ func RunCollectionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 
 		// Storing a smaller set replaces (not merges) the previous plans.
-		second := []execution.ExecutionPlan{{Name: "a", PlanID: 1, Engines: 5, Concurrency: 20, Duration: 60}}
+		second := []loadprofile.Entry{{Name: "a", PlanID: 1, Engines: 5, Concurrency: 20, Duration: 60}}
 		if err := repo.StoreExecutionCollection(ctx, id, false, second); err != nil {
 			t.Fatalf("StoreExecutionCollection(second): %v", err)
 		}
@@ -238,7 +238,7 @@ func RunCollectionRepositoryContract(t *testing.T, newRepo NewRepo) {
 	t.Run("StoreOnMissingCollection", func(t *testing.T) {
 		repo := newRepo(t)
 		err := repo.StoreExecutionCollection(context.Background(), 987654, false,
-			[]execution.ExecutionPlan{{PlanID: 1, Engines: 1, Concurrency: 1, Duration: 1}})
+			[]loadprofile.Entry{{PlanID: 1, Engines: 1, Concurrency: 1, Duration: 1}})
 		if !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("StoreExecutionCollection(missing collection) = %v, want ErrNotFound", err)
 		}

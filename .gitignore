@@ -13,6 +13,9 @@ coverage.html
 # Local object-store data
 storage-data/
 
+# Cortex workflow artifacts
+/.cortex/
+
 # Editor / OS
 .DS_Store
 *.tmp

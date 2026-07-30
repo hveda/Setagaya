@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
 // CollectionRepository persists Collection aggregates, their data files, and
@@ -21,7 +21,7 @@ type CollectionRepository interface {
 
 	// StoreExecutionCollection replaces the collection's execution plans with
 	// plans and updates its csv_split flag, atomically.
-	StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []execution.ExecutionPlan) error
+	StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error
 	// ExecutionPlansFor returns the collection's current execution plans.
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]execution.ExecutionPlan, error)
+	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
 }

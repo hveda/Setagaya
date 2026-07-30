@@ -11,13 +11,13 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
 // Repo is the persistence the collector reads to know what is running.
 type Repo interface {
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]execution.ExecutionPlan, error)
+	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
 	CurrentRun(ctx context.Context, collectionID int64) (int64, bool, error)
 	RunningPlans(ctx context.Context) ([]ports.RunningPlan, error)
 }
@@ -120,7 +120,7 @@ func (s *Service) CollectCollection(ctx context.Context, collectionID int64) err
 	var firstErr error
 	for _, ep := range plans {
 		wg.Add(1)
-		go func(ep execution.ExecutionPlan) {
+		go func(ep loadprofile.Entry) {
 			defer wg.Done()
 			if err := s.CollectPlan(ctx, collectionID, ep.PlanID, ep.Engines, runID); err != nil {
 				mu.Lock()
