@@ -12,7 +12,7 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -36,7 +36,7 @@ type Repo interface {
 	DeleteCollectionFile(ctx context.Context, collectionID int64, filename string) error
 	StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []loadprofile.Entry) error
 	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
-	GetPlan(ctx context.Context, id int64) (plan.Plan, error)
+	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
 }
 
 // Service provides collection use-cases.

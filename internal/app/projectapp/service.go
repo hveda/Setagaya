@@ -8,8 +8,8 @@ import (
 	"errors"
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -23,7 +23,7 @@ var (
 // the child listings used to enforce delete rules.
 type Repo interface {
 	ports.ProjectRepository
-	ListPlansByProject(ctx context.Context, projectID int64) ([]plan.Plan, error)
+	ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
 	ListCollectionsByProject(ctx context.Context, projectID int64) ([]collection.Collection, error)
 }
 

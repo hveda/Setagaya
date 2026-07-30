@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/heridotlife/Setagaya/internal/app/planapp"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 )
 
 type planResponse struct {
@@ -146,7 +146,7 @@ func (h *handlers) authorizePlan(r *http.Request, planID int64) error {
 	return h.authorizeProject(r.Context(), p.ProjectID)
 }
 
-func toPlanResponse(p plan.Plan) planResponse {
+func toPlanResponse(p scenario.Scenario) planResponse {
 	return planResponse{
 		ID:          p.ID,
 		Name:        p.Name,

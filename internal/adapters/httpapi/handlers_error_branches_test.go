@@ -13,8 +13,8 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
@@ -29,7 +29,7 @@ type failStore struct {
 	fail string
 }
 
-func (f *failStore) CreatePlan(ctx context.Context, p plan.Plan) (int64, error) {
+func (f *failStore) CreatePlan(ctx context.Context, p scenario.Scenario) (int64, error) {
 	if f.fail == "CreatePlan" {
 		return 0, errBoom
 	}
@@ -78,7 +78,7 @@ func (f *failStore) StoreExecutionCollection(ctx context.Context, collectionID i
 	return f.Store.StoreExecutionCollection(ctx, collectionID, csvSplit, plans)
 }
 
-func (f *failStore) ListPlansByProject(ctx context.Context, projectID int64) ([]plan.Plan, error) {
+func (f *failStore) ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
 	if f.fail == "ListPlansByProject" {
 		return nil, errBoom
 	}
@@ -102,7 +102,7 @@ func failEnv(t *testing.T) (http.Handler, *failStore, ids) {
 	ctx := context.Background()
 	p, _ := project.New("web", "setagaya", "")
 	projectID, _ := fs.CreateProject(ctx, p)
-	pl, _ := plan.New("smoke", projectID)
+	pl, _ := scenario.New("smoke", projectID)
 	planID, _ := fs.Store.CreatePlan(ctx, pl)
 	c, _ := collection.New("peak", projectID)
 	collID, _ := fs.Store.CreateCollection(ctx, c)

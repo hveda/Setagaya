@@ -12,8 +12,8 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/domain/tenant"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
@@ -27,7 +27,7 @@ type Store struct {
 	projects   map[int64]project.Project
 
 	planSeq  int64
-	plans    map[int64]plan.Plan
+	plans    map[int64]scenario.Scenario
 	planTest map[int64]string              // planID -> JMX filename
 	planData map[int64]map[string]struct{} // planID -> data filenames
 
@@ -55,7 +55,7 @@ func NewStore() *Store {
 	return &Store{
 		now:           time.Now,
 		projects:      make(map[int64]project.Project),
-		plans:         make(map[int64]plan.Plan),
+		plans:         make(map[int64]scenario.Scenario),
 		planTest:      make(map[int64]string),
 		planData:      make(map[int64]map[string]struct{}),
 		collections:   make(map[int64]collection.Collection),
@@ -169,7 +169,7 @@ func (s *Store) DeleteProject(_ context.Context, id int64) error {
 
 // --- Plans ------------------------------------------------------------------
 
-func (s *Store) CreatePlan(_ context.Context, p plan.Plan) (int64, error) {
+func (s *Store) CreatePlan(_ context.Context, p scenario.Scenario) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.planSeq++
@@ -181,20 +181,20 @@ func (s *Store) CreatePlan(_ context.Context, p plan.Plan) (int64, error) {
 	return p.ID, nil
 }
 
-func (s *Store) GetPlan(_ context.Context, id int64) (plan.Plan, error) {
+func (s *Store) GetPlan(_ context.Context, id int64) (scenario.Scenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.plans[id]
 	if !ok {
-		return plan.Plan{}, ports.ErrNotFound
+		return scenario.Scenario{}, ports.ErrNotFound
 	}
 	return p, nil
 }
 
-func (s *Store) ListPlansByProject(_ context.Context, projectID int64) ([]plan.Plan, error) {
+func (s *Store) ListPlansByProject(_ context.Context, projectID int64) ([]scenario.Scenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := []plan.Plan{}
+	out := []scenario.Scenario{}
 	for _, p := range s.plans {
 		if p.ProjectID == projectID {
 			out = append(out, p)

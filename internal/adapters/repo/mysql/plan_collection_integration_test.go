@@ -9,7 +9,7 @@ import (
 
 	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports/repositorytest"
 	"github.com/heridotlife/Setagaya/test/dbtest"
 )
@@ -37,7 +37,7 @@ func TestMySQLPlan_TenantAndAuditRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	tenant := int64(7)
-	id, err := repo.CreatePlan(ctx, plan.Plan{
+	id, err := repo.CreatePlan(ctx, scenario.Scenario{
 		Name: "scoped", ProjectID: 3, TenantID: &tenant, CreatedBy: "okta|a", UpdatedBy: "okta|b",
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestMySQLPlanCollection_ErrorsWhenDBClosed(t *testing.T) {
 	}
 
 	ops := map[string]func() error{
-		"CreatePlan":         func() error { _, e := repo.CreatePlan(ctx, plan.Plan{Name: "x", ProjectID: 1}); return e },
+		"CreatePlan":         func() error { _, e := repo.CreatePlan(ctx, scenario.Scenario{Name: "x", ProjectID: 1}); return e },
 		"GetPlan":            func() error { _, e := repo.GetPlan(ctx, 1); return e },
 		"ListPlansByProject": func() error { _, e := repo.ListPlansByProject(ctx, 1); return e },
 		"DeletePlan":         func() error { return repo.DeletePlan(ctx, 1) },

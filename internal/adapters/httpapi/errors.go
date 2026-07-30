@@ -12,9 +12,9 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/domain/tenant"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
@@ -26,7 +26,7 @@ var errForbidden = errors.New("forbidden")
 var badRequestErrors = []error{
 	project.ErrNameRequired, project.ErrNameTooLong, project.ErrOwnerRequired,
 	project.ErrOwnerTooLong, project.ErrSIDInvalid, project.ErrSIDTooLong,
-	plan.ErrNameRequired, plan.ErrNameTooLong, plan.ErrProjectRequired,
+	scenario.ErrNameRequired, scenario.ErrNameTooLong, scenario.ErrProjectRequired,
 	collection.ErrNameRequired, collection.ErrNameTooLong, collection.ErrProjectRequired,
 	loadprofile.ErrPlanRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
 	loadprofile.ErrDurationInvalid, loadprofile.ErrNoPlans,

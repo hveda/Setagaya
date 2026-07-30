@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 )
 
 // PlanFiles is the set of files attached to a plan: one optional JMX test file
@@ -16,9 +16,9 @@ type PlanFiles struct {
 
 // PlanRepository persists and retrieves Plan aggregates and their file records.
 type PlanRepository interface {
-	CreatePlan(ctx context.Context, p plan.Plan) (int64, error)
-	GetPlan(ctx context.Context, id int64) (plan.Plan, error)
-	ListPlansByProject(ctx context.Context, projectID int64) ([]plan.Plan, error)
+	CreatePlan(ctx context.Context, p scenario.Scenario) (int64, error)
+	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
+	ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
 	DeletePlan(ctx context.Context, id int64) error
 
 	// AddPlanFile records a file for the plan. isTest selects the JMX test-file

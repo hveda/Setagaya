@@ -7,8 +7,8 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/app/projectapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
@@ -134,11 +134,11 @@ func mustProject(t *testing.T, name, owner string) project.Project {
 	return p
 }
 
-func mustPlan(t *testing.T, name string, projectID int64) plan.Plan {
+func mustPlan(t *testing.T, name string, projectID int64) scenario.Scenario {
 	t.Helper()
-	p, err := plan.New(name, projectID)
+	p, err := scenario.New(name, projectID)
 	if err != nil {
-		t.Fatalf("plan.New: %v", err)
+		t.Fatalf("scenario.New: %v", err)
 	}
 	return p
 }

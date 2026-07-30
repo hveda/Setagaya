@@ -8,7 +8,7 @@ import (
 
 	driver "github.com/go-sql-driver/mysql"
 
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -17,7 +17,7 @@ const planColumns = "id, name, project_id, tenant_id, created_by, updated_by, cr
 const mysqlDupEntry = 1062
 
 // CreatePlan inserts p and returns its auto-assigned ID.
-func (r *Repository) CreatePlan(ctx context.Context, p plan.Plan) (int64, error) {
+func (r *Repository) CreatePlan(ctx context.Context, p scenario.Scenario) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		"INSERT INTO plan (name, project_id, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?)",
 		p.Name, p.ProjectID, nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
@@ -33,27 +33,27 @@ func (r *Repository) CreatePlan(ctx context.Context, p plan.Plan) (int64, error)
 }
 
 // GetPlan returns the plan with id, or ports.ErrNotFound.
-func (r *Repository) GetPlan(ctx context.Context, id int64) (plan.Plan, error) {
+func (r *Repository) GetPlan(ctx context.Context, id int64) (scenario.Scenario, error) {
 	row := r.db.QueryRowContext(ctx, "SELECT "+planColumns+" FROM plan WHERE id = ?", id)
 	p, err := scanPlan(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return plan.Plan{}, ports.ErrNotFound
+		return scenario.Scenario{}, ports.ErrNotFound
 	}
 	if err != nil {
-		return plan.Plan{}, fmt.Errorf("mysql: get plan: %w", err)
+		return scenario.Scenario{}, fmt.Errorf("mysql: get plan: %w", err)
 	}
 	return p, nil
 }
 
 // ListPlansByProject returns all plans belonging to projectID.
-func (r *Repository) ListPlansByProject(ctx context.Context, projectID int64) ([]plan.Plan, error) {
+func (r *Repository) ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT "+planColumns+" FROM plan WHERE project_id = ?", projectID)
 	if err != nil {
 		return nil, fmt.Errorf("mysql: list plans: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := []plan.Plan{}
+	out := []scenario.Scenario{}
 	for rows.Next() {
 		p, scanErr := scanPlan(rows)
 		if scanErr != nil {
@@ -142,15 +142,15 @@ func (r *Repository) PlanInUse(ctx context.Context, planID int64) (bool, error) 
 	return exists, nil
 }
 
-func scanPlan(s rowScanner) (plan.Plan, error) {
+func scanPlan(s rowScanner) (scenario.Scenario, error) {
 	var (
-		p         plan.Plan
+		p         scenario.Scenario
 		tenantID  sql.NullInt64
 		createdBy sql.NullString
 		updatedBy sql.NullString
 	)
 	if err := s.Scan(&p.ID, &p.Name, &p.ProjectID, &tenantID, &createdBy, &updatedBy, &p.CreatedTime); err != nil {
-		return plan.Plan{}, err
+		return scenario.Scenario{}, err
 	}
 	p.CreatedBy = createdBy.String
 	p.UpdatedBy = updatedBy.String

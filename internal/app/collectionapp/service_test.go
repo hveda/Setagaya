@@ -8,7 +8,7 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
@@ -25,9 +25,9 @@ func newCollService(t *testing.T) (*collectionapp.Service, *fake.Store, *fake.Ob
 // seedPlan creates a plan directly in the store for the given project.
 func seedPlan(t *testing.T, store *fake.Store, name string, projectID int64) int64 {
 	t.Helper()
-	p, err := plan.New(name, projectID)
+	p, err := scenario.New(name, projectID)
 	if err != nil {
-		t.Fatalf("plan.New: %v", err)
+		t.Fatalf("scenario.New: %v", err)
 	}
 	id, err := store.CreatePlan(context.Background(), p)
 	if err != nil {

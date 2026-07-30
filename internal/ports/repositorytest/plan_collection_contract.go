@@ -8,7 +8,7 @@ import (
 
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -247,7 +247,7 @@ func RunCollectionRepositoryContract(t *testing.T, newRepo NewRepo) {
 
 func mustCreatePlan(t *testing.T, repo Repository, name string, projectID int64) int64 {
 	t.Helper()
-	p, err := plan.New(name, projectID)
+	p, err := scenario.New(name, projectID)
 	if err != nil {
 		t.Fatalf("build plan %q: %v", name, err)
 	}
@@ -271,7 +271,7 @@ func mustCreateCollection(t *testing.T, repo Repository, name string, projectID 
 	return id
 }
 
-func planNames(ps []plan.Plan) []string {
+func planNames(ps []scenario.Scenario) []string {
 	out := make([]string, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, p.Name)

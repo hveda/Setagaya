@@ -14,9 +14,9 @@ import (
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/engine"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -29,7 +29,7 @@ type Repo interface {
 	GetProject(ctx context.Context, id int64) (project.Project, error)
 	GetCollection(ctx context.Context, id int64) (collection.Collection, error)
 	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]loadprofile.Entry, error)
-	GetPlan(ctx context.Context, id int64) (plan.Plan, error)
+	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
 	PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error)
 	CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error)
 	ports.RunRepository

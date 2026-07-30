@@ -8,9 +8,9 @@ import (
 	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
 	"github.com/heridotlife/Setagaya/internal/domain/collection"
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
 	"github.com/heridotlife/Setagaya/internal/domain/project"
 	"github.com/heridotlife/Setagaya/internal/domain/run"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 	"github.com/heridotlife/Setagaya/internal/ports/fake"
 )
@@ -45,7 +45,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	var tests []loadprofile.Entry
 	var planIDs []int64
 	for i, n := range engines {
-		pl, _ := plan.New("plan", projectID)
+		pl, _ := scenario.New("plan", projectID)
 		planID, _ := store.CreatePlan(ctx, pl)
 		if err := store.AddPlanFile(ctx, planID, "test.jmx", true); err != nil {
 			t.Fatalf("add test file: %v", err)

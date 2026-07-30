@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
+	"github.com/heridotlife/Setagaya/internal/domain/scenario"
 	"github.com/heridotlife/Setagaya/internal/ports"
 )
 
@@ -22,9 +22,9 @@ var (
 
 // Repo is the repository surface the plan service needs.
 type Repo interface {
-	CreatePlan(ctx context.Context, p plan.Plan) (int64, error)
-	GetPlan(ctx context.Context, id int64) (plan.Plan, error)
-	ListPlansByProject(ctx context.Context, projectID int64) ([]plan.Plan, error)
+	CreatePlan(ctx context.Context, p scenario.Scenario) (int64, error)
+	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
+	ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
 	DeletePlan(ctx context.Context, id int64) error
 	AddPlanFile(ctx context.Context, planID int64, filename string, isTest bool) error
 	PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error)
@@ -56,26 +56,26 @@ type Files struct {
 }
 
 // Create validates input and persists a new plan.
-func (s *Service) Create(ctx context.Context, name string, projectID int64) (plan.Plan, error) {
-	p, err := plan.New(name, projectID)
+func (s *Service) Create(ctx context.Context, name string, projectID int64) (scenario.Scenario, error) {
+	p, err := scenario.New(name, projectID)
 	if err != nil {
-		return plan.Plan{}, err
+		return scenario.Scenario{}, err
 	}
 	id, err := s.repo.CreatePlan(ctx, p)
 	if err != nil {
-		return plan.Plan{}, err
+		return scenario.Scenario{}, err
 	}
 	p.ID = id
 	return p, nil
 }
 
 // Get returns a plan by ID (ports.ErrNotFound if absent).
-func (s *Service) Get(ctx context.Context, id int64) (plan.Plan, error) {
+func (s *Service) Get(ctx context.Context, id int64) (scenario.Scenario, error) {
 	return s.repo.GetPlan(ctx, id)
 }
 
 // ListByProject returns the plans belonging to a project.
-func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]plan.Plan, error) {
+func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
 	return s.repo.ListPlansByProject(ctx, projectID)
 }
 
