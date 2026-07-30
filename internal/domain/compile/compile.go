@@ -96,6 +96,7 @@ func Taurus(in Input) (taurus.Config, error) {
 			Concurrency: entry.Concurrency,
 			RampUp:      taurus.Duration(time.Duration(entry.Rampup) * time.Second),
 			HoldFor:     taurus.Duration(time.Duration(entry.Duration) * time.Second),
+			Throughput:  entry.Throughput,
 			Scenario:    key,
 		})
 	}

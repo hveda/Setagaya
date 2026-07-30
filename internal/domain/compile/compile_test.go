@@ -331,3 +331,30 @@ func TestTaurus_LabelsSurviveAwkwardNames(t *testing.T) {
 		seen[r.Label] = true
 	}
 }
+
+// A rate-limited profile must stay rate-limited in the config; losing the
+// throughput would let the run go as fast as it could and measure the wrong
+// thing entirely.
+func TestTaurus_CarriesThroughput(t *testing.T) {
+	t.Parallel()
+
+	in := portableInput()
+	in.Profile.Tests[0].Throughput = 2500
+	cfg, err := compile.Taurus(in)
+	if err != nil {
+		t.Fatalf("Taurus: %v", err)
+	}
+	if got := cfg.Execution[0].Throughput; got != 2500 {
+		t.Errorf("throughput = %d, want 2500", got)
+	}
+
+	// Unlimited must not become a cap of zero requests per second.
+	in.Profile.Tests[0].Throughput = 0
+	cfg, err = compile.Taurus(in)
+	if err != nil {
+		t.Fatalf("Taurus: %v", err)
+	}
+	if got := cfg.Execution[0].Throughput; got != 0 {
+		t.Errorf("unlimited throughput became %d", got)
+	}
+}

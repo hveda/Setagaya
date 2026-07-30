@@ -16,6 +16,7 @@ var (
 	ErrEnginesInvalid     = errors.New("loadprofile: engines must be greater than zero")
 	ErrConcurrencyInvalid = errors.New("loadprofile: concurrency must be greater than zero")
 	ErrDurationInvalid    = errors.New("loadprofile: duration must be greater than zero")
+	ErrThroughputInvalid  = errors.New("loadprofile: throughput cannot be negative")
 	ErrNoScenarios        = errors.New("loadprofile: at least one scenario is required")
 )
 
@@ -27,8 +28,12 @@ type Entry struct {
 	Concurrency int    `yaml:"concurrency" json:"concurrency"`
 	Rampup      int    `yaml:"rampup" json:"rampup"`
 	Engines     int    `yaml:"engines" json:"engines"`
-	Duration    int    `yaml:"duration" json:"duration"`
-	CSVSplit    bool   `yaml:"csv_split" json:"csv_split"`
+	// Throughput is the target request rate for the entry, shared across its
+	// engines. Zero means unlimited, which is what Taurus assumes when the key
+	// is absent.
+	Throughput int  `yaml:"throughput,omitempty" json:"throughput,omitempty"`
+	Duration   int  `yaml:"duration" json:"duration"`
+	CSVSplit   bool `yaml:"csv_split" json:"csv_split"`
 }
 
 // Validate checks a single entry's invariants.
@@ -42,6 +47,8 @@ func (ep Entry) Validate() error {
 		return ErrConcurrencyInvalid
 	case ep.Duration <= 0:
 		return ErrDurationInvalid
+	case ep.Throughput < 0:
+		return ErrThroughputInvalid
 	}
 	return nil
 }

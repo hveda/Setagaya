@@ -134,8 +134,9 @@ func (r *Repository) StoreLoadProfile(ctx context.Context, executionID int64, cs
 	}
 	for _, ep := range scenarios {
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO execution_scenario (execution_id, scenario_id, concurrency, rampup, duration, engines, csv_split) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			executionID, ep.ScenarioID, ep.Concurrency, ep.Rampup, ep.Duration, ep.Engines, boolToInt(ep.CSVSplit),
+			"INSERT INTO execution_scenario (execution_id, scenario_id, concurrency, rampup, duration, engines, throughput, csv_split)"+
+				" VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			executionID, ep.ScenarioID, ep.Concurrency, ep.Rampup, ep.Duration, ep.Engines, ep.Throughput, boolToInt(ep.CSVSplit),
 		); err != nil {
 			return fmt.Errorf("mysql: insert execution scenario: %w", err)
 		}
@@ -153,7 +154,7 @@ func (r *Repository) StoreLoadProfile(ctx context.Context, executionID int64, cs
 // are not persisted, so ExecutionScenario.Name is empty.
 func (r *Repository) LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error) {
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT scenario_id, concurrency, rampup, duration, engines, csv_split FROM execution_scenario WHERE execution_id = ?", executionID)
+		"SELECT scenario_id, concurrency, rampup, duration, engines, throughput, csv_split FROM execution_scenario WHERE execution_id = ?", executionID)
 	if err != nil {
 		return nil, fmt.Errorf("mysql: execution scenarios: %w", err)
 	}
@@ -166,7 +167,8 @@ func (r *Repository) LoadProfileFor(ctx context.Context, executionID int64) ([]l
 			engines  sql.NullInt64
 			csvSplit int64
 		)
-		if scanErr := rows.Scan(&ep.ScenarioID, &ep.Concurrency, &ep.Rampup, &ep.Duration, &engines, &csvSplit); scanErr != nil {
+		if scanErr := rows.Scan(&ep.ScenarioID, &ep.Concurrency, &ep.Rampup, &ep.Duration, &engines,
+			&ep.Throughput, &csvSplit); scanErr != nil {
 			return nil, fmt.Errorf("mysql: scan execution scenario: %w", scanErr)
 		}
 		ep.Engines = int(engines.Int64)

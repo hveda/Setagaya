@@ -283,7 +283,7 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		id := mustCreateExecution(t, repo, "peak", 10)
 
 		first := []loadprofile.Entry{
-			{Name: "a", ScenarioID: 1, Engines: 2, Concurrency: 10, Duration: 60},
+			{Name: "a", ScenarioID: 1, Engines: 2, Concurrency: 10, Duration: 60, Throughput: 750},
 			{Name: "b", ScenarioID: 2, Engines: 3, Concurrency: 10, Duration: 60},
 		}
 		if err := repo.StoreLoadProfile(ctx, id, true, first); err != nil {
@@ -295,6 +295,18 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 		if len(got) != 2 {
 			t.Fatalf("LoadProfileFor len = %d, want 2", len(got))
+		}
+		// A rate limit that does not survive persistence would let the run go as
+		// fast as it could and measure something nobody asked for.
+		byScenario := map[int64]loadprofile.Entry{}
+		for _, e := range got {
+			byScenario[e.ScenarioID] = e
+		}
+		if byScenario[1].Throughput != 750 {
+			t.Errorf("throughput round trip = %d, want 750", byScenario[1].Throughput)
+		}
+		if byScenario[2].Throughput != 0 {
+			t.Errorf("unlimited throughput round trip = %d, want 0", byScenario[2].Throughput)
 		}
 		if c, _ := repo.GetExecution(ctx, id); !c.CSVSplit {
 			t.Fatalf("execution CSVSplit = false after store, want true")
