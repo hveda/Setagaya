@@ -22,14 +22,14 @@ var (
 
 // Repo is the repository surface the plan service needs.
 type Repo interface {
-	CreatePlan(ctx context.Context, p scenario.Scenario) (int64, error)
-	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
-	ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
-	DeletePlan(ctx context.Context, id int64) error
-	AddPlanFile(ctx context.Context, planID int64, filename string, isTest bool) error
-	PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error)
-	DeletePlanFile(ctx context.Context, planID int64, filename string, isTest bool) error
-	PlanInUse(ctx context.Context, planID int64) (bool, error)
+	CreateScenario(ctx context.Context, p scenario.Scenario) (int64, error)
+	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
+	ListScenariosByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
+	DeleteScenario(ctx context.Context, id int64) error
+	AddScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error
+	ScenarioFilesFor(ctx context.Context, scenarioID int64) (ports.ScenarioFiles, error)
+	DeleteScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error
+	ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error)
 }
 
 // Service provides plan use-cases.
@@ -61,7 +61,7 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64) (sce
 	if err != nil {
 		return scenario.Scenario{}, err
 	}
-	id, err := s.repo.CreatePlan(ctx, p)
+	id, err := s.repo.CreateScenario(ctx, p)
 	if err != nil {
 		return scenario.Scenario{}, err
 	}
@@ -71,27 +71,27 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64) (sce
 
 // Get returns a plan by ID (ports.ErrNotFound if absent).
 func (s *Service) Get(ctx context.Context, id int64) (scenario.Scenario, error) {
-	return s.repo.GetPlan(ctx, id)
+	return s.repo.GetScenario(ctx, id)
 }
 
 // ListByProject returns the plans belonging to a project.
 func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
-	return s.repo.ListPlansByProject(ctx, projectID)
+	return s.repo.ListScenariosByProject(ctx, projectID)
 }
 
 // Delete removes a plan (and its files) unless it is used by a collection.
 func (s *Service) Delete(ctx context.Context, id int64) error {
-	if _, err := s.repo.GetPlan(ctx, id); err != nil {
+	if _, err := s.repo.GetScenario(ctx, id); err != nil {
 		return err
 	}
-	inUse, err := s.repo.PlanInUse(ctx, id)
+	inUse, err := s.repo.ScenarioInUse(ctx, id)
 	if err != nil {
 		return err
 	}
 	if inUse {
 		return ErrPlanInUse
 	}
-	files, err := s.repo.PlanFilesFor(ctx, id)
+	files, err := s.repo.ScenarioFilesFor(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -100,21 +100,21 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 			return delErr
 		}
 	}
-	return s.repo.DeletePlan(ctx, id)
+	return s.repo.DeleteScenario(ctx, id)
 }
 
 // Files returns the plan's files with URLs.
-func (s *Service) Files(ctx context.Context, planID int64) (Files, error) {
-	pf, err := s.repo.PlanFilesFor(ctx, planID)
+func (s *Service) Files(ctx context.Context, scenarioID int64) (Files, error) {
+	pf, err := s.repo.ScenarioFilesFor(ctx, scenarioID)
 	if err != nil {
 		return Files{}, err
 	}
 	out := Files{Data: make([]FileRef, 0, len(pf.Data))}
 	if pf.TestFile != "" {
-		out.TestFile = &FileRef{Filename: pf.TestFile, URL: s.store.URL(planKey(planID, pf.TestFile))}
+		out.TestFile = &FileRef{Filename: pf.TestFile, URL: s.store.URL(planKey(scenarioID, pf.TestFile))}
 	}
 	for _, name := range pf.Data {
-		out.Data = append(out.Data, FileRef{Filename: name, URL: s.store.URL(planKey(planID, name))})
+		out.Data = append(out.Data, FileRef{Filename: name, URL: s.store.URL(planKey(scenarioID, name))})
 	}
 	return out, nil
 }
@@ -122,20 +122,20 @@ func (s *Service) Files(ctx context.Context, planID int64) (Files, error) {
 // UploadFile records and stores a plan file. A ".jmx" file is stored as the
 // plan's single test file; anything else is a data file. Returns
 // ports.ErrFileExists if the file is already present.
-func (s *Service) UploadFile(ctx context.Context, planID int64, filename string, content io.Reader) error {
+func (s *Service) UploadFile(ctx context.Context, scenarioID int64, filename string, content io.Reader) error {
 	if err := validateFilename(filename); err != nil {
 		return err
 	}
-	if _, err := s.repo.GetPlan(ctx, planID); err != nil {
+	if _, err := s.repo.GetScenario(ctx, scenarioID); err != nil {
 		return err
 	}
 	isTest := isJMX(filename)
-	if err := s.repo.AddPlanFile(ctx, planID, filename, isTest); err != nil {
+	if err := s.repo.AddScenarioFile(ctx, scenarioID, filename, isTest); err != nil {
 		return err
 	}
-	if err := s.store.Upload(ctx, planKey(planID, filename), content); err != nil {
+	if err := s.store.Upload(ctx, planKey(scenarioID, filename), content); err != nil {
 		// Roll back the record so it does not dangle without an object.
-		_ = s.repo.DeletePlanFile(ctx, planID, filename, isTest)
+		_ = s.repo.DeleteScenarioFile(ctx, scenarioID, filename, isTest)
 		return err
 	}
 	return nil
@@ -143,27 +143,27 @@ func (s *Service) UploadFile(ctx context.Context, planID int64, filename string,
 
 // DownloadFile returns the bytes of a plan file (ports.ErrObjectNotFound if
 // absent).
-func (s *Service) DownloadFile(ctx context.Context, planID int64, filename string) ([]byte, error) {
+func (s *Service) DownloadFile(ctx context.Context, scenarioID int64, filename string) ([]byte, error) {
 	if err := validateFilename(filename); err != nil {
 		return nil, err
 	}
-	return s.store.Download(ctx, planKey(planID, filename))
+	return s.store.Download(ctx, planKey(scenarioID, filename))
 }
 
 // DeleteFile removes a plan file record and its stored object.
-func (s *Service) DeleteFile(ctx context.Context, planID int64, filename string) error {
+func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename string) error {
 	if err := validateFilename(filename); err != nil {
 		return err
 	}
 	isTest := isJMX(filename)
-	if err := s.repo.DeletePlanFile(ctx, planID, filename, isTest); err != nil {
+	if err := s.repo.DeleteScenarioFile(ctx, scenarioID, filename, isTest); err != nil {
 		return err
 	}
-	return s.store.Delete(ctx, planKey(planID, filename))
+	return s.store.Delete(ctx, planKey(scenarioID, filename))
 }
 
-func planKey(planID int64, filename string) string {
-	return fmt.Sprintf("plan/%d/%s", planID, filename)
+func planKey(scenarioID int64, filename string) string {
+	return fmt.Sprintf("plan/%d/%s", scenarioID, filename)
 }
 
 func isJMX(filename string) bool {
@@ -177,7 +177,7 @@ func validateFilename(filename string) error {
 	return nil
 }
 
-func allFileNames(pf ports.PlanFiles) []string {
+func allFileNames(pf ports.ScenarioFiles) []string {
 	names := append([]string(nil), pf.Data...)
 	if pf.TestFile != "" {
 		names = append(names, pf.TestFile)

@@ -50,7 +50,7 @@ func TestCanDeploy(t *testing.T) {
 func TestCanTrigger(t *testing.T) {
 	t.Parallel()
 
-	plan := loadprofile.Entry{PlanID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
+	plan := loadprofile.Entry{ScenarioID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
 	full := ec(plan)
 
 	cases := []struct {

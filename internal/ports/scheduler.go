@@ -14,7 +14,7 @@ var ErrEnginesUnreachable = errors.New("ports: engines unreachable")
 type DeploySpec struct {
 	ProjectID   int64
 	ExecutionID int64
-	PlanID      int64
+	ScenarioID  int64
 	Engines     int
 	Image       string // executor container image
 	CPU         string // optional resource request/limit, e.g. "1"
@@ -23,14 +23,14 @@ type DeploySpec struct {
 
 // PlanRef names a plan and how many engines it expects; used to query status.
 type PlanRef struct {
-	PlanID  int64
-	Engines int
+	ScenarioID int64
+	Engines    int
 }
 
 // PlanReadiness reports how many of a plan's engines are up and whether they
 // are reachable for triggering.
 type PlanReadiness struct {
-	PlanID          int64 `json:"plan_id"`
+	ScenarioID      int64 `json:"plan_id"`
 	EnginesWanted   int   `json:"engines"`
 	EnginesDeployed int   `json:"engines_deployed"`
 	Reachable       bool  `json:"engines_reachable"`
@@ -72,7 +72,7 @@ type Scheduler interface {
 	// EngineURLs returns the reachable base URLs of a plan's engines, ordered
 	// by engine id (index 0..engines-1). Returns ErrEnginesUnreachable if the
 	// engines are not yet routable.
-	EngineURLs(ctx context.Context, executionID, planID int64, engines int) ([]string, error)
+	EngineURLs(ctx context.Context, executionID, scenarioID int64, engines int) ([]string, error)
 	// CollectionStatus reports per-plan readiness for the given plans.
 	CollectionStatus(ctx context.Context, executionID int64, plans []PlanRef) (CollectionStatus, error)
 	// EngineDetail reports the ingress IP and engine pods of a collection.
@@ -81,7 +81,7 @@ type Scheduler interface {
 	// collection. Purging a collection with nothing deployed is not an error.
 	PurgeCollection(ctx context.Context, executionID int64) error
 	// PodLog returns the current logs of a plan's first engine pod.
-	PodLog(ctx context.Context, executionID, planID int64) (string, error)
+	PodLog(ctx context.Context, executionID, scenarioID int64) (string, error)
 	// DeployedCollections maps deployed collection id to its earliest deploy
 	// time; used by the auto-purge garbage collector.
 	DeployedCollections(ctx context.Context) (map[int64]time.Time, error)

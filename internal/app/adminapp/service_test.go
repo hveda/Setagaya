@@ -23,7 +23,7 @@ func seed(t *testing.T) (*fake.Store, *fake.Scheduler, *recordingPurger, *admina
 	ctx := context.Background()
 	store := fake.NewStore()
 	c, _ := execution.New("peak", 3)
-	executionID, _ := store.CreateCollection(ctx, c)
+	executionID, _ := store.CreateExecution(ctx, c)
 	sched := fake.NewScheduler()
 	purger := &recordingPurger{}
 	svc := adminapp.NewService(store, sched, purger)
@@ -35,7 +35,7 @@ func TestRunningCollections_Enriched(t *testing.T) {
 	ctx := context.Background()
 	store, sched, _, svc, executionID := seed(t)
 	_ = store
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, PlanID: 1, Engines: 2}); err != nil {
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Engines: 2}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestAutoPurgeStale_PurgesIdle(t *testing.T) {
 	_, sched, purger, svc, executionID := seed(t)
 	// Engines deployed two hours ago.
 	sched.Now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, PlanID: 1, Engines: 1}); err != nil {
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Engines: 1}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 
@@ -91,7 +91,7 @@ func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 	store, sched, purger, svc, executionID := seed(t)
 
 	// Fresh deployment (now): not stale.
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, PlanID: 1, Engines: 1}); err != nil {
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Engines: 1}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	if purged, _ := svc.AutoPurgeStale(ctx, time.Hour); len(purged) != 0 {
@@ -101,8 +101,8 @@ func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 	// Old but running: skipped.
 	sched.Now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
 	c2, _ := execution.New("busy", 3)
-	c2ID, _ := store.CreateCollection(ctx, c2)
-	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: c2ID, PlanID: 2, Engines: 1}); err != nil {
+	c2ID, _ := store.CreateExecution(ctx, c2)
+	if err := sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: c2ID, ScenarioID: 2, Engines: 1}); err != nil {
 		t.Fatalf("deploy c2: %v", err)
 	}
 	if _, err := store.StartRun(ctx, c2ID); err != nil {

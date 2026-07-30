@@ -67,26 +67,26 @@ func (s *Scheduler) DeployPlan(_ context.Context, spec ports.DeploySpec) error {
 		plans = map[int64]schedDeploy{}
 		s.deployments[spec.ExecutionID] = plans
 	}
-	if existing, ok := plans[spec.PlanID]; ok {
+	if existing, ok := plans[spec.ScenarioID]; ok {
 		existing.spec = spec
-		plans[spec.PlanID] = existing // keep original deployAt (idempotent)
+		plans[spec.ScenarioID] = existing // keep original deployAt (idempotent)
 		return nil
 	}
-	plans[spec.PlanID] = schedDeploy{spec: spec, deployAt: s.now()}
+	plans[spec.ScenarioID] = schedDeploy{spec: spec, deployAt: s.now()}
 	return nil
 }
 
 // EngineURLs returns synthetic per-engine URLs, or ErrEnginesUnreachable.
-func (s *Scheduler) EngineURLs(_ context.Context, executionID, planID int64, engines int) ([]string, error) {
+func (s *Scheduler) EngineURLs(_ context.Context, executionID, scenarioID int64, engines int) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, ok := s.deployments[executionID][planID]
+	d, ok := s.deployments[executionID][scenarioID]
 	if !ok || s.Unreachable {
 		return nil, ports.ErrEnginesUnreachable
 	}
 	urls := make([]string, engines)
 	for i := range urls {
-		urls[i] = fmt.Sprintf("http://engine-%d-%d-%d-%d.fake", d.spec.ProjectID, executionID, planID, i)
+		urls[i] = fmt.Sprintf("http://engine-%d-%d-%d-%d.fake", d.spec.ProjectID, executionID, scenarioID, i)
 	}
 	return urls, nil
 }
@@ -97,8 +97,8 @@ func (s *Scheduler) CollectionStatus(_ context.Context, executionID int64, plans
 	defer s.mu.Unlock()
 	status := ports.CollectionStatus{}
 	for _, ref := range plans {
-		pr := ports.PlanReadiness{PlanID: ref.PlanID, EnginesWanted: ref.Engines}
-		if d, ok := s.deployments[executionID][ref.PlanID]; ok {
+		pr := ports.PlanReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Engines}
+		if d, ok := s.deployments[executionID][ref.ScenarioID]; ok {
 			pr.EnginesDeployed = d.spec.Engines
 			pr.Reachable = !s.Unreachable
 		}
@@ -114,15 +114,15 @@ func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports
 	defer s.mu.Unlock()
 	detail := ports.CollectionDetail{IngressIP: s.IngressIP}
 	planIDs := make([]int64, 0, len(s.deployments[executionID]))
-	for planID := range s.deployments[executionID] {
-		planIDs = append(planIDs, planID)
+	for scenarioID := range s.deployments[executionID] {
+		planIDs = append(planIDs, scenarioID)
 	}
 	sort.Slice(planIDs, func(i, j int) bool { return planIDs[i] < planIDs[j] })
-	for _, planID := range planIDs {
-		d := s.deployments[executionID][planID]
+	for _, scenarioID := range planIDs {
+		d := s.deployments[executionID][scenarioID]
 		for i := 0; i < d.spec.Engines; i++ {
 			detail.Engines = append(detail.Engines, ports.EngineDetail{
-				Name:        fmt.Sprintf("engine-%d-%d-%d-%d", d.spec.ProjectID, executionID, planID, i),
+				Name:        fmt.Sprintf("engine-%d-%d-%d-%d", d.spec.ProjectID, executionID, scenarioID, i),
 				Status:      "Running",
 				CreatedTime: d.deployAt,
 			})
@@ -140,10 +140,10 @@ func (s *Scheduler) PurgeCollection(_ context.Context, executionID int64) error 
 }
 
 // PodLog returns the canned log for a deployed plan.
-func (s *Scheduler) PodLog(_ context.Context, executionID, planID int64) (string, error) {
+func (s *Scheduler) PodLog(_ context.Context, executionID, scenarioID int64) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.deployments[executionID][planID]; !ok {
+	if _, ok := s.deployments[executionID][scenarioID]; !ok {
 		return "", ports.ErrEnginesUnreachable
 	}
 	return s.PodLogText, nil

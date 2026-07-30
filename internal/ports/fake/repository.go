@@ -28,8 +28,8 @@ type Store struct {
 
 	planSeq  int64
 	plans    map[int64]scenario.Scenario
-	planTest map[int64]string              // planID -> JMX filename
-	planData map[int64]map[string]struct{} // planID -> data filenames
+	planTest map[int64]string              // scenarioID -> JMX filename
+	planData map[int64]map[string]struct{} // scenarioID -> data filenames
 
 	collSeq     int64
 	collections map[int64]execution.Execution
@@ -39,7 +39,7 @@ type Store struct {
 	runSeq     int64
 	currentRun map[int64]int64               // executionID -> active runID
 	runHistory map[int64]*ports.RunRecord    // runID -> history row
-	running    map[int64]map[int64]time.Time // executionID -> planID -> startedTime
+	running    map[int64]map[int64]time.Time // executionID -> scenarioID -> startedTime
 
 	deployContext string
 	openLaunch    map[int64]*ports.LaunchRecord // executionID -> open launch
@@ -83,8 +83,8 @@ func (s *Store) SetNow(now func() time.Time) {
 
 var (
 	_ ports.ProjectRepository        = (*Store)(nil)
-	_ ports.PlanRepository           = (*Store)(nil)
-	_ ports.CollectionRepository     = (*Store)(nil)
+	_ ports.ScenarioRepository       = (*Store)(nil)
+	_ ports.ExecutionRepository      = (*Store)(nil)
 	_ ports.RunRepository            = (*Store)(nil)
 	_ ports.UsageRepository          = (*Store)(nil)
 	_ ports.TenantRepository         = (*Store)(nil)
@@ -169,7 +169,7 @@ func (s *Store) DeleteProject(_ context.Context, id int64) error {
 
 // --- Plans ------------------------------------------------------------------
 
-func (s *Store) CreatePlan(_ context.Context, p scenario.Scenario) (int64, error) {
+func (s *Store) CreateScenario(_ context.Context, p scenario.Scenario) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.planSeq++
@@ -181,7 +181,7 @@ func (s *Store) CreatePlan(_ context.Context, p scenario.Scenario) (int64, error
 	return p.ID, nil
 }
 
-func (s *Store) GetPlan(_ context.Context, id int64) (scenario.Scenario, error) {
+func (s *Store) GetScenario(_ context.Context, id int64) (scenario.Scenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.plans[id]
@@ -191,7 +191,7 @@ func (s *Store) GetPlan(_ context.Context, id int64) (scenario.Scenario, error) 
 	return p, nil
 }
 
-func (s *Store) ListPlansByProject(_ context.Context, projectID int64) ([]scenario.Scenario, error) {
+func (s *Store) ListScenariosByProject(_ context.Context, projectID int64) ([]scenario.Scenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []scenario.Scenario{}
@@ -203,7 +203,7 @@ func (s *Store) ListPlansByProject(_ context.Context, projectID int64) ([]scenar
 	return out, nil
 }
 
-func (s *Store) DeletePlan(_ context.Context, id int64) error {
+func (s *Store) DeleteScenario(_ context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.plans[id]; !ok {
@@ -215,20 +215,20 @@ func (s *Store) DeletePlan(_ context.Context, id int64) error {
 	return nil
 }
 
-func (s *Store) AddPlanFile(_ context.Context, planID int64, filename string, isTest bool) error {
+func (s *Store) AddScenarioFile(_ context.Context, scenarioID int64, filename string, isTest bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if isTest {
-		if _, exists := s.planTest[planID]; exists {
+		if _, exists := s.planTest[scenarioID]; exists {
 			return ports.ErrFileExists
 		}
-		s.planTest[planID] = filename
+		s.planTest[scenarioID] = filename
 		return nil
 	}
-	files := s.planData[planID]
+	files := s.planData[scenarioID]
 	if files == nil {
 		files = make(map[string]struct{})
-		s.planData[planID] = files
+		s.planData[scenarioID] = files
 	}
 	if _, exists := files[filename]; exists {
 		return ports.ErrFileExists
@@ -237,24 +237,24 @@ func (s *Store) AddPlanFile(_ context.Context, planID int64, filename string, is
 	return nil
 }
 
-func (s *Store) PlanFilesFor(_ context.Context, planID int64) (ports.PlanFiles, error) {
+func (s *Store) ScenarioFilesFor(_ context.Context, scenarioID int64) (ports.ScenarioFiles, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pf := ports.PlanFiles{TestFile: s.planTest[planID], Data: keys(s.planData[planID])}
+	pf := ports.ScenarioFiles{TestFile: s.planTest[scenarioID], Data: keys(s.planData[scenarioID])}
 	return pf, nil
 }
 
-func (s *Store) DeletePlanFile(_ context.Context, planID int64, filename string, isTest bool) error {
+func (s *Store) DeleteScenarioFile(_ context.Context, scenarioID int64, filename string, isTest bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if isTest {
-		if s.planTest[planID] != filename {
+		if s.planTest[scenarioID] != filename {
 			return ports.ErrNotFound
 		}
-		delete(s.planTest, planID)
+		delete(s.planTest, scenarioID)
 		return nil
 	}
-	files := s.planData[planID]
+	files := s.planData[scenarioID]
 	if _, ok := files[filename]; !ok {
 		return ports.ErrNotFound
 	}
@@ -262,12 +262,12 @@ func (s *Store) DeletePlanFile(_ context.Context, planID int64, filename string,
 	return nil
 }
 
-func (s *Store) PlanInUse(_ context.Context, planID int64) (bool, error) {
+func (s *Store) ScenarioInUse(_ context.Context, scenarioID int64) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, plans := range s.exec {
 		for _, ep := range plans {
-			if ep.PlanID == planID {
+			if ep.ScenarioID == scenarioID {
 				return true, nil
 			}
 		}
@@ -277,7 +277,7 @@ func (s *Store) PlanInUse(_ context.Context, planID int64) (bool, error) {
 
 // --- Collections ------------------------------------------------------------
 
-func (s *Store) CreateCollection(_ context.Context, c execution.Execution) (int64, error) {
+func (s *Store) CreateExecution(_ context.Context, c execution.Execution) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.collSeq++
@@ -289,7 +289,7 @@ func (s *Store) CreateCollection(_ context.Context, c execution.Execution) (int6
 	return c.ID, nil
 }
 
-func (s *Store) GetCollection(_ context.Context, id int64) (execution.Execution, error) {
+func (s *Store) GetExecution(_ context.Context, id int64) (execution.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.collections[id]
@@ -299,7 +299,7 @@ func (s *Store) GetCollection(_ context.Context, id int64) (execution.Execution,
 	return c, nil
 }
 
-func (s *Store) ListCollectionsByProject(_ context.Context, projectID int64) ([]execution.Execution, error) {
+func (s *Store) ListExecutionsByProject(_ context.Context, projectID int64) ([]execution.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []execution.Execution{}
@@ -311,7 +311,7 @@ func (s *Store) ListCollectionsByProject(_ context.Context, projectID int64) ([]
 	return out, nil
 }
 
-func (s *Store) DeleteCollection(_ context.Context, id int64) error {
+func (s *Store) DeleteExecution(_ context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.collections[id]; !ok {
@@ -323,7 +323,7 @@ func (s *Store) DeleteCollection(_ context.Context, id int64) error {
 	return nil
 }
 
-func (s *Store) AddCollectionFile(_ context.Context, executionID int64, filename string) error {
+func (s *Store) AddExecutionFile(_ context.Context, executionID int64, filename string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	files := s.collData[executionID]
@@ -338,13 +338,13 @@ func (s *Store) AddCollectionFile(_ context.Context, executionID int64, filename
 	return nil
 }
 
-func (s *Store) CollectionFilesFor(_ context.Context, executionID int64) ([]string, error) {
+func (s *Store) ExecutionFilesFor(_ context.Context, executionID int64) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return keys(s.collData[executionID]), nil
 }
 
-func (s *Store) DeleteCollectionFile(_ context.Context, executionID int64, filename string) error {
+func (s *Store) DeleteExecutionFile(_ context.Context, executionID int64, filename string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	files := s.collData[executionID]
@@ -355,7 +355,7 @@ func (s *Store) DeleteCollectionFile(_ context.Context, executionID int64, filen
 	return nil
 }
 
-func (s *Store) StoreExecutionCollection(_ context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error {
+func (s *Store) StoreLoadProfile(_ context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.collections[executionID]
@@ -375,7 +375,7 @@ func (s *Store) StoreExecutionCollection(_ context.Context, executionID int64, c
 	return nil
 }
 
-func (s *Store) ExecutionPlansFor(_ context.Context, executionID int64) ([]loadprofile.Entry, error) {
+func (s *Store) LoadProfileFor(_ context.Context, executionID int64) ([]loadprofile.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]loadprofile.Entry(nil), s.exec[executionID]...), nil

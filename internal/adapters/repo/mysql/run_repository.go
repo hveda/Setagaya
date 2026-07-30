@@ -58,26 +58,26 @@ func (r *Repository) StopRun(ctx context.Context, executionID int64) error {
 	return err
 }
 
-// MarkPlanRunning records a running plan; duplicates are ignored (idempotent).
-func (r *Repository) MarkPlanRunning(ctx context.Context, executionID, planID int64) error {
+// MarkScenarioRunning records a running plan; duplicates are ignored (idempotent).
+func (r *Repository) MarkScenarioRunning(ctx context.Context, executionID, scenarioID int64) error {
 	_, err := r.db.ExecContext(ctx,
 		"INSERT INTO running_plan (collection_id, plan_id, context) VALUES (?, ?, ?)",
-		executionID, planID, r.deployContext)
+		executionID, scenarioID, r.deployContext)
 	if isDuplicateKey(err) {
 		return nil
 	}
 	return err
 }
 
-// ClearPlanRunning removes a running plan marker (idempotent).
-func (r *Repository) ClearPlanRunning(ctx context.Context, executionID, planID int64) error {
+// ClearScenarioRunning removes a running plan marker (idempotent).
+func (r *Repository) ClearScenarioRunning(ctx context.Context, executionID, scenarioID int64) error {
 	_, err := r.db.ExecContext(ctx,
-		"DELETE FROM running_plan WHERE collection_id=? AND plan_id=?", executionID, planID)
+		"DELETE FROM running_plan WHERE collection_id=? AND plan_id=?", executionID, scenarioID)
 	return err
 }
 
-// RunningPlans lists every running plan in this deployment context.
-func (r *Repository) RunningPlans(ctx context.Context) ([]ports.RunningPlan, error) {
+// RunningScenarios lists every running plan in this deployment context.
+func (r *Repository) RunningScenarios(ctx context.Context) ([]ports.RunningScenario, error) {
 	rows, err := r.db.QueryContext(ctx,
 		"SELECT collection_id, plan_id, started_time FROM running_plan WHERE context=?", r.deployContext)
 	if err != nil {
@@ -86,8 +86,8 @@ func (r *Repository) RunningPlans(ctx context.Context) ([]ports.RunningPlan, err
 	return scanRunningPlans(rows)
 }
 
-// RunningPlansByCollection lists running plans for one collection.
-func (r *Repository) RunningPlansByCollection(ctx context.Context, executionID int64) ([]ports.RunningPlan, error) {
+// RunningScenariosByExecution lists running plans for one collection.
+func (r *Repository) RunningScenariosByExecution(ctx context.Context, executionID int64) ([]ports.RunningScenario, error) {
 	rows, err := r.db.QueryContext(ctx,
 		"SELECT collection_id, plan_id, started_time FROM running_plan WHERE collection_id=?", executionID)
 	if err != nil {
@@ -96,12 +96,12 @@ func (r *Repository) RunningPlansByCollection(ctx context.Context, executionID i
 	return scanRunningPlans(rows)
 }
 
-func scanRunningPlans(rows *sql.Rows) ([]ports.RunningPlan, error) {
+func scanRunningPlans(rows *sql.Rows) ([]ports.RunningScenario, error) {
 	defer func() { _ = rows.Close() }()
-	var out []ports.RunningPlan
+	var out []ports.RunningScenario
 	for rows.Next() {
-		var rp ports.RunningPlan
-		if err := rows.Scan(&rp.ExecutionID, &rp.PlanID, &rp.StartedTime); err != nil {
+		var rp ports.RunningScenario
+		if err := rows.Scan(&rp.ExecutionID, &rp.ScenarioID, &rp.StartedTime); err != nil {
 			return nil, err
 		}
 		out = append(out, rp)

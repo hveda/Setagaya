@@ -46,15 +46,15 @@ func TestFileEndpointsHappyPath(t *testing.T) {
 	h := newFullRouter(t)
 
 	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}}))
-	planID := decodeID(t, postForm(t, h, "/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}}))
+	scenarioID := decodeID(t, postForm(t, h, "/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}}))
 	collID := decodeID(t, postForm(t, h, "/api/collections", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}}))
 
 	// Plan data file: upload, list, delete.
-	putMultipart(t, h, "/api/plans/"+itoa(planID)+"/files", "users.csv", "a,b")
-	if rec := do(t, h, http.MethodGet, "/api/plans/"+itoa(planID)+"/files"); rec.Code != http.StatusOK {
+	putMultipart(t, h, "/api/plans/"+itoa(scenarioID)+"/files", "users.csv", "a,b")
+	if rec := do(t, h, http.MethodGet, "/api/plans/"+itoa(scenarioID)+"/files"); rec.Code != http.StatusOK {
 		t.Fatalf("list plan files = %d", rec.Code)
 	}
-	if rec := deleteWithQuery(t, h, "/api/plans/"+itoa(planID)+"/files", url.Values{"filename": {"users.csv"}}); rec.Code != http.StatusOK {
+	if rec := deleteWithQuery(t, h, "/api/plans/"+itoa(scenarioID)+"/files", url.Values{"filename": {"users.csv"}}); rec.Code != http.StatusOK {
 		t.Fatalf("delete plan file = %d (%s)", rec.Code, rec.Body.String())
 	}
 
@@ -74,7 +74,7 @@ func TestFileEndpointsHappyPath(t *testing.T) {
 	if rec := do(t, h, http.MethodDelete, "/api/collections/"+itoa(collID)); rec.Code != http.StatusOK {
 		t.Fatalf("delete collection = %d", rec.Code)
 	}
-	if rec := do(t, h, http.MethodDelete, "/api/plans/"+itoa(planID)); rec.Code != http.StatusOK {
+	if rec := do(t, h, http.MethodDelete, "/api/plans/"+itoa(scenarioID)); rec.Code != http.StatusOK {
 		t.Fatalf("delete plan = %d", rec.Code)
 	}
 	if rec := do(t, h, http.MethodDelete, "/api/projects/"+itoa(projectID)); rec.Code != http.StatusOK {
@@ -140,13 +140,13 @@ func TestHandlers_Forbidden_403(t *testing.T) {
 	foreignProject, _ := project.New("secret", "other-team", "")
 	projectID, _ := store.CreateProject(ctx, foreignProject)
 	foreignPlan, _ := scenario.New("p", projectID)
-	planID, _ := store.CreatePlan(ctx, foreignPlan)
+	scenarioID, _ := store.CreateScenario(ctx, foreignPlan)
 	foreignColl, _ := execution.New("c", projectID)
-	collID, _ := store.CreateCollection(ctx, foreignColl)
+	collID, _ := store.CreateExecution(ctx, foreignColl)
 
 	checks := []struct{ method, path string }{
 		{http.MethodDelete, "/api/projects/" + itoa(projectID)},
-		{http.MethodDelete, "/api/plans/" + itoa(planID)},
+		{http.MethodDelete, "/api/plans/" + itoa(scenarioID)},
 		{http.MethodDelete, "/api/collections/" + itoa(collID)},
 	}
 	for _, c := range checks {

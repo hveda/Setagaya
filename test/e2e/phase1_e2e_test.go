@@ -42,17 +42,17 @@ func TestPhase1_FullFlowEndToEnd(t *testing.T) {
 	client := srv.Client()
 
 	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
-	planID := postForm(t, client, srv.URL+"/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
+	scenarioID := postForm(t, client, srv.URL+"/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
 
 	// Upload a JMX file, then download it back through the file endpoint.
-	putMultipart(t, client, srv.URL+"/api/plans/"+itoa(planID)+"/files", "plan.jmx", "<jmx>hello</jmx>")
-	body := getBody(t, client, srv.URL+"/api/files/plan/"+itoa(planID)+"/plan.jmx", http.StatusOK)
+	putMultipart(t, client, srv.URL+"/api/plans/"+itoa(scenarioID)+"/files", "plan.jmx", "<jmx>hello</jmx>")
+	body := getBody(t, client, srv.URL+"/api/files/plan/"+itoa(scenarioID)+"/plan.jmx", http.StatusOK)
 	if body != "<jmx>hello</jmx>" {
 		t.Fatalf("downloaded artifact = %q", body)
 	}
 
 	collID := postForm(t, client, srv.URL+"/api/collections", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
-	cfg := fmt.Sprintf("multi-test:\n  collectionid: %d\n  csv_split: true\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 3\n      duration: 60\n", collID, planID)
+	cfg := fmt.Sprintf("multi-test:\n  collectionid: %d\n  csv_split: true\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 3\n      duration: 60\n", collID, scenarioID)
 	putMultipart(t, client, srv.URL+"/api/collections/"+itoa(collID)+"/config", "config.yaml", cfg)
 
 	// The persisted config round-trips through GET.

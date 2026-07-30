@@ -29,9 +29,9 @@ func seedPlan(t *testing.T, store *fake.Store, name string, projectID int64) int
 	if err != nil {
 		t.Fatalf("scenario.New: %v", err)
 	}
-	id, err := store.CreatePlan(context.Background(), p)
+	id, err := store.CreateScenario(context.Background(), p)
 	if err != nil {
-		t.Fatalf("CreatePlan: %v", err)
+		t.Fatalf("CreateScenario: %v", err)
 	}
 	return id
 }
@@ -109,13 +109,13 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
 	c, _ := svc.Create(ctx, "peak", 10)
-	planID := seedPlan(t, store, "smoke", 10)
+	scenarioID := seedPlan(t, store, "smoke", 10)
 
 	ec := loadprofile.Profile{
 		ExecutionID: c.ID,
 		CSVSplit:    true,
 		Tests: []loadprofile.Entry{
-			{PlanID: planID, Engines: 2, Concurrency: 10, Duration: 60},
+			{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60},
 		},
 	}
 	if err := svc.StoreConfig(ctx, c.ID, ec); err != nil {
@@ -129,7 +129,7 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	if wrapper.Content.ExecutionID != c.ID || !wrapper.Content.CSVSplit {
 		t.Fatalf("GetConfig content = %+v", wrapper.Content)
 	}
-	if len(wrapper.Content.Tests) != 1 || wrapper.Content.Tests[0].PlanID != planID || wrapper.Content.Tests[0].Engines != 2 {
+	if len(wrapper.Content.Tests) != 1 || wrapper.Content.Tests[0].ScenarioID != scenarioID || wrapper.Content.Tests[0].Engines != 2 {
 		t.Fatalf("GetConfig tests = %+v", wrapper.Content.Tests)
 	}
 }
@@ -139,11 +139,11 @@ func TestStoreConfig_Errors(t *testing.T) {
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
 	c, _ := svc.Create(ctx, "peak", 10)
-	planID := seedPlan(t, store, "smoke", 10)
+	scenarioID := seedPlan(t, store, "smoke", 10)
 	foreignPlan := seedPlan(t, store, "other", 99)
 
 	valid := func() loadprofile.Entry {
-		return loadprofile.Entry{PlanID: planID, Engines: 2, Concurrency: 10, Duration: 60}
+		return loadprofile.Entry{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60}
 	}
 
 	t.Run("collection id mismatch", func(t *testing.T) {
@@ -155,7 +155,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 
 	t.Run("validation error (zero engines)", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
-			{PlanID: planID, Engines: 0, Concurrency: 1, Duration: 1},
+			{ScenarioID: scenarioID, Engines: 0, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, loadprofile.ErrEnginesInvalid) {
 			t.Fatalf("= %v, want ErrEnginesInvalid", err)
@@ -164,7 +164,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 
 	t.Run("unknown plan", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
-			{PlanID: 987654, Engines: 1, Concurrency: 1, Duration: 1},
+			{ScenarioID: 987654, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("= %v, want ErrNotFound", err)
@@ -173,7 +173,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 
 	t.Run("plan in another project", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
-			{PlanID: foreignPlan, Engines: 1, Concurrency: 1, Duration: 1},
+			{ScenarioID: foreignPlan, Engines: 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrPlanNotInProject) {
 			t.Fatalf("= %v, want ErrPlanNotInProject", err)
@@ -182,7 +182,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 
 	t.Run("engine limit exceeded", func(t *testing.T) {
 		ec := loadprofile.Profile{ExecutionID: c.ID, Tests: []loadprofile.Entry{
-			{PlanID: planID, Engines: maxEngines + 1, Concurrency: 1, Duration: 1},
+			{ScenarioID: scenarioID, Engines: maxEngines + 1, Concurrency: 1, Duration: 1},
 		}}
 		if err := svc.StoreConfig(ctx, c.ID, ec); !errors.Is(err, collectionapp.ErrEngineLimit) {
 			t.Fatalf("= %v, want ErrEngineLimit", err)

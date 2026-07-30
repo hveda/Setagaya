@@ -61,42 +61,42 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 
 	t.Run("running plans are tracked per collection and idempotent", func(t *testing.T) {
 		repo := newRepo(t)
-		if err := repo.MarkPlanRunning(ctx, collection, 1); err != nil {
-			t.Fatalf("MarkPlanRunning: %v", err)
+		if err := repo.MarkScenarioRunning(ctx, collection, 1); err != nil {
+			t.Fatalf("MarkScenarioRunning: %v", err)
 		}
-		if err := repo.MarkPlanRunning(ctx, collection, 1); err != nil {
-			t.Fatalf("MarkPlanRunning (dup): %v", err)
+		if err := repo.MarkScenarioRunning(ctx, collection, 1); err != nil {
+			t.Fatalf("MarkScenarioRunning (dup): %v", err)
 		}
-		if err := repo.MarkPlanRunning(ctx, collection, 2); err != nil {
-			t.Fatalf("MarkPlanRunning: %v", err)
+		if err := repo.MarkScenarioRunning(ctx, collection, 2); err != nil {
+			t.Fatalf("MarkScenarioRunning: %v", err)
 		}
 
-		byColl, err := repo.RunningPlansByCollection(ctx, collection)
+		byColl, err := repo.RunningScenariosByExecution(ctx, collection)
 		if err != nil {
-			t.Fatalf("RunningPlansByCollection: %v", err)
+			t.Fatalf("RunningScenariosByExecution: %v", err)
 		}
 		if len(byColl) != 2 {
 			t.Fatalf("running plans = %d, want 2 (idempotent)", len(byColl))
 		}
 
-		all, err := repo.RunningPlans(ctx)
+		all, err := repo.RunningScenarios(ctx)
 		if err != nil {
-			t.Fatalf("RunningPlans: %v", err)
+			t.Fatalf("RunningScenarios: %v", err)
 		}
 		if len(all) < 2 {
-			t.Fatalf("RunningPlans = %d, want >= 2", len(all))
+			t.Fatalf("RunningScenarios = %d, want >= 2", len(all))
 		}
 
-		if err := repo.ClearPlanRunning(ctx, collection, 1); err != nil {
-			t.Fatalf("ClearPlanRunning: %v", err)
+		if err := repo.ClearScenarioRunning(ctx, collection, 1); err != nil {
+			t.Fatalf("ClearScenarioRunning: %v", err)
 		}
-		byColl, _ = repo.RunningPlansByCollection(ctx, collection)
-		if len(byColl) != 1 || byColl[0].PlanID != 2 {
+		byColl, _ = repo.RunningScenariosByExecution(ctx, collection)
+		if len(byColl) != 1 || byColl[0].ScenarioID != 2 {
 			t.Fatalf("after clear = %+v, want only plan 2", byColl)
 		}
 		// Clearing a missing marker is a no-op.
-		if err := repo.ClearPlanRunning(ctx, collection, 999); err != nil {
-			t.Fatalf("ClearPlanRunning (missing): %v", err)
+		if err := repo.ClearScenarioRunning(ctx, collection, 999); err != nil {
+			t.Fatalf("ClearScenarioRunning (missing): %v", err)
 		}
 	})
 }

@@ -7,10 +7,10 @@ import (
 	"github.com/heridotlife/Setagaya/internal/domain/loadprofile"
 )
 
-func validPlan(planID int64, engines, concurrency int) loadprofile.Entry {
+func validPlan(scenarioID int64, engines, concurrency int) loadprofile.Entry {
 	return loadprofile.Entry{
 		Name:        "p",
-		PlanID:      planID,
+		ScenarioID:  scenarioID,
 		Engines:     engines,
 		Concurrency: concurrency,
 		Rampup:      1,
@@ -28,9 +28,9 @@ func TestExecutionPlan_Validate(t *testing.T) {
 	}{
 		{"valid", validPlan(1, 2, 10), nil},
 		{"no plan id", loadprofile.Entry{Engines: 1, Concurrency: 1, Duration: 1}, loadprofile.ErrPlanRequired},
-		{"zero engines", loadprofile.Entry{PlanID: 1, Engines: 0, Concurrency: 1, Duration: 1}, loadprofile.ErrEnginesInvalid},
-		{"zero concurrency", loadprofile.Entry{PlanID: 1, Engines: 1, Concurrency: 0, Duration: 1}, loadprofile.ErrConcurrencyInvalid},
-		{"zero duration", loadprofile.Entry{PlanID: 1, Engines: 1, Concurrency: 1, Duration: 0}, loadprofile.ErrDurationInvalid},
+		{"zero engines", loadprofile.Entry{ScenarioID: 1, Engines: 0, Concurrency: 1, Duration: 1}, loadprofile.ErrEnginesInvalid},
+		{"zero concurrency", loadprofile.Entry{ScenarioID: 1, Engines: 1, Concurrency: 0, Duration: 1}, loadprofile.ErrConcurrencyInvalid},
+		{"zero duration", loadprofile.Entry{ScenarioID: 1, Engines: 1, Concurrency: 1, Duration: 0}, loadprofile.ErrDurationInvalid},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

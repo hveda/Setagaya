@@ -86,12 +86,12 @@ func (h *handlers) planPodLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid collection id")
 		return
 	}
-	planID, ok := pathInt(r, "plan_id")
+	scenarioID, ok := pathInt(r, "plan_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid plan id")
 		return
 	}
-	log, err := h.deps.Lifecycle.PodLog(r.Context(), executionID, planID)
+	log, err := h.deps.Lifecycle.PodLog(r.Context(), executionID, scenarioID)
 	if err != nil {
 		respondError(w, err)
 		return

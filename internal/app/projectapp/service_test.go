@@ -111,7 +111,7 @@ func TestService_Delete_RefusesWhenNotEmpty(t *testing.T) {
 	// Project with a plan cannot be deleted.
 	withPlan := fake.NewStore()
 	pid, _ := withPlan.CreateProject(ctx, mustProject(t, "p", "team-a"))
-	_, _ = withPlan.CreatePlan(ctx, mustPlan(t, "smoke", pid))
+	_, _ = withPlan.CreateScenario(ctx, mustPlan(t, "smoke", pid))
 	if err := projectapp.NewService(withPlan).Delete(ctx, pid); !errors.Is(err, projectapp.ErrProjectHasPlans) {
 		t.Fatalf("Delete(project with plan) = %v, want ErrProjectHasPlans", err)
 	}
@@ -119,7 +119,7 @@ func TestService_Delete_RefusesWhenNotEmpty(t *testing.T) {
 	// Project with a collection cannot be deleted.
 	withColl := fake.NewStore()
 	pid2, _ := withColl.CreateProject(ctx, mustProject(t, "p", "team-a"))
-	_, _ = withColl.CreateCollection(ctx, mustCollection(t, "peak", pid2))
+	_, _ = withColl.CreateExecution(ctx, mustCollection(t, "peak", pid2))
 	if err := projectapp.NewService(withColl).Delete(ctx, pid2); !errors.Is(err, projectapp.ErrProjectHasCollections) {
 		t.Fatalf("Delete(project with collection) = %v, want ErrProjectHasCollections", err)
 	}

@@ -25,18 +25,18 @@ var (
 )
 
 // Repo is the repository surface the collection service needs, including
-// GetPlan to validate execution config against real plans.
+// GetScenario to validate execution config against real plans.
 type Repo interface {
-	CreateCollection(ctx context.Context, c execution.Execution) (int64, error)
-	GetCollection(ctx context.Context, id int64) (execution.Execution, error)
-	ListCollectionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
-	DeleteCollection(ctx context.Context, id int64) error
-	AddCollectionFile(ctx context.Context, executionID int64, filename string) error
-	CollectionFilesFor(ctx context.Context, executionID int64) ([]string, error)
-	DeleteCollectionFile(ctx context.Context, executionID int64, filename string) error
-	StoreExecutionCollection(ctx context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error
-	ExecutionPlansFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
-	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
+	CreateExecution(ctx context.Context, c execution.Execution) (int64, error)
+	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
+	ListExecutionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
+	DeleteExecution(ctx context.Context, id int64) error
+	AddExecutionFile(ctx context.Context, executionID int64, filename string) error
+	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
+	DeleteExecutionFile(ctx context.Context, executionID int64, filename string) error
+	StoreLoadProfile(ctx context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error
+	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
 }
 
 // Service provides collection use-cases.
@@ -64,7 +64,7 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64) (exe
 	if err != nil {
 		return execution.Execution{}, err
 	}
-	id, err := s.repo.CreateCollection(ctx, c)
+	id, err := s.repo.CreateExecution(ctx, c)
 	if err != nil {
 		return execution.Execution{}, err
 	}
@@ -74,20 +74,20 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64) (exe
 
 // Get returns a collection by ID (ports.ErrNotFound if absent).
 func (s *Service) Get(ctx context.Context, id int64) (execution.Execution, error) {
-	return s.repo.GetCollection(ctx, id)
+	return s.repo.GetExecution(ctx, id)
 }
 
 // ListByProject returns the collections of a project.
 func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]execution.Execution, error) {
-	return s.repo.ListCollectionsByProject(ctx, projectID)
+	return s.repo.ListExecutionsByProject(ctx, projectID)
 }
 
 // Delete removes a collection and its data files.
 func (s *Service) Delete(ctx context.Context, id int64) error {
-	if _, err := s.repo.GetCollection(ctx, id); err != nil {
+	if _, err := s.repo.GetExecution(ctx, id); err != nil {
 		return err
 	}
-	files, err := s.repo.CollectionFilesFor(ctx, id)
+	files, err := s.repo.ExecutionFilesFor(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -96,12 +96,12 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 			return delErr
 		}
 	}
-	return s.repo.DeleteCollection(ctx, id)
+	return s.repo.DeleteExecution(ctx, id)
 }
 
 // Files lists a collection's data files with retrieval URLs.
 func (s *Service) Files(ctx context.Context, executionID int64) ([]FileRef, error) {
-	names, err := s.repo.CollectionFilesFor(ctx, executionID)
+	names, err := s.repo.ExecutionFilesFor(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}
@@ -118,14 +118,14 @@ func (s *Service) UploadFile(ctx context.Context, executionID int64, filename st
 	if err := validateFilename(filename); err != nil {
 		return err
 	}
-	if _, err := s.repo.GetCollection(ctx, executionID); err != nil {
+	if _, err := s.repo.GetExecution(ctx, executionID); err != nil {
 		return err
 	}
-	if err := s.repo.AddCollectionFile(ctx, executionID, filename); err != nil {
+	if err := s.repo.AddExecutionFile(ctx, executionID, filename); err != nil {
 		return err
 	}
 	if err := s.store.Upload(ctx, collectionKey(executionID, filename), content); err != nil {
-		_ = s.repo.DeleteCollectionFile(ctx, executionID, filename)
+		_ = s.repo.DeleteExecutionFile(ctx, executionID, filename)
 		return err
 	}
 	return nil
@@ -144,7 +144,7 @@ func (s *Service) DeleteFile(ctx context.Context, executionID int64, filename st
 	if err := validateFilename(filename); err != nil {
 		return err
 	}
-	if err := s.repo.DeleteCollectionFile(ctx, executionID, filename); err != nil {
+	if err := s.repo.DeleteExecutionFile(ctx, executionID, filename); err != nil {
 		return err
 	}
 	return s.store.Delete(ctx, collectionKey(executionID, filename))
@@ -154,7 +154,7 @@ func (s *Service) DeleteFile(ctx context.Context, executionID int64, filename st
 // collection: every plan must exist and belong to the collection's project, and
 // the total engines must not exceed the configured limit.
 func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadprofile.Profile) error {
-	coll, err := s.repo.GetCollection(ctx, executionID)
+	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadpro
 		return err
 	}
 	for _, ep := range ec.Tests {
-		p, planErr := s.repo.GetPlan(ctx, ep.PlanID)
+		p, planErr := s.repo.GetScenario(ctx, ep.ScenarioID)
 		if planErr != nil {
 			return planErr
 		}
@@ -176,17 +176,17 @@ func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadpro
 	if total := ec.TotalEngines(); total > s.maxEngines {
 		return fmt.Errorf("%w: requested %d, limit %d", ErrEngineLimit, total, s.maxEngines)
 	}
-	return s.repo.StoreExecutionCollection(ctx, executionID, ec.CSVSplit, ec.Tests)
+	return s.repo.StoreLoadProfile(ctx, executionID, ec.CSVSplit, ec.Tests)
 }
 
 // GetConfig returns the collection's current execution configuration wrapped
 // for serialization.
 func (s *Service) GetConfig(ctx context.Context, executionID int64) (loadprofile.Wrapper, error) {
-	coll, err := s.repo.GetCollection(ctx, executionID)
+	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return loadprofile.Wrapper{}, err
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
+	plans, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return loadprofile.Wrapper{}, err
 	}

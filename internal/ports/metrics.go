@@ -7,7 +7,7 @@ import "github.com/heridotlife/Setagaya/internal/domain/engine"
 type MetricsSink interface {
 	// Record ingests one engine measurement (latency, threads, status).
 	Record(m engine.Metric)
-	// DeleteCollection removes all series for a collection, called on purge so
+	// DeleteExecution removes all series for an execution, called on purge so
 	// stale label sets do not accumulate.
-	DeleteCollection(executionID int64)
+	DeleteExecution(executionID int64)
 }

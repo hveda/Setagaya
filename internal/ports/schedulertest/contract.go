@@ -16,7 +16,7 @@ import (
 // the hook to reach a deterministic ready state.
 type Harness struct {
 	Scheduler ports.Scheduler
-	Ready     func(executionID, planID int64, engines int)
+	Ready     func(executionID, scenarioID int64, engines int)
 }
 
 // NewHarness builds a fresh Harness for one test.
@@ -37,8 +37,8 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 		h := newHarness(t)
 		s := h.Scheduler
 
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, PlanID: planA, Engines: 2, Image: "jmeter"})
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, PlanID: planB, Engines: 3, Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, ScenarioID: planA, Engines: 2, Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: collection, ScenarioID: planB, Engines: 3, Image: "jmeter"})
 
 		deployed, err := s.DeployedCollections(ctx)
 		if err != nil {
@@ -59,7 +59,7 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("EngineURLs len = %d, want 2 (%v)", len(urls), urls)
 		}
 
-		status, err := s.CollectionStatus(ctx, collection, []ports.PlanRef{{PlanID: planA, Engines: 2}, {PlanID: planB, Engines: 3}})
+		status, err := s.CollectionStatus(ctx, collection, []ports.PlanRef{{ScenarioID: planA, Engines: 2}, {ScenarioID: planB, Engines: 3}})
 		if err != nil {
 			t.Fatalf("CollectionStatus: %v", err)
 		}
@@ -68,7 +68,7 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 		}
 		byPlan := map[int64]ports.PlanReadiness{}
 		for _, p := range status.Plans {
-			byPlan[p.PlanID] = p
+			byPlan[p.ScenarioID] = p
 		}
 		if got := byPlan[planA]; got.EnginesWanted != 2 || got.EnginesDeployed != 2 || !got.Reachable {
 			t.Fatalf("planA readiness = %+v, want wanted=2 deployed=2 reachable", got)
@@ -118,6 +118,6 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 func mustDeploy(t *testing.T, s ports.Scheduler, spec ports.DeploySpec) {
 	t.Helper()
 	if err := s.DeployPlan(context.Background(), spec); err != nil {
-		t.Fatalf("DeployPlan(plan %d): %v", spec.PlanID, err)
+		t.Fatalf("DeployPlan(plan %d): %v", spec.ScenarioID, err)
 	}
 }

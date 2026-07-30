@@ -40,23 +40,23 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	projectID, _ := store.CreateProject(ctx, p)
 	coll, _ := execution.New("peak", projectID)
 	coll.CSVSplit = csvSplit
-	executionID, _ := store.CreateCollection(ctx, coll)
+	executionID, _ := store.CreateExecution(ctx, coll)
 
 	var tests []loadprofile.Entry
 	var planIDs []int64
 	for i, n := range engines {
 		pl, _ := scenario.New("plan", projectID)
-		planID, _ := store.CreatePlan(ctx, pl)
-		if err := store.AddPlanFile(ctx, planID, "test.jmx", true); err != nil {
+		scenarioID, _ := store.CreateScenario(ctx, pl)
+		if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
 			t.Fatalf("add test file: %v", err)
 		}
-		planIDs = append(planIDs, planID)
+		planIDs = append(planIDs, scenarioID)
 		tests = append(tests, loadprofile.Entry{
-			Name: "p", PlanID: planID, Concurrency: 10, Rampup: 1, Engines: n, Duration: 30,
+			Name: "p", ScenarioID: scenarioID, Concurrency: 10, Rampup: 1, Engines: n, Duration: 30,
 		})
 		_ = i
 	}
-	if err := store.StoreExecutionCollection(ctx, executionID, csvSplit, tests); err != nil {
+	if err := store.StoreLoadProfile(ctx, executionID, csvSplit, tests); err != nil {
 		t.Fatalf("store exec collection: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestDeploy_HappyPath(t *testing.T) {
 	if _, ok := deployed[e.executionID]; !ok {
 		t.Fatalf("collection not deployed: %v", deployed)
 	}
-	status, _ := e.sched.CollectionStatus(ctx, e.executionID, []ports.PlanRef{{PlanID: e.planIDs[0], Engines: 2}, {PlanID: e.planIDs[1], Engines: 3}})
+	status, _ := e.sched.CollectionStatus(ctx, e.executionID, []ports.PlanRef{{ScenarioID: e.planIDs[0], Engines: 2}, {ScenarioID: e.planIDs[1], Engines: 3}})
 	if status.PoolSize != 5 {
 		t.Fatalf("pool size = %d, want 5", status.PoolSize)
 	}
@@ -129,7 +129,7 @@ func TestTrigger_HappyPathMarksRunningAndConfigures(t *testing.T) {
 	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); !ok {
 		t.Fatal("no active run after trigger")
 	}
-	rps, _ := e.store.RunningPlansByCollection(ctx, e.executionID)
+	rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID)
 	if len(rps) != 2 {
 		t.Fatalf("running plans = %d, want 2", len(rps))
 	}
@@ -151,7 +151,7 @@ func TestTrigger_NoTestFile(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)
 	ctx := context.Background()
-	if err := e.store.DeletePlanFile(ctx, e.planIDs[0], "test.jmx", true); err != nil {
+	if err := e.store.DeleteScenarioFile(ctx, e.planIDs[0], "test.jmx", true); err != nil {
 		t.Fatalf("delete test file: %v", err)
 	}
 	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
@@ -175,7 +175,7 @@ func TestTrigger_EnginesNotReady(t *testing.T) {
 	e := setup(t, false, 3)
 	ctx := context.Background()
 	// Deploy only 2 of the 3 wanted engines directly on the scheduler.
-	if err := e.sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: e.projectID, ExecutionID: e.executionID, PlanID: e.planIDs[0], Engines: 2, Image: image}); err != nil {
+	if err := e.sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: e.projectID, ExecutionID: e.executionID, ScenarioID: e.planIDs[0], Engines: 2, Image: image}); err != nil {
 		t.Fatalf("partial deploy: %v", err)
 	}
 	if err := e.svc.Trigger(ctx, e.executionID); !errors.Is(err, run.ErrEnginesNotReady) {
@@ -230,7 +230,7 @@ func TestStop_HappyPath(t *testing.T) {
 	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); ok {
 		t.Fatal("run still active after stop")
 	}
-	if rps, _ := e.store.RunningPlansByCollection(ctx, e.executionID); len(rps) != 0 {
+	if rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID); len(rps) != 0 {
 		t.Fatalf("running plans after stop = %d, want 0", len(rps))
 	}
 	if e.exec.StopCount() != 5 {
@@ -309,7 +309,7 @@ func TestStatus_ReportsPhaseAndProgress(t *testing.T) {
 	}
 	for _, ps := range st.Plans {
 		if !ps.InProgress {
-			t.Fatalf("plan %d not marked in progress: %+v", ps.PlanID, ps)
+			t.Fatalf("plan %d not marked in progress: %+v", ps.ScenarioID, ps)
 		}
 	}
 }
@@ -369,7 +369,7 @@ func TestStop_WhenEnginesUnreachable(t *testing.T) {
 	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); ok {
 		t.Fatal("run still active after stop")
 	}
-	if rps, _ := e.store.RunningPlansByCollection(ctx, e.executionID); len(rps) != 0 {
+	if rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID); len(rps) != 0 {
 		t.Fatalf("running plans after stop = %d, want 0", len(rps))
 	}
 }

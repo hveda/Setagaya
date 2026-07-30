@@ -3,7 +3,7 @@ package ports
 import "github.com/heridotlife/Setagaya/internal/domain/engine"
 
 // EventBus fans engine metrics from the collector to any number of live
-// subscribers (e.g. SSE clients), scoped per collection. It is an in-process
+// subscribers (e.g. SSE clients), scoped per execution. It is an in-process
 // pub/sub; a distributed deployment swaps in a networked implementation behind
 // this interface.
 type EventBus interface {

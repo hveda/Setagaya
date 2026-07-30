@@ -137,9 +137,9 @@ func TestDelete_RefusesWhenInUse(t *testing.T) {
 	p, _ := svc.Create(ctx, "smoke", 10)
 
 	coll, _ := execution.New("peak", 10)
-	collID, _ := store.CreateCollection(ctx, coll)
-	if err := store.StoreExecutionCollection(ctx, collID, false, []loadprofile.Entry{
-		{PlanID: p.ID, Engines: 1, Concurrency: 1, Duration: 60},
+	collID, _ := store.CreateExecution(ctx, coll)
+	if err := store.StoreLoadProfile(ctx, collID, false, []loadprofile.Entry{
+		{ScenarioID: p.ID, Engines: 1, Concurrency: 1, Duration: 60},
 	}); err != nil {
 		t.Fatalf("seed execution: %v", err)
 	}

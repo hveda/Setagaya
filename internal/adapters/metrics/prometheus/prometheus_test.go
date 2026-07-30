@@ -12,7 +12,7 @@ import (
 
 func metric(coll, plan, engineNo, run, label, status string, latency, threads float64) engine.Metric {
 	return engine.Metric{
-		ExecutionID: coll, PlanID: plan, EngineID: engineNo, RunID: run,
+		ExecutionID: coll, ScenarioID: plan, EngineID: engineNo, RunID: run,
 		Label: label, Status: status, Latency: latency, Threads: threads,
 	}
 }
@@ -49,7 +49,7 @@ func TestSink_DeleteCollectionRemovesSeries(t *testing.T) {
 		t.Fatalf("before delete = %d, want 2", got)
 	}
 
-	sink.DeleteCollection(1)
+	sink.DeleteExecution(1)
 	if got := testutil.CollectAndCount(reg, "setagaya_status_counter"); got != 1 {
 		t.Fatalf("after delete collection 1 = %d, want 1", got)
 	}

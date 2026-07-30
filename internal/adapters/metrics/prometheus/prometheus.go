@@ -58,14 +58,14 @@ func New(reg prometheus.Registerer) *Sink {
 // Record ingests one measurement into the latency, status, and threads series.
 func (s *Sink) Record(m engine.Metric) {
 	s.collectionLatency.WithLabelValues(m.ExecutionID, m.RunID).Observe(m.Latency)
-	s.planLatency.WithLabelValues(m.ExecutionID, m.PlanID, m.RunID).Observe(m.Latency)
+	s.planLatency.WithLabelValues(m.ExecutionID, m.ScenarioID, m.RunID).Observe(m.Latency)
 	s.labelLatency.WithLabelValues(m.ExecutionID, m.Label, m.RunID).Observe(m.Latency)
-	s.statusCounter.WithLabelValues(m.ExecutionID, m.PlanID, m.RunID, m.EngineID, m.Label, m.Status).Inc()
-	s.threadsGauge.WithLabelValues(m.ExecutionID, m.PlanID, m.RunID, m.EngineID).Set(m.Threads)
+	s.statusCounter.WithLabelValues(m.ExecutionID, m.ScenarioID, m.RunID, m.EngineID, m.Label, m.Status).Inc()
+	s.threadsGauge.WithLabelValues(m.ExecutionID, m.ScenarioID, m.RunID, m.EngineID).Set(m.Threads)
 }
 
-// DeleteCollection drops every series carrying the collection's id label.
-func (s *Sink) DeleteCollection(executionID int64) {
+// DeleteExecution drops every series carrying the collection's id label.
+func (s *Sink) DeleteExecution(executionID int64) {
 	id := strconv.FormatInt(executionID, 10)
 	match := prometheus.Labels{"collection_id": id}
 	s.collectionLatency.DeletePartialMatch(match)

@@ -17,9 +17,9 @@ import (
 
 // Repo is the persistence the collector reads to know what is running.
 type Repo interface {
-	ExecutionPlansFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
 	CurrentRun(ctx context.Context, executionID int64) (int64, bool, error)
-	RunningPlans(ctx context.Context) ([]ports.RunningPlan, error)
+	RunningScenarios(ctx context.Context) ([]ports.RunningScenario, error)
 }
 
 // Service collects and fans out engine metrics.
@@ -79,13 +79,13 @@ func (s *Service) Stop(executionID int64) {
 // Purge stops collection and drops the collection's metric series.
 func (s *Service) Purge(executionID int64) {
 	s.Stop(executionID)
-	s.sink.DeleteCollection(executionID)
+	s.sink.DeleteExecution(executionID)
 }
 
 // Resume restarts collection for every collection with running plans, so a
 // restarted controller re-establishes its metric streams.
 func (s *Service) Resume(ctx context.Context) error {
-	rps, err := s.repo.RunningPlans(ctx)
+	rps, err := s.repo.RunningScenarios(ctx)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (s *Service) CollectCollection(ctx context.Context, executionID int64) erro
 	if !ok {
 		return nil
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
+	plans, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (s *Service) CollectCollection(ctx context.Context, executionID int64) erro
 		wg.Add(1)
 		go func(ep loadprofile.Entry) {
 			defer wg.Done()
-			if err := s.CollectPlan(ctx, executionID, ep.PlanID, ep.Engines, runID); err != nil {
+			if err := s.CollectPlan(ctx, executionID, ep.ScenarioID, ep.Engines, runID); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -136,8 +136,8 @@ func (s *Service) CollectCollection(ctx context.Context, executionID int64) erro
 }
 
 // CollectPlan streams metrics from every engine of a plan.
-func (s *Service) CollectPlan(ctx context.Context, executionID, planID int64, engines int, runID int64) error {
-	urls, err := s.sched.EngineURLs(ctx, executionID, planID, engines)
+func (s *Service) CollectPlan(ctx context.Context, executionID, scenarioID int64, engines int, runID int64) error {
+	urls, err := s.sched.EngineURLs(ctx, executionID, scenarioID, engines)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (s *Service) CollectPlan(ctx context.Context, executionID, planID int64, en
 		wg.Add(1)
 		go func(engineID int, url string) {
 			defer wg.Done()
-			s.pumpEngine(ctx, executionID, planID, engineID, runID, url)
+			s.pumpEngine(ctx, executionID, scenarioID, engineID, runID, url)
 		}(i, url)
 	}
 	wg.Wait()
@@ -155,18 +155,18 @@ func (s *Service) CollectPlan(ctx context.Context, executionID, planID int64, en
 
 // pumpEngine subscribes to one engine and forwards every measurement, stamped
 // with its identity, to the sink and the bus.
-func (s *Service) pumpEngine(ctx context.Context, executionID, planID int64, engineID int, runID int64, url string) {
+func (s *Service) pumpEngine(ctx context.Context, executionID, scenarioID int64, engineID int, runID int64, url string) {
 	ch, err := s.exec.Subscribe(ctx, url)
 	if err != nil {
 		return
 	}
 	collStr := strconv.FormatInt(executionID, 10)
-	planStr := strconv.FormatInt(planID, 10)
+	planStr := strconv.FormatInt(scenarioID, 10)
 	engStr := strconv.Itoa(engineID)
 	runStr := strconv.FormatInt(runID, 10)
 	for m := range ch {
 		m.ExecutionID = collStr
-		m.PlanID = planStr
+		m.ScenarioID = planStr
 		m.EngineID = engStr
 		m.RunID = runStr
 		s.sink.Record(m)

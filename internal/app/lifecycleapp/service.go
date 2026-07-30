@@ -27,11 +27,11 @@ var ErrNoTestFile = errors.New("lifecycle: plan has no test file")
 // collection, its execution plans and files, plus run/running-plan state.
 type Repo interface {
 	GetProject(ctx context.Context, id int64) (project.Project, error)
-	GetCollection(ctx context.Context, id int64) (execution.Execution, error)
-	ExecutionPlansFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
-	GetPlan(ctx context.Context, id int64) (scenario.Scenario, error)
-	PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error)
-	CollectionFilesFor(ctx context.Context, executionID int64) ([]string, error)
+	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
+	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
+	ScenarioFilesFor(ctx context.Context, scenarioID int64) (ports.ScenarioFiles, error)
+	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
 	ports.RunRepository
 }
 
@@ -101,11 +101,11 @@ func (s *Service) WithUsage(u Usage) *Service {
 // Deploy provisions the engines for every plan of a collection. It is rejected
 // while a run is in progress and is otherwise idempotent.
 func (s *Service) Deploy(ctx context.Context, executionID int64) error {
-	coll, err := s.repo.GetCollection(ctx, executionID)
+	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
+	plans, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 		spec := ports.DeploySpec{
 			ProjectID:   coll.ProjectID,
 			ExecutionID: executionID,
-			PlanID:      ep.PlanID,
+			ScenarioID:  ep.ScenarioID,
 			Engines:     ep.Engines,
 			Image:       s.engineImage,
 		}
@@ -135,11 +135,11 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 // Trigger starts a run across all deployed, ready engines. Engines must be
 // deployed and reachable; every plan must have a test file.
 func (s *Service) Trigger(ctx context.Context, executionID int64) error {
-	coll, err := s.repo.GetCollection(ctx, executionID)
+	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return err
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
+	plans, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 			triggerErrs = append(triggerErrs, err)
 			continue
 		}
-		if err := s.repo.MarkPlanRunning(ctx, executionID, ep.PlanID); err != nil {
+		if err := s.repo.MarkScenarioRunning(ctx, executionID, ep.ScenarioID); err != nil {
 			triggerErrs = append(triggerErrs, err)
 		}
 	}
@@ -201,11 +201,11 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 }
 
 func (s *Service) triggerPlan(ctx context.Context, coll execution.Execution, ec loadprofile.Profile, collData []engine.File, index int, ep loadprofile.Entry, runID int64) error {
-	pf, err := s.repo.PlanFilesFor(ctx, ep.PlanID)
+	pf, err := s.repo.ScenarioFilesFor(ctx, ep.ScenarioID)
 	if err != nil {
 		return err
 	}
-	urls, err := s.sched.EngineURLs(ctx, coll.ID, ep.PlanID, ep.Engines)
+	urls, err := s.sched.EngineURLs(ctx, coll.ID, ep.ScenarioID, ep.Engines)
 	if err != nil {
 		return err
 	}
@@ -219,8 +219,8 @@ func (s *Service) triggerPlan(ctx context.Context, coll execution.Execution, ec 
 		Rampup:             ep.Rampup,
 		Duration:           ep.Duration,
 		CSVSplit:           ep.CSVSplit,
-		TestFile:           s.planFile(ep.PlanID, pf.TestFile),
-		PlanData:           s.planFiles(ep.PlanID, pf.Data),
+		TestFile:           s.planFile(ep.ScenarioID, pf.TestFile),
+		PlanData:           s.planFiles(ep.ScenarioID, pf.Data),
 		RunID:              runID,
 	}
 	configs := engine.BuildConfigs(in)
@@ -265,17 +265,17 @@ func (s *Service) Purge(ctx context.Context, executionID int64) error {
 // state (best effort on the engine stop calls, which may already be gone).
 func (s *Service) teardown(ctx context.Context, executionID int64) error {
 	s.metrics.Stop(executionID)
-	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
+	plans, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err
 	}
 	for _, ep := range plans {
-		if urls, err := s.sched.EngineURLs(ctx, executionID, ep.PlanID, ep.Engines); err == nil {
+		if urls, err := s.sched.EngineURLs(ctx, executionID, ep.ScenarioID, ep.Engines); err == nil {
 			for _, url := range urls {
 				_ = s.exec.Stop(ctx, url)
 			}
 		}
-		if err := s.repo.ClearPlanRunning(ctx, executionID, ep.PlanID); err != nil {
+		if err := s.repo.ClearScenarioRunning(ctx, executionID, ep.ScenarioID); err != nil {
 			return err
 		}
 	}
@@ -287,7 +287,7 @@ func (s *Service) teardown(ctx context.Context, executionID int64) error {
 
 // PlanStatus is the lifecycle view of one plan's engines.
 type PlanStatus struct {
-	PlanID          int64     `json:"plan_id"`
+	ScenarioID      int64     `json:"plan_id"`
 	EnginesWanted   int       `json:"engines"`
 	EnginesDeployed int       `json:"engines_deployed"`
 	Reachable       bool      `json:"engines_reachable"`
@@ -304,7 +304,7 @@ type Status struct {
 
 // Status reports the deployment/run status of a collection.
 func (s *Service) Status(ctx context.Context, executionID int64) (Status, error) {
-	plans, err := s.repo.ExecutionPlansFor(ctx, executionID)
+	plans, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return Status{}, err
 	}
@@ -324,12 +324,12 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 	out := Status{Phase: run.DerivePhase(sched.PoolSize, running), PoolSize: sched.PoolSize}
 	for _, pr := range sched.Plans {
 		ps := PlanStatus{
-			PlanID:          pr.PlanID,
+			ScenarioID:      pr.ScenarioID,
 			EnginesWanted:   pr.EnginesWanted,
 			EnginesDeployed: pr.EnginesDeployed,
 			Reachable:       pr.Reachable,
 		}
-		if started, ok := runningByPlan[pr.PlanID]; ok {
+		if started, ok := runningByPlan[pr.ScenarioID]; ok {
 			ps.InProgress = true
 			ps.StartedTime = started
 		}
@@ -344,33 +344,33 @@ func (s *Service) EnginesDetail(ctx context.Context, projectID, executionID int6
 }
 
 // PodLog returns the logs of a plan's engine pod.
-func (s *Service) PodLog(ctx context.Context, executionID, planID int64) (string, error) {
-	return s.sched.PodLog(ctx, executionID, planID)
+func (s *Service) PodLog(ctx context.Context, executionID, scenarioID int64) (string, error) {
+	return s.sched.PodLog(ctx, executionID, scenarioID)
 }
 
 // Resume returns the plans still marked running in this deployment context, so
 // a restarted controller can re-establish tracking.
-func (s *Service) Resume(ctx context.Context) ([]ports.RunningPlan, error) {
-	return s.repo.RunningPlans(ctx)
+func (s *Service) Resume(ctx context.Context) ([]ports.RunningScenario, error) {
+	return s.repo.RunningScenarios(ctx)
 }
 
 // --- helpers ----------------------------------------------------------------
 
 func (s *Service) ensureTestFiles(ctx context.Context, plans []loadprofile.Entry) error {
 	for _, ep := range plans {
-		pf, err := s.repo.PlanFilesFor(ctx, ep.PlanID)
+		pf, err := s.repo.ScenarioFilesFor(ctx, ep.ScenarioID)
 		if err != nil {
 			return err
 		}
 		if pf.TestFile == "" {
-			return fmt.Errorf("%w: plan %d", ErrNoTestFile, ep.PlanID)
+			return fmt.Errorf("%w: plan %d", ErrNoTestFile, ep.ScenarioID)
 		}
 	}
 	return nil
 }
 
 func (s *Service) collectionFiles(ctx context.Context, executionID int64) ([]engine.File, error) {
-	names, err := s.repo.CollectionFilesFor(ctx, executionID)
+	names, err := s.repo.ExecutionFilesFor(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}
@@ -382,27 +382,27 @@ func (s *Service) collectionFiles(ctx context.Context, executionID int64) ([]eng
 	return files, nil
 }
 
-func (s *Service) planFile(planID int64, name string) engine.File {
-	key := fmt.Sprintf("plan/%d/%s", planID, name)
+func (s *Service) planFile(scenarioID int64, name string) engine.File {
+	key := fmt.Sprintf("plan/%d/%s", scenarioID, name)
 	return engine.File{Filename: name, Filepath: key, Filelink: s.store.URL(key)}
 }
 
-func (s *Service) planFiles(planID int64, names []string) []engine.File {
+func (s *Service) planFiles(scenarioID int64, names []string) []engine.File {
 	files := make([]engine.File, 0, len(names))
 	for _, name := range names {
-		files = append(files, s.planFile(planID, name))
+		files = append(files, s.planFile(scenarioID, name))
 	}
 	return files
 }
 
 func (s *Service) runningByPlan(ctx context.Context, executionID int64) (map[int64]time.Time, error) {
-	rps, err := s.repo.RunningPlansByCollection(ctx, executionID)
+	rps, err := s.repo.RunningScenariosByExecution(ctx, executionID)
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[int64]time.Time, len(rps))
 	for _, rp := range rps {
-		out[rp.PlanID] = rp.StartedTime
+		out[rp.ScenarioID] = rp.StartedTime
 	}
 	return out, nil
 }
@@ -410,7 +410,7 @@ func (s *Service) runningByPlan(ctx context.Context, executionID int64) (map[int
 func planRefs(plans []loadprofile.Entry) []ports.PlanRef {
 	refs := make([]ports.PlanRef, 0, len(plans))
 	for _, ep := range plans {
-		refs = append(refs, ports.PlanRef{PlanID: ep.PlanID, Engines: ep.Engines})
+		refs = append(refs, ports.PlanRef{ScenarioID: ep.ScenarioID, Engines: ep.Engines})
 	}
 	return refs
 }

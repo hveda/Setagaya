@@ -16,7 +16,7 @@ import (
 var ErrNotFound = errors.New("ports: not found")
 
 // ErrFileExists is returned when adding a file that already exists for the
-// owning plan or collection. Callers compare with errors.Is.
+// owning scenario or execution. Callers compare with errors.Is.
 var ErrFileExists = errors.New("ports: file already exists")
 
 // ProjectRepository persists and retrieves Project aggregates.

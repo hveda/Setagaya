@@ -14,7 +14,7 @@ import (
 
 // Repo is the persistence admin needs to enrich and evaluate collections.
 type Repo interface {
-	GetCollection(ctx context.Context, id int64) (execution.Execution, error)
+	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
 	CurrentRun(ctx context.Context, executionID int64) (int64, bool, error)
 }
 
@@ -55,7 +55,7 @@ func (s *Service) RunningCollections(ctx context.Context) ([]RunningCollection, 
 	out := make([]RunningCollection, 0, len(deployed))
 	for executionID, deployedAt := range deployed {
 		rc := RunningCollection{ExecutionID: executionID, DeployedAt: deployedAt}
-		if c, err := s.repo.GetCollection(ctx, executionID); err == nil {
+		if c, err := s.repo.GetExecution(ctx, executionID); err == nil {
 			rc.Name = c.Name
 			rc.ProjectID = c.ProjectID
 		}

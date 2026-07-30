@@ -27,8 +27,8 @@ func (s *MetricsSink) Record(m engine.Metric) {
 	s.recorded = append(s.recorded, m)
 }
 
-// DeleteCollection records the deletion.
-func (s *MetricsSink) DeleteCollection(executionID int64) {
+// DeleteExecution records the deletion.
+func (s *MetricsSink) DeleteExecution(executionID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deleted = append(s.deleted, executionID)
@@ -41,7 +41,7 @@ func (s *MetricsSink) Recorded() []engine.Metric {
 	return append([]engine.Metric(nil), s.recorded...)
 }
 
-// Deleted returns the collection ids passed to DeleteCollection.
+// Deleted returns the execution ids passed to DeleteExecution.
 func (s *MetricsSink) Deleted() []int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

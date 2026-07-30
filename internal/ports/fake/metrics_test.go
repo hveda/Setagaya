@@ -17,7 +17,7 @@ func TestFakeMetricsSink_RecordsAndDeletes(t *testing.T) {
 		t.Fatalf("recorded = %+v", got)
 	}
 
-	s.DeleteCollection(7)
+	s.DeleteExecution(7)
 	if got := s.Deleted(); len(got) != 1 || got[0] != 7 {
 		t.Fatalf("deleted = %+v", got)
 	}

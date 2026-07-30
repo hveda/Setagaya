@@ -23,7 +23,7 @@ var (
 // a single Taurus execution block.
 type Entry struct {
 	Name        string `yaml:"name" json:"name"`
-	PlanID      int64  `yaml:"testid" json:"plan_id"`
+	ScenarioID  int64  `yaml:"testid" json:"plan_id"`
 	Concurrency int    `yaml:"concurrency" json:"concurrency"`
 	Rampup      int    `yaml:"rampup" json:"rampup"`
 	Engines     int    `yaml:"engines" json:"engines"`
@@ -34,7 +34,7 @@ type Entry struct {
 // Validate checks a single entry's invariants.
 func (ep Entry) Validate() error {
 	switch {
-	case ep.PlanID <= 0:
+	case ep.ScenarioID <= 0:
 		return ErrPlanRequired
 	case ep.Engines <= 0:
 		return ErrEnginesInvalid
@@ -67,7 +67,7 @@ func (ec Profile) Validate() error {
 	}
 	for i, ep := range ec.Tests {
 		if err := ep.Validate(); err != nil {
-			return fmt.Errorf("plan %d (id %d): %w", i, ep.PlanID, err)
+			return fmt.Errorf("plan %d (id %d): %w", i, ep.ScenarioID, err)
 		}
 	}
 	return nil

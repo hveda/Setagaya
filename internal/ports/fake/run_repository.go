@@ -46,8 +46,8 @@ func (s *Store) StopRun(_ context.Context, executionID int64) error {
 	return nil
 }
 
-// MarkPlanRunning records a running plan (idempotent).
-func (s *Store) MarkPlanRunning(_ context.Context, executionID, planID int64) error {
+// MarkScenarioRunning records a running plan (idempotent).
+func (s *Store) MarkScenarioRunning(_ context.Context, executionID, scenarioID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	plans, ok := s.running[executionID]
@@ -55,54 +55,54 @@ func (s *Store) MarkPlanRunning(_ context.Context, executionID, planID int64) er
 		plans = map[int64]time.Time{}
 		s.running[executionID] = plans
 	}
-	if _, exists := plans[planID]; !exists {
-		plans[planID] = s.now()
+	if _, exists := plans[scenarioID]; !exists {
+		plans[scenarioID] = s.now()
 	}
 	return nil
 }
 
-// ClearPlanRunning removes a running plan marker (idempotent).
-func (s *Store) ClearPlanRunning(_ context.Context, executionID, planID int64) error {
+// ClearScenarioRunning removes a running plan marker (idempotent).
+func (s *Store) ClearScenarioRunning(_ context.Context, executionID, scenarioID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.running[executionID], planID)
+	delete(s.running[executionID], scenarioID)
 	if len(s.running[executionID]) == 0 {
 		delete(s.running, executionID)
 	}
 	return nil
 }
 
-// RunningPlans lists every running plan across collections.
-func (s *Store) RunningPlans(_ context.Context) ([]ports.RunningPlan, error) {
+// RunningScenarios lists every running plan across collections.
+func (s *Store) RunningScenarios(_ context.Context) ([]ports.RunningScenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out []ports.RunningPlan
+	var out []ports.RunningScenario
 	for executionID, plans := range s.running {
-		for planID, started := range plans {
-			out = append(out, ports.RunningPlan{ExecutionID: executionID, PlanID: planID, StartedTime: started})
+		for scenarioID, started := range plans {
+			out = append(out, ports.RunningScenario{ExecutionID: executionID, ScenarioID: scenarioID, StartedTime: started})
 		}
 	}
 	sortRunningPlans(out)
 	return out, nil
 }
 
-// RunningPlansByCollection lists running plans for one collection.
-func (s *Store) RunningPlansByCollection(_ context.Context, executionID int64) ([]ports.RunningPlan, error) {
+// RunningScenariosByExecution lists running plans for one collection.
+func (s *Store) RunningScenariosByExecution(_ context.Context, executionID int64) ([]ports.RunningScenario, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out []ports.RunningPlan
-	for planID, started := range s.running[executionID] {
-		out = append(out, ports.RunningPlan{ExecutionID: executionID, PlanID: planID, StartedTime: started})
+	var out []ports.RunningScenario
+	for scenarioID, started := range s.running[executionID] {
+		out = append(out, ports.RunningScenario{ExecutionID: executionID, ScenarioID: scenarioID, StartedTime: started})
 	}
 	sortRunningPlans(out)
 	return out, nil
 }
 
-func sortRunningPlans(rps []ports.RunningPlan) {
+func sortRunningPlans(rps []ports.RunningScenario) {
 	sort.Slice(rps, func(i, j int) bool {
 		if rps[i].ExecutionID != rps[j].ExecutionID {
 			return rps[i].ExecutionID < rps[j].ExecutionID
 		}
-		return rps[i].PlanID < rps[j].PlanID
+		return rps[i].ScenarioID < rps[j].ScenarioID
 	})
 }

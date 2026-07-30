@@ -20,8 +20,8 @@ func TestMySQLRunRepository_Contract(t *testing.T) {
 	})
 }
 
-// TestMySQLRunRepository_ContextScoping verifies RunningPlans is filtered by the
-// configured deployment context while RunningPlansByCollection is not.
+// TestMySQLRunRepository_ContextScoping verifies RunningScenarios is filtered by the
+// configured deployment context while RunningScenariosByExecution is not.
 func TestMySQLRunRepository_ContextScoping(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	truncateAll(t, db)
@@ -30,16 +30,16 @@ func TestMySQLRunRepository_ContextScoping(t *testing.T) {
 	repoA := mysqladapter.NewRepository(db).WithContext("ctx-a")
 	repoB := mysqladapter.NewRepository(db).WithContext("ctx-b")
 
-	if err := repoA.MarkPlanRunning(ctx, 1, 10); err != nil {
+	if err := repoA.MarkScenarioRunning(ctx, 1, 10); err != nil {
 		t.Fatalf("markA: %v", err)
 	}
-	if err := repoB.MarkPlanRunning(ctx, 2, 20); err != nil {
+	if err := repoB.MarkScenarioRunning(ctx, 2, 20); err != nil {
 		t.Fatalf("markB: %v", err)
 	}
 
-	aPlans, err := repoA.RunningPlans(ctx)
+	aPlans, err := repoA.RunningScenarios(ctx)
 	if err != nil {
-		t.Fatalf("RunningPlans A: %v", err)
+		t.Fatalf("RunningScenarios A: %v", err)
 	}
 	if len(aPlans) != 1 || aPlans[0].ExecutionID != 1 {
 		t.Fatalf("context A running plans = %+v, want only collection 1", aPlans)
@@ -56,13 +56,13 @@ func TestMySQLRun_ErrorsWhenDBClosed(t *testing.T) {
 	}
 
 	ops := map[string]func() error{
-		"StartRun":                 func() error { _, e := repo.StartRun(ctx, 1); return e },
-		"CurrentRun":               func() error { _, _, e := repo.CurrentRun(ctx, 1); return e },
-		"StopRun":                  func() error { return repo.StopRun(ctx, 1) },
-		"MarkPlanRunning":          func() error { return repo.MarkPlanRunning(ctx, 1, 2) },
-		"ClearPlanRunning":         func() error { return repo.ClearPlanRunning(ctx, 1, 2) },
-		"RunningPlans":             func() error { _, e := repo.RunningPlans(ctx); return e },
-		"RunningPlansByCollection": func() error { _, e := repo.RunningPlansByCollection(ctx, 1); return e },
+		"StartRun":                    func() error { _, e := repo.StartRun(ctx, 1); return e },
+		"CurrentRun":                  func() error { _, _, e := repo.CurrentRun(ctx, 1); return e },
+		"StopRun":                     func() error { return repo.StopRun(ctx, 1) },
+		"MarkScenarioRunning":         func() error { return repo.MarkScenarioRunning(ctx, 1, 2) },
+		"ClearScenarioRunning":        func() error { return repo.ClearScenarioRunning(ctx, 1, 2) },
+		"RunningScenarios":            func() error { _, e := repo.RunningScenarios(ctx); return e },
+		"RunningScenariosByExecution": func() error { _, e := repo.RunningScenariosByExecution(ctx, 1); return e },
 	}
 	for name, op := range ops {
 		if err := op(); err == nil {

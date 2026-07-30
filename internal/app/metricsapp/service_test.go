@@ -33,19 +33,19 @@ func setup(t *testing.T, engines ...int) *env {
 	ctx := context.Background()
 	store := fake.NewStore()
 	coll, _ := execution.New("peak", 1)
-	executionID, _ := store.CreateCollection(ctx, coll)
+	executionID, _ := store.CreateExecution(ctx, coll)
 
 	var tests []loadprofile.Entry
 	var planIDs []int64
 	sched := fake.NewScheduler()
 	for _, n := range engines {
 		pl, _ := scenario.New("p", 1)
-		planID, _ := store.CreatePlan(ctx, pl)
-		planIDs = append(planIDs, planID)
-		tests = append(tests, loadprofile.Entry{PlanID: planID, Concurrency: 1, Rampup: 1, Engines: n, Duration: 1})
-		_ = sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: executionID, PlanID: planID, Engines: n})
+		scenarioID, _ := store.CreateScenario(ctx, pl)
+		planIDs = append(planIDs, scenarioID)
+		tests = append(tests, loadprofile.Entry{ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: n, Duration: 1})
+		_ = sched.DeployPlan(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: executionID, ScenarioID: scenarioID, Engines: n})
 	}
-	_ = store.StoreExecutionCollection(ctx, executionID, false, tests)
+	_ = store.StoreLoadProfile(ctx, executionID, false, tests)
 	runID, _ := store.StartRun(ctx, executionID)
 
 	exec := fake.NewExecutor()
@@ -70,7 +70,7 @@ func TestCollectPlan_EnrichesAndFansOut(t *testing.T) {
 		t.Fatalf("recorded = %d, want 4", len(got))
 	}
 	for _, m := range got {
-		if m.ExecutionID == "" || m.PlanID == "" || m.EngineID == "" || m.RunID == "" {
+		if m.ExecutionID == "" || m.ScenarioID == "" || m.EngineID == "" || m.RunID == "" {
 			t.Fatalf("metric not enriched: %+v", m)
 		}
 	}
@@ -167,8 +167,8 @@ func TestResume_StartsRunningCollections(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 1)
 	ctx := context.Background()
-	if err := e.store.MarkPlanRunning(ctx, e.executionID, e.planIDs[0]); err != nil {
-		t.Fatalf("MarkPlanRunning: %v", err)
+	if err := e.store.MarkScenarioRunning(ctx, e.executionID, e.planIDs[0]); err != nil {
+		t.Fatalf("MarkScenarioRunning: %v", err)
 	}
 	events, cancel := e.bus.Subscribe(e.executionID)
 	defer cancel()

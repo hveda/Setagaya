@@ -16,8 +16,8 @@ const planColumns = "id, name, project_id, tenant_id, created_by, updated_by, cr
 
 const mysqlDupEntry = 1062
 
-// CreatePlan inserts p and returns its auto-assigned ID.
-func (r *Repository) CreatePlan(ctx context.Context, p scenario.Scenario) (int64, error) {
+// CreateScenario inserts p and returns its auto-assigned ID.
+func (r *Repository) CreateScenario(ctx context.Context, p scenario.Scenario) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		"INSERT INTO plan (name, project_id, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?)",
 		p.Name, p.ProjectID, nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
@@ -32,8 +32,8 @@ func (r *Repository) CreatePlan(ctx context.Context, p scenario.Scenario) (int64
 	return id, nil
 }
 
-// GetPlan returns the plan with id, or ports.ErrNotFound.
-func (r *Repository) GetPlan(ctx context.Context, id int64) (scenario.Scenario, error) {
+// GetScenario returns the plan with id, or ports.ErrNotFound.
+func (r *Repository) GetScenario(ctx context.Context, id int64) (scenario.Scenario, error) {
 	row := r.db.QueryRowContext(ctx, "SELECT "+planColumns+" FROM plan WHERE id = ?", id)
 	p, err := scanPlan(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -45,8 +45,8 @@ func (r *Repository) GetPlan(ctx context.Context, id int64) (scenario.Scenario, 
 	return p, nil
 }
 
-// ListPlansByProject returns all plans belonging to projectID.
-func (r *Repository) ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
+// ListScenariosByProject returns all plans belonging to projectID.
+func (r *Repository) ListScenariosByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT "+planColumns+" FROM plan WHERE project_id = ?", projectID)
 	if err != nil {
 		return nil, fmt.Errorf("mysql: list plans: %w", err)
@@ -67,21 +67,21 @@ func (r *Repository) ListPlansByProject(ctx context.Context, projectID int64) ([
 	return out, nil
 }
 
-// DeletePlan removes the plan with id, or returns ports.ErrNotFound.
-func (r *Repository) DeletePlan(ctx context.Context, id int64) error {
+// DeleteScenario removes the plan with id, or returns ports.ErrNotFound.
+func (r *Repository) DeleteScenario(ctx context.Context, id int64) error {
 	return execDelete(ctx, r.db, "DELETE FROM plan WHERE id = ?", id)
 }
 
-// AddPlanFile records a file for the plan. isTest selects the single JMX slot
+// AddScenarioFile records a file for the plan. isTest selects the single JMX slot
 // (plan_test_file) vs a data file (plan_data). Returns ports.ErrFileExists on
 // duplicate.
-func (r *Repository) AddPlanFile(ctx context.Context, planID int64, filename string, isTest bool) error {
+func (r *Repository) AddScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error {
 	table := "plan_data"
 	if isTest {
 		table = "plan_test_file"
 	}
 	// #nosec G201 -- table is a fixed internal constant, not user input.
-	_, err := r.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (plan_id, filename) VALUES (?, ?)", table), planID, filename)
+	_, err := r.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (plan_id, filename) VALUES (?, ?)", table), scenarioID, filename)
 	if isDuplicateKey(err) {
 		return ports.ErrFileExists
 	}
@@ -91,51 +91,51 @@ func (r *Repository) AddPlanFile(ctx context.Context, planID int64, filename str
 	return nil
 }
 
-// PlanFilesFor returns the plan's recorded files.
-func (r *Repository) PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error) {
-	var pf ports.PlanFiles
+// ScenarioFilesFor returns the plan's recorded files.
+func (r *Repository) ScenarioFilesFor(ctx context.Context, scenarioID int64) (ports.ScenarioFiles, error) {
+	var pf ports.ScenarioFiles
 
 	var testFile sql.NullString
-	err := r.db.QueryRowContext(ctx, "SELECT filename FROM plan_test_file WHERE plan_id = ?", planID).Scan(&testFile)
+	err := r.db.QueryRowContext(ctx, "SELECT filename FROM plan_test_file WHERE plan_id = ?", scenarioID).Scan(&testFile)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return ports.PlanFiles{}, fmt.Errorf("mysql: plan test file: %w", err)
+		return ports.ScenarioFiles{}, fmt.Errorf("mysql: plan test file: %w", err)
 	}
 	pf.TestFile = testFile.String
 
-	rows, err := r.db.QueryContext(ctx, "SELECT filename FROM plan_data WHERE plan_id = ?", planID)
+	rows, err := r.db.QueryContext(ctx, "SELECT filename FROM plan_data WHERE plan_id = ?", scenarioID)
 	if err != nil {
-		return ports.PlanFiles{}, fmt.Errorf("mysql: plan data files: %w", err)
+		return ports.ScenarioFiles{}, fmt.Errorf("mysql: plan data files: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	pf.Data = []string{}
 	for rows.Next() {
 		var name string
 		if scanErr := rows.Scan(&name); scanErr != nil {
-			return ports.PlanFiles{}, fmt.Errorf("mysql: scan plan data: %w", scanErr)
+			return ports.ScenarioFiles{}, fmt.Errorf("mysql: scan plan data: %w", scanErr)
 		}
 		pf.Data = append(pf.Data, name)
 	}
 	if err := rows.Err(); err != nil {
-		return ports.PlanFiles{}, fmt.Errorf("mysql: iterate plan data: %w", err)
+		return ports.ScenarioFiles{}, fmt.Errorf("mysql: iterate plan data: %w", err)
 	}
 	return pf, nil
 }
 
-// DeletePlanFile removes a file record for the plan, or ports.ErrNotFound.
-func (r *Repository) DeletePlanFile(ctx context.Context, planID int64, filename string, isTest bool) error {
+// DeleteScenarioFile removes a file record for the plan, or ports.ErrNotFound.
+func (r *Repository) DeleteScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error {
 	table := "plan_data"
 	if isTest {
 		table = "plan_test_file"
 	}
 	// #nosec G201 -- table is a fixed internal constant, not user input.
-	return execDelete(ctx, r.db, fmt.Sprintf("DELETE FROM %s WHERE plan_id = ? AND filename = ?", table), planID, filename)
+	return execDelete(ctx, r.db, fmt.Sprintf("DELETE FROM %s WHERE plan_id = ? AND filename = ?", table), scenarioID, filename)
 }
 
-// PlanInUse reports whether the plan is referenced by any collection's
+// ScenarioInUse reports whether the plan is referenced by any collection's
 // execution configuration.
-func (r *Repository) PlanInUse(ctx context.Context, planID int64) (bool, error) {
+func (r *Repository) ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error) {
 	var exists bool
-	err := r.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM collection_plan WHERE plan_id = ?)", planID).Scan(&exists)
+	err := r.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM collection_plan WHERE plan_id = ?)", scenarioID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("mysql: plan in use: %w", err)
 	}

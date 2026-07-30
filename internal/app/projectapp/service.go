@@ -23,8 +23,8 @@ var (
 // the child listings used to enforce delete rules.
 type Repo interface {
 	ports.ProjectRepository
-	ListPlansByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
-	ListCollectionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
+	ListScenariosByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
+	ListExecutionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
 }
 
 // Service provides project use-cases.
@@ -85,14 +85,14 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	if _, err := s.repo.GetProject(ctx, id); err != nil {
 		return err
 	}
-	plans, err := s.repo.ListPlansByProject(ctx, id)
+	plans, err := s.repo.ListScenariosByProject(ctx, id)
 	if err != nil {
 		return err
 	}
 	if len(plans) > 0 {
 		return ErrProjectHasPlans
 	}
-	collections, err := s.repo.ListCollectionsByProject(ctx, id)
+	collections, err := s.repo.ListExecutionsByProject(ctx, id)
 	if err != nil {
 		return err
 	}

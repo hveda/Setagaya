@@ -138,8 +138,8 @@ func (h *handlers) deletePlanFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // authorizePlan loads a plan and verifies the caller owns its project.
-func (h *handlers) authorizePlan(r *http.Request, planID int64) error {
-	p, err := h.deps.Plans.Get(r.Context(), planID)
+func (h *handlers) authorizePlan(r *http.Request, scenarioID int64) error {
+	p, err := h.deps.Plans.Get(r.Context(), scenarioID)
 	if err != nil {
 		return err
 	}

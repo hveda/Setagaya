@@ -25,7 +25,7 @@ type lifecycleEnv struct {
 	sched       *fake.Scheduler
 	exec        *fake.Executor
 	executionID int64
-	planID      int64
+	scenarioID  int64
 	owner       string
 }
 
@@ -51,18 +51,18 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	p, _ := project.New("web", owner, "")
 	projectID, _ := store.CreateProject(ctx, p)
 	coll, _ := execution.New("peak", projectID)
-	executionID, _ := store.CreateCollection(ctx, coll)
+	executionID, _ := store.CreateExecution(ctx, coll)
 	pl, _ := scenario.New("smoke", projectID)
-	planID, _ := store.CreatePlan(ctx, pl)
-	if err := store.AddPlanFile(ctx, planID, "test.jmx", true); err != nil {
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
 		t.Fatalf("add test file: %v", err)
 	}
-	if err := store.StoreExecutionCollection(ctx, executionID, false, []loadprofile.Entry{
-		{Name: "p", PlanID: planID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
+	if err := store.StoreLoadProfile(ctx, executionID, false, []loadprofile.Entry{
+		{Name: "p", ScenarioID: scenarioID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
 	}); err != nil {
 		t.Fatalf("store exec: %v", err)
 	}
-	return lifecycleEnv{h: h, store: store, sched: sched, exec: exec, executionID: executionID, planID: planID, owner: owner}
+	return lifecycleEnv{h: h, store: store, sched: sched, exec: exec, executionID: executionID, scenarioID: scenarioID, owner: owner}
 }
 
 func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
@@ -98,7 +98,7 @@ func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 	if rec := do(t, e.h, http.MethodGet, base+"/engines"); rec.Code != http.StatusOK {
 		t.Fatalf("engines = %d", rec.Code)
 	}
-	if rec := do(t, e.h, http.MethodGet, base+"/plans/"+itoa(e.planID)+"/logs"); rec.Code != http.StatusOK {
+	if rec := do(t, e.h, http.MethodGet, base+"/plans/"+itoa(e.scenarioID)+"/logs"); rec.Code != http.StatusOK {
 		t.Fatalf("logs = %d", rec.Code)
 	}
 
@@ -172,9 +172,9 @@ func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t, "setagaya")
 	// A fresh owned collection with no execution config.
-	c, _ := e.store.GetCollection(ctx, e.executionID)
+	c, _ := e.store.GetExecution(ctx, e.executionID)
 	bare, _ := execution.New("bare", c.ProjectID)
-	bareID, _ := e.store.CreateCollection(ctx, bare)
+	bareID, _ := e.store.CreateExecution(ctx, bare)
 
 	rec := do(t, e.h, http.MethodPost, "/api/collections/"+itoa(bareID)+"/deploy")
 	if rec.Code != http.StatusBadRequest {
@@ -194,7 +194,7 @@ func TestLifecycleHTTP_PodLogNotDeployed(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "setagaya")
 	// No deploy: the plan's engines are unreachable -> 409 conflict.
-	rec := do(t, e.h, http.MethodGet, "/api/collections/"+itoa(e.executionID)+"/plans/"+itoa(e.planID)+"/logs")
+	rec := do(t, e.h, http.MethodGet, "/api/collections/"+itoa(e.executionID)+"/plans/"+itoa(e.scenarioID)+"/logs")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("logs not deployed = %d, want 409", rec.Code)
 	}

@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// ErrLaunchActive is returned by StartLaunch when a collection already has an
+// ErrLaunchActive is returned by StartLaunch when an execution already has an
 // open (unfinished) launch.
-var ErrLaunchActive = errors.New("ports: a launch is already active for this collection")
+var ErrLaunchActive = errors.New("ports: a launch is already active for this execution")
 
-// LaunchRecord is one row of collection launch history for usage accounting.
+// LaunchRecord is one row of execution launch history for usage accounting.
 type LaunchRecord struct {
 	ExecutionID int64
 	Context     string
@@ -22,10 +22,10 @@ type LaunchRecord struct {
 }
 
 // UsageRepository records test launches and answers usage queries. It reuses
-// the v2 collection_launch (active-launch guard) and collection_launch_history2
+// the execution_launch (active-launch guard) and execution_launch_history
 // (history) tables.
 type UsageRepository interface {
-	// StartLaunch opens a launch for a collection in this deployment context.
+	// StartLaunch opens a launch for an execution in this deployment context.
 	// Returns ErrLaunchActive if one is already open.
 	StartLaunch(ctx context.Context, executionID int64, owner string, engines, vu int) error
 	// FinishLaunch stamps the open launch's end time and final VU, and clears

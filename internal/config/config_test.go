@@ -46,8 +46,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Storage.Driver != "local" {
 		t.Errorf("Storage.Driver = %q, want local", cfg.Storage.Driver)
 	}
-	if cfg.Limits.MaxEnginesInCollection != 500 {
-		t.Errorf("Limits.MaxEnginesInCollection = %d, want 500", cfg.Limits.MaxEnginesInCollection)
+	if cfg.Limits.MaxEnginesInExecution != 500 {
+		t.Errorf("Limits.MaxEnginesInExecution = %d, want 500", cfg.Limits.MaxEnginesInExecution)
 	}
 	if cfg.Auth.Mode != "none" {
 		t.Errorf("Auth.Mode = %q, want none", cfg.Auth.Mode)
@@ -124,8 +124,8 @@ func TestLoad_Overrides(t *testing.T) {
 	if cfg.Storage.Root != "/data/setagaya" || cfg.Storage.BaseURL != "https://cdn.example.com" {
 		t.Errorf("Storage = %+v, want overridden root/baseURL", cfg.Storage)
 	}
-	if cfg.Limits.MaxEnginesInCollection != 42 {
-		t.Errorf("MaxEnginesInCollection = %d, want 42", cfg.Limits.MaxEnginesInCollection)
+	if cfg.Limits.MaxEnginesInExecution != 42 {
+		t.Errorf("MaxEnginesInExecution = %d, want 42", cfg.Limits.MaxEnginesInExecution)
 	}
 
 	if cfg.HTTP.Port != 9090 {

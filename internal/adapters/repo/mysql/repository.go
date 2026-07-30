@@ -14,8 +14,8 @@ import (
 // defaultDeployContext scopes running_plan rows when no context is configured.
 const defaultDeployContext = "default"
 
-// Repository implements ProjectRepository, PlanRepository,
-// CollectionRepository and RunRepository over a single MySQL connection pool.
+// Repository implements ProjectRepository, ScenarioRepository,
+// ExecutionRepository and RunRepository over a single MySQL connection pool.
 type Repository struct {
 	db            *sql.DB
 	deployContext string
@@ -27,7 +27,7 @@ func NewRepository(db *sql.DB) *Repository {
 }
 
 // WithContext sets the deployment context recorded on running_plan rows and
-// used to scope RunningPlans queries (mirrors v2's config.SC.Context). An empty
+// used to scope RunningScenarios queries (mirrors v2's config.SC.Context). An empty
 // value is ignored. Returns the receiver for chaining.
 func (r *Repository) WithContext(deployContext string) *Repository {
 	if deployContext != "" {
@@ -43,11 +43,11 @@ func NewProjectRepository(db *sql.DB) *Repository {
 }
 
 var (
-	_ ports.ProjectRepository    = (*Repository)(nil)
-	_ ports.PlanRepository       = (*Repository)(nil)
-	_ ports.CollectionRepository = (*Repository)(nil)
-	_ ports.RunRepository        = (*Repository)(nil)
-	_ ports.UsageRepository      = (*Repository)(nil)
+	_ ports.ProjectRepository   = (*Repository)(nil)
+	_ ports.ScenarioRepository  = (*Repository)(nil)
+	_ ports.ExecutionRepository = (*Repository)(nil)
+	_ ports.RunRepository       = (*Repository)(nil)
+	_ ports.UsageRepository     = (*Repository)(nil)
 )
 
 // rowScanner abstracts *sql.Row and *sql.Rows for a shared scan.

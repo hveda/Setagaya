@@ -78,7 +78,7 @@ type StorageConfig struct {
 
 // LimitsConfig holds platform guardrails.
 type LimitsConfig struct {
-	MaxEnginesInCollection int
+	MaxEnginesInExecution int
 }
 
 // HTTPConfig configures the API HTTP server.
@@ -123,7 +123,7 @@ func Load(getenv func(string) string) (Config, error) {
 		DB:      DBConfig{Driver: "fake"},
 		Log:     LogConfig{Level: "info", Format: "json"},
 		Storage: StorageConfig{Driver: "local", Root: "storage-data"},
-		Limits:  LimitsConfig{MaxEnginesInCollection: 500},
+		Limits:  LimitsConfig{MaxEnginesInExecution: 500},
 		Cluster: ClusterConfig{
 			Scheduler:     "fake",
 			Executor:      "fake",
@@ -159,7 +159,7 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Storage.Repo = strEnv(getenv, "NEXUS_REPO", cfg.Storage.Repo)
 	cfg.Storage.Username = strEnv(getenv, "NEXUS_USERNAME", cfg.Storage.Username)
 	cfg.Storage.Password = strEnv(getenv, "NEXUS_PASSWORD", cfg.Storage.Password)
-	if cfg.Limits.MaxEnginesInCollection, err = intEnv(getenv, "MAX_ENGINES", cfg.Limits.MaxEnginesInCollection); err != nil {
+	if cfg.Limits.MaxEnginesInExecution, err = intEnv(getenv, "MAX_ENGINES", cfg.Limits.MaxEnginesInExecution); err != nil {
 		return Config{}, err
 	}
 	cfg.Cluster.Scheduler = strEnv(getenv, "SCHEDULER", cfg.Cluster.Scheduler)
@@ -206,7 +206,7 @@ func (c Config) validate() error {
 	if c.DB.Driver == "mysql" && c.DB.DSN == "" {
 		return fmt.Errorf("config: db driver mysql requires %sDB_DSN", envPrefix)
 	}
-	if c.Limits.MaxEnginesInCollection <= 0 {
+	if c.Limits.MaxEnginesInExecution <= 0 {
 		return fmt.Errorf("config: %sMAX_ENGINES must be positive", envPrefix)
 	}
 	if !oneOf(c.Cluster.Scheduler, "fake", "k8s") {

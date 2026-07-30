@@ -11,14 +11,14 @@ import (
 
 func TestFakeStore_PlanContract(t *testing.T) {
 	t.Parallel()
-	repositorytest.RunPlanRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
+	repositorytest.RunScenarioRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
 		return fake.NewStore()
 	})
 }
 
 func TestFakeStore_CollectionContract(t *testing.T) {
 	t.Parallel()
-	repositorytest.RunCollectionRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
+	repositorytest.RunExecutionRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
 		return fake.NewStore()
 	})
 }

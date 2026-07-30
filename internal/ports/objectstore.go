@@ -9,8 +9,8 @@ import (
 // ErrObjectNotFound is returned by ObjectStore.Download when the key is absent.
 var ErrObjectNotFound = errors.New("ports: object not found")
 
-// ObjectStore is a blob store for uploaded test artifacts (JMX plans, CSV data,
-// collection config). Keys are slash-separated paths, e.g. "plan/42/test.jmx".
+// ObjectStore is a blob store for uploaded test artifacts (JMX scripts, CSV data,
+// execution config). Keys are slash-separated paths, e.g. "scenario/42/test.jmx".
 type ObjectStore interface {
 	// Upload stores content at key, overwriting any existing object.
 	Upload(ctx context.Context, key string, content io.Reader) error
