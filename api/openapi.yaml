@@ -1,0 +1,763 @@
+openapi: 3.0.3
+info:
+  title: 奔流 (Honryu) API
+  version: 0.1.0
+  description: |
+    Honryu is a Kubernetes-native load-testing platform.
+
+    Vocabulary follows Taurus and the wider load-testing community:
+
+      * a **scenario** is a reusable workload definition;
+      * an **execution** is the runnable unit that groups scenarios, together
+        with their load profile (concurrency, ramp-up, duration, engines).
+
+    This document is kept honest by a test: `TestOpenAPIMatchesRoutes` fails if
+    the router registers a route this file does not describe, or vice versa.
+  license:
+    name: See LICENSE
+
+servers:
+  - url: /
+    description: The API server
+
+tags:
+  - name: health
+    description: Liveness and metrics
+  - name: projects
+    description: Projects, the ownership root
+  - name: scenarios
+    description: Reusable workload definitions
+  - name: executions
+    description: Runnable units grouping scenarios
+  - name: lifecycle
+    description: Deploying, triggering, and observing runs
+  - name: usage
+    description: Engine usage accounting
+  - name: admin
+    description: Operator views
+  - name: tenants
+    description: Multi-tenancy and role grants
+  - name: files
+    description: Artifact download
+
+components:
+  parameters:
+    ProjectID:
+      name: project_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ScenarioID:
+      name: scenario_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ExecutionID:
+      name: execution_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    TenantID:
+      name: tenant_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Filename:
+      name: filename
+      in: query
+      required: true
+      schema: { type: string }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+    Project:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        owner: { type: string }
+        sid: { type: string }
+        tenant_id: { type: integer, format: int64, nullable: true }
+        created_time: { type: string, format: date-time }
+    Scenario:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        project_id: { type: integer, format: int64 }
+        created_time: { type: string, format: date-time }
+    LoadProfileEntry:
+      description: One scenario's load configuration; maps onto a Taurus execution block.
+      type: object
+      properties:
+        name: { type: string }
+        scenario_id: { type: integer, format: int64 }
+        concurrency: { type: integer }
+        rampup: { type: integer }
+        engines: { type: integer }
+        duration: { type: integer }
+        csv_split: { type: boolean }
+    Execution:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        project_id: { type: integer, format: int64 }
+        csv_split: { type: boolean }
+        load_profile:
+          type: array
+          items: { $ref: '#/components/schemas/LoadProfileEntry' }
+    ScenarioReadiness:
+      type: object
+      properties:
+        scenario_id: { type: integer, format: int64 }
+        engines: { type: integer }
+        engines_deployed: { type: integer }
+        engines_reachable: { type: boolean }
+    ExecutionStatus:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [idle, deployed, running]
+        status:
+          type: array
+          items: { $ref: '#/components/schemas/ScenarioReadiness' }
+        pool_size: { type: integer }
+    EngineDetail:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        created_time: { type: string, format: date-time }
+    Tenant:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        display_name: { type: string }
+        status: { type: string }
+        created_time: { type: string, format: date-time }
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Not permitted
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such resource
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Not valid in the current state
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoContent:
+      description: Success, no body
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      responses:
+        '200': { description: Healthy }
+
+  /metrics:
+    get:
+      tags: [health]
+      summary: Prometheus metrics exposition
+      responses:
+        '200':
+          description: Metrics in Prometheus text format
+          content:
+            text/plain: {}
+
+  /api/projects:
+    get:
+      tags: [projects]
+      summary: List projects visible to the caller
+      responses:
+        '200':
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, owner]
+              properties:
+                name: { type: string }
+                owner: { type: string }
+                sid: { type: string }
+                tenant_id: { type: integer, format: int64 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/projects/{project_id}:
+    get:
+      tags: [projects]
+      summary: Get a project
+      parameters: [{ $ref: '#/components/parameters/ProjectID' }]
+      responses:
+        '200':
+          description: Project
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [projects]
+      summary: Delete a project
+      description: Rejected while the project still owns scenarios or executions.
+      parameters: [{ $ref: '#/components/parameters/ProjectID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/scenarios:
+    post:
+      tags: [scenarios]
+      summary: Create a scenario
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, project_id]
+              properties:
+                name: { type: string }
+                project_id: { type: integer, format: int64 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/scenarios/{scenario_id}:
+    get:
+      tags: [scenarios]
+      summary: Get a scenario and its files
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: Scenario
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [scenarios]
+      summary: Delete a scenario
+      description: Rejected while the scenario is referenced by an execution.
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/scenarios/{scenario_id}/files:
+    get:
+      tags: [scenarios]
+      summary: List a scenario's files
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: File names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  test_file: { type: string }
+                  data:
+                    type: array
+                    items: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [scenarios]
+      summary: Upload a script or data file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [scenarios]
+      summary: Delete one of a scenario's files
+      parameters:
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/Filename' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions:
+    post:
+      tags: [executions]
+      summary: Create an execution
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, project_id]
+              properties:
+                name: { type: string }
+                project_id: { type: integer, format: int64 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Execution' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/executions/{execution_id}:
+    get:
+      tags: [executions]
+      summary: Get an execution and its load profile
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Execution
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Execution' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [executions]
+      summary: Delete an execution
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/files:
+    get:
+      tags: [executions]
+      summary: List an execution's data files
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: File names
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [executions]
+      summary: Upload a data file shared by the execution's scenarios
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    delete:
+      tags: [executions]
+      summary: Delete one of an execution's data files
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/Filename' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/config:
+    get:
+      tags: [executions]
+      summary: Get the execution's load profile
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Load profile
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LoadProfileEntry' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [executions]
+      summary: Replace the execution's load profile
+      description: |
+        Accepts the uploaded configuration file. This format is replaced by
+        Taurus YAML in a later phase.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/deploy:
+    post:
+      tags: [lifecycle]
+      summary: Deploy the execution's engines
+      description: Idempotent from idle or deployed; rejected mid-run.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/trigger:
+    post:
+      tags: [lifecycle]
+      summary: Start the run
+      description: Requires every engine to be deployed and reachable.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/stop:
+    post:
+      tags: [lifecycle]
+      summary: Stop the run, leaving engines deployed
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/purge:
+    post:
+      tags: [lifecycle]
+      summary: Tear down all engines
+      description: Purging an execution with nothing deployed is not an error.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/status:
+    get:
+      tags: [lifecycle]
+      summary: Report phase and per-scenario engine readiness
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionStatus' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/engines:
+    get:
+      tags: [lifecycle]
+      summary: List the execution's engine pods
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Engines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ingress_ip: { type: string }
+                  engines:
+                    type: array
+                    items: { $ref: '#/components/schemas/EngineDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/scenarios/{scenario_id}/logs:
+    get:
+      tags: [lifecycle]
+      summary: Fetch the logs of a scenario's first engine pod
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/ScenarioID' }
+      responses:
+        '200':
+          description: Pod log
+          content:
+            text/plain: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/stream:
+    get:
+      tags: [lifecycle]
+      summary: Stream live run metrics as server-sent events
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/usage/history:
+    get:
+      tags: [usage]
+      summary: Engine usage history
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Usage rows
+          content:
+            application/json: {}
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/usage/summary:
+    get:
+      tags: [usage]
+      summary: Aggregated engine usage
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json: {}
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/admin/executions:
+    get:
+      tags: [admin]
+      summary: List currently deployed executions
+      responses:
+        '200':
+          description: Deployed executions
+          content:
+            application/json: {}
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/nodes:
+    get:
+      tags: [admin]
+      summary: Summarise the node pools backing engine capacity
+      responses:
+        '200':
+          description: Node pools
+          content:
+            application/json: {}
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tenants:
+    get:
+      tags: [tenants]
+      summary: List tenants
+      responses:
+        '200':
+          description: Tenants
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Tenant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [tenants]
+      summary: Create a tenant
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, display_name]
+              properties:
+                name: { type: string }
+                display_name: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tenants/{tenant_id}:
+    get:
+      tags: [tenants]
+      summary: Get a tenant
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      responses:
+        '200':
+          description: Tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [tenants]
+      summary: Set a tenant's status
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/tenants/{tenant_id}/roles:
+    post:
+      tags: [tenants]
+      summary: Grant a role within a tenant
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [subject, role]
+              properties:
+                subject: { type: string }
+                email: { type: string }
+                role: { type: string }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [tenants]
+      summary: Revoke a role within a tenant
+      parameters:
+        - { $ref: '#/components/parameters/TenantID' }
+        - { name: subject, in: query, required: true, schema: { type: string } }
+        - { name: role, in: query, required: true, schema: { type: string } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/roles:
+    post:
+      tags: [tenants]
+      summary: Grant a global role
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [subject, role]
+              properties:
+                subject: { type: string }
+                email: { type: string }
+                role: { type: string }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [tenants]
+      summary: Revoke a global role
+      parameters:
+        - { name: subject, in: query, required: true, schema: { type: string } }
+        - { name: role, in: query, required: true, schema: { type: string } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/files/{kind}/{id}/{name}:
+    get:
+      tags: [files]
+      summary: Download an uploaded artifact
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [scenario, execution]
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The artifact
+          content:
+            application/octet-stream: {}
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }

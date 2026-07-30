@@ -43,68 +43,92 @@ type Deps struct {
 	DefaultOwners []string
 }
 
+// Route is one registered endpoint. The route table is the single source of
+// truth for the API surface: NewRouter registers from it, and a test asserts
+// that api/openapi.yaml documents exactly these routes.
+type Route struct {
+	Method  string
+	Pattern string
+	// Group is the section the route belongs to, used for OpenAPI tags.
+	Group string
+
+	handler func(*handlers) http.Handler
+}
+
+func hf(f func(*handlers) http.HandlerFunc) func(*handlers) http.Handler {
+	return func(h *handlers) http.Handler { return f(h) }
+}
+
+var routes = []Route{
+	{"GET", "/healthz", "health", hf(func(h *handlers) http.HandlerFunc { return h.health })},
+	{"GET", "/metrics", "health", func(*handlers) http.Handler { return promhttp.Handler() }},
+
+	{"GET", "/api/projects", "projects", hf(func(h *handlers) http.HandlerFunc { return h.listProjects })},
+	{"POST", "/api/projects", "projects", hf(func(h *handlers) http.HandlerFunc { return h.createProject })},
+	{"GET", "/api/projects/{project_id}", "projects", hf(func(h *handlers) http.HandlerFunc { return h.getProject })},
+	{"DELETE", "/api/projects/{project_id}", "projects", hf(func(h *handlers) http.HandlerFunc { return h.deleteProject })},
+
+	{"POST", "/api/scenarios", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.createScenario })},
+	{"GET", "/api/scenarios/{scenario_id}", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.getScenario })},
+	{"DELETE", "/api/scenarios/{scenario_id}", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.deleteScenario })},
+	{"GET", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.listScenarioFiles })},
+	{"PUT", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.uploadScenarioFile })},
+	{"DELETE", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.deleteScenarioFile })},
+
+	{"POST", "/api/executions", "executions", hf(func(h *handlers) http.HandlerFunc { return h.createExecution })},
+	{"GET", "/api/executions/{execution_id}", "executions", hf(func(h *handlers) http.HandlerFunc { return h.getExecution })},
+	{"DELETE", "/api/executions/{execution_id}", "executions", hf(func(h *handlers) http.HandlerFunc { return h.deleteExecution })},
+	{"GET", "/api/executions/{execution_id}/files", "executions", hf(func(h *handlers) http.HandlerFunc { return h.listExecutionFiles })},
+	{"PUT", "/api/executions/{execution_id}/files", "executions", hf(func(h *handlers) http.HandlerFunc { return h.uploadExecutionFile })},
+	{"DELETE", "/api/executions/{execution_id}/files", "executions", hf(func(h *handlers) http.HandlerFunc { return h.deleteExecutionFile })},
+	{"PUT", "/api/executions/{execution_id}/config", "executions", hf(func(h *handlers) http.HandlerFunc { return h.uploadExecutionConfig })},
+	{"GET", "/api/executions/{execution_id}/config", "executions", hf(func(h *handlers) http.HandlerFunc { return h.getExecutionConfig })},
+
+	{"POST", "/api/executions/{execution_id}/deploy", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.deployExecution })},
+	{"POST", "/api/executions/{execution_id}/trigger", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.triggerExecution })},
+	{"POST", "/api/executions/{execution_id}/stop", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.stopExecution })},
+	{"POST", "/api/executions/{execution_id}/purge", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.purgeExecution })},
+	{"GET", "/api/executions/{execution_id}/status", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.executionStatus })},
+	{"GET", "/api/executions/{execution_id}/engines", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.executionEngines })},
+	{"GET", "/api/executions/{execution_id}/scenarios/{scenario_id}/logs", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.scenarioPodLog })},
+	{"GET", "/api/executions/{execution_id}/stream", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.streamExecution })},
+
+	{"GET", "/api/usage/history", "usage", hf(func(h *handlers) http.HandlerFunc { return h.usageHistory })},
+	{"GET", "/api/usage/summary", "usage", hf(func(h *handlers) http.HandlerFunc { return h.usageSummary })},
+
+	{"GET", "/api/admin/executions", "admin", hf(func(h *handlers) http.HandlerFunc { return h.adminExecutions })},
+	{"GET", "/api/admin/nodes", "admin", hf(func(h *handlers) http.HandlerFunc { return h.adminNodes })},
+
+	{"POST", "/api/tenants", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.createTenant })},
+	{"GET", "/api/tenants", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.listTenants })},
+	{"GET", "/api/tenants/{tenant_id}", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.getTenant })},
+	{"PATCH", "/api/tenants/{tenant_id}", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.setTenantStatus })},
+	{"POST", "/api/tenants/{tenant_id}/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.assignTenantRole })},
+	{"DELETE", "/api/tenants/{tenant_id}/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeTenantRole })},
+	{"POST", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.assignGlobalRole })},
+	{"DELETE", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeGlobalRole })},
+
+	{"GET", "/api/files/{kind}/{id}/{name}", "files", hf(func(h *handlers) http.HandlerFunc { return h.downloadFile })},
+}
+
+// Routes returns the registered API surface. Handlers are not exposed; callers
+// get the method, pattern, and group only.
+func Routes() []Route {
+	out := make([]Route, len(routes))
+	for i, r := range routes {
+		out[i] = Route{Method: r.Method, Pattern: r.Pattern, Group: r.Group}
+	}
+	return out
+}
+
 // NewRouter builds the HTTP handler for the API server.
 func NewRouter(d Deps) http.Handler {
 	h := &handlers{deps: d}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", h.health)
-	mux.Handle("GET /metrics", promhttp.Handler())
-
-	// Projects
-	mux.HandleFunc("GET /api/projects", h.listProjects)
-	mux.HandleFunc("POST /api/projects", h.createProject)
-	mux.HandleFunc("GET /api/projects/{project_id}", h.getProject)
-	mux.HandleFunc("DELETE /api/projects/{project_id}", h.deleteProject)
-
-	// Scenarios
-	mux.HandleFunc("POST /api/scenarios", h.createScenario)
-	mux.HandleFunc("GET /api/scenarios/{scenario_id}", h.getScenario)
-	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}", h.deleteScenario)
-	mux.HandleFunc("GET /api/scenarios/{scenario_id}/files", h.listScenarioFiles)
-	mux.HandleFunc("PUT /api/scenarios/{scenario_id}/files", h.uploadScenarioFile)
-	mux.HandleFunc("DELETE /api/scenarios/{scenario_id}/files", h.deleteScenarioFile)
-
-	// Executions
-	mux.HandleFunc("POST /api/executions", h.createExecution)
-	mux.HandleFunc("GET /api/executions/{execution_id}", h.getExecution)
-	mux.HandleFunc("DELETE /api/executions/{execution_id}", h.deleteExecution)
-	mux.HandleFunc("GET /api/executions/{execution_id}/files", h.listExecutionFiles)
-	mux.HandleFunc("PUT /api/executions/{execution_id}/files", h.uploadExecutionFile)
-	mux.HandleFunc("DELETE /api/executions/{execution_id}/files", h.deleteExecutionFile)
-	mux.HandleFunc("PUT /api/executions/{execution_id}/config", h.uploadExecutionConfig)
-	mux.HandleFunc("GET /api/executions/{execution_id}/config", h.getExecutionConfig)
-
-	// Lifecycle
-	mux.HandleFunc("POST /api/executions/{execution_id}/deploy", h.deployExecution)
-	mux.HandleFunc("POST /api/executions/{execution_id}/trigger", h.triggerExecution)
-	mux.HandleFunc("POST /api/executions/{execution_id}/stop", h.stopExecution)
-	mux.HandleFunc("POST /api/executions/{execution_id}/purge", h.purgeExecution)
-	mux.HandleFunc("GET /api/executions/{execution_id}/status", h.executionStatus)
-	mux.HandleFunc("GET /api/executions/{execution_id}/engines", h.executionEngines)
-	mux.HandleFunc("GET /api/executions/{execution_id}/scenarios/{scenario_id}/logs", h.scenarioPodLog)
-	mux.HandleFunc("GET /api/executions/{execution_id}/stream", h.streamExecution)
-
-	// Usage
-	mux.HandleFunc("GET /api/usage/history", h.usageHistory)
-	mux.HandleFunc("GET /api/usage/summary", h.usageSummary)
-
-	// Admin
-	mux.HandleFunc("GET /api/admin/executions", h.adminExecutions)
-	mux.HandleFunc("GET /api/admin/nodes", h.adminNodes)
-
-	// Tenants & role grants (multi-tenancy administration)
-	mux.HandleFunc("POST /api/tenants", h.createTenant)
-	mux.HandleFunc("GET /api/tenants", h.listTenants)
-	mux.HandleFunc("GET /api/tenants/{tenant_id}", h.getTenant)
-	mux.HandleFunc("PATCH /api/tenants/{tenant_id}", h.setTenantStatus)
-	mux.HandleFunc("POST /api/tenants/{tenant_id}/roles", h.assignTenantRole)
-	mux.HandleFunc("DELETE /api/tenants/{tenant_id}/roles", h.revokeTenantRole)
-	mux.HandleFunc("POST /api/roles", h.assignGlobalRole)
-	mux.HandleFunc("DELETE /api/roles", h.revokeGlobalRole)
-
-	// Generic artifact download
-	mux.HandleFunc("GET /api/files/{kind}/{id}/{name}", h.downloadFile)
+	for _, r := range routes {
+		mux.Handle(r.Method+" "+r.Pattern, r.handler(h))
+	}
 
 	return h.authenticate(mux)
 }
