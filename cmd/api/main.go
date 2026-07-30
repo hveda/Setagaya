@@ -101,7 +101,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		slog.Warn("resume metric collection", "error", resumeErr)
 	}
 	usage := usageapp.NewService(repo)
-	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.EngineImage).
+	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).
 		WithMetrics(collector).WithUsage(usage)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)

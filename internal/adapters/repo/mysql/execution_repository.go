@@ -8,16 +8,18 @@ import (
 
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
-const executionColumns = "id, name, project_id, csv_split, tenant_id, created_by, updated_by, created_time"
+const executionColumns = "id, name, project_id, engine, csv_split, tenant_id, created_by, updated_by, created_time"
 
 // CreateExecution inserts c and returns its auto-assigned ID.
 func (r *Repository) CreateExecution(ctx context.Context, c execution.Execution) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		"INSERT INTO execution (name, project_id, csv_split, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?)",
-		c.Name, c.ProjectID, boolToInt(c.CSVSplit), nullInt64(c.TenantID), nullString(c.CreatedBy), nullString(c.UpdatedBy),
+		"INSERT INTO execution (name, project_id, engine, csv_split, tenant_id, created_by, updated_by)"+
+			" VALUES (?, ?, ?, ?, ?, ?, ?)",
+		c.Name, c.ProjectID, string(c.Engine), boolToInt(c.CSVSplit), nullInt64(c.TenantID), nullString(c.CreatedBy), nullString(c.UpdatedBy),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("mysql: create execution: %w", err)
@@ -180,14 +182,17 @@ func (r *Repository) LoadProfileFor(ctx context.Context, executionID int64) ([]l
 func scanExecution(s rowScanner) (execution.Execution, error) {
 	var (
 		c         execution.Execution
+		engine    string
 		csvSplit  int64
 		tenantID  sql.NullInt64
 		createdBy sql.NullString
 		updatedBy sql.NullString
 	)
-	if err := s.Scan(&c.ID, &c.Name, &c.ProjectID, &csvSplit, &tenantID, &createdBy, &updatedBy, &c.CreatedTime); err != nil {
+	if err := s.Scan(&c.ID, &c.Name, &c.ProjectID, &engine, &csvSplit,
+		&tenantID, &createdBy, &updatedBy, &c.CreatedTime); err != nil {
 		return execution.Execution{}, err
 	}
+	c.Engine = taurus.Executor(engine)
 	c.CSVSplit = csvSplit != 0
 	c.CreatedBy = createdBy.String
 	c.UpdatedBy = updatedBy.String

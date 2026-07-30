@@ -106,6 +106,9 @@ components:
         id: { type: integer, format: int64 }
         name: { type: string }
         project_id: { type: integer, format: int64 }
+        engine:
+          type: string
+          description: Engine the execution runs on; absent means the deployment default.
         csv_split: { type: boolean }
         load_profile:
           type: array
@@ -417,6 +420,13 @@ paths:
               properties:
                 name: { type: string }
                 project_id: { type: integer, format: int64 }
+                engine:
+                  type: string
+                  description: |
+                    Engine to run on. Omit to use the deployment's configured
+                    default. Must be an engine this deployment has an image for,
+                    and one every scenario in the execution can run on.
+                  enum: [jmeter, k6, gatling, locust, apiritif, ab, siege]
       responses:
         '201':
           description: Created

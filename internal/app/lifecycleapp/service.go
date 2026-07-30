@@ -16,6 +16,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -65,18 +66,28 @@ func (noopUsage) RecordFinish(context.Context, int64, int) error             { r
 
 // Service implements the lifecycle use-cases.
 type Service struct {
-	repo        Repo
-	sched       ports.Scheduler
-	store       ports.ObjectStore
-	engineImage string
-	metrics     Metrics
-	usage       Usage
+	repo    Repo
+	sched   ports.Scheduler
+	store   ports.ObjectStore
+	image   ImageResolver
+	metrics Metrics
+	usage   Usage
 }
 
-// NewService wires the lifecycle service. engineImage is the executor container
-// image deployed for every engine.
-func NewService(repo Repo, sched ports.Scheduler, store ports.ObjectStore, engineImage string) *Service {
-	return &Service{repo: repo, sched: sched, store: store, engineImage: engineImage, metrics: noopMetrics{}, usage: noopUsage{}}
+// ImageResolver returns the container image for an engine. An empty engine
+// means the execution expressed no preference and takes the deployment default.
+type ImageResolver func(engine taurus.Executor) (string, error)
+
+// StaticImage is an ImageResolver that always answers with the same image,
+// for tests and single-engine deployments.
+func StaticImage(image string) ImageResolver {
+	return func(taurus.Executor) (string, error) { return image, nil }
+}
+
+// NewService wires the lifecycle service. image resolves an execution's engine
+// to the container image its pods run.
+func NewService(repo Repo, sched ports.Scheduler, store ports.ObjectStore, image ImageResolver) *Service {
+	return &Service{repo: repo, sched: sched, store: store, image: image, metrics: noopMetrics{}, usage: noopUsage{}}
 }
 
 // WithMetrics attaches the metric collector started on trigger and stopped on
@@ -115,13 +126,19 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 	} else if err := run.CanDeploy(run.DerivePhase(0, running)); err != nil {
 		return err
 	}
+	// Resolve once, before deploying anything: an execution whose engine this
+	// deployment has no image for must fail before half its scenarios are up.
+	image, err := s.image(coll.Engine)
+	if err != nil {
+		return err
+	}
 	for _, ep := range scenarios {
 		spec := ports.DeploySpec{
 			ProjectID:   coll.ProjectID,
 			ExecutionID: executionID,
 			ScenarioID:  ep.ScenarioID,
 			Engines:     ep.Engines,
-			Image:       s.engineImage,
+			Image:       image,
 		}
 		if err := s.sched.DeployScenario(ctx, spec); err != nil {
 			return err

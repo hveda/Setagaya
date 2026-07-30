@@ -38,7 +38,7 @@ func TestPhase2_LifecycleEndToEnd(t *testing.T) {
 		Projects:      projectapp.NewService(repo),
 		Scenarios:     scenarioapp.NewService(repo, store),
 		Executions:    executionapp.NewService(repo, store, 500),
-		Lifecycle:     lifecycleapp.NewService(repo, sched, store, "honryu/jmeter:latest"),
+		Lifecycle:     lifecycleapp.NewService(repo, sched, store, lifecycleapp.StaticImage("honryu/jmeter:latest")),
 		Store:         store,
 		DefaultOwners: []string{"honryu"},
 	})

@@ -41,7 +41,7 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 		Projects:      projectapp.NewService(store),
 		Scenarios:     scenarioapp.NewService(store, obj),
 		Executions:    executionapp.NewService(store, obj, 100),
-		Lifecycle:     lifecycleapp.NewService(store, sched, obj, "img"),
+		Lifecycle:     lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("img")),
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},
 	})

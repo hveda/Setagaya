@@ -43,7 +43,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 
 	collector := metricsapp.NewService(repo, sched, sink, bus)
 	usage := usageapp.NewService(repo)
-	lifecycle := lifecycleapp.NewService(repo, sched, store, "jmeter").WithMetrics(collector).WithUsage(usage)
+	lifecycle := lifecycleapp.NewService(repo, sched, store, lifecycleapp.StaticImage("jmeter")).WithMetrics(collector).WithUsage(usage)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 
 	router := httpapi.NewRouter(httpapi.Deps{

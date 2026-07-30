@@ -3,6 +3,8 @@ package config
 import (
 	"testing"
 	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 // envMap builds a getenv func from a map so tests never touch the real
@@ -79,11 +81,12 @@ func TestLoad_AuthOverrides(t *testing.T) {
 	}
 }
 
-func TestLoad_StorageAndExecutorOverrides(t *testing.T) {
+func TestLoad_StorageAndEngineOverrides(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := Load(envMap(map[string]string{
-		"HONRYU_EXECUTOR":         "k6",
+		"HONRYU_DEFAULT_ENGINE":   "k6",
+		"HONRYU_ENGINE_IMAGES":    "jmeter=honryu/engine-jmeter:5.6.3,k6=honryu/engine-k6:1.0.0",
 		"HONRYU_STORAGE_DRIVER":   "nexus",
 		"HONRYU_STORAGE_BASE_URL": "https://nexus.example",
 		"HONRYU_NEXUS_REPO":       "honryu-raw",
@@ -93,8 +96,11 @@ func TestLoad_StorageAndExecutorOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load storage/executor overrides: %v", err)
 	}
-	if cfg.Cluster.Executor != "k6" {
-		t.Fatalf("Executor = %q, want k6", cfg.Cluster.Executor)
+	if cfg.Cluster.DefaultEngine != taurus.ExecutorK6 {
+		t.Fatalf("DefaultEngine = %q, want k6", cfg.Cluster.DefaultEngine)
+	}
+	if img, err := cfg.Cluster.ImageFor(taurus.ExecutorK6); err != nil || img != "honryu/engine-k6:1.0.0" {
+		t.Fatalf("ImageFor(k6) = %q, %v", img, err)
 	}
 	if cfg.Storage.Driver != "nexus" || cfg.Storage.Repo != "honryu-raw" ||
 		cfg.Storage.Username != "admin" || cfg.Storage.Password != "s3cret" {
@@ -155,31 +161,36 @@ func TestLoad_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]map[string]string{
-		"port not a number":   {"HONRYU_HTTP_PORT": "abc"},
-		"port out of range":   {"HONRYU_HTTP_PORT": "70000"},
-		"port zero":           {"HONRYU_HTTP_PORT": "0"},
-		"bad read timeout":    {"HONRYU_HTTP_READ_TIMEOUT": "soon"},
-		"bad write timeout":   {"HONRYU_HTTP_WRITE_TIMEOUT": "later"},
-		"bad idle timeout":    {"HONRYU_HTTP_IDLE_TIMEOUT": "never"},
-		"unknown log level":   {"HONRYU_LOG_LEVEL": "verbose"},
-		"unknown log format":  {"HONRYU_LOG_FORMAT": "yaml"},
-		"unknown db driver":   {"HONRYU_DB_DRIVER": "postgres"},
-		"mysql without dsn":   {"HONRYU_DB_DRIVER": "mysql"},
-		"bad max engines":     {"HONRYU_MAX_ENGINES": "-3"},
-		"non-numeric engines": {"HONRYU_MAX_ENGINES": "lots"},
-		"unknown scheduler":   {"HONRYU_SCHEDULER": "nomad"},
-		"unknown executor":    {"HONRYU_EXECUTOR": "locust"},
-		"bad engine port":     {"HONRYU_ENGINE_PORT": "99999"},
-		"non-numeric port":    {"HONRYU_ENGINE_PORT": "eighty"},
-		"bad purge interval":  {"HONRYU_AUTOPURGE_INTERVAL": "soon"},
-		"bad purge idle":      {"HONRYU_AUTOPURGE_IDLE": "forever"},
-		"unknown auth mode":   {"HONRYU_AUTH_MODE": "ldap"},
-		"bad enable rbac":     {"HONRYU_ENABLE_RBAC": "maybe"},
-		"oidc without issuer": {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_JWKS_URL": "https://x/jwks"},
-		"oidc without jwks":   {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_ISSUER": "https://x"},
-		"unknown storage":     {"HONRYU_STORAGE_DRIVER": "s3"},
-		"nexus without url":   {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_NEXUS_REPO": "raw"},
-		"nexus without repo":  {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_STORAGE_BASE_URL": "https://x"},
+		"port not a number":      {"HONRYU_HTTP_PORT": "abc"},
+		"port out of range":      {"HONRYU_HTTP_PORT": "70000"},
+		"port zero":              {"HONRYU_HTTP_PORT": "0"},
+		"bad read timeout":       {"HONRYU_HTTP_READ_TIMEOUT": "soon"},
+		"bad write timeout":      {"HONRYU_HTTP_WRITE_TIMEOUT": "later"},
+		"bad idle timeout":       {"HONRYU_HTTP_IDLE_TIMEOUT": "never"},
+		"unknown log level":      {"HONRYU_LOG_LEVEL": "verbose"},
+		"unknown log format":     {"HONRYU_LOG_FORMAT": "yaml"},
+		"unknown db driver":      {"HONRYU_DB_DRIVER": "postgres"},
+		"mysql without dsn":      {"HONRYU_DB_DRIVER": "mysql"},
+		"bad max engines":        {"HONRYU_MAX_ENGINES": "-3"},
+		"non-numeric engines":    {"HONRYU_MAX_ENGINES": "lots"},
+		"unknown scheduler":      {"HONRYU_SCHEDULER": "nomad"},
+		"unknown default engine": {"HONRYU_DEFAULT_ENGINE": "wat"},
+		"default engine without an image": {
+			"HONRYU_DEFAULT_ENGINE": "k6",
+			"HONRYU_ENGINE_IMAGES":  "jmeter=honryu/engine-jmeter:5.6.3",
+		},
+		"untagged engine image": {"HONRYU_ENGINE_IMAGES": "jmeter=honryu/engine-jmeter"},
+		"bad engine port":       {"HONRYU_ENGINE_PORT": "99999"},
+		"non-numeric port":      {"HONRYU_ENGINE_PORT": "eighty"},
+		"bad purge interval":    {"HONRYU_AUTOPURGE_INTERVAL": "soon"},
+		"bad purge idle":        {"HONRYU_AUTOPURGE_IDLE": "forever"},
+		"unknown auth mode":     {"HONRYU_AUTH_MODE": "ldap"},
+		"bad enable rbac":       {"HONRYU_ENABLE_RBAC": "maybe"},
+		"oidc without issuer":   {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_JWKS_URL": "https://x/jwks"},
+		"oidc without jwks":     {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_ISSUER": "https://x"},
+		"unknown storage":       {"HONRYU_STORAGE_DRIVER": "s3"},
+		"nexus without url":     {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_NEXUS_REPO": "raw"},
+		"nexus without repo":    {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_STORAGE_BASE_URL": "https://x"},
 	}
 
 	for name, env := range cases {

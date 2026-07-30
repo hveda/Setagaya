@@ -78,6 +78,22 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Error("a JMeter-pinned scenario read back accepted k6")
 		}
 
+		// An execution's engine selection must survive too, or a run would
+		// silently fall back to the deployment default and measure a workload
+		// nobody asked for.
+		exe := execution.Execution{Name: "on-k6", ProjectID: 10, Engine: taurus.ExecutorK6}
+		exeID, err := repo.CreateExecution(ctx, exe)
+		if err != nil {
+			t.Fatalf("CreateExecution(with engine): %v", err)
+		}
+		gotExe, err := repo.GetExecution(ctx, exeID)
+		if err != nil {
+			t.Fatalf("GetExecution: %v", err)
+		}
+		if gotExe.Engine != taurus.ExecutorK6 {
+			t.Errorf("execution engine round trip = %q, want k6", gotExe.Engine)
+		}
+
 		// Listing must carry portability too: engine selection is offered from
 		// list views, not only from a single fetch.
 		listed, err := repo.ListScenariosByProject(ctx, 10)

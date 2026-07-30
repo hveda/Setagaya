@@ -11,12 +11,14 @@ import (
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 type executionResponse struct {
 	ID          int64                  `json:"id"`
 	Name        string                 `json:"name"`
 	ProjectID   int64                  `json:"project_id"`
+	Engine      taurus.Executor        `json:"engine,omitempty"`
 	CSVSplit    bool                   `json:"csv_split"`
 	CreatedTime time.Time              `json:"created_time"`
 	LoadProfile []loadprofile.Entry    `json:"load_profile"`
@@ -69,7 +71,8 @@ func (h *handlers) createExecution(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	c, err := h.deps.Executions.Create(r.Context(), r.PostForm.Get("name"), projectID)
+	c, err := h.deps.Executions.Create(r.Context(), r.PostForm.Get("name"), projectID,
+		taurus.Executor(r.PostForm.Get("engine")))
 	if err != nil {
 		respondError(w, err)
 		return
@@ -207,6 +210,7 @@ func (h *handlers) authorizeExecution(r *http.Request, executionID int64) error 
 
 func toExecutionResponse(c execution.Execution) executionResponse {
 	return executionResponse{
+		Engine:      c.Engine,
 		ID:          c.ID,
 		Name:        c.Name,
 		ProjectID:   c.ProjectID,

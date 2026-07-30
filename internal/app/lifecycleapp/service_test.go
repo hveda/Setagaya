@@ -60,7 +60,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	}
 
 	sched := fake.NewScheduler()
-	svc := lifecycleapp.NewService(store, sched, fake.NewObjectStore(), image)
+	svc := lifecycleapp.NewService(store, sched, fake.NewObjectStore(), lifecycleapp.StaticImage(image))
 	return &env{store: store, sched: sched, svc: svc, projectID: projectID, executionID: executionID, planIDs: planIDs}
 }
 

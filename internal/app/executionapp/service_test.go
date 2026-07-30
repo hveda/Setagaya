@@ -41,7 +41,7 @@ func TestCreate_Get_List(t *testing.T) {
 	svc, _, _ := newCollService(t)
 	ctx := context.Background()
 
-	c, err := svc.Create(ctx, "peak", 10)
+	c, err := svc.Create(ctx, "peak", 10, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestFileLifecycle(t *testing.T) {
 	t.Parallel()
 	svc, _, obj := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10)
+	c, _ := svc.Create(ctx, "peak", 10, "")
 
 	if err := svc.UploadFile(ctx, c.ID, "shared.csv", bytes.NewReader([]byte("x,y"))); err != nil {
 		t.Fatalf("UploadFile: %v", err)
@@ -93,7 +93,7 @@ func TestDelete_RemovesFiles(t *testing.T) {
 	t.Parallel()
 	svc, _, obj := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10)
+	c, _ := svc.Create(ctx, "peak", 10, "")
 	_ = svc.UploadFile(ctx, c.ID, "shared.csv", bytes.NewReader([]byte("x")))
 
 	if err := svc.Delete(ctx, c.ID); err != nil {
@@ -108,7 +108,7 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	t.Parallel()
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10)
+	c, _ := svc.Create(ctx, "peak", 10, "")
 	scenarioID := seedScenario(t, store, "smoke", 10)
 
 	ec := loadprofile.Profile{
@@ -138,7 +138,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	t.Parallel()
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10)
+	c, _ := svc.Create(ctx, "peak", 10, "")
 	scenarioID := seedScenario(t, store, "smoke", 10)
 	foreignScenario := seedScenario(t, store, "other", 99)
 

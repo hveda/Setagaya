@@ -5,8 +5,11 @@ package execution
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 // MaxNameLen mirrors the persisted schema (execution.name VARCHAR(100)).
@@ -17,13 +20,18 @@ var (
 	ErrNameRequired    = errors.New("execution: name is required")
 	ErrNameTooLong     = errors.New("execution: name exceeds maximum length")
 	ErrProjectRequired = errors.New("execution: a valid project id is required")
+	ErrEngineUnknown   = errors.New("execution: unknown engine")
 )
 
 // Execution is a group of scenarios executed together against a Project.
 type Execution struct {
-	ID          int64
-	Name        string
-	ProjectID   int64
+	ID        int64
+	Name      string
+	ProjectID int64
+	// Engine is the load-test engine this execution runs on. Empty means the
+	// deployment's configured default, so an execution created before an
+	// operator offered a choice keeps working.
+	Engine      taurus.Executor
 	CSVSplit    bool
 	TenantID    *int64
 	CreatedBy   string
@@ -50,6 +58,9 @@ func (c Execution) Validate() error {
 		return ErrNameTooLong
 	case c.ProjectID <= 0:
 		return ErrProjectRequired
+	}
+	if c.Engine != "" && !c.Engine.Known() {
+		return fmt.Errorf("%w: %q", ErrEngineUnknown, c.Engine)
 	}
 	return nil
 }

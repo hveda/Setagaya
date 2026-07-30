@@ -11,6 +11,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 // Config is the fully-resolved, validated runtime configuration.
@@ -50,12 +52,16 @@ type OIDCConfig struct {
 // in-cluster Kubernetes client. Executor "fake" records triggers; "jmeter"
 // drives the JMeter agent over HTTP.
 type ClusterConfig struct {
-	Scheduler   string // fake|k8s
-	Executor    string // fake|jmeter
-	Namespace   string
-	EngineImage string
-	EnginePort  int
-	Context     string // deployment context scoping running_scenario rows
+	Scheduler string // fake|k8s
+	Namespace string
+	// DefaultEngine is the engine an execution runs on when it names none.
+	DefaultEngine taurus.Executor
+	// EngineImages maps each supported engine to its pinned container image.
+	// Engines do not share a runtime, so there is one image per engine rather
+	// than one image for all of them.
+	EngineImages map[taurus.Executor]string
+	EnginePort   int
+	Context      string // deployment context scoping running_scenario rows
 	// AutoPurgeInterval is how often idle engines are swept; zero disables the
 	// sweeper. AutoPurgeIdle is how long engines may sit idle before a sweep
 	// purges them.
@@ -125,10 +131,11 @@ func Load(getenv func(string) string) (Config, error) {
 		Storage: StorageConfig{Driver: "local", Root: "storage-data"},
 		Limits:  LimitsConfig{MaxEnginesInExecution: 500},
 		Cluster: ClusterConfig{
-			Scheduler:     "fake",
-			Executor:      "fake",
+			Scheduler: "fake",
+
 			Namespace:     "default",
-			EngineImage:   "honryu/jmeter:latest",
+			DefaultEngine: taurus.ExecutorJMeter,
+			EngineImages:  map[taurus.Executor]string{taurus.ExecutorJMeter: "honryu/engine-jmeter:5.6.3"},
 			EnginePort:    8080,
 			Context:       "default",
 			AutoPurgeIdle: time.Hour,
@@ -163,9 +170,16 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Cluster.Scheduler = strEnv(getenv, "SCHEDULER", cfg.Cluster.Scheduler)
-	cfg.Cluster.Executor = strEnv(getenv, "EXECUTOR", cfg.Cluster.Executor)
 	cfg.Cluster.Namespace = strEnv(getenv, "K8S_NAMESPACE", cfg.Cluster.Namespace)
-	cfg.Cluster.EngineImage = strEnv(getenv, "ENGINE_IMAGE", cfg.Cluster.EngineImage)
+	cfg.Cluster.DefaultEngine = taurus.Executor(
+		strEnv(getenv, "DEFAULT_ENGINE", string(cfg.Cluster.DefaultEngine)))
+	if raw := strEnv(getenv, "ENGINE_IMAGES", ""); raw != "" {
+		images, imgErr := ParseEngineImages(raw)
+		if imgErr != nil {
+			return Config{}, imgErr
+		}
+		cfg.Cluster.EngineImages = images
+	}
 	cfg.Cluster.Context = strEnv(getenv, "DEPLOY_CONTEXT", cfg.Cluster.Context)
 	if cfg.Cluster.EnginePort, err = intEnv(getenv, "ENGINE_PORT", cfg.Cluster.EnginePort); err != nil {
 		return Config{}, err
@@ -212,8 +226,8 @@ func (c Config) validate() error {
 	if !oneOf(c.Cluster.Scheduler, "fake", "k8s") {
 		return fmt.Errorf("config: invalid scheduler %q", c.Cluster.Scheduler)
 	}
-	if !oneOf(c.Cluster.Executor, "fake", "jmeter", "k6") {
-		return fmt.Errorf("config: invalid executor %q", c.Cluster.Executor)
+	if err := c.Cluster.ValidateEngines(); err != nil {
+		return err
 	}
 	if !oneOf(c.Storage.Driver, "local", "nexus") {
 		return fmt.Errorf("config: invalid storage driver %q", c.Storage.Driver)

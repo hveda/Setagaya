@@ -13,6 +13,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -59,9 +60,15 @@ type FileRef struct {
 }
 
 // Create validates input and persists a new execution.
-func (s *Service) Create(ctx context.Context, name string, projectID int64) (execution.Execution, error) {
+func (s *Service) Create(ctx context.Context, name string, projectID int64, engine taurus.Executor) (execution.Execution, error) {
 	c, err := execution.New(name, projectID)
 	if err != nil {
+		return execution.Execution{}, err
+	}
+	// An empty engine means the caller expressed no preference and takes the
+	// deployment's configured default at deploy time.
+	c.Engine = engine
+	if err := c.Validate(); err != nil {
 		return execution.Execution{}, err
 	}
 	id, err := s.repo.CreateExecution(ctx, c)
