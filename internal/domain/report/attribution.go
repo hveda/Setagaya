@@ -1,7 +1,6 @@
 package report
 
 import (
-	"sort"
 	"strconv"
 	"strings"
 
@@ -126,51 +125,4 @@ func (r Report) EngineImpaired() bool {
 		return false
 	}
 	return r.Attribution.Engine > r.Attribution.Target
-}
-
-// collectErrors combines every pod's failures into one attributed list, ordered
-// so the dominant failure is read first.
-//
-// Grouping is by signature, so the same failure reported in three engines'
-// wording is one entry rather than three -- see Signature.
-func collectErrors(intervals []metrics.Interval) ([]ErrorSignature, Attribution) {
-	merged := map[Signature]*ErrorSignature{}
-
-	for _, iv := range intervals {
-		if iv.Label == TotalLabel {
-			continue // the engine's own aggregate; already counted per label
-		}
-		for _, e := range iv.Errors {
-			sig := NewSignature(iv.Label, e)
-			existing, ok := merged[sig]
-			if !ok {
-				existing = &ErrorSignature{Signature: sig}
-				merged[sig] = existing
-			}
-			existing.Count += e.Count
-			existing.addExemplar(e.Message)
-		}
-	}
-
-	out := make([]ErrorSignature, 0, len(merged))
-	var attr Attribution
-	for _, e := range merged {
-		out = append(out, *e)
-		switch e.Side {
-		case SideTarget:
-			attr.Target += e.Count
-		case SideEngine:
-			attr.Engine += e.Count
-		default:
-			attr.Unknown += e.Count
-		}
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Count != out[j].Count {
-			return out[i].Count > out[j].Count
-		}
-		return out[i].String() < out[j].String()
-	})
-	return out, attr
 }
