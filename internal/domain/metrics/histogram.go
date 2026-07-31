@@ -5,8 +5,11 @@
 package metrics
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
+	"strconv"
 )
 
 // Histogram counts response times, keyed by the response time in seconds.
@@ -120,4 +123,36 @@ func (h Histogram) Percentiles(ps ...float64) map[float64]float64 {
 		out[sorted[idx]] = buckets[len(buckets)-1]
 	}
 	return out
+}
+
+// MarshalJSON writes the buckets as a JSON object keyed by response time.
+//
+// Go cannot marshal a float-keyed map on its own -- JSON object keys must be
+// strings -- and this is a wire contract with the Python reporter in the engine
+// pod, which writes exactly this shape. Without it the sidecar could not send
+// what it collected.
+func (h Histogram) MarshalJSON() ([]byte, error) {
+	out := make(map[string]int64, len(h))
+	for rt, n := range h {
+		out[strconv.FormatFloat(rt, 'g', -1, 64)] = n
+	}
+	return json.Marshal(out)
+}
+
+// UnmarshalJSON reads buckets keyed by response time.
+func (h *Histogram) UnmarshalJSON(data []byte) error {
+	var raw map[string]int64
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("metrics: histogram: %w", err)
+	}
+	out := make(Histogram, len(raw))
+	for key, n := range raw {
+		rt, err := strconv.ParseFloat(key, 64)
+		if err != nil {
+			return fmt.Errorf("metrics: histogram key %q is not a response time: %w", key, err)
+		}
+		out[rt] = n
+	}
+	*h = out
+	return nil
 }
