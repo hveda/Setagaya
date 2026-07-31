@@ -125,9 +125,18 @@ type Report struct {
 	Requested Load `json:"requested"`
 	Achieved  Load `json:"achieved"`
 
-	ErrorRate float64        `json:"error_rate"`
-	Latency   Percentiles    `json:"latency"`
-	Labels    []LabelSummary `json:"labels,omitempty"`
+	// ErrorRate counts every failure, whoever caused it. It is not a verdict
+	// input on its own -- see TargetErrorRate, which counts only the target's.
+	ErrorRate float64     `json:"error_rate"`
+	Latency   Percentiles `json:"latency"`
+
+	// Attribution splits the failures by who caused them, and Errors states the
+	// side of each one, so no count of failures is ever reported without saying
+	// where it came from.
+	Attribution Attribution       `json:"attribution"`
+	Errors      []AttributedError `json:"errors,omitempty"`
+
+	Labels []LabelSummary `json:"labels,omitempty"`
 }
 
 // Build summarises a run.
@@ -176,6 +185,7 @@ func Build(in Input) Report {
 	rep.Achieved.Throughput = perSecond(rep.Achieved.Samples, in.Requested.DurationSeconds)
 	rep.ErrorRate = rate(rep.Achieved.Failed, rep.Achieved.Samples)
 	rep.Latency = overall.Percentiles(reportedPercentiles...)
+	rep.Errors, rep.Attribution = collectErrors(in.Intervals)
 
 	names := make([]string, 0, len(perLabel))
 	for name := range perLabel {
