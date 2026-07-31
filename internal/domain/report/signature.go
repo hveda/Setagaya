@@ -49,8 +49,14 @@ func NewSignature(label string, e metrics.ErrorGroup) Signature {
 	}
 }
 
-// String is the signature's stable textual form, for use as a storage key and
-// for matching the same failure across runs.
+// String is the signature's textual form, for logs, messages, and anywhere one
+// failure mode has to be named in a single string.
+//
+// It is not the identity. Signature is comparable and is the map key here and
+// three indexed columns in the database, so matching a failure across runs
+// compares the fields. Labels come from user-named scenarios and may contain the
+// separator, which would make two signatures read alike -- harmless in a log
+// line, wrong in a key.
 func (s Signature) String() string {
 	return string(s.Side) + "|" + s.ResponseCode + "|" + s.Label
 }

@@ -1,0 +1,232 @@
+//go:build integration
+
+package mysql_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/internal/domain/metrics"
+	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/reportstoretest"
+	"github.com/heridotlife/honryu/test/dbtest"
+)
+
+func TestMySQLReportStore_Contract(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	reportstoretest.Run(t, func(t *testing.T) ports.ReportStore {
+		truncateAll(t, db)
+		return mysqladapter.NewRepository(db)
+	})
+}
+
+// The conformance suite pins the summary. Error signatures live in their own
+// table, so their round trip is asserted here: a stored report has to read back
+// as the same evidence, or it is not worth keeping.
+func TestMySQLReportStore_ErrorSignaturesRoundTrip(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	want := report.Build(report.Input{
+		ExecutionID: 1, ScenarioID: 2, RunID: 40,
+		Engine:    taurus.ExecutorJMeter,
+		StartedAt: time.Unix(9000, 0).UTC(),
+		EndedAt:   time.Unix(9060, 0).UTC(),
+		Outcome:   taurus.OutcomeFailed,
+		Requested: report.Load{Concurrency: 10, DurationSeconds: 60},
+		Intervals: []metrics.Interval{
+			{
+				Timestamp: 9000, Label: "checkout-cart", Concurrency: 10,
+				Samples: 100, Succeeded: 70, Failed: 30,
+				Latency: metrics.Histogram{0.01: 100},
+				Errors: []metrics.ErrorGroup{
+					{Message: "Not Found", ResponseCode: "404", Count: 20},
+					{Message: "socket: too many open files", Count: 10},
+				},
+			},
+		},
+	})
+	if err := store.SaveReport(ctx, want); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+
+	got, err := store.GetReport(ctx, 40)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if len(got.Errors) != len(want.Errors) {
+		t.Fatalf("errors = %+v, want %+v", got.Errors, want.Errors)
+	}
+	for i := range want.Errors {
+		if got.Errors[i].Signature != want.Errors[i].Signature {
+			t.Errorf("signature %d = %+v, want %+v", i, got.Errors[i].Signature, want.Errors[i].Signature)
+		}
+		if got.Errors[i].Count != want.Errors[i].Count {
+			t.Errorf("count %d = %d, want %d", i, got.Errors[i].Count, want.Errors[i].Count)
+		}
+		if len(got.Errors[i].Exemplars) != len(want.Errors[i].Exemplars) {
+			t.Errorf("exemplars %d = %q, want %q", i, got.Errors[i].Exemplars, want.Errors[i].Exemplars)
+		}
+	}
+	// Attribution is the reason the signatures are kept apart at all.
+	if got.Attribution != want.Attribution {
+		t.Errorf("attribution = %+v, want %+v", got.Attribution, want.Attribution)
+	}
+	if got.Attribution.Engine != 10 || got.Attribution.Target != 20 {
+		t.Errorf("attribution did not survive storage: %+v", got.Attribution)
+	}
+}
+
+// A re-saved run replaces its failures rather than accumulating them. Two
+// attempts' signatures in one report would describe a run that never happened.
+func TestMySQLReportStore_ResaveReplacesSignatures(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	build := func(errs ...metrics.ErrorGroup) report.Report {
+		return report.Build(report.Input{
+			ExecutionID: 1, RunID: 50, Outcome: taurus.OutcomeFailed,
+			StartedAt: time.Unix(9000, 0).UTC(),
+			EndedAt:   time.Unix(9060, 0).UTC(),
+			Requested: report.Load{DurationSeconds: 60},
+			Intervals: []metrics.Interval{
+				{Timestamp: 9000, Label: "probe", Samples: 100, Failed: 10, Errors: errs},
+			},
+		})
+	}
+
+	first := build(
+		metrics.ErrorGroup{Message: "Not Found", ResponseCode: "404", Count: 5},
+		metrics.ErrorGroup{Message: "Bad Gateway", ResponseCode: "502", Count: 5},
+	)
+	if err := store.SaveReport(ctx, first); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	second := build(metrics.ErrorGroup{Message: "Not Found", ResponseCode: "404", Count: 7})
+	if err := store.SaveReport(ctx, second); err != nil {
+		t.Fatalf("SaveReport again: %v", err)
+	}
+
+	got, err := store.GetReport(ctx, 50)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if len(got.Errors) != 1 {
+		t.Fatalf("errors = %+v, want only the second attempt's", got.Errors)
+	}
+	if got.Errors[0].Count != 7 || got.Errors[0].ResponseCode != "404" {
+		t.Errorf("error = %+v, want the 404 counted 7 times", got.Errors[0])
+	}
+}
+
+// A run whose engine died before a single request completed still has to be
+// storable: that report is the only evidence of what went wrong, and it is
+// exactly the run someone will come looking for.
+func TestMySQLReportStore_RunThatProducedNoSamples(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	want := report.Build(report.Input{
+		ExecutionID: 1, RunID: 70, Outcome: taurus.OutcomeError,
+		StartedAt: time.Unix(9000, 0).UTC(),
+		EndedAt:   time.Unix(9005, 0).UTC(),
+		Requested: report.Load{Concurrency: 10, DurationSeconds: 60},
+		Intervals: []metrics.Interval{{
+			Timestamp: 9000, Label: "probe",
+			Errors: []metrics.ErrorGroup{
+				{Message: "Taurus internal exception: ToolError", Count: 1},
+			},
+		}},
+	})
+	if err := store.SaveReport(ctx, want); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+
+	got, err := store.GetReport(ctx, 70)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if got.Achieved.Samples != 0 {
+		t.Errorf("samples = %d, want 0", got.Achieved.Samples)
+	}
+	if len(got.Errors) != 1 || got.Errors[0].Side != report.SideEngine {
+		t.Fatalf("errors = %+v, want one engine-side failure", got.Errors)
+	}
+	// The failure is the engine's, so nothing here indicts the target.
+	if got.Attribution.Engine != 1 || got.Attribution.Target != 0 {
+		t.Errorf("attribution = %+v, want the failure on the engine", got.Attribution)
+	}
+}
+
+// A limit of zero means "no limit" on the port, where SQL reads LIMIT 0 as "no
+// rows". Passing the value straight through would return nothing and look like
+// an execution with no history.
+func TestMySQLReportStore_ZeroLimitMeansNoLimit(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	base := time.Unix(9000, 0).UTC()
+	for i := range 3 {
+		r := report.Build(report.Input{
+			ExecutionID: 1, RunID: int64(60 + i), Outcome: taurus.OutcomePassed,
+			StartedAt: base.Add(time.Duration(i) * time.Minute),
+			EndedAt:   base.Add(time.Duration(i)*time.Minute + 30*time.Second),
+			Requested: report.Load{DurationSeconds: 30},
+		})
+		if err := store.SaveReport(ctx, r); err != nil {
+			t.Fatalf("SaveReport: %v", err)
+		}
+	}
+
+	all, err := store.ListReports(ctx, 1, 0)
+	if err != nil {
+		t.Fatalf("ListReports: %v", err)
+	}
+	if len(all) != 3 {
+		t.Errorf("ListReports(limit 0) = %d reports, want all 3", len(all))
+	}
+
+	since, err := store.ReportsSince(ctx, base, 0)
+	if err != nil {
+		t.Fatalf("ReportsSince: %v", err)
+	}
+	if len(since) != 3 {
+		t.Errorf("ReportsSince(limit 0) = %d reports, want all 3", len(since))
+	}
+}
+
+// Reports outlive the run, so the store is read long after the writer has gone.
+// These drive the DB-error branches.
+func TestMySQLReportStore_ErrorsWhenDBClosed(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	valid := report.Report{ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed}
+	ops := map[string]func() error{
+		"SaveReport":   func() error { return store.SaveReport(ctx, valid) },
+		"GetReport":    func() error { _, e := store.GetReport(ctx, 1); return e },
+		"ListReports":  func() error { _, e := store.ListReports(ctx, 1, 0); return e },
+		"ReportsSince": func() error { _, e := store.ReportsSince(ctx, time.Unix(0, 0), 0); return e },
+	}
+	for name, op := range ops {
+		if err := op(); err == nil {
+			t.Errorf("%s on a closed database returned no error", name)
+		}
+	}
+}

@@ -1,0 +1,247 @@
+package mysql
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
+)
+
+var _ ports.ReportStore = (*Repository)(nil)
+
+// reportColumns is the summary projection, shared by every read so a column
+// added to one query cannot be forgotten in another.
+const reportColumns = `run_id, execution_id, scenario_id, engine, outcome, started_at, ended_at,
+	requested_concurrency, requested_throughput, requested_duration_seconds,
+	achieved_concurrency, achieved_throughput, achieved_duration_seconds,
+	achieved_samples, achieved_failed, error_rate,
+	attribution_target, attribution_engine, attribution_unknown, latency, labels`
+
+// SaveReport stores a run's report, replacing any earlier one for the same run.
+//
+// The summary and its error signatures are written in one transaction. A report
+// whose signatures were half-replaced would attribute a run's failures to a mix
+// of two attempts, which is worse than having no report at all: it looks
+// complete.
+func (r *Repository) SaveReport(ctx context.Context, rep report.Report) error {
+	if err := rep.Validate(); err != nil {
+		return err
+	}
+	latency, err := json.Marshal(rep.Latency)
+	if err != nil {
+		return fmt.Errorf("mysql: encode latency: %w", err)
+	}
+	labels, err := json.Marshal(rep.Labels)
+	if err != nil {
+		return fmt.Errorf("mysql: encode labels: %w", err)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+
+	if _, err := tx.ExecContext(ctx, `INSERT INTO execution_report (`+reportColumns+`)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON DUPLICATE KEY UPDATE
+			execution_id=VALUES(execution_id), scenario_id=VALUES(scenario_id),
+			engine=VALUES(engine), outcome=VALUES(outcome),
+			started_at=VALUES(started_at), ended_at=VALUES(ended_at),
+			requested_concurrency=VALUES(requested_concurrency),
+			requested_throughput=VALUES(requested_throughput),
+			requested_duration_seconds=VALUES(requested_duration_seconds),
+			achieved_concurrency=VALUES(achieved_concurrency),
+			achieved_throughput=VALUES(achieved_throughput),
+			achieved_duration_seconds=VALUES(achieved_duration_seconds),
+			achieved_samples=VALUES(achieved_samples), achieved_failed=VALUES(achieved_failed),
+			error_rate=VALUES(error_rate),
+			attribution_target=VALUES(attribution_target),
+			attribution_engine=VALUES(attribution_engine),
+			attribution_unknown=VALUES(attribution_unknown),
+			latency=VALUES(latency), labels=VALUES(labels)`,
+		rep.RunID, rep.ExecutionID, rep.ScenarioID, string(rep.Engine), string(rep.Outcome),
+		rep.StartedAt.UTC(), rep.EndedAt.UTC(),
+		rep.Requested.Concurrency, rep.Requested.Throughput, rep.Requested.DurationSeconds,
+		rep.Achieved.Concurrency, rep.Achieved.Throughput, rep.Achieved.DurationSeconds,
+		rep.Achieved.Samples, rep.Achieved.Failed, rep.ErrorRate,
+		rep.Attribution.Target, rep.Attribution.Engine, rep.Attribution.Unknown,
+		latency, labels,
+	); err != nil {
+		return fmt.Errorf("mysql: save report: %w", err)
+	}
+
+	// Replace rather than merge: a re-saved run's failures are the new attempt's,
+	// and a signature the second attempt did not produce must not linger.
+	if _, err := tx.ExecContext(ctx,
+		"DELETE FROM report_error_signature WHERE run_id=?", rep.RunID); err != nil {
+		return fmt.Errorf("mysql: clear error signatures: %w", err)
+	}
+	for _, e := range rep.Errors {
+		exemplars, err := json.Marshal(e.Exemplars)
+		if err != nil {
+			return fmt.Errorf("mysql: encode exemplars: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO report_error_signature
+			(run_id, label, response_code, side, count, share, exemplars)
+			VALUES (?,?,?,?,?,?,?)`,
+			rep.RunID, e.Label, e.ResponseCode, string(e.Side),
+			e.Count, share(e.Count, rep.Achieved.Samples), exemplars,
+		); err != nil {
+			return fmt.Errorf("mysql: save error signature: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+// GetReport returns a run's report, or ports.ErrNotFound.
+func (r *Repository) GetReport(ctx context.Context, runID int64) (report.Report, error) {
+	row := r.db.QueryRowContext(ctx,
+		"SELECT "+reportColumns+" FROM execution_report WHERE run_id=?", runID)
+	rep, err := scanReport(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return report.Report{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return report.Report{}, err
+	}
+	if rep.Errors, err = r.errorSignatures(ctx, runID); err != nil {
+		return report.Report{}, err
+	}
+	return rep, nil
+}
+
+// ListReports returns an execution's reports, most recent first.
+func (r *Repository) ListReports(ctx context.Context, executionID int64, limit int) ([]report.Report, error) {
+	return r.listReports(ctx,
+		"SELECT "+reportColumns+` FROM execution_report WHERE execution_id=?
+		 ORDER BY started_at DESC, run_id DESC`+limitClause(limit), executionID)
+}
+
+// ReportsSince returns reports across executions started at or after a time.
+func (r *Repository) ReportsSince(ctx context.Context, since time.Time, limit int) ([]report.Report, error) {
+	return r.listReports(ctx,
+		"SELECT "+reportColumns+` FROM execution_report WHERE started_at>=?
+		 ORDER BY started_at DESC, run_id DESC`+limitClause(limit), since.UTC())
+}
+
+func (r *Repository) listReports(ctx context.Context, query string, args ...any) ([]report.Report, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []report.Report
+	for rows.Next() {
+		rep, err := scanReport(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rep)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Signatures are fetched per report after the rows are closed: MySQL allows
+	// only one active result set per connection, so querying inside the loop
+	// would deadlock against the pool under load.
+	for i := range out {
+		if out[i].Errors, err = r.errorSignatures(ctx, out[i].RunID); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// errorSignatures reads a run's failure modes, dominant first, matching the
+// order report.Build produces so a stored report reads like a fresh one.
+func (r *Repository) errorSignatures(ctx context.Context, runID int64) ([]report.ErrorSignature, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT label, response_code, side, count, exemplars
+		FROM report_error_signature WHERE run_id=?
+		ORDER BY count DESC, side, response_code, label`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []report.ErrorSignature
+	for rows.Next() {
+		var (
+			e         report.ErrorSignature
+			side      string
+			exemplars []byte
+		)
+		if err := rows.Scan(&e.Label, &e.ResponseCode, &side, &e.Count, &exemplars); err != nil {
+			return nil, err
+		}
+		e.Side = report.Side(side)
+		if err := decodeJSON(exemplars, &e.Exemplars); err != nil {
+			return nil, fmt.Errorf("mysql: decode exemplars: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func scanReport(s rowScanner) (report.Report, error) {
+	var (
+		rep             report.Report
+		engine, outcome string
+		latency, labels []byte
+	)
+	if err := s.Scan(
+		&rep.RunID, &rep.ExecutionID, &rep.ScenarioID, &engine, &outcome,
+		&rep.StartedAt, &rep.EndedAt,
+		&rep.Requested.Concurrency, &rep.Requested.Throughput, &rep.Requested.DurationSeconds,
+		&rep.Achieved.Concurrency, &rep.Achieved.Throughput, &rep.Achieved.DurationSeconds,
+		&rep.Achieved.Samples, &rep.Achieved.Failed, &rep.ErrorRate,
+		&rep.Attribution.Target, &rep.Attribution.Engine, &rep.Attribution.Unknown,
+		&latency, &labels,
+	); err != nil {
+		return report.Report{}, err
+	}
+	rep.Engine = taurus.Executor(engine)
+	rep.Outcome = taurus.Outcome(outcome)
+	if err := decodeJSON(latency, &rep.Latency); err != nil {
+		return report.Report{}, fmt.Errorf("mysql: decode latency: %w", err)
+	}
+	if err := decodeJSON(labels, &rep.Labels); err != nil {
+		return report.Report{}, fmt.Errorf("mysql: decode labels: %w", err)
+	}
+	return rep, nil
+}
+
+// decodeJSON tolerates a NULL column, which is what an older row or an empty
+// value looks like coming back.
+func decodeJSON(raw []byte, into any) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, into)
+}
+
+// share is a signature's portion of the run's requests, stored so trend queries
+// can compare runs of different sizes without joining back to the summary.
+func share(count int64, samples int64) float64 {
+	if samples <= 0 {
+		return 0
+	}
+	return float64(count) / float64(samples)
+}
+
+// limitClause appends a row limit only when one was asked for. A limit of zero
+// means "no limit" on the port, and SQL reads LIMIT 0 as "no rows" -- the two
+// are opposites, so the clause is omitted rather than passed through.
+func limitClause(limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" LIMIT %d", limit)
+}

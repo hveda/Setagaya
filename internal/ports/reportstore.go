@@ -22,8 +22,13 @@ type ReportStore interface {
 	GetReport(ctx context.Context, runID int64) (report.Report, error)
 	// ListReports returns an execution's reports, most recent first, so a
 	// service owner can see how it has behaved over time.
+	//
+	// A limit of zero or less means no limit. Note that this is the opposite of
+	// SQL's LIMIT 0, which returns nothing -- an implementation must omit the
+	// clause rather than pass the value through.
 	ListReports(ctx context.Context, executionID int64, limit int) ([]report.Report, error)
 	// ReportsSince returns reports across all executions started at or after
-	// the given time, which is what trend analytics reads.
+	// the given time, which is what trend analytics reads. The boundary is
+	// inclusive; limit behaves as it does for ListReports.
 	ReportsSince(ctx context.Context, since time.Time, limit int) ([]report.Report, error)
 }
