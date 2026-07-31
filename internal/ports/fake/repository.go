@@ -14,6 +14,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/domain/tenant"
 	"github.com/heridotlife/honryu/internal/ports"
 )
@@ -264,6 +265,20 @@ func (s *Store) DeleteScenarioFile(_ context.Context, scenarioID int64, filename
 		return ports.ErrNotFound
 	}
 	delete(files, filename)
+	return nil
+}
+
+// SetScenarioKind records how a scenario's workload is expressed.
+func (s *Store) SetScenarioKind(_ context.Context, scenarioID int64, kind scenario.Kind, engine taurus.Executor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sc, ok := s.scenarios[scenarioID]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	sc.Kind = kind
+	sc.Engine = engine
+	s.scenarios[scenarioID] = sc
 	return nil
 }
 

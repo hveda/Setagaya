@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
 // ScenarioFiles is the set of files attached to a scenario: one optional JMX test file
@@ -28,6 +29,11 @@ type ScenarioRepository interface {
 	ScenarioFilesFor(ctx context.Context, scenarioID int64) (ScenarioFiles, error)
 	// DeleteScenarioFile removes a file record for the scenario.
 	DeleteScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error
+
+	// SetScenarioKind records how a scenario's workload is expressed, and the
+	// engine it is pinned to when native. Uploading an engine-native artefact is
+	// what decides this, so it changes after creation.
+	SetScenarioKind(ctx context.Context, scenarioID int64, kind scenario.Kind, engine taurus.Executor) error
 
 	// ScenarioInUse reports whether the scenario is referenced by any execution's
 	// execution configuration.

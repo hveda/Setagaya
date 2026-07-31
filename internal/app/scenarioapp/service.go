@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/heridotlife/honryu/internal/domain/jmx"
@@ -33,6 +34,7 @@ type Repo interface {
 	ScenarioFilesFor(ctx context.Context, scenarioID int64) (ports.ScenarioFiles, error)
 	DeleteScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error
 	ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error)
+	SetScenarioKind(ctx context.Context, scenarioID int64, kind scenario.Kind, engine taurus.Executor) error
 }
 
 // Service provides scenario use-cases.
@@ -182,9 +184,20 @@ func (s *Service) UploadFile(ctx context.Context, scenarioID int64, filename str
 	if _, err := s.repo.GetScenario(ctx, scenarioID); err != nil {
 		return err
 	}
-	isTest := isJMX(filename)
+	isTest := isTestFile(filename)
 	if err := s.repo.AddScenarioFile(ctx, scenarioID, filename, isTest); err != nil {
 		return err
+	}
+	// An engine-native artefact decides what the scenario is: a .jmx only runs
+	// on JMeter, a .js only on k6. Without this a scenario stays portable with no
+	// requests, which nothing can compile -- so uploading a script would appear
+	// to work and then fail at deploy.
+	if isTest {
+		if engine, ok := engineForArtefact(filename); ok {
+			if err := s.repo.SetScenarioKind(ctx, scenarioID, scenario.KindNative, engine); err != nil {
+				return err
+			}
+		}
 	}
 	if err := s.store.Upload(ctx, scenarioKey(scenarioID, filename), content); err != nil {
 		// Roll back the record so it does not dangle without an object.
@@ -217,6 +230,25 @@ func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename str
 
 func scenarioKey(scenarioID int64, filename string) string {
 	return fmt.Sprintf("scenario/%d/%s", scenarioID, filename)
+}
+
+// isTestFile reports whether a filename is a scenario's script rather than one
+// of its data files.
+func isTestFile(filename string) bool {
+	_, ok := engineForArtefact(filename)
+	return ok
+}
+
+// engineForArtefact maps a script's extension onto the engine that runs it.
+func engineForArtefact(filename string) (taurus.Executor, bool) {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".jmx":
+		return taurus.ExecutorJMeter, true
+	case ".js":
+		return taurus.ExecutorK6, true
+	default:
+		return "", false
+	}
 }
 
 func isJMX(filename string) bool {

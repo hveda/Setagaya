@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
@@ -164,5 +167,122 @@ func TestDelete_RemovesFiles(t *testing.T) {
 	}
 	if _, err := svc.Get(ctx, p.ID); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("scenario survived delete: %v", err)
+	}
+}
+
+// Uploading an engine-native script decides what the scenario is. Without this a
+// scenario stays portable with no requests, which nothing can compile -- so the
+// upload would appear to succeed and the deploy would fail later.
+func TestUploadFile_PinsTheScenarioToItsEngine(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		filename string
+		wantKind scenario.Kind
+		engine   taurus.Executor
+	}{
+		{"plan.jmx", scenario.KindNative, taurus.ExecutorJMeter},
+		{"load.js", scenario.KindNative, taurus.ExecutorK6},
+		// Data files say nothing about which engine runs the scenario.
+		{"users.csv", scenario.KindPortable, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.filename, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store := fake.NewStore()
+			svc := scenarioapp.NewService(store, fake.NewObjectStore())
+
+			sc, err := svc.Create(ctx, "probe", 1)
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			if err := svc.UploadFile(ctx, sc.ID, tc.filename, strings.NewReader("x")); err != nil {
+				t.Fatalf("UploadFile: %v", err)
+			}
+
+			got, err := svc.Get(ctx, sc.ID)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got.Kind != tc.wantKind || got.Engine != tc.engine {
+				t.Errorf("after uploading %s: kind %q engine %q, want %q/%q",
+					tc.filename, got.Kind, got.Engine, tc.wantKind, tc.engine)
+			}
+		})
+	}
+}
+
+// A scenario pinned by its script must be able to say where it can run.
+func TestUploadFile_PinnedScenarioRefusesAnotherEngine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := scenarioapp.NewService(store, fake.NewObjectStore())
+
+	sc, _ := svc.Create(ctx, "probe", 1)
+	if err := svc.UploadFile(ctx, sc.ID, "plan.jmx", strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	got, _ := svc.Get(ctx, sc.ID)
+
+	if err := got.CanRunOn(taurus.ExecutorJMeter); err != nil {
+		t.Errorf("CanRunOn(jmeter) = %v, want nil", err)
+	}
+	if err := got.CanRunOn(taurus.ExecutorK6); err == nil {
+		t.Error("a JMeter plan accepted k6")
+	}
+}
+
+func TestImportJMX(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	svc := scenarioapp.NewService(store, obj)
+
+	plan := `<?xml version="1.0"?><jmeterTestPlan><hashTree>
+	  <TestPlan testname="Checkout"/>
+	  <CSVDataSet testname="a" enabled="true"><stringProp name="filename">/abs/users.csv</stringProp></CSVDataSet>
+	</hashTree></jmeterTestPlan>`
+
+	res, err := svc.ImportJMX(ctx, "checkout", 1, "checkout.jmx", strings.NewReader(plan))
+	if err != nil {
+		t.Fatalf("ImportJMX: %v", err)
+	}
+	if res.Scenario.Kind != scenario.KindNative || res.Scenario.Engine != taurus.ExecutorJMeter {
+		t.Errorf("imported scenario = kind %q engine %q", res.Scenario.Kind, res.Scenario.Engine)
+	}
+	if res.Report.TestPlanName != "Checkout" || len(res.Report.Findings) == 0 {
+		t.Errorf("report = %+v", res.Report)
+	}
+	// The plan itself must be stored, or the scenario cannot run.
+	files, err := svc.Files(ctx, res.Scenario.ID)
+	if err != nil {
+		t.Fatalf("Files: %v", err)
+	}
+	if files.TestFile == nil || files.TestFile.Filename != "checkout.jmx" {
+		t.Errorf("stored files = %+v", files)
+	}
+}
+
+func TestImportJMX_Rejections(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := scenarioapp.NewService(fake.NewStore(), fake.NewObjectStore())
+
+	cases := []struct{ name, filename, body string }{
+		{"not a jmx file", "plan.txt", "<jmeterTestPlan/>"},
+		{"malformed xml", "plan.jmx", "<jmeterTestPlan>"},
+		{"not a test plan", "plan.jmx", `<project/>`},
+		{"no TestPlan element", "plan.jmx", `<jmeterTestPlan><hashTree><WorkBench/></hashTree></jmeterTestPlan>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := svc.ImportJMX(ctx, "x", 1, tc.filename, strings.NewReader(tc.body)); err == nil {
+				t.Errorf("ImportJMX(%s) succeeded, want an error", tc.name)
+			}
+		})
 	}
 }

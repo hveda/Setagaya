@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -29,20 +31,42 @@ const managedByValue = "honryu"
 // defaultPoolLabel groups nodes into pools when Config.PoolLabel is unset.
 const defaultPoolLabel = "cloud.google.com/gke-nodepool"
 
+// defaultTerminationGrace gives bzt time to finish after SIGINT.
+const defaultTerminationGrace = 30 * time.Second
+
+// Paths inside an engine pod.
+const (
+	configMount    = "/honryu/config"
+	kpiMount       = "/honryu/kpi"
+	artifactsMount = "/honryu/artifacts"
+	kpiStream      = kpiMount + "/stream.jsonl"
+)
+
 // Config tunes the adapter.
 type Config struct {
 	Namespace  string
 	EnginePort int
 	// PoolLabel is the node label whose value names the node pool.
 	PoolLabel string
+	// SidecarImage runs beside each engine, forwarding measurements.
+	SidecarImage string
+	// IngestURL is where the sidecar pushes batches.
+	IngestURL string
+	// TerminationGrace is how long a pod has to stop after its preStop hook
+	// runs. It must exceed the time bzt needs to finish writing, or the graceful
+	// stop is cut short and becomes the abrupt one it exists to avoid.
+	TerminationGrace time.Duration
 }
 
 // Scheduler is the Kubernetes-backed ports.Scheduler.
 type Scheduler struct {
-	client    kubernetes.Interface
-	ns        string
-	port      int
-	poolLabel string
+	client       kubernetes.Interface
+	ns           string
+	port         int
+	poolLabel    string
+	sidecarImage string
+	ingestURL    string
+	grace        time.Duration
 }
 
 // New builds a Scheduler over the given clientset.
@@ -59,7 +83,14 @@ func New(client kubernetes.Interface, cfg Config) *Scheduler {
 	if poolLabel == "" {
 		poolLabel = defaultPoolLabel
 	}
-	return &Scheduler{client: client, ns: ns, port: port, poolLabel: poolLabel}
+	grace := cfg.TerminationGrace
+	if grace <= 0 {
+		grace = defaultTerminationGrace
+	}
+	return &Scheduler{
+		client: client, ns: ns, port: port, poolLabel: poolLabel,
+		sidecarImage: cfg.SidecarImage, ingestURL: cfg.IngestURL, grace: grace,
+	}
 }
 
 var _ ports.Scheduler = (*Scheduler)(nil)
@@ -89,6 +120,11 @@ func (s *Scheduler) DeployScenario(ctx context.Context, spec ports.DeploySpec) e
 	if err := s.ensureService(ctx, name, labels); err != nil {
 		return err
 	}
+	// The configs must exist before the pods that mount them, or the first pods
+	// start and fail before the ConfigMap lands.
+	if err := s.ensureConfigMap(ctx, name, labels, spec); err != nil {
+		return err
+	}
 	return s.ensureStatefulSet(ctx, name, labels, spec)
 }
 
@@ -108,6 +144,50 @@ func (s *Scheduler) ensureService(ctx context.Context, name string, labels map[s
 	return err
 }
 
+// ensureConfigMap holds every shard's compiled config, keyed by shard index.
+//
+// One map rather than one per pod: the pods of a StatefulSet share a template,
+// so each selects its own config by its ordinal at start-up. That is what lets
+// pods that are identical to Kubernetes run different fractions of the load.
+func (s *Scheduler) ensureConfigMap(ctx context.Context, name string, labels map[string]string, spec ports.DeploySpec) error {
+	data := make(map[string]string, len(spec.Shards)+len(spec.ScenarioFiles))
+	for _, sh := range spec.Shards {
+		data[shardConfigKey(sh.Index)] = string(sh.Config)
+	}
+	// The scenario's own artefacts ride along, so a native scenario finds the
+	// script its config points at. A ConfigMap holds 1MiB, which a test plan
+	// exceeds only rarely -- when it does, the deploy fails loudly here rather
+	// than the pod failing quietly later.
+	for name, content := range spec.ScenarioFiles {
+		data[scenarioFileKey(name)] = string(content)
+	}
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns, Labels: labels},
+		Data:       data,
+	}
+	maps := s.client.CoreV1().ConfigMaps(s.ns)
+	_, err := maps.Create(ctx, cm, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		// A re-deploy replaces the configs: the shard plan may have changed.
+		existing, getErr := maps.Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		existing.Data = data
+		_, updErr := maps.Update(ctx, existing, metav1.UpdateOptions{})
+		return updErr
+	}
+	return err
+}
+
+// shardConfigKey names a shard's config within the ConfigMap.
+func shardConfigKey(index int) string { return fmt.Sprintf("shard-%d.yml", index) }
+
+// scenarioFileKey namespaces a scenario artefact so it cannot collide with a
+// shard config.
+func scenarioFileKey(name string) string { return "scenario--" + name }
+
 func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels map[string]string, spec ports.DeploySpec) error {
 	replicas := int32Bounded(len(spec.Shards))
 	podLabels := map[string]string{}
@@ -122,16 +202,14 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 			ServiceName: name,
 			Replicas:    &replicas,
 			Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
+			// Shards must start together: they ramp over the same window, and a
+			// staggered start would mean the aggregate never reaches the profile
+			// that was asked for. Kubernetes otherwise brings StatefulSet pods up
+			// one at a time, each waiting for the last to be ready.
+			PodManagementPolicy: appsv1.ParallelPodManagement,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: podLabels},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Name:      "engine",
-						Image:     spec.Image,
-						Ports:     []corev1.ContainerPort{{ContainerPort: int32Bounded(s.port)}},
-						Resources: resourceRequirements(spec),
-					}},
-				},
+				Spec:       s.podSpec(spec, name),
 			},
 		},
 	}
@@ -149,6 +227,117 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 	}
 	return err
 }
+
+// podSpec builds one engine pod: bzt running this shard's config, and the
+// sidecar forwarding what it measures.
+func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
+	grace := int64(s.grace.Seconds())
+
+	return corev1.PodSpec{
+		// A pod is deleted with SIGTERM, which bzt does not handle: it dies at
+		// once, writing no final report. The hook sends SIGINT instead, which bzt
+		// does handle, and the grace period gives it time to finish.
+		TerminationGracePeriodSeconds: &grace,
+		Volumes: []corev1.Volume{
+			{
+				Name: "config",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: name},
+						Items:                configItems(spec),
+					},
+				},
+			},
+			// The engine writes its KPI stream here and the sidecar reads it, so
+			// the handover never leaves the pod.
+			{Name: "kpi", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			{Name: "artifacts", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		},
+		Containers: []corev1.Container{
+			{
+				Name:    "engine",
+				Image:   spec.Image,
+				Command: []string{"/bin/sh", "-c", engineScript()},
+				Ports:   []corev1.ContainerPort{{ContainerPort: int32Bounded(s.port)}},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "config", MountPath: configMount, ReadOnly: true},
+					{Name: "kpi", MountPath: kpiMount},
+					{Name: "artifacts", MountPath: artifactsMount},
+				},
+				Resources: resourceRequirements(spec),
+				Lifecycle: &corev1.Lifecycle{
+					PreStop: &corev1.LifecycleHandler{
+						Exec: &corev1.ExecAction{
+							Command: []string{"/bin/sh", "-c", "pkill -INT -f bzt || true"},
+						},
+					},
+				},
+			},
+			{
+				Name:    "sidecar",
+				Image:   s.sidecarImage,
+				Command: []string{"/bin/sh", "-c", s.sidecarScript(spec)},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "kpi", MountPath: kpiMount, ReadOnly: true},
+				},
+				Env: []corev1.EnvVar{{
+					Name: "HONRYU_INGEST_TOKEN",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "honryu-ingest"},
+							Key:                  "token",
+							Optional:             ptr(true),
+						},
+					},
+				}},
+			},
+		},
+	}
+}
+
+// engineScript picks this pod's config by its StatefulSet ordinal and runs bzt
+// on it. Pods share a template, so the ordinal in the hostname is the only thing
+// distinguishing one shard from another.
+func engineScript() string {
+	argv := taurus.Command(configMount+"/shard-${ORDINAL}.yml", artifactsMount)
+	return `set -e
+ORDINAL="${HOSTNAME##*-}"
+mkdir -p ` + kpiMount + `
+exec ` + strings.Join(argv, " ")
+}
+
+// sidecarScript runs the forwarder with this pod's identity.
+func (s *Scheduler) sidecarScript(spec ports.DeploySpec) string {
+	return fmt.Sprintf(`set -e
+ORDINAL="${HOSTNAME##*-}"
+exec /honryu-sidecar -stream %s -ingest-url %q -execution-id %d -scenario-id %d -shard-index "${ORDINAL}"`,
+		kpiStream, s.ingestURL, spec.ExecutionID, spec.ScenarioID)
+}
+
+// configItems maps ConfigMap entries onto the paths a pod expects: shard
+// configs at the root, scenario artefacts under scenario/ with their original
+// names, since a compiled config points at them by name.
+func configItems(spec ports.DeploySpec) []corev1.KeyToPath {
+	items := make([]corev1.KeyToPath, 0, len(spec.Shards)+len(spec.ScenarioFiles))
+	for _, sh := range spec.Shards {
+		key := shardConfigKey(sh.Index)
+		items = append(items, corev1.KeyToPath{Key: key, Path: key})
+	}
+	names := make([]string, 0, len(spec.ScenarioFiles))
+	for name := range spec.ScenarioFiles {
+		names = append(names, name)
+	}
+	sort.Strings(names) // deterministic, so a redeploy does not churn the spec
+	for _, name := range names {
+		items = append(items, corev1.KeyToPath{Key: scenarioFileKey(name), Path: "scenario/" + name})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return items
+}
+
+func ptr[T any](v T) *T { return &v }
 
 func resourceRequirements(spec ports.DeploySpec) corev1.ResourceRequirements {
 	list := corev1.ResourceList{}

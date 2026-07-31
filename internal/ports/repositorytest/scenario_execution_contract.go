@@ -78,6 +78,23 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Error("a JMeter-pinned scenario read back accepted k6")
 		}
 
+		// Uploading a script pins a scenario to the engine that runs it, so the
+		// change must be persisted -- otherwise a scenario reverts to portable
+		// and stops compiling.
+		if err := repo.SetScenarioKind(ctx, portableID, scenario.KindNative, taurus.ExecutorK6); err != nil {
+			t.Fatalf("SetScenarioKind: %v", err)
+		}
+		pinned, err := repo.GetScenario(ctx, portableID)
+		if err != nil {
+			t.Fatalf("GetScenario after pinning: %v", err)
+		}
+		if pinned.Kind != scenario.KindNative || pinned.Engine != taurus.ExecutorK6 {
+			t.Errorf("after pinning = kind %q engine %q, want native/k6", pinned.Kind, pinned.Engine)
+		}
+		if err := repo.SetScenarioKind(ctx, 999999, scenario.KindNative, taurus.ExecutorK6); err == nil {
+			t.Error("SetScenarioKind on a missing scenario succeeded")
+		}
+
 		// An execution's engine selection must survive too, or a run would
 		// silently fall back to the deployment default and measure a workload
 		// nobody asked for.

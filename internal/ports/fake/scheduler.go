@@ -77,6 +77,19 @@ func (s *Scheduler) DeployScenario(_ context.Context, spec ports.DeploySpec) err
 }
 
 // ExecutionStatus reports deployed/wanted engines and reachability per scenario.
+// LastDeploy returns the spec a scenario was last deployed with, so a test can
+// assert what each pod was actually given rather than only that a deploy
+// happened.
+func (s *Scheduler) LastDeploy(executionID, scenarioID int64) (ports.DeploySpec, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.deployments[executionID][scenarioID]
+	if !ok {
+		return ports.DeploySpec{}, false
+	}
+	return d.spec, true
+}
+
 func (s *Scheduler) ExecutionStatus(_ context.Context, _ ports.ClusterRef, executionID int64, scenarios []ports.ScenarioRef) (ports.ExecutionStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

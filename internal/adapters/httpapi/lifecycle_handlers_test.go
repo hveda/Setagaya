@@ -3,7 +3,9 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
@@ -16,6 +18,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
@@ -50,11 +53,12 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	projectID, _ := store.CreateProject(ctx, p)
 	coll, _ := execution.New("peak", projectID)
 	executionID, _ := store.CreateExecution(ctx, coll)
-	pl, _ := scenario.New("smoke", projectID)
+	pl, _ := scenario.NewNative("smoke", projectID, taurus.ExecutorJMeter)
 	scenarioID, _ := store.CreateScenario(ctx, pl)
 	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
 		t.Fatalf("add test file: %v", err)
 	}
+	_ = obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>"))
 	if err := store.StoreLoadProfile(ctx, executionID, false, []loadprofile.Entry{
 		{Name: "p", ScenarioID: scenarioID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
 	}); err != nil {

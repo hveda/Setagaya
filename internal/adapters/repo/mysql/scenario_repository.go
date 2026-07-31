@@ -134,6 +134,24 @@ func (r *Repository) DeleteScenarioFile(ctx context.Context, scenarioID int64, f
 	return execDelete(ctx, r.db, fmt.Sprintf("DELETE FROM %s WHERE scenario_id = ? AND filename = ?", table), scenarioID, filename)
 }
 
+// SetScenarioKind records how a scenario's workload is expressed.
+func (r *Repository) SetScenarioKind(ctx context.Context, scenarioID int64, kind scenario.Kind, engine taurus.Executor) error {
+	res, err := r.db.ExecContext(ctx,
+		"UPDATE scenario SET kind = ?, engine = ? WHERE id = ?",
+		string(kind), string(engine), scenarioID)
+	if err != nil {
+		return fmt.Errorf("mysql: set scenario kind: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mysql: set scenario kind rows: %w", err)
+	}
+	if n == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 // ScenarioInUse reports whether the scenario is referenced by any execution's
 // execution configuration.
 func (r *Repository) ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error) {

@@ -3,8 +3,11 @@ package k8s_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -249,4 +252,208 @@ func TestK8sScheduler_ClusterRefIsAcceptedOnEveryMethod(t *testing.T) {
 	if err := s.PurgeExecution(ctx, "eu-west", 2); err != nil {
 		t.Errorf("PurgeExecution: %v", err)
 	}
+}
+
+// Shards ramp over the same window, so they must start together. Kubernetes
+// otherwise brings StatefulSet pods up one at a time, each waiting for the last
+// to be ready -- with a 30s ramp and eight shards the load would never reach the
+// profile that was asked for.
+func TestK8sScheduler_ShardsStartInParallel(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(4),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	if set.Spec.PodManagementPolicy != appsv1.ParallelPodManagement {
+		t.Errorf("PodManagementPolicy = %q, want Parallel", set.Spec.PodManagementPolicy)
+	}
+}
+
+// Each pod runs a different fraction of the load, but the pods of a StatefulSet
+// share one template. The configs travel in a ConfigMap keyed by shard, and each
+// pod selects its own by ordinal.
+func TestK8sScheduler_EachShardGetsItsOwnConfig(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
+
+	spec := ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine",
+		Shards: []ports.ShardSpec{
+			{Index: 0, Concurrency: 4, Config: []byte("execution:\n  - concurrency: 4\n")},
+			{Index: 1, Concurrency: 3, Config: []byte("execution:\n  - concurrency: 3\n")},
+		},
+	}
+	if err := s.DeployScenario(ctx, spec); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	name := engine.ScenarioName(1, 2, 3)
+	cm, err := client.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get configmap: %v", err)
+	}
+	if got := cm.Data["shard-0.yml"]; !strings.Contains(got, "concurrency: 4") {
+		t.Errorf("shard 0 config = %q", got)
+	}
+	if got := cm.Data["shard-1.yml"]; !strings.Contains(got, "concurrency: 3") {
+		t.Errorf("shard 1 config = %q", got)
+	}
+
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	engineC := containerNamed(t, set, "engine")
+	script := strings.Join(engineC.Command, " ")
+	if !strings.Contains(script, "ORDINAL") || !strings.Contains(script, "shard-${ORDINAL}.yml") {
+		t.Errorf("engine command does not select a config by ordinal: %q", script)
+	}
+	if !strings.Contains(script, "bzt") {
+		t.Errorf("engine command does not run bzt: %q", script)
+	}
+}
+
+// A re-deploy may change the shard plan, so the configs are replaced rather than
+// left describing the previous run.
+func TestK8sScheduler_RedeployReplacesShardConfigs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
+
+	base := ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine"}
+	first := base
+	first.Shards = []ports.ShardSpec{{Index: 0, Config: []byte("first")}, {Index: 1, Config: []byte("first")}}
+	if err := s.DeployScenario(ctx, first); err != nil {
+		t.Fatalf("deploy 1: %v", err)
+	}
+
+	second := base
+	second.Shards = []ports.ShardSpec{{Index: 0, Config: []byte("second")}}
+	if err := s.DeployScenario(ctx, second); err != nil {
+		t.Fatalf("deploy 2: %v", err)
+	}
+
+	cm, err := client.CoreV1().ConfigMaps(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get configmap: %v", err)
+	}
+	if cm.Data["shard-0.yml"] != "second" {
+		t.Errorf("shard 0 config = %q, want the new one", cm.Data["shard-0.yml"])
+	}
+	if _, stale := cm.Data["shard-1.yml"]; stale {
+		t.Error("a shard from the previous plan still has a config")
+	}
+}
+
+// Deleting a pod sends SIGTERM, which bzt does not handle -- it dies at once and
+// writes nothing. The hook sends SIGINT, which it does handle, and the grace
+// period has to outlast the shutdown or the hook is pointless.
+func TestK8sScheduler_PodsStopGracefully(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns, TerminationGrace: 45 * time.Second})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(1),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+
+	grace := set.Spec.Template.Spec.TerminationGracePeriodSeconds
+	if grace == nil || *grace != 45 {
+		t.Errorf("TerminationGracePeriodSeconds = %v, want 45", grace)
+	}
+
+	engineC := containerNamed(t, set, "engine")
+	if engineC.Lifecycle == nil || engineC.Lifecycle.PreStop == nil || engineC.Lifecycle.PreStop.Exec == nil {
+		t.Fatal("engine has no preStop hook, so a deleted pod is killed mid-write")
+	}
+	hook := strings.Join(engineC.Lifecycle.PreStop.Exec.Command, " ")
+	if !strings.Contains(hook, "-INT") {
+		t.Errorf("preStop hook = %q, want it to send SIGINT", hook)
+	}
+}
+
+// The sidecar shares the pod so the KPI handover never crosses a network, and it
+// must know which shard it speaks for or measurements cannot be attributed.
+func TestK8sScheduler_SidecarRunsBesideTheEngine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{
+		Namespace: ns, SidecarImage: "honryu/sidecar:1", IngestURL: "http://control/api/ingest",
+	})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 7, ScenarioID: 11, Image: "engine", Shards: deployShards(2),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 7, 11), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+
+	side := containerNamed(t, set, "sidecar")
+	if side.Image != "honryu/sidecar:1" {
+		t.Errorf("sidecar image = %q", side.Image)
+	}
+	script := strings.Join(side.Command, " ")
+	for _, want := range []string{
+		"http://control/api/ingest",
+		"-execution-id 7", "-scenario-id 11",
+		`-shard-index "${ORDINAL}"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("sidecar command missing %q: %s", want, script)
+		}
+	}
+
+	// Both containers must see the same stream, or the sidecar forwards nothing.
+	if !mountsVolume(engineNamed(t, set, "engine"), "kpi") || !mountsVolume(side, "kpi") {
+		t.Error("engine and sidecar do not share the kpi volume")
+	}
+}
+
+func containerNamed(t *testing.T, set *appsv1.StatefulSet, name string) corev1.Container {
+	t.Helper()
+	return engineNamed(t, set, name)
+}
+
+func engineNamed(t *testing.T, set *appsv1.StatefulSet, name string) corev1.Container {
+	t.Helper()
+	for _, c := range set.Spec.Template.Spec.Containers {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("no container named %q in the pod template", name)
+	return corev1.Container{}
+}
+
+func mountsVolume(c corev1.Container, volume string) bool {
+	for _, m := range c.VolumeMounts {
+		if m.Name == volume {
+			return true
+		}
+	}
+	return false
 }

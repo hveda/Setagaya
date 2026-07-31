@@ -3,7 +3,11 @@ package lifecycleapp_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/domain/execution"
@@ -11,6 +15,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
@@ -41,13 +46,19 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	coll.CSVSplit = csvSplit
 	executionID, _ := store.CreateExecution(ctx, coll)
 
+	obj := fake.NewObjectStore()
 	var tests []loadprofile.Entry
 	var planIDs []int64
 	for i, n := range engines {
-		pl, _ := scenario.New("scenario", projectID)
+		// A scenario carrying a .jmx is JMeter-native: the config points at the
+		// script, and the file has to exist for a pod to run it.
+		pl, _ := scenario.NewNative("scenario", projectID, taurus.ExecutorJMeter)
 		scenarioID, _ := store.CreateScenario(ctx, pl)
 		if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
 			t.Fatalf("add test file: %v", err)
+		}
+		if err := obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>")); err != nil {
+			t.Fatalf("upload test file: %v", err)
 		}
 		planIDs = append(planIDs, scenarioID)
 		tests = append(tests, loadprofile.Entry{
@@ -60,7 +71,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	}
 
 	sched := fake.NewScheduler()
-	svc := lifecycleapp.NewService(store, sched, fake.NewObjectStore(), lifecycleapp.StaticImage(image))
+	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
 	return &env{store: store, sched: sched, svc: svc, projectID: projectID, executionID: executionID, planIDs: planIDs}
 }
 
@@ -132,18 +143,23 @@ func TestTrigger_HappyPathStartsRunAndMarksScenariosRunning(t *testing.T) {
 	}
 }
 
-func TestTrigger_NoTestFile(t *testing.T) {
+// A native scenario without its script cannot run. The failure now lands on
+// Deploy rather than Trigger: the config that points at the script is compiled
+// when the pods are created, so nothing is deployed at all instead of pods
+// starting and failing on their own.
+func TestDeploy_NoTestFile(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)
 	ctx := context.Background()
 	if err := e.store.DeleteScenarioFile(ctx, e.planIDs[0], "test.jmx", true); err != nil {
 		t.Fatalf("delete test file: %v", err)
 	}
-	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
-		t.Fatalf("Deploy: %v", err)
+	if err := e.svc.Deploy(ctx, e.executionID); !errors.Is(err, lifecycleapp.ErrNoTestFile) {
+		t.Fatalf("Deploy without a test file: err = %v, want ErrNoTestFile", err)
 	}
-	if err := e.svc.Trigger(ctx, e.executionID); !errors.Is(err, lifecycleapp.ErrNoTestFile) {
-		t.Fatalf("Trigger without test file: err = %v, want ErrNoTestFile", err)
+	deployed, _ := e.sched.DeployedExecutions(ctx, "")
+	if _, ok := deployed[e.executionID]; ok {
+		t.Error("pods were deployed for an execution whose scenario has no script")
 	}
 }
 
@@ -449,4 +465,95 @@ func deployShards(n int) []ports.ShardSpec {
 		out[i] = ports.ShardSpec{Index: i, Concurrency: 1}
 	}
 	return out
+}
+
+// Each pod must get a config carrying only its own slice of the load. If every
+// shard got the whole profile, N pods would produce N times the load asked for.
+func TestDeploy_CompilesAConfigPerShard(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 3) // 10 users across 3 pods
+	ctx := context.Background()
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	spec, ok := e.sched.LastDeploy(e.executionID, e.planIDs[0])
+	if !ok {
+		t.Fatal("nothing was deployed")
+	}
+	if len(spec.Shards) != 3 {
+		t.Fatalf("deployed %d shards, want 3", len(spec.Shards))
+	}
+
+	total := 0
+	for _, sh := range spec.Shards {
+		if len(sh.Config) == 0 {
+			t.Fatalf("shard %d has no config, so its pod would run nothing", sh.Index)
+		}
+		var cfg taurus.Config
+		if err := yaml.Unmarshal(sh.Config, &cfg); err != nil {
+			t.Fatalf("shard %d config is not valid YAML: %v", sh.Index, err)
+		}
+		if len(cfg.Execution) != 1 {
+			t.Fatalf("shard %d config has %d executions, want 1", sh.Index, len(cfg.Execution))
+		}
+		got := cfg.Execution[0].Concurrency
+		if got != sh.Concurrency {
+			t.Errorf("shard %d config says %d users, plan says %d", sh.Index, got, sh.Concurrency)
+		}
+		total += got
+	}
+	if total != 10 {
+		t.Errorf("shards total %d users, want the 10 that were requested", total)
+	}
+
+	// The script the configs point at has to travel with them.
+	if _, ok := spec.ScenarioFiles["test.jmx"]; !ok {
+		t.Errorf("scenario files = %v, want the test plan", spec.ScenarioFiles)
+	}
+}
+
+func TestWithDefaultEngine(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+	if got := e.svc.WithDefaultEngine(taurus.ExecutorK6); got == nil {
+		t.Fatal("WithDefaultEngine returned nil")
+	}
+}
+
+// A data file the scenario recorded but never uploaded fails the deploy, naming
+// the file: "object not found" alone leaves an operator guessing which of a
+// scenario's artefacts is missing.
+func TestDeploy_MissingDataFileNamesIt(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+	ctx := context.Background()
+
+	if err := e.store.AddScenarioFile(ctx, e.planIDs[0], "users.csv", false); err != nil {
+		t.Fatalf("record data file: %v", err)
+	}
+	err := e.svc.Deploy(ctx, e.executionID)
+	if err == nil {
+		t.Fatal("Deploy with a missing data file succeeded")
+	}
+	if !strings.Contains(err.Error(), "users.csv") {
+		t.Errorf("error %q does not name the missing file", err)
+	}
+}
+
+// A failure part way through must not leave half an execution running.
+func TestDeploy_UnknownScenarioFails(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+	ctx := context.Background()
+
+	if err := e.store.StoreLoadProfile(ctx, e.executionID, false, []loadprofile.Entry{
+		{ScenarioID: 999999, Concurrency: 5, Rampup: 1, Engines: 1, Duration: 10},
+	}); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	if err := e.svc.Deploy(ctx, e.executionID); err == nil {
+		t.Fatal("Deploy referencing a missing scenario succeeded")
+	}
 }

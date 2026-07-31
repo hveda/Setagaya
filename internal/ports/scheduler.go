@@ -33,6 +33,10 @@ type DeploySpec struct {
 	Memory      string // optional resource request/limit, e.g. "512Mi"
 	// Shards are the pods to create, one per shard of the load profile.
 	Shards []ShardSpec
+	// ScenarioFiles are the scenario's own artefacts -- a .jmx, a k6 script,
+	// CSV data -- keyed by filename, mounted into every pod. A native scenario
+	// cannot run without the file its config points at.
+	ScenarioFiles map[string][]byte
 }
 
 // ShardSpec is one pod: its position in the plan and the compiled Taurus config

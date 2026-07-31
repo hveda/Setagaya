@@ -11,6 +11,9 @@ import (
 	"fmt"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
+	"github.com/heridotlife/honryu/internal/domain/compile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
@@ -67,17 +70,25 @@ func (noopUsage) RecordFinish(context.Context, int64, int) error             { r
 
 // Service implements the lifecycle use-cases.
 type Service struct {
-	repo    Repo
-	sched   ports.Scheduler
-	store   ports.ObjectStore
-	image   ImageResolver
-	metrics Metrics
-	usage   Usage
+	repo  Repo
+	sched ports.Scheduler
+	store ports.ObjectStore
+	image ImageResolver
+	// defaultEngine runs an execution that names none.
+	defaultEngine taurus.Executor
+	metrics       Metrics
+	usage         Usage
 }
 
 // ImageResolver returns the container image for an engine. An empty engine
 // means the execution expressed no preference and takes the deployment default.
 type ImageResolver func(engine taurus.Executor) (string, error)
+
+// WithDefaultEngine sets the engine used when an execution names none.
+func (s *Service) WithDefaultEngine(e taurus.Executor) *Service {
+	s.defaultEngine = e
+	return s
+}
 
 // StaticImage is an ImageResolver that always answers with the same image,
 // for tests and single-engine deployments.
@@ -88,7 +99,7 @@ func StaticImage(image string) ImageResolver {
 // NewService wires the lifecycle service. image resolves an execution's engine
 // to the container image its pods run.
 func NewService(repo Repo, sched ports.Scheduler, store ports.ObjectStore, image ImageResolver) *Service {
-	return &Service{repo: repo, sched: sched, store: store, image: image, metrics: noopMetrics{}, usage: noopUsage{}}
+	return &Service{repo: repo, sched: sched, store: store, image: image, defaultEngine: taurus.ExecutorJMeter, metrics: noopMetrics{}, usage: noopUsage{}}
 }
 
 // WithMetrics attaches the metric collector started on trigger and stopped on
@@ -138,24 +149,22 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 		if err != nil {
 			return err
 		}
-		specs := make([]ports.ShardSpec, len(shards))
-		for i, sh := range shards {
-			// The compiled config each pod runs is attached in task 23; a pod
-			// without one starts bzt with nothing to do rather than silently
-			// generating the wrong load.
-			specs[i] = ports.ShardSpec{Index: sh.Index, Concurrency: sh.Concurrency}
+		specs, files, err := s.compileShards(ctx, coll, ep, shards, engineOf(coll, s.defaultEngine))
+		if err != nil {
+			return err
 		}
 		spec := ports.DeploySpec{
 			// Empty is this deployment's own cluster, the only one there is until
 			// Phase 8 records a cluster on the execution and maps refs to
 			// credentials. The parameter exists now so that change adds a lookup
 			// rather than a signature.
-			Cluster:     "",
-			ProjectID:   coll.ProjectID,
-			ExecutionID: executionID,
-			ScenarioID:  ep.ScenarioID,
-			Image:       image,
-			Shards:      specs,
+			Cluster:       "",
+			ProjectID:     coll.ProjectID,
+			ExecutionID:   executionID,
+			ScenarioID:    ep.ScenarioID,
+			Image:         image,
+			Shards:        specs,
+			ScenarioFiles: files,
 		}
 		if err := s.sched.DeployScenario(ctx, spec); err != nil {
 			return err
@@ -254,6 +263,97 @@ func (s *Service) Purge(ctx context.Context, executionID int64) error {
 	}
 	s.metrics.Purge(executionID)
 	return nil
+}
+
+// podScenarioPath is where a scenario's artefacts are mounted in an engine pod.
+const podScenarioPath = "/honryu/config/scenario/"
+
+// scenarioKey is the object-store key of one of a scenario's files.
+func scenarioKey(scenarioID int64, filename string) string {
+	return fmt.Sprintf("scenario/%d/%s", scenarioID, filename)
+}
+
+// compileShards turns one scenario's share of the load into a config per pod.
+//
+// Each shard gets its own config carrying only its fraction of the users, which
+// is what makes the pods together produce the profile that was asked for. The
+// scenario's own artefacts travel with them, since a native scenario's config
+// points at a script the pod must be able to open.
+func (s *Service) compileShards(
+	ctx context.Context,
+	exe execution.Execution,
+	entry loadprofile.Entry,
+	shards []shard.Shard,
+	engine taurus.Executor,
+) ([]ports.ShardSpec, map[string][]byte, error) {
+	sc, err := s.repo.GetScenario(ctx, entry.ScenarioID)
+	if err != nil {
+		return nil, nil, err
+	}
+	pf, err := s.repo.ScenarioFilesFor(ctx, entry.ScenarioID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sc.Kind == scenario.KindNative && pf.TestFile == "" {
+		return nil, nil, ErrNoTestFile
+	}
+
+	files := map[string][]byte{}
+	for _, name := range append([]string{pf.TestFile}, pf.Data...) {
+		if name == "" {
+			continue
+		}
+		content, dlErr := s.store.Download(ctx, scenarioKey(entry.ScenarioID, name))
+		if dlErr != nil {
+			// Naming the file matters: "object not found" alone leaves an
+			// operator guessing which of a scenario's artefacts is missing.
+			return nil, nil, fmt.Errorf("lifecycleapp: scenario %d file %q: %w",
+				entry.ScenarioID, name, dlErr)
+		}
+		files[name] = content
+	}
+
+	si := compile.ScenarioInput{Scenario: sc}
+	if sc.Kind == scenario.KindNative {
+		si.ScriptPath = podScenarioPath + pf.TestFile
+	}
+	for _, name := range pf.Data {
+		si.DataPaths = append(si.DataPaths, podScenarioPath+name)
+	}
+
+	specs := make([]ports.ShardSpec, len(shards))
+	for i, sh := range shards {
+		// Only this shard's slice of the load: the pods together add up to the
+		// requested profile.
+		shardEntry := entry
+		shardEntry.Concurrency = sh.Concurrency
+		shardEntry.Throughput = sh.Throughput
+
+		cfg, cErr := compile.Taurus(compile.Input{
+			Execution: exe,
+			Profile:   loadprofile.Profile{Tests: []loadprofile.Entry{shardEntry}},
+			Engine:    engine,
+			Scenarios: map[int64]compile.ScenarioInput{entry.ScenarioID: si},
+		})
+		if cErr != nil {
+			return nil, nil, cErr
+		}
+		raw, mErr := yaml.Marshal(cfg)
+		if mErr != nil {
+			return nil, nil, fmt.Errorf("lifecycleapp: encode shard config: %w", mErr)
+		}
+		specs[i] = ports.ShardSpec{Index: sh.Index, Concurrency: sh.Concurrency, Config: raw}
+	}
+	return specs, files, nil
+}
+
+// engineOf is the execution's engine, or the deployment default when it named
+// none.
+func engineOf(exe execution.Execution, fallback taurus.Executor) taurus.Executor {
+	if exe.Engine != "" {
+		return exe.Engine
+	}
+	return fallback
 }
 
 // teardown stops metric execution and engines, and clears run/running-scenario
