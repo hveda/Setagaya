@@ -1,0 +1,319 @@
+package report_test
+
+import (
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/metrics"
+	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+)
+
+func interval(ts int64, label string, samples, failed int64, latency metrics.Histogram) metrics.Interval {
+	return metrics.Interval{
+		Timestamp: ts, Label: label, Concurrency: 5,
+		Samples: samples, Succeeded: samples - failed, Failed: failed,
+		Latency: latency,
+	}
+}
+
+// A report is built from the intervals a run's pods pushed. Its numbers must be
+// what those intervals actually said, since every judgement downstream rests on
+// them.
+func TestBuild_SummarisesARun(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1000, 0)
+	in := report.Input{
+		ExecutionID: 7, ScenarioID: 11, RunID: 3,
+		Engine:    taurus.ExecutorJMeter,
+		StartedAt: started,
+		EndedAt:   started.Add(time.Minute),
+		Requested: report.Load{Concurrency: 50, Throughput: 500, DurationSeconds: 60},
+		Outcome:   taurus.OutcomePassed,
+		Intervals: []metrics.Interval{
+			interval(1000, "checkout-cart", 100, 0, metrics.Histogram{0.01: 100}),
+			interval(1001, "checkout-cart", 100, 10, metrics.Histogram{0.01: 90, 0.5: 10}),
+		},
+	}
+
+	rep := report.Build(in)
+
+	if rep.ExecutionID != 7 || rep.ScenarioID != 11 || rep.RunID != 3 {
+		t.Errorf("identity = %+v", rep)
+	}
+	if rep.Engine != taurus.ExecutorJMeter {
+		t.Errorf("engine = %q", rep.Engine)
+	}
+	if rep.Achieved.Samples != 200 || rep.Achieved.Failed != 10 {
+		t.Errorf("achieved = %+v, want 200 samples with 10 failures", rep.Achieved)
+	}
+	// Achieved throughput is what was measured, not what was asked for: 200
+	// samples over 60 seconds.
+	if got := rep.Achieved.Throughput; got < 3.2 || got > 3.4 {
+		t.Errorf("achieved throughput = %v, want about 3.33/s", got)
+	}
+	if rep.Requested.Concurrency != 50 || rep.Requested.Throughput != 500 {
+		t.Errorf("requested = %+v", rep.Requested)
+	}
+	if rep.ErrorRate < 0.049 || rep.ErrorRate > 0.051 {
+		t.Errorf("error rate = %v, want 0.05", rep.ErrorRate)
+	}
+}
+
+// Percentiles come from the merged buckets of every pod, which is the only way
+// to get them right for a sharded run.
+func TestBuild_PercentilesComeFromMergedBuckets(t *testing.T) {
+	t.Parallel()
+
+	in := report.Input{
+		Requested: report.Load{DurationSeconds: 10},
+		Intervals: []metrics.Interval{
+			// Two pods, same second. One saw a slow tail the other never did.
+			interval(1, "probe", 100, 0, metrics.Histogram{0.01: 100}),
+			interval(1, "probe", 100, 0, metrics.Histogram{0.01: 90, 2.0: 10}),
+		},
+	}
+	rep := report.Build(in)
+
+	// 10 slow of 200 is 5%, so p95 is the boundary and p99 is deep in the tail.
+	if got := rep.Latency[99]; got != 2.0 {
+		t.Errorf("p99 = %v, want 2.0 from the merged buckets", got)
+	}
+	if got := rep.Latency[50]; got != 0.01 {
+		t.Errorf("p50 = %v, want 0.01", got)
+	}
+	// Averaging the pods' own percentiles would have hidden the tail entirely:
+	// one pod's p99 is 0.01.
+	if rep.Latency[99] == 0.01 {
+		t.Error("the tail one pod saw was lost")
+	}
+}
+
+// A report is per request label as well as overall, since a service owner needs
+// to know which request degraded, not just that something did.
+func TestBuild_BreaksDownByLabel(t *testing.T) {
+	t.Parallel()
+
+	in := report.Input{
+		Requested: report.Load{DurationSeconds: 10},
+		Intervals: []metrics.Interval{
+			interval(1, "checkout-cart", 100, 0, metrics.Histogram{0.01: 100}),
+			interval(1, "checkout-pay", 50, 25, metrics.Histogram{1.0: 50}),
+			interval(2, "checkout-cart", 100, 0, metrics.Histogram{0.01: 100}),
+		},
+	}
+	rep := report.Build(in)
+
+	if len(rep.Labels) != 2 {
+		t.Fatalf("labels = %d, want 2: %+v", len(rep.Labels), rep.Labels)
+	}
+	byLabel := map[string]report.LabelSummary{}
+	for _, l := range rep.Labels {
+		byLabel[l.Label] = l
+	}
+	cart, pay := byLabel["checkout-cart"], byLabel["checkout-pay"]
+	if cart.Samples != 200 || cart.Failed != 0 {
+		t.Errorf("checkout-cart = %+v", cart)
+	}
+	if pay.Samples != 50 || pay.Failed != 25 {
+		t.Errorf("checkout-pay = %+v", pay)
+	}
+	if pay.ErrorRate < 0.49 || pay.ErrorRate > 0.51 {
+		t.Errorf("checkout-pay error rate = %v, want 0.5", pay.ErrorRate)
+	}
+	// The failing request is the one worth finding, so it must be distinguishable
+	// from the healthy one rather than averaged with it.
+	if cart.ErrorRate >= pay.ErrorRate {
+		t.Error("a healthy request and a failing one report the same error rate")
+	}
+}
+
+// bzt reports an aggregate under its own label. Counting it alongside the real
+// requests would double every total.
+func TestBuild_ExcludesTheEngineAggregateLabel(t *testing.T) {
+	t.Parallel()
+
+	in := report.Input{
+		Requested: report.Load{DurationSeconds: 10},
+		Intervals: []metrics.Interval{
+			interval(1, "probe", 100, 0, metrics.Histogram{0.01: 100}),
+			interval(1, report.TotalLabel, 100, 0, metrics.Histogram{0.01: 100}),
+		},
+	}
+	rep := report.Build(in)
+
+	if rep.Achieved.Samples != 100 {
+		t.Errorf("achieved samples = %d, want 100; the engine's own total was counted twice",
+			rep.Achieved.Samples)
+	}
+	for _, l := range rep.Labels {
+		if l.Label == report.TotalLabel {
+			t.Error("the engine's aggregate label appears as a request")
+		}
+	}
+}
+
+// A run that measured nothing is a real outcome -- the target refused every
+// connection, or the engine died at once -- and must summarise cleanly rather
+// than dividing by zero.
+func TestBuild_EmptyRun(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 1, Outcome: taurus.OutcomeError,
+		Requested: report.Load{Concurrency: 10, DurationSeconds: 60},
+	})
+
+	if rep.Achieved.Samples != 0 || rep.ErrorRate != 0 {
+		t.Errorf("empty run = %+v", rep)
+	}
+	if len(rep.Labels) != 0 {
+		t.Errorf("labels = %+v, want none", rep.Labels)
+	}
+	if rep.Outcome != taurus.OutcomeError {
+		t.Errorf("outcome = %q", rep.Outcome)
+	}
+}
+
+// The report records how far the run fell short of what was asked for. A run
+// that produced a fraction of the requested load says little about the target,
+// and a reader must be able to see that rather than trust the latency.
+func TestBuild_ReportsLoadShortfall(t *testing.T) {
+	t.Parallel()
+
+	in := report.Input{
+		Requested: report.Load{Concurrency: 50, Throughput: 1000, DurationSeconds: 10},
+		Intervals: []metrics.Interval{
+			interval(1, "probe", 100, 0, metrics.Histogram{0.01: 100}),
+		},
+	}
+	rep := report.Build(in)
+
+	// 100 samples over 10s is 10/s against 1000/s requested.
+	if !rep.ShortOfRequest() {
+		t.Error("a run at 1% of the requested rate does not report a shortfall")
+	}
+
+	full := in
+	full.Requested.Throughput = 10
+	if report.Build(full).ShortOfRequest() {
+		t.Error("a run that met its requested rate reports a shortfall")
+	}
+
+	// With no requested rate there is nothing to fall short of.
+	unlimited := in
+	unlimited.Requested.Throughput = 0
+	if report.Build(unlimited).ShortOfRequest() {
+		t.Error("an unlimited run reports a shortfall")
+	}
+}
+
+func TestReport_Validate(t *testing.T) {
+	t.Parallel()
+
+	valid := func() report.Report {
+		return report.Report{ExecutionID: 1, RunID: 2, Outcome: taurus.OutcomePassed}
+	}
+	cases := []struct {
+		name    string
+		mutate  func(*report.Report)
+		wantErr error
+	}{
+		{"valid", func(*report.Report) {}, nil},
+		{"no execution", func(r *report.Report) { r.ExecutionID = 0 }, report.ErrExecutionRequired},
+		{"no run", func(r *report.Report) { r.RunID = 0 }, report.ErrRunRequired},
+		{"unknown outcome", func(r *report.Report) { r.Outcome = "maybe" }, report.ErrOutcomeUnknown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := valid()
+			tc.mutate(&r)
+			if err := r.Validate(); !errors.Is(err, tc.wantErr) {
+				t.Errorf("Validate() = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// A run with no declared duration cannot have a rate: dividing by zero would
+// make the achieved throughput infinite or NaN, which then reaches a report a
+// human reads.
+func TestBuild_NoDurationHasNoRate(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1,
+		Requested: report.Load{Concurrency: 10}, // no duration
+		Intervals: []metrics.Interval{
+			interval(1, "probe", 500, 0, metrics.Histogram{0.01: 500}),
+		},
+	})
+	if rep.Achieved.Throughput != 0 {
+		t.Errorf("throughput = %v, want 0 when no duration was declared", rep.Achieved.Throughput)
+	}
+	// The samples themselves are still counted; only the rate is unknowable.
+	if rep.Achieved.Samples != 500 {
+		t.Errorf("samples = %d, want 500", rep.Achieved.Samples)
+	}
+}
+
+// A report crosses the API and the database, so its shape has to survive JSON.
+func TestReport_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 7, ScenarioID: 11, RunID: 3,
+		Engine:    taurus.ExecutorK6,
+		StartedAt: time.Unix(1000, 0).UTC(),
+		EndedAt:   time.Unix(1060, 0).UTC(),
+		Outcome:   taurus.OutcomeFailed,
+		Requested: report.Load{Concurrency: 20, Throughput: 100, DurationSeconds: 60},
+		Intervals: []metrics.Interval{
+			interval(1000, "probe", 200, 20, metrics.Histogram{0.05: 180, 3.0: 20}),
+		},
+	})
+
+	data, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got report.Report
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if got.RunID != rep.RunID || got.Outcome != rep.Outcome || got.Engine != rep.Engine {
+		t.Errorf("identity lost: %+v", got)
+	}
+	if got.Latency[99] != rep.Latency[99] {
+		t.Errorf("p99 = %v, want %v", got.Latency[99], rep.Latency[99])
+	}
+	if len(got.Labels) != 1 || got.Labels[0].Failed != 20 {
+		t.Errorf("labels = %+v", got.Labels)
+	}
+	if !got.StartedAt.Equal(rep.StartedAt) {
+		t.Errorf("StartedAt = %v, want %v", got.StartedAt, rep.StartedAt)
+	}
+}
+
+func TestPercentiles_UnmarshalRejectsNonNumericKeys(t *testing.T) {
+	t.Parallel()
+
+	var p report.Percentiles
+	if err := json.Unmarshal([]byte(`{"p95":0.2}`), &p); err == nil {
+		t.Error("a non-numeric percentile key was accepted")
+	}
+	if err := json.Unmarshal([]byte(`[1,2]`), &p); err == nil {
+		t.Error("a non-object percentiles value was accepted")
+	}
+	if err := json.Unmarshal([]byte(`{"95":0.2}`), &p); err != nil {
+		t.Fatalf("valid percentiles rejected: %v", err)
+	}
+	if p[95] != 0.2 {
+		t.Errorf("p95 = %v, want 0.2", p[95])
+	}
+}
