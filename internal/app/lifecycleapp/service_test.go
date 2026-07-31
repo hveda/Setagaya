@@ -359,14 +359,14 @@ func TestStop_WhenEnginesUnreachable(t *testing.T) {
 
 // recordingMetrics implements lifecycleapp.Metrics and records the calls.
 type recordingMetrics struct {
-	started, stopped, purged []int64
+	purged []int64
 }
 
-func (m *recordingMetrics) Start(id int64) { m.started = append(m.started, id) }
-func (m *recordingMetrics) Stop(id int64)  { m.stopped = append(m.stopped, id) }
 func (m *recordingMetrics) Purge(id int64) { m.purged = append(m.purged, id) }
 
-func TestMetricsHooks_FireOnTriggerStopPurge(t *testing.T) {
+// Purging an execution must drop its metric series: with measurements pushed
+// there is nothing to start or stop, but nothing else would ever remove them.
+func TestMetricsHook_PurgeDropsSeries(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)
 	ctx := context.Background()
@@ -375,18 +375,6 @@ func TestMetricsHooks_FireOnTriggerStopPurge(t *testing.T) {
 
 	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
 		t.Fatalf("Deploy: %v", err)
-	}
-	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
-		t.Fatalf("Trigger: %v", err)
-	}
-	if len(rec.started) != 1 || rec.started[0] != e.executionID {
-		t.Fatalf("started = %v, want [%d]", rec.started, e.executionID)
-	}
-	if err := e.svc.Stop(ctx, e.executionID); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-	if len(rec.stopped) == 0 {
-		t.Fatal("Stop did not stop metrics")
 	}
 	if err := e.svc.Purge(ctx, e.executionID); err != nil {
 		t.Fatalf("Purge: %v", err)

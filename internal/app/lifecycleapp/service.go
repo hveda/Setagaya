@@ -43,16 +43,15 @@ type Repo interface {
 // trigger, Stop on teardown, and Purge (stop + drop series) on purge. The
 // metricsapp service implements it; a no-op default is used when none is wired
 // (e.g. in tests that don't exercise metrics).
+// Metrics is the metric use-case's hook into the lifecycle. Only purging
+// remains: with measurements pushed, there is no collection to start or stop --
+// pods send while they run and stop when they are gone.
 type Metrics interface {
-	Start(executionID int64)
-	Stop(executionID int64)
 	Purge(executionID int64)
 }
 
 type noopMetrics struct{}
 
-func (noopMetrics) Start(int64) {}
-func (noopMetrics) Stop(int64)  {}
 func (noopMetrics) Purge(int64) {}
 
 // Usage records the usage of a run: a launch opened on trigger and closed on
@@ -229,7 +228,6 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	}
 	// Begin streaming metrics from the now-running engines and open a usage
 	// launch (best effort: accounting must not fail a successful trigger).
-	s.metrics.Start(executionID)
 	if proj, perr := s.repo.GetProject(ctx, coll.ProjectID); perr == nil {
 		_ = s.usage.RecordStart(ctx, executionID, proj.Owner, ec.TotalEngines(), run.VirtualUsers(ec))
 	}
@@ -359,7 +357,6 @@ func engineOf(exe execution.Execution, fallback taurus.Executor) taurus.Executor
 // teardown stops metric execution and engines, and clears run/running-scenario
 // state (best effort on the engine stop calls, which may already be gone).
 func (s *Service) teardown(ctx context.Context, executionID int64) error {
-	s.metrics.Stop(executionID)
 	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return err

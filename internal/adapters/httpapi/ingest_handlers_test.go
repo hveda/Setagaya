@@ -45,7 +45,7 @@ func newIngestEnv(t *testing.T, deps func(*httpapi.Deps)) ingestEnv {
 
 	sink := fake.NewMetricsSink()
 	d := httpapi.Deps{
-		Metrics:     metricsapp.NewService(store, fake.NewScheduler(), sink, membus.New()),
+		Metrics:     metricsapp.NewService(store, sink, membus.New()),
 		IngestToken: engineToken,
 	}
 	if deps != nil {

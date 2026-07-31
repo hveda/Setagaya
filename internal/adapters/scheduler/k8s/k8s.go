@@ -1,8 +1,13 @@
-// Package k8s implements ports.Scheduler on top of Kubernetes. Each scenario is a
-// StatefulSet fronted by a headless Service, giving every engine a stable
-// ordinal identity and DNS name (engine-<p>-<c>-<pl>-<i>). The clientset is
-// injected, so the whole adapter is exercised in-process against client-go's
-// fake clientset — no cluster, no container.
+// Package k8s implements ports.Scheduler on top of Kubernetes. Each scenario is
+// a StatefulSet, one pod per shard, whose stable ordinals let otherwise
+// identical pods pick out their own compiled config.
+//
+// The pods expose nothing. They ran an HTTP agent the controller called, which
+// needed a headless Service and a port; now they run bzt and push their results
+// out, so neither exists and no metrics scraper has a target to find.
+//
+// The clientset is injected, so the whole adapter is exercised in-process
+// against client-go's fake clientset — no cluster, no container.
 package k8s
 
 import (
@@ -117,31 +122,12 @@ func (s *Scheduler) DeployScenario(ctx context.Context, spec ports.DeploySpec) e
 	labels := engine.ScenarioLabels(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
 	labels[managedByLabel] = managedByValue
 
-	if err := s.ensureService(ctx, name, labels); err != nil {
-		return err
-	}
 	// The configs must exist before the pods that mount them, or the first pods
 	// start and fail before the ConfigMap lands.
 	if err := s.ensureConfigMap(ctx, name, labels, spec); err != nil {
 		return err
 	}
 	return s.ensureStatefulSet(ctx, name, labels, spec)
-}
-
-func (s *Scheduler) ensureService(ctx context.Context, name string, labels map[string]string) error {
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns, Labels: labels},
-		Spec: corev1.ServiceSpec{
-			ClusterIP: corev1.ClusterIPNone, // headless
-			Selector:  map[string]string{"app": name},
-			Ports:     []corev1.ServicePort{{Port: int32Bounded(s.port), Name: "agent"}},
-		},
-	}
-	_, err := s.client.CoreV1().Services(s.ns).Create(ctx, svc, metav1.CreateOptions{})
-	if apierrors.IsAlreadyExists(err) {
-		return nil
-	}
-	return err
 }
 
 // ensureConfigMap holds every shard's compiled config, keyed by shard index.
@@ -258,7 +244,10 @@ func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
 				Name:    "engine",
 				Image:   spec.Image,
 				Command: []string{"/bin/sh", "-c", engineScript()},
-				Ports:   []corev1.ContainerPort{{ContainerPort: int32Bounded(s.port)}},
+				// No port: an engine serves nothing. It ran an HTTP agent the
+				// controller called; now it runs bzt and its sidecar pushes the
+				// results out, so there is nothing to connect to and nothing for
+				// a metrics scraper to discover.
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: "config", MountPath: configMount, ReadOnly: true},
 					{Name: "kpi", MountPath: kpiMount},

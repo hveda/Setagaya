@@ -4,7 +4,9 @@ package e2e_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +26,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/usageapp"
-	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/metrics"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 	"github.com/heridotlife/honryu/test/dbtest"
 )
@@ -41,7 +43,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	sink := fake.NewMetricsSink()
 	bus := membus.New()
 
-	collector := metricsapp.NewService(repo, sched, sink, bus)
+	collector := metricsapp.NewService(repo, sink, bus)
 	usage := usageapp.NewService(repo)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, lifecycleapp.StaticImage("jmeter")).WithMetrics(collector).WithUsage(usage)
 	admin := adminapp.NewService(repo, sched, lifecycle)
@@ -55,6 +57,8 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 		Admin:         admin,
 		Events:        bus,
 		Store:         store,
+		Metrics:       collector,
+		IngestToken:   "engine-token",
 		DefaultOwners: []string{"honryu"},
 	})
 	srv := httptest.NewServer(router)
@@ -72,17 +76,35 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	postAction(t, client, base+"/deploy", http.StatusOK)
 	postAction(t, client, base+"/trigger", http.StatusOK)
 
-	// Measurements arrive by push. This is what a sidecar in an engine pod will
-	// call once task 21 exposes it over HTTP; the stamping, fan-out, SSE, and
-	// Prometheus paths downstream of it are the same ones production uses.
+	// Measurements arrive over the same endpoint a sidecar in an engine pod
+	// posts to, so this exercises the whole inbound path rather than reaching
+	// past it into the service.
 	runID, _, err := repo.CurrentRun(context.Background(), collID)
 	if err != nil {
 		t.Fatalf("CurrentRun: %v", err)
 	}
+	pushCtx, stopPushing := context.WithCancel(context.Background())
+	defer stopPushing()
 	go func() {
-		for i := 0; i < 200; i++ {
-			collector.Record(collID, scenarioID, 0, runID,
-				engine.Metric{Label: "home", Status: "200", Latency: 12.5, Threads: 8})
+		for ts := int64(0); ; ts++ {
+			select {
+			case <-pushCtx.Done():
+				return
+			default:
+			}
+			body, _ := json.Marshal(metrics.Batch{
+				ExecutionID: collID, ScenarioID: scenarioID, RunID: runID, ShardIndex: 0,
+				Intervals: []metrics.Interval{{
+					Timestamp: ts, Label: "home", Concurrency: 8, Samples: 20, Succeeded: 20,
+					Latency: metrics.Histogram{0.0125: 20}, ResponseCodes: map[string]int64{"200": 20},
+				}},
+			})
+			req, _ := http.NewRequestWithContext(pushCtx, http.MethodPost,
+				srv.URL+"/api/ingest", bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer engine-token")
+			if resp, err := client.Do(req); err == nil {
+				_ = resp.Body.Close()
+			}
 			time.Sleep(10 * time.Millisecond)
 		}
 	}()

@@ -96,10 +96,9 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 	sink := promsink.New(prometheus.DefaultRegisterer)
 	bus := eventbus.New()
-	collector := metricsapp.NewService(repo, sched, sink, bus)
-	if resumeErr := collector.Resume(ctx); resumeErr != nil {
-		slog.Warn("resume metric collection", "error", resumeErr)
-	}
+	collector := metricsapp.NewService(repo, sink, bus)
+	// Nothing to resume after a restart: pods push, so a run already under way
+	// simply keeps sending to whichever controller is listening.
 	usage := usageapp.NewService(repo)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).
 		WithMetrics(collector).WithUsage(usage)

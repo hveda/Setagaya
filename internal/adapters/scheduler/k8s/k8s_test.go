@@ -457,3 +457,37 @@ func mountsVolume(c corev1.Container, volume string) bool {
 	}
 	return false
 }
+
+// Engine pods serve nothing, so nothing can discover them as a scrape target.
+// Under the agent protocol each pod exposed an HTTP port behind a headless
+// Service; both are gone with it.
+func TestK8sScheduler_PodsExposeNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns, EnginePort: 8080})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(2),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	services, err := client.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list services: %v", err)
+	}
+	if len(services.Items) != 0 {
+		t.Errorf("created %d services; engine pods are not reachable and need none", len(services.Items))
+	}
+
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	for _, c := range set.Spec.Template.Spec.Containers {
+		if len(c.Ports) != 0 {
+			t.Errorf("container %q exposes %v; nothing connects to an engine", c.Name, c.Ports)
+		}
+	}
+}
