@@ -48,7 +48,7 @@ type RunningExecution struct {
 // RunningExecutions lists every deployed execution, enriched with its name,
 // project, and whether a run is in progress.
 func (s *Service) RunningExecutions(ctx context.Context) ([]RunningExecution, error) {
-	deployed, err := s.sched.DeployedExecutions(ctx)
+	deployed, err := s.sched.DeployedExecutions(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -70,13 +70,13 @@ func (s *Service) RunningExecutions(ctx context.Context) ([]RunningExecution, er
 
 // NodePools reports the cluster node pools.
 func (s *Service) NodePools(ctx context.Context) ([]ports.NodePool, error) {
-	return s.sched.NodePools(ctx)
+	return s.sched.NodePools(ctx, "")
 }
 
 // AutoPurgeStale purges every execution whose engines have been deployed longer
 // than idleFor and which has no run in progress. It returns the purged ids.
 func (s *Service) AutoPurgeStale(ctx context.Context, idleFor time.Duration) ([]int64, error) {
-	deployed, err := s.sched.DeployedExecutions(ctx)
+	deployed, err := s.sched.DeployedExecutions(ctx, "")
 	if err != nil {
 		return nil, err
 	}

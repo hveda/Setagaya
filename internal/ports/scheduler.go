@@ -6,34 +6,64 @@ import (
 	"time"
 )
 
-// ErrEnginesUnreachable is returned when a scenario's engines are not yet routable
-// (e.g. ingress not provisioned). Callers may retry.
+// ErrEnginesUnreachable is returned when a scenario's engines are not yet
+// routable. Callers may retry.
 var ErrEnginesUnreachable = errors.New("ports: engines unreachable")
 
-// DeploySpec describes the engines to run for a single scenario of an execution.
+// ClusterRef names the cluster an operation targets.
+//
+// It appears on every method so a caller cannot forget to say where work should
+// happen. An empty ref means the deployment's own cluster, which is the only one
+// there is until a registry maps refs to credentials -- at which point nothing
+// here changes shape.
+type ClusterRef string
+
+// DeploySpec describes the pods to run for a single scenario of an execution.
+//
+// Load is divided by Honryu, not by the engine: each shard is an ordinary bzt
+// running its own fraction of the profile, so a pod is described by the config
+// it runs rather than by a count of interchangeable engines.
 type DeploySpec struct {
+	Cluster     ClusterRef
 	ProjectID   int64
 	ExecutionID int64
 	ScenarioID  int64
-	Engines     int
-	Image       string // executor container image
+	Image       string // engine container image
 	CPU         string // optional resource request/limit, e.g. "1"
 	Memory      string // optional resource request/limit, e.g. "512Mi"
+	// Shards are the pods to create, one per shard of the load profile.
+	Shards []ShardSpec
 }
 
-// ScenarioRef names a scenario and how many engines it expects; used to query status.
+// ShardSpec is one pod: its position in the plan and the compiled Taurus config
+// it runs.
+type ShardSpec struct {
+	// Index is the shard's position, matching the shard plan, and identifies the
+	// pod's measurements when they are pushed back.
+	Index int
+	// Config is the compiled Taurus config this pod runs.
+	Config []byte
+	// Concurrency is this pod's share of the virtual users, for reporting what
+	// was asked of it.
+	Concurrency int
+}
+
+// ScenarioRef names a scenario and how many pods it expects; used to query
+// status.
 type ScenarioRef struct {
 	ScenarioID int64
-	Engines    int
+	Shards     int
 }
 
-// ScenarioReadiness reports how many of a scenario's engines are up and whether they
-// are reachable for triggering.
+// ScenarioReadiness reports how many of a scenario's pods are up.
 type ScenarioReadiness struct {
 	ScenarioID      int64 `json:"scenario_id"`
 	EnginesWanted   int   `json:"engines"`
 	EnginesDeployed int   `json:"engines_deployed"`
-	Reachable       bool  `json:"engines_reachable"`
+	// Reachable reported whether an engine could be called. Nothing calls an
+	// engine now -- a pod runs its config and pushes results back -- so it
+	// reports only that the pods are running.
+	Reachable bool `json:"engines_reachable"`
 }
 
 // ExecutionStatus aggregates scenario readiness for an execution.
@@ -66,25 +96,24 @@ type NodePool struct {
 // execution's engines in a cluster. It is orchestration only: what a test
 // tool does on an engine is the Executor's concern.
 type Scheduler interface {
-	// DeployScenario ensures Engines replicas exist for the scenario in spec. It is
-	// idempotent: deploying an already-deployed scenario is a no-op.
+	// DeployScenario creates a pod per shard in spec, each running its own
+	// compiled config. It is idempotent: deploying an already-deployed scenario
+	// is a no-op.
 	DeployScenario(ctx context.Context, spec DeploySpec) error
-	// EngineURLs returns the reachable base URLs of a scenario's engines, ordered
-	// by engine id (index 0..engines-1). Returns ErrEnginesUnreachable if the
-	// engines are not yet routable.
-	EngineURLs(ctx context.Context, executionID, scenarioID int64, engines int) ([]string, error)
-	// ExecutionStatus reports per-scenario readiness for the given scenarios.
-	ExecutionStatus(ctx context.Context, executionID int64, scenarios []ScenarioRef) (ExecutionStatus, error)
-	// EngineDetail reports the ingress IP and engine pods of an execution.
-	EngineDetail(ctx context.Context, projectID, executionID int64) (ExecutionDetail, error)
-	// PurgeExecution removes all engines, services, and ingress of a
-	// execution. Purging an execution with nothing deployed is not an error.
-	PurgeExecution(ctx context.Context, executionID int64) error
-	// PodLog returns the current logs of a scenario's first engine pod.
-	PodLog(ctx context.Context, executionID, scenarioID int64) (string, error)
-	// DeployedExecutions maps deployed execution id to its earliest deploy
-	// time; used by the auto-purge garbage collector.
-	DeployedExecutions(ctx context.Context) (map[int64]time.Time, error)
-	// NodePools summarises the cluster node pools backing engine capacity.
-	NodePools(ctx context.Context) ([]NodePool, error)
+	// ExecutionStatus reports per-scenario pod readiness.
+	ExecutionStatus(ctx context.Context, cluster ClusterRef, executionID int64, scenarios []ScenarioRef) (ExecutionStatus, error)
+	// EngineDetail reports the pods of an execution.
+	EngineDetail(ctx context.Context, cluster ClusterRef, projectID, executionID int64) (ExecutionDetail, error)
+	// PurgeExecution removes everything an execution deployed. Purging an
+	// execution with nothing deployed is not an error.
+	PurgeExecution(ctx context.Context, cluster ClusterRef, executionID int64) error
+	// PodLog returns the current logs of one shard's pod. Shard logs are the
+	// engine-side half of fault attribution, so they are addressed per pod
+	// rather than only for the first.
+	PodLog(ctx context.Context, cluster ClusterRef, executionID, scenarioID int64, shard int) (string, error)
+	// DeployedExecutions maps deployed execution id to its earliest deploy time;
+	// used by the auto-purge garbage collector.
+	DeployedExecutions(ctx context.Context, cluster ClusterRef) (map[int64]time.Time, error)
+	// NodePools summarises the node pools backing engine capacity.
+	NodePools(ctx context.Context, cluster ClusterRef) ([]NodePool, error)
 }

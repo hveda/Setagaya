@@ -109,7 +109,7 @@ func (s *Scheduler) ensureService(ctx context.Context, name string, labels map[s
 }
 
 func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels map[string]string, spec ports.DeploySpec) error {
-	replicas := int32Bounded(spec.Engines)
+	replicas := int32Bounded(len(spec.Shards))
 	podLabels := map[string]string{}
 	for k, v := range labels {
 		podLabels[k] = v
@@ -164,42 +164,8 @@ func resourceRequirements(spec ports.DeploySpec) corev1.ResourceRequirements {
 	return corev1.ResourceRequirements{Requests: list, Limits: list}
 }
 
-// EngineURLs returns the stable per-engine DNS URLs, or ErrEnginesUnreachable
-// when the scenario's Service is absent.
-func (s *Scheduler) EngineURLs(ctx context.Context, executionID, scenarioID int64, engines int) ([]string, error) {
-	projectID, err := s.projectOf(ctx, executionID)
-	if err != nil {
-		return nil, err
-	}
-	name := engine.ScenarioName(projectID, executionID, scenarioID)
-	if _, err := s.client.CoreV1().Services(s.ns).Get(ctx, name, metav1.GetOptions{}); err != nil {
-		return nil, ports.ErrEnginesUnreachable
-	}
-	urls := make([]string, engines)
-	for i := range urls {
-		urls[i] = fmt.Sprintf("http://%s-%d.%s.%s.svc:%d", name, i, name, s.ns, s.port)
-	}
-	return urls, nil
-}
-
-// projectOf recovers the project id from any pod/statefulset labelled with the
-// execution; deploy specs carry the project but query methods do not.
-func (s *Scheduler) projectOf(ctx context.Context, executionID int64) (int64, error) {
-	sel := fmt.Sprintf("execution=%d,%s=%s", executionID, managedByLabel, managedByValue)
-	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
-	if err != nil {
-		return 0, err
-	}
-	if len(sets.Items) == 0 {
-		return 0, ports.ErrEnginesUnreachable
-	}
-	var projectID int64
-	_, _ = fmt.Sscanf(sets.Items[0].Labels["project"], "%d", &projectID)
-	return projectID, nil
-}
-
 // ExecutionStatus counts ready pods per scenario.
-func (s *Scheduler) ExecutionStatus(ctx context.Context, executionID int64, plans []ports.ScenarioRef) (ports.ExecutionStatus, error) {
+func (s *Scheduler) ExecutionStatus(ctx context.Context, _ ports.ClusterRef, executionID int64, plans []ports.ScenarioRef) (ports.ExecutionStatus, error) {
 	status := ports.ExecutionStatus{}
 	for _, ref := range plans {
 		ready, err := s.readyPods(ctx, executionID, ref.ScenarioID)
@@ -208,9 +174,9 @@ func (s *Scheduler) ExecutionStatus(ctx context.Context, executionID int64, plan
 		}
 		pr := ports.ScenarioReadiness{
 			ScenarioID:      ref.ScenarioID,
-			EnginesWanted:   ref.Engines,
+			EnginesWanted:   ref.Shards,
 			EnginesDeployed: ready,
-			Reachable:       ref.Engines > 0 && ready >= ref.Engines,
+			Reachable:       ref.Shards > 0 && ready >= ref.Shards,
 		}
 		status.PoolSize += ready
 		status.Scenarios = append(status.Scenarios, pr)
@@ -246,7 +212,7 @@ func podReady(p *corev1.Pod) bool {
 }
 
 // EngineDetail lists all engine pods of a execution.
-func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int64) (ports.ExecutionDetail, error) {
+func (s *Scheduler) EngineDetail(ctx context.Context, _ ports.ClusterRef, projectID, executionID int64) (ports.ExecutionDetail, error) {
 	sel := fmt.Sprintf("project=%d,execution=%d", projectID, executionID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
@@ -266,7 +232,7 @@ func (s *Scheduler) EngineDetail(ctx context.Context, projectID, executionID int
 }
 
 // PurgeExecution deletes every StatefulSet, Service, and Pod of a execution.
-func (s *Scheduler) PurgeExecution(ctx context.Context, executionID int64) error {
+func (s *Scheduler) PurgeExecution(ctx context.Context, _ ports.ClusterRef, executionID int64) error {
 	sel := fmt.Sprintf("execution=%d,%s=%s", executionID, managedByLabel, managedByValue)
 	opts := metav1.ListOptions{LabelSelector: sel}
 	del := metav1.DeleteOptions{}
@@ -297,7 +263,7 @@ func (s *Scheduler) PurgeExecution(ctx context.Context, executionID int64) error
 }
 
 // PodLog returns the logs of a scenario's first engine pod.
-func (s *Scheduler) PodLog(ctx context.Context, executionID, scenarioID int64) (string, error) {
+func (s *Scheduler) PodLog(ctx context.Context, _ ports.ClusterRef, executionID, scenarioID int64, shard int) (string, error) {
 	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
@@ -316,7 +282,7 @@ func (s *Scheduler) PodLog(ctx context.Context, executionID, scenarioID int64) (
 
 // NodePools groups cluster nodes by their pool label, reporting each pool's
 // size and earliest node creation time.
-func (s *Scheduler) NodePools(ctx context.Context) ([]ports.NodePool, error) {
+func (s *Scheduler) NodePools(ctx context.Context, _ ports.ClusterRef) ([]ports.NodePool, error) {
 	nodes, err := s.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
@@ -347,7 +313,7 @@ func (s *Scheduler) NodePools(ctx context.Context) ([]ports.NodePool, error) {
 }
 
 // DeployedExecutions maps execution id to its earliest StatefulSet creation.
-func (s *Scheduler) DeployedExecutions(ctx context.Context) (map[int64]time.Time, error) {
+func (s *Scheduler) DeployedExecutions(ctx context.Context, _ ports.ClusterRef) (map[int64]time.Time, error) {
 	sel := fmt.Sprintf("%s=%s", managedByLabel, managedByValue)
 	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {

@@ -45,7 +45,7 @@ func NewScheduler() *Scheduler {
 }
 
 // NodePools returns the configured pools.
-func (s *Scheduler) NodePools(_ context.Context) ([]ports.NodePool, error) {
+func (s *Scheduler) NodePools(_ context.Context, _ ports.ClusterRef) ([]ports.NodePool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]ports.NodePool(nil), s.Pools...), nil
@@ -76,30 +76,15 @@ func (s *Scheduler) DeployScenario(_ context.Context, spec ports.DeploySpec) err
 	return nil
 }
 
-// EngineURLs returns synthetic per-engine URLs, or ErrEnginesUnreachable.
-func (s *Scheduler) EngineURLs(_ context.Context, executionID, scenarioID int64, engines int) ([]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	d, ok := s.deployments[executionID][scenarioID]
-	if !ok || s.Unreachable {
-		return nil, ports.ErrEnginesUnreachable
-	}
-	urls := make([]string, engines)
-	for i := range urls {
-		urls[i] = fmt.Sprintf("http://engine-%d-%d-%d-%d.fake", d.spec.ProjectID, executionID, scenarioID, i)
-	}
-	return urls, nil
-}
-
 // ExecutionStatus reports deployed/wanted engines and reachability per scenario.
-func (s *Scheduler) ExecutionStatus(_ context.Context, executionID int64, scenarios []ports.ScenarioRef) (ports.ExecutionStatus, error) {
+func (s *Scheduler) ExecutionStatus(_ context.Context, _ ports.ClusterRef, executionID int64, scenarios []ports.ScenarioRef) (ports.ExecutionStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status := ports.ExecutionStatus{}
 	for _, ref := range scenarios {
-		pr := ports.ScenarioReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Engines}
+		pr := ports.ScenarioReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Shards}
 		if d, ok := s.deployments[executionID][ref.ScenarioID]; ok {
-			pr.EnginesDeployed = d.spec.Engines
+			pr.EnginesDeployed = len(d.spec.Shards)
 			pr.Reachable = !s.Unreachable
 		}
 		status.PoolSize += pr.EnginesDeployed
@@ -109,7 +94,7 @@ func (s *Scheduler) ExecutionStatus(_ context.Context, executionID int64, scenar
 }
 
 // EngineDetail lists the engine pods of an execution.
-func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports.ExecutionDetail, error) {
+func (s *Scheduler) EngineDetail(_ context.Context, _ ports.ClusterRef, _, executionID int64) (ports.ExecutionDetail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	detail := ports.ExecutionDetail{IngressIP: s.IngressIP}
@@ -120,7 +105,7 @@ func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports
 	sort.Slice(planIDs, func(i, j int) bool { return planIDs[i] < planIDs[j] })
 	for _, scenarioID := range planIDs {
 		d := s.deployments[executionID][scenarioID]
-		for i := 0; i < d.spec.Engines; i++ {
+		for i := 0; i < len(d.spec.Shards); i++ {
 			detail.Engines = append(detail.Engines, ports.EngineDetail{
 				Name:        fmt.Sprintf("engine-%d-%d-%d-%d", d.spec.ProjectID, executionID, scenarioID, i),
 				Status:      "Running",
@@ -132,7 +117,7 @@ func (s *Scheduler) EngineDetail(_ context.Context, _, executionID int64) (ports
 }
 
 // PurgeExecution removes all record of a execution's deployments.
-func (s *Scheduler) PurgeExecution(_ context.Context, executionID int64) error {
+func (s *Scheduler) PurgeExecution(_ context.Context, _ ports.ClusterRef, executionID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.deployments, executionID)
@@ -140,7 +125,7 @@ func (s *Scheduler) PurgeExecution(_ context.Context, executionID int64) error {
 }
 
 // PodLog returns the canned log for a deployed scenario.
-func (s *Scheduler) PodLog(_ context.Context, executionID, scenarioID int64) (string, error) {
+func (s *Scheduler) PodLog(_ context.Context, _ ports.ClusterRef, executionID, scenarioID int64, _ int) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.deployments[executionID][scenarioID]; !ok {
@@ -150,7 +135,7 @@ func (s *Scheduler) PodLog(_ context.Context, executionID, scenarioID int64) (st
 }
 
 // DeployedExecutions maps execution id to its earliest deploy time.
-func (s *Scheduler) DeployedExecutions(_ context.Context) (map[int64]time.Time, error) {
+func (s *Scheduler) DeployedExecutions(_ context.Context, _ ports.ClusterRef) (map[int64]time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[int64]time.Time{}

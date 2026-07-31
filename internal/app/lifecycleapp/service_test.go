@@ -72,11 +72,11 @@ func TestDeploy_HappyPath(t *testing.T) {
 	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	deployed, _ := e.sched.DeployedExecutions(ctx)
+	deployed, _ := e.sched.DeployedExecutions(ctx, "")
 	if _, ok := deployed[e.executionID]; !ok {
 		t.Fatalf("execution not deployed: %v", deployed)
 	}
-	status, _ := e.sched.ExecutionStatus(ctx, e.executionID, []ports.ScenarioRef{{ScenarioID: e.planIDs[0], Engines: 2}, {ScenarioID: e.planIDs[1], Engines: 3}})
+	status, _ := e.sched.ExecutionStatus(ctx, "", e.executionID, []ports.ScenarioRef{{ScenarioID: e.planIDs[0], Shards: 2}, {ScenarioID: e.planIDs[1], Shards: 3}})
 	if status.PoolSize != 5 {
 		t.Fatalf("pool size = %d, want 5", status.PoolSize)
 	}
@@ -160,7 +160,7 @@ func TestTrigger_EnginesNotReady(t *testing.T) {
 	e := setup(t, false, 3)
 	ctx := context.Background()
 	// Deploy only 2 of the 3 wanted engines directly on the scheduler.
-	if err := e.sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: e.projectID, ExecutionID: e.executionID, ScenarioID: e.planIDs[0], Engines: 2, Image: image}); err != nil {
+	if err := e.sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: e.projectID, ExecutionID: e.executionID, ScenarioID: e.planIDs[0], Shards: deployShards(2), Image: image}); err != nil {
 		t.Fatalf("partial deploy: %v", err)
 	}
 	if err := e.svc.Trigger(ctx, e.executionID); !errors.Is(err, run.ErrEnginesNotReady) {
@@ -246,7 +246,7 @@ func TestPurge_StopsThenRemoves(t *testing.T) {
 	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); ok {
 		t.Fatal("run still active after purge")
 	}
-	deployed, _ := e.sched.DeployedExecutions(ctx)
+	deployed, _ := e.sched.DeployedExecutions(ctx, "")
 	if _, ok := deployed[e.executionID]; ok {
 		t.Fatal("execution still deployed after purge")
 	}
@@ -262,7 +262,7 @@ func TestPurge_WhenIdle(t *testing.T) {
 	if err := e.svc.Purge(ctx, e.executionID); err != nil {
 		t.Fatalf("Purge idle: %v", err)
 	}
-	deployed, _ := e.sched.DeployedExecutions(ctx)
+	deployed, _ := e.sched.DeployedExecutions(ctx, "")
 	if _, ok := deployed[e.executionID]; ok {
 		t.Fatal("execution still deployed after purge")
 	}
@@ -440,4 +440,13 @@ func TestResume_ListsRunningScenarios(t *testing.T) {
 	if len(rps) != 1 {
 		t.Fatalf("resume running scenarios = %d, want 1", len(rps))
 	}
+}
+
+// deployShards builds n placeholder shard specs for a deploy.
+func deployShards(n int) []ports.ShardSpec {
+	out := make([]ports.ShardSpec, n)
+	for i := range out {
+		out[i] = ports.ShardSpec{Index: i, Concurrency: 1}
+	}
+	return out
 }

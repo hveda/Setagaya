@@ -41,7 +41,7 @@ func setup(t *testing.T, engines ...int) *env {
 		scenarioID, _ := store.CreateScenario(ctx, sc)
 		scenarioIDs = append(scenarioIDs, scenarioID)
 		tests = append(tests, loadprofile.Entry{ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: n, Duration: 1})
-		_ = sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: executionID, ScenarioID: scenarioID, Engines: n})
+		_ = sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: executionID, ScenarioID: scenarioID, Shards: deployShards(n)})
 	}
 	_ = store.StoreLoadProfile(ctx, executionID, false, tests)
 	runID, _ := store.StartRun(ctx, executionID)
@@ -141,4 +141,13 @@ func TestResume_TracksExecutionsWithRunningScenarios(t *testing.T) {
 	if err := e.svc.Resume(ctx); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
+}
+
+// deployShards builds n placeholder shard specs for a deploy.
+func deployShards(n int) []ports.ShardSpec {
+	out := make([]ports.ShardSpec, n)
+	for i := range out {
+		out[i] = ports.ShardSpec{Index: i, Concurrency: 1}
+	}
+	return out
 }

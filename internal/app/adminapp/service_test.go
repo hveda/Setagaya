@@ -35,7 +35,7 @@ func TestRunningExecutions_Enriched(t *testing.T) {
 	ctx := context.Background()
 	store, sched, _, svc, executionID := seed(t)
 	_ = store
-	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Engines: 2}); err != nil {
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Shards: deployShards(2)}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestAutoPurgeStale_PurgesIdle(t *testing.T) {
 	_, sched, purger, svc, executionID := seed(t)
 	// Engines deployed two hours ago.
 	sched.Now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Engines: 1}); err != nil {
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 
@@ -91,7 +91,7 @@ func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 	store, sched, purger, svc, executionID := seed(t)
 
 	// Fresh deployment (now): not stale.
-	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Engines: 1}); err != nil {
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	if purged, _ := svc.AutoPurgeStale(ctx, time.Hour); len(purged) != 0 {
@@ -102,7 +102,7 @@ func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 	sched.Now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
 	c2, _ := execution.New("busy", 3)
 	c2ID, _ := store.CreateExecution(ctx, c2)
-	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: c2ID, ScenarioID: 2, Engines: 1}); err != nil {
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: c2ID, ScenarioID: 2, Shards: deployShards(1)}); err != nil {
 		t.Fatalf("deploy c2: %v", err)
 	}
 	if _, err := store.StartRun(ctx, c2ID); err != nil {
@@ -114,4 +114,13 @@ func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 	if len(purger.purged) != 0 {
 		t.Fatalf("purger should not have been called")
 	}
+}
+
+// deployShards builds n placeholder shard specs for a deploy.
+func deployShards(n int) []ports.ShardSpec {
+	out := make([]ports.ShardSpec, n)
+	for i := range out {
+		out[i] = ports.ShardSpec{Index: i, Concurrency: 1}
+	}
+	return out
 }

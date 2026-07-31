@@ -37,10 +37,10 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 		h := newHarness(t)
 		s := h.Scheduler
 
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: execution, ScenarioID: planA, Engines: 2, Image: "jmeter"})
-		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: execution, ScenarioID: planB, Engines: 3, Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: execution, ScenarioID: planA, Shards: shardsOf(2), Image: "jmeter"})
+		mustDeploy(t, s, ports.DeploySpec{ProjectID: project, ExecutionID: execution, ScenarioID: planB, Shards: shardsOf(3), Image: "jmeter"})
 
-		deployed, err := s.DeployedExecutions(ctx)
+		deployed, err := s.DeployedExecutions(ctx, "")
 		if err != nil {
 			t.Fatalf("DeployedExecutions: %v", err)
 		}
@@ -51,15 +51,7 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 		h.Ready(execution, planA, 2)
 		h.Ready(execution, planB, 3)
 
-		urls, err := s.EngineURLs(ctx, execution, planA, 2)
-		if err != nil {
-			t.Fatalf("EngineURLs: %v", err)
-		}
-		if len(urls) != 2 {
-			t.Fatalf("EngineURLs len = %d, want 2 (%v)", len(urls), urls)
-		}
-
-		status, err := s.ExecutionStatus(ctx, execution, []ports.ScenarioRef{{ScenarioID: planA, Engines: 2}, {ScenarioID: planB, Engines: 3}})
+		status, err := s.ExecutionStatus(ctx, "", execution, []ports.ScenarioRef{{ScenarioID: planA, Shards: 2}, {ScenarioID: planB, Shards: 3}})
 		if err != nil {
 			t.Fatalf("ExecutionStatus: %v", err)
 		}
@@ -80,7 +72,7 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("PoolSize = %d, want 5", status.PoolSize)
 		}
 
-		detail, err := s.EngineDetail(ctx, project, execution)
+		detail, err := s.EngineDetail(ctx, "", project, execution)
 		if err != nil {
 			t.Fatalf("EngineDetail: %v", err)
 		}
@@ -88,28 +80,25 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("detail engines = %d, want 5", len(detail.Engines))
 		}
 
-		if _, err := s.PodLog(ctx, execution, planA); err != nil {
+		if _, err := s.PodLog(ctx, "", execution, planA, 0); err != nil {
 			t.Fatalf("PodLog: %v", err)
 		}
 
-		if err := s.PurgeExecution(ctx, execution); err != nil {
+		if err := s.PurgeExecution(ctx, "", execution); err != nil {
 			t.Fatalf("PurgeExecution: %v", err)
 		}
-		deployed, err = s.DeployedExecutions(ctx)
+		deployed, err = s.DeployedExecutions(ctx, "")
 		if err != nil {
 			t.Fatalf("DeployedExecutions after purge: %v", err)
 		}
 		if _, ok := deployed[execution]; ok {
 			t.Fatalf("execution still deployed after purge: %v", deployed)
 		}
-		if _, err := s.EngineURLs(ctx, execution, planA, 2); err == nil {
-			t.Fatalf("EngineURLs after purge: want error, got nil")
-		}
 	})
 
 	t.Run("purge with nothing deployed is not an error", func(t *testing.T) {
 		h := newHarness(t)
-		if err := h.Scheduler.PurgeExecution(ctx, 999); err != nil {
+		if err := h.Scheduler.PurgeExecution(ctx, "", 999); err != nil {
 			t.Fatalf("purge empty: %v", err)
 		}
 	})
@@ -120,4 +109,14 @@ func mustDeploy(t *testing.T, s ports.Scheduler, spec ports.DeploySpec) {
 	if err := s.DeployScenario(context.Background(), spec); err != nil {
 		t.Fatalf("DeployScenario(scenario %d): %v", spec.ScenarioID, err)
 	}
+}
+
+// shardsOf builds n placeholder shard specs. The contract cares how many pods a
+// deploy asks for, not what each one runs.
+func shardsOf(n int) []ports.ShardSpec {
+	out := make([]ports.ShardSpec, n)
+	for i := range out {
+		out[i] = ports.ShardSpec{Index: i, Concurrency: 1}
+	}
+	return out
 }

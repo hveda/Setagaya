@@ -16,6 +16,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/shard"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
@@ -133,12 +134,28 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 		return err
 	}
 	for _, ep := range scenarios {
+		shards, err := shard.Plan(ep, ep.Engines)
+		if err != nil {
+			return err
+		}
+		specs := make([]ports.ShardSpec, len(shards))
+		for i, sh := range shards {
+			// The compiled config each pod runs is attached in task 23; a pod
+			// without one starts bzt with nothing to do rather than silently
+			// generating the wrong load.
+			specs[i] = ports.ShardSpec{Index: sh.Index, Concurrency: sh.Concurrency}
+		}
 		spec := ports.DeploySpec{
+			// Empty is this deployment's own cluster, the only one there is until
+			// Phase 8 records a cluster on the execution and maps refs to
+			// credentials. The parameter exists now so that change adds a lookup
+			// rather than a signature.
+			Cluster:     "",
 			ProjectID:   coll.ProjectID,
 			ExecutionID: executionID,
 			ScenarioID:  ep.ScenarioID,
-			Engines:     ep.Engines,
 			Image:       image,
+			Shards:      specs,
 		}
 		if err := s.sched.DeployScenario(ctx, spec); err != nil {
 			return err
@@ -168,7 +185,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	if err != nil {
 		return err
 	}
-	status, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(scenarios))
+	status, err := s.sched.ExecutionStatus(ctx, "", executionID, planRefs(scenarios))
 	if err != nil {
 		return err
 	}
@@ -232,7 +249,7 @@ func (s *Service) Purge(ctx context.Context, executionID int64) error {
 			return err
 		}
 	}
-	if err := s.sched.PurgeExecution(ctx, executionID); err != nil {
+	if err := s.sched.PurgeExecution(ctx, "", executionID); err != nil {
 		return err
 	}
 	s.metrics.Purge(executionID)
@@ -282,7 +299,7 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 	if err != nil {
 		return Status{}, err
 	}
-	sched, err := s.sched.ExecutionStatus(ctx, executionID, planRefs(scenarios))
+	sched, err := s.sched.ExecutionStatus(ctx, "", executionID, planRefs(scenarios))
 	if err != nil {
 		return Status{}, err
 	}
@@ -314,12 +331,12 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 
 // EnginesDetail reports the engine pods and ingress of an execution.
 func (s *Service) EnginesDetail(ctx context.Context, projectID, executionID int64) (ports.ExecutionDetail, error) {
-	return s.sched.EngineDetail(ctx, projectID, executionID)
+	return s.sched.EngineDetail(ctx, "", projectID, executionID)
 }
 
 // PodLog returns the logs of a scenario's engine pod.
 func (s *Service) PodLog(ctx context.Context, executionID, scenarioID int64) (string, error) {
-	return s.sched.PodLog(ctx, executionID, scenarioID)
+	return s.sched.PodLog(ctx, "", executionID, scenarioID, 0)
 }
 
 // Resume returns the scenarios still marked running in this deployment context, so
@@ -358,7 +375,7 @@ func (s *Service) runningByScenario(ctx context.Context, executionID int64) (map
 func planRefs(scenarios []loadprofile.Entry) []ports.ScenarioRef {
 	refs := make([]ports.ScenarioRef, 0, len(scenarios))
 	for _, ep := range scenarios {
-		refs = append(refs, ports.ScenarioRef{ScenarioID: ep.ScenarioID, Engines: ep.Engines})
+		refs = append(refs, ports.ScenarioRef{ScenarioID: ep.ScenarioID, Shards: ep.Engines})
 	}
 	return refs
 }
