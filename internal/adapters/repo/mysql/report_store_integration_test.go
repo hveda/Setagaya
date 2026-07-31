@@ -168,6 +168,40 @@ func TestMySQLReportStore_RunThatProducedNoSamples(t *testing.T) {
 	}
 }
 
+// A stored report is read back long after whatever wrote it is gone, so a
+// column that will not decode has to fail loudly rather than return a report
+// silently missing its percentiles or its label breakdown.
+func TestMySQLReportStore_UndecodableColumnsError(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	base := report.Build(report.Input{
+		ExecutionID: 1, RunID: 80, Outcome: taurus.OutcomePassed,
+		StartedAt: time.Unix(9000, 0).UTC(), EndedAt: time.Unix(9030, 0).UTC(),
+		Requested: report.Load{DurationSeconds: 30},
+	})
+	if err := store.SaveReport(ctx, base); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	// Valid JSON, wrong shape: the column accepts it, but it will not unmarshal
+	// into the Go type a report expects.
+	if _, err := db.Exec(`UPDATE execution_report SET latency='"not-percentiles"' WHERE run_id=80`); err != nil {
+		t.Fatalf("corrupt latency: %v", err)
+	}
+	if _, err := store.GetReport(ctx, 80); err == nil {
+		t.Error("GetReport with an undecodable latency column returned no error")
+	}
+
+	if _, err := db.Exec(`UPDATE execution_report SET latency='{}', labels='"not-labels"' WHERE run_id=80`); err != nil {
+		t.Fatalf("corrupt labels: %v", err)
+	}
+	if _, err := store.GetReport(ctx, 80); err == nil {
+		t.Error("GetReport with an undecodable labels column returned no error")
+	}
+}
+
 // A limit of zero means "no limit" on the port, where SQL reads LIMIT 0 as "no
 // rows". Passing the value straight through would return nothing and look like
 // an execution with no history.
