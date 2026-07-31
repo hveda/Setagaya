@@ -71,6 +71,24 @@ type ErrorSignature struct {
 	Exemplars []string `json:"exemplars,omitempty"`
 }
 
+// MergeExemplars combines two sets of wordings under the same bound, keeping
+// them in the order they were first seen.
+//
+// A signature is accumulated in pieces as a run reports, so the wordings already
+// kept have to be merged with newly measured ones -- and the bound has to hold
+// across that merge rather than only within one batch. Keeping the rule here
+// means a store cannot accidentally widen it.
+func MergeExemplars(kept, incoming []string) []string {
+	var merged ErrorSignature
+	for _, msg := range kept {
+		merged.addExemplar(msg)
+	}
+	for _, msg := range incoming {
+		merged.addExemplar(msg)
+	}
+	return merged.Exemplars
+}
+
 // addExemplar keeps a wording if it is new and there is room, truncating it to
 // the bound. Counts are unaffected: a dropped exemplar loses a sentence, never a
 // failure.
