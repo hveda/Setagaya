@@ -361,3 +361,106 @@ func TestSidecar_EmptyBatchSendsAnEmptyListNotNull(t *testing.T) {
 		t.Errorf("final batch body = %s, want an empty intervals list", body)
 	}
 }
+
+// Every interval carries a sequence, unique and increasing within the stream.
+// It is what lets the control plane tell an interval it has already absorbed
+// from one it has not.
+func TestSidecar_SequencesIntervals(t *testing.T) {
+	t.Parallel()
+
+	c := &collector{}
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "stream.jsonl")
+	var stream strings.Builder
+	for ts := int64(1); ts <= 3; ts++ {
+		stream.WriteString(line(t, ts, "checkout-cart", 5))
+		stream.WriteString(line(t, ts, "checkout-pay", 5))
+	}
+	if err := os.WriteFile(path, []byte(stream.String()), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	_, stop := run(t, sidecar.Config{
+		StreamPath:    path,
+		IngestURL:     srv.URL,
+		FlushInterval: 20 * time.Millisecond,
+		PollInterval:  5 * time.Millisecond,
+	})
+	time.Sleep(80 * time.Millisecond)
+	stop()
+
+	got := c.intervals()
+	if len(got) != 6 {
+		t.Fatalf("got %d intervals, want 6", len(got))
+	}
+	for i, iv := range got {
+		if iv.Seq != int64(i+1) {
+			t.Errorf("interval %d has seq %d, want %d", i, iv.Seq, i+1)
+		}
+	}
+	for _, b := range c.all() {
+		if b.StreamID == "" {
+			t.Error("a batch carried no stream id")
+		}
+	}
+}
+
+// The case the sequence exists for. A push whose response is lost is followed
+// not by an identical batch but by a superset: the intervals that did arrive,
+// plus everything read since. Skipping the batch would lose the new intervals
+// and keeping it whole would double-count the old, so the two have to be
+// separable one interval at a time.
+func TestSidecar_RetryResendsOldIntervalsAlongsideNew(t *testing.T) {
+	t.Parallel()
+
+	c := &collector{}
+	c.setStatus(http.StatusServiceUnavailable)
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "stream.jsonl")
+	if err := os.WriteFile(path, []byte(line(t, 1, "probe", 5)), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	_, stop := run(t, sidecar.Config{
+		StreamPath:    path,
+		IngestURL:     srv.URL,
+		FlushInterval: 20 * time.Millisecond,
+		PollInterval:  5 * time.Millisecond,
+	})
+	time.Sleep(60 * time.Millisecond)
+
+	// A second interval arrives while the first is still unacknowledged.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if _, err := f.WriteString(line(t, 2, "probe", 7)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = f.Close()
+
+	c.setStatus(http.StatusAccepted)
+	time.Sleep(80 * time.Millisecond)
+	stop()
+
+	// The batch that finally lands carries both, and their sequences separate
+	// what a control plane had already seen from what it had not.
+	var seqs []int64
+	for _, iv := range c.intervals() {
+		seqs = append(seqs, iv.Seq)
+	}
+	if len(seqs) < 2 {
+		t.Fatalf("intervals seen = %v, want the retried one and the new one", seqs)
+	}
+	seen := map[int64]bool{}
+	for _, s := range seqs {
+		seen[s] = true
+	}
+	if !seen[1] || !seen[2] {
+		t.Errorf("sequences = %v, want both 1 and 2 to have arrived", seqs)
+	}
+}

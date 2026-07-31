@@ -8,6 +8,18 @@ package metrics
 // sidecar pushes to the control plane, so its json tags are a wire contract:
 // the Python reporter inside the engine pod writes exactly this shape.
 type Interval struct {
+	// Seq orders this interval within its shard's stream, counting from one.
+	//
+	// It is what makes a duplicate recognisable. A sidecar clears its pending
+	// intervals only once a push succeeds, so a push whose response was lost is
+	// followed by a *superset* batch carrying those intervals again alongside new
+	// ones -- and a batch boundary can fall between two labels of the same
+	// second. Neither a batch identity nor a timestamp can separate what has been
+	// absorbed from what has not; a per-interval sequence can.
+	//
+	// Assigned by the sidecar, not the Python reporter, so it is not part of the
+	// contract with bzt.
+	Seq int64 `json:"seq,omitempty"`
 	// Timestamp is the second this interval covers, in Unix seconds.
 	Timestamp int64 `json:"ts"`
 	// Label is the request this measures. Honryu assigns labels when it compiles
@@ -52,8 +64,15 @@ type Batch struct {
 	RunID       int64 `json:"run_id"`
 	// ShardIndex identifies the pod within the execution, matching the shard
 	// plan, so a duplicate push can be recognised as such.
-	ShardIndex int        `json:"shard_index"`
-	Intervals  []Interval `json:"intervals"`
+	ShardIndex int `json:"shard_index"`
+	// StreamID identifies the sidecar instance that produced these intervals.
+	//
+	// Interval sequences count from one per instance, so a pod that restarted
+	// begins again at one. Without knowing the stream changed, a control plane
+	// holding a high-water mark would take the restarted pod's measurements for
+	// duplicates and discard the rest of the run.
+	StreamID  string     `json:"stream_id,omitempty"`
+	Intervals []Interval `json:"intervals"`
 	// Final marks the last batch a pod will send, so the control plane knows the
 	// pod finished rather than went silent.
 	Final bool `json:"final,omitempty"`

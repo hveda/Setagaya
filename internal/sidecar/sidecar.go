@@ -12,12 +12,15 @@ package sidecar
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/metrics"
@@ -66,6 +69,14 @@ type Sidecar struct {
 	carry []byte
 	// sent counts batches pushed, for tests and logging.
 	sent int
+	// seq numbers intervals within this sidecar's stream, so the control plane
+	// can tell an interval it has already absorbed from one it has not. A failed
+	// push is followed by a superset batch, not an identical one, so nothing
+	// coarser than a per-interval sequence would separate them.
+	seq int64
+	// streamID identifies this instance. Sequences restart with the process, and
+	// without it a restarted pod's measurements would look like duplicates.
+	streamID string
 }
 
 // New builds a Sidecar, applying defaults for anything the caller left unset.
@@ -83,7 +94,20 @@ func New(cfg Config) *Sidecar {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Sidecar{cfg: cfg, client: client}
+	return &Sidecar{cfg: cfg, client: client, streamID: newStreamID(cfg.Now())}
+}
+
+// newStreamID names this sidecar instance. It only has to differ from the
+// previous instance in the same pod, so the start time plus a random suffix is
+// enough -- and it stays readable in a log line, unlike a bare UUID.
+func newStreamID(now time.Time) string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Randomness is a tiebreak for two starts in the same second, not a
+		// security property; the timestamp alone still separates restarts.
+		return strconv.FormatInt(now.UnixNano(), 36)
+	}
+	return strconv.FormatInt(now.Unix(), 36) + "-" + hex.EncodeToString(b[:])
 }
 
 // Run tails the stream until ctx is cancelled or the stream is closed and fully
@@ -204,6 +228,10 @@ func (s *Sidecar) consume(line []byte) {
 	if mapped, ok := s.cfg.LabelMap[in.Label]; ok {
 		in.Label = mapped
 	}
+	// Stamped here rather than by the reporter: sequencing is the sidecar's
+	// contract with the control plane, not bzt's.
+	s.seq++
+	in.Seq = s.seq
 	s.pending = append(s.pending, in)
 }
 
@@ -225,6 +253,7 @@ func (s *Sidecar) flush(ctx context.Context, final bool) error {
 		ScenarioID:  s.cfg.Identity.ScenarioID,
 		RunID:       s.cfg.Identity.RunID,
 		ShardIndex:  s.cfg.Identity.ShardIndex,
+		StreamID:    s.streamID,
 		Intervals:   intervals,
 		Final:       final,
 	}
