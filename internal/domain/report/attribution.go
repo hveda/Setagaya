@@ -104,16 +104,6 @@ type Attribution struct {
 // Total is every attributed failure.
 func (a Attribution) Total() int64 { return a.Target + a.Engine + a.Unknown }
 
-// AttributedError is one failure mode with its origin stated.
-type AttributedError struct {
-	Side Side `json:"side"`
-	// Message is the engine's own wording, kept as an exemplar for a human.
-	// Engines word the same failure differently, so it is never a grouping key.
-	Message      string `json:"message"`
-	ResponseCode string `json:"response_code,omitempty"`
-	Count        int64  `json:"count"`
-}
-
 // TargetErrorRate is the share of requests the target itself failed.
 //
 // This is the rate a verdict rests on. The overall rate includes failures the
@@ -140,30 +130,29 @@ func (r Report) EngineImpaired() bool {
 
 // collectErrors combines every pod's failures into one attributed list, ordered
 // so the dominant failure is read first.
-func collectErrors(intervals []metrics.Interval) ([]AttributedError, Attribution) {
-	type key struct{ code, message string }
-	merged := map[key]*AttributedError{}
+//
+// Grouping is by signature, so the same failure reported in three engines'
+// wording is one entry rather than three -- see Signature.
+func collectErrors(intervals []metrics.Interval) ([]ErrorSignature, Attribution) {
+	merged := map[Signature]*ErrorSignature{}
 
 	for _, iv := range intervals {
 		if iv.Label == TotalLabel {
 			continue // the engine's own aggregate; already counted per label
 		}
 		for _, e := range iv.Errors {
-			k := key{e.ResponseCode, e.Message}
-			existing, ok := merged[k]
+			sig := NewSignature(iv.Label, e)
+			existing, ok := merged[sig]
 			if !ok {
-				existing = &AttributedError{
-					Side:         AttributeError(e),
-					Message:      e.Message,
-					ResponseCode: e.ResponseCode,
-				}
-				merged[k] = existing
+				existing = &ErrorSignature{Signature: sig}
+				merged[sig] = existing
 			}
 			existing.Count += e.Count
+			existing.addExemplar(e.Message)
 		}
 	}
 
-	out := make([]AttributedError, 0, len(merged))
+	out := make([]ErrorSignature, 0, len(merged))
 	var attr Attribution
 	for _, e := range merged {
 		out = append(out, *e)
@@ -181,10 +170,7 @@ func collectErrors(intervals []metrics.Interval) ([]AttributedError, Attribution
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
 		}
-		if out[i].ResponseCode != out[j].ResponseCode {
-			return out[i].ResponseCode < out[j].ResponseCode
-		}
-		return out[i].Message < out[j].Message
+		return out[i].String() < out[j].String()
 	})
 	return out, attr
 }

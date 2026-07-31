@@ -153,7 +153,7 @@ func TestBuild_AttributesErrors(t *testing.T) {
 	}
 	for _, e := range rep.Errors {
 		if e.Side == "" {
-			t.Errorf("error %q has no side", e.Message)
+			t.Errorf("error %q has no side", e.Exemplars)
 		}
 	}
 }

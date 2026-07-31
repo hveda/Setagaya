@@ -1,0 +1,85 @@
+package report
+
+import (
+	"strings"
+
+	"github.com/heridotlife/honryu/internal/domain/metrics"
+)
+
+// Exemplar bounds. A target under stress echoes back whatever it likes -- stack
+// traces, HTML error pages -- and a failing run produces the most of it. Without
+// a bound the size of a report would be dictated by the thing it is reporting
+// on, and reports are kept forever.
+const (
+	// MaxExemplars is how many distinct wordings are kept per signature. Enough
+	// to see that engines disagree, few enough to bound the row.
+	MaxExemplars = 3
+	// MaxExemplarLen is the longest wording kept, in runes.
+	MaxExemplarLen = 300
+)
+
+// Signature identifies a failure mode independently of how an engine worded it.
+//
+// Phase 0 put the same 404 through three engines and got three sentences back:
+// "Request to ... didn't succeed (404)", "Not Found", "Response code: 404".
+// Response codes, by contrast, were identical across all three. So a signature
+// keys on what is stable -- the label Honryu assigned when it compiled the
+// config, and the code the target returned -- and never on message text. Group
+// by wording instead and one failure appears as three, while re-running the same
+// scenario on another engine breaks its error history in two.
+type Signature struct {
+	// Label is the request that failed, as Honryu named it.
+	Label string `json:"label"`
+	// ResponseCode is the status the target returned, empty where none arrived.
+	ResponseCode string `json:"response_code,omitempty"`
+	// Side is part of the key, not just a property of it. Where no response code
+	// arrived the side is derived from the message, and two failures on opposite
+	// sides -- the generator out of sockets, the target refusing connections --
+	// would otherwise merge into one signature and put the generator's own
+	// exhaustion into the target's error count.
+	Side Side `json:"side"`
+}
+
+// NewSignature derives the signature of one engine-reported failure.
+func NewSignature(label string, e metrics.ErrorGroup) Signature {
+	return Signature{
+		Label:        label,
+		ResponseCode: strings.TrimSpace(e.ResponseCode),
+		Side:         AttributeError(e),
+	}
+}
+
+// String is the signature's stable textual form, for use as a storage key and
+// for matching the same failure across runs.
+func (s Signature) String() string {
+	return string(s.Side) + "|" + s.ResponseCode + "|" + s.Label
+}
+
+// ErrorSignature is one failure mode across a whole run: how it is identified,
+// how often it happened, and a bounded sample of how engines described it.
+type ErrorSignature struct {
+	Signature
+	Count int64 `json:"count"`
+	// Exemplars are engine wordings kept for a human to read. They are evidence,
+	// never identity -- see Signature.
+	Exemplars []string `json:"exemplars,omitempty"`
+}
+
+// addExemplar keeps a wording if it is new and there is room, truncating it to
+// the bound. Counts are unaffected: a dropped exemplar loses a sentence, never a
+// failure.
+func (e *ErrorSignature) addExemplar(msg string) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" || len(e.Exemplars) >= MaxExemplars {
+		return
+	}
+	if runes := []rune(msg); len(runes) > MaxExemplarLen {
+		msg = string(runes[:MaxExemplarLen])
+	}
+	for _, seen := range e.Exemplars {
+		if seen == msg {
+			return
+		}
+	}
+	e.Exemplars = append(e.Exemplars, msg)
+}

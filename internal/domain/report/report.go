@@ -133,8 +133,8 @@ type Report struct {
 	// Attribution splits the failures by who caused them, and Errors states the
 	// side of each one, so no count of failures is ever reported without saying
 	// where it came from.
-	Attribution Attribution       `json:"attribution"`
-	Errors      []AttributedError `json:"errors,omitempty"`
+	Attribution Attribution      `json:"attribution"`
+	Errors      []ErrorSignature `json:"errors,omitempty"`
 
 	Labels []LabelSummary `json:"labels,omitempty"`
 }
