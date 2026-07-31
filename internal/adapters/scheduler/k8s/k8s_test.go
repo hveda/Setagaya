@@ -325,6 +325,80 @@ func TestK8sScheduler_EachShardGetsItsOwnConfig(t *testing.T) {
 	}
 }
 
+// bzt is run rather than exec'd, and the container keeps running once it
+// finishes -- otherwise its pod, a StatefulSet member and so restartPolicy
+// Always by Kubernetes' own rule, would be restarted the instant bzt exited and
+// silently re-run the whole load profile, and nothing would capture the exit
+// code Honryu needs to know how the run ended.
+func TestK8sScheduler_EngineCapturesExitCodeAndDoesNotExit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(1),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	engineC := containerNamed(t, set, "engine")
+	script := strings.Join(engineC.Command, " ")
+
+	if strings.Contains(script, "exec bzt") || strings.HasPrefix(strings.TrimSpace(script), "exec ") {
+		t.Errorf("bzt is exec'd, so the container exits (and is restarted) the instant it does: %q", script)
+	}
+	if !strings.Contains(script, "code=$?") {
+		t.Errorf("bzt's exit code is not captured: %q", script)
+	}
+	if !strings.Contains(script, "/honryu/kpi/exit-code") {
+		t.Errorf("the captured exit code is not written where the sidecar can read it: %q", script)
+	}
+	if !strings.Contains(script, "exec tail -f /dev/null") {
+		t.Errorf("the container does not stay alive once bzt finishes: %q", script)
+	}
+	// set -e would abort the script the moment bzt exits non-zero -- including an
+	// expected criteria failure (exit 3) -- before code=$? is ever reached.
+	if strings.Contains(script, "set -e") {
+		t.Errorf("set -e would discard bzt's exit code on a non-zero exit: %q", script)
+	}
+}
+
+// A container that exits cleanly after pushing its final batch would be
+// restarted exactly like the engine would without the same fix, at which point
+// it re-reads the KPI stream from the start under a new stream id -- which the
+// control plane takes for an unrelated stream and absorbs all over again.
+func TestK8sScheduler_SidecarDoesNotExitAfterItsFinalPush(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{
+		Namespace: ns, SidecarImage: "honryu/sidecar:1", IngestURL: "http://control/api/ingest",
+	})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(1),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	side := containerNamed(t, set, "sidecar")
+	script := strings.Join(side.Command, " ")
+
+	if !strings.Contains(script, "-exit-code /honryu/kpi/exit-code") {
+		t.Errorf("sidecar is not told where to find the engine's exit code: %q", script)
+	}
+	if !strings.Contains(script, "exec tail -f /dev/null") {
+		t.Errorf("the sidecar container does not stay alive once it finishes pushing: %q", script)
+	}
+}
+
 // A re-deploy may change the shard plan, so the configs are replaced rather than
 // left describing the previous run.
 func TestK8sScheduler_RedeployReplacesShardConfigs(t *testing.T) {

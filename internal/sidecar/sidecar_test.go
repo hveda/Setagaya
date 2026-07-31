@@ -464,3 +464,119 @@ func TestSidecar_RetryResendsOldIntervalsAlongsideNew(t *testing.T) {
 		t.Errorf("sequences = %v, want both 1 and 2 to have arrived", seqs)
 	}
 }
+
+// The pod now outlives bzt (see the k8s adapter), so the sidecar can no longer
+// tell the engine is done by watching the pod get torn down. It notices the
+// exit-code file the engine writes instead, and carries the code on its final
+// batch -- the only feed taurus.OutcomeFromExitCode has.
+func TestSidecar_DetectsEngineCompletionFromTheExitCodeFile(t *testing.T) {
+	t.Parallel()
+
+	c := &collector{}
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	streamPath := filepath.Join(dir, "stream.jsonl")
+	exitCodePath := filepath.Join(dir, "exit-code")
+	if err := os.WriteFile(streamPath, []byte(line(t, 1, "probe", 5)), 0o600); err != nil {
+		t.Fatalf("seed stream: %v", err)
+	}
+
+	sc := sidecar.New(sidecar.Config{
+		StreamPath:    streamPath,
+		ExitCodePath:  exitCodePath,
+		IngestURL:     srv.URL,
+		FlushInterval: 20 * time.Millisecond,
+		PollInterval:  5 * time.Millisecond,
+	})
+	done := make(chan struct{}) // never closed: completion must come from the file
+	errc := make(chan error, 1)
+	go func() { errc <- sc.Run(context.Background(), done) }()
+
+	time.Sleep(30 * time.Millisecond)
+	if err := os.WriteFile(exitCodePath, []byte("3\n"), 0o600); err != nil {
+		t.Fatalf("write exit code: %v", err)
+	}
+
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar did not stop after the exit code appeared")
+	}
+
+	batches := c.all()
+	if len(batches) == 0 || !batches[len(batches)-1].Final {
+		t.Fatalf("last batch is not final: %+v", batches)
+	}
+	last := batches[len(batches)-1]
+	if last.ExitCode == nil || *last.ExitCode != 3 {
+		t.Errorf("ExitCode = %v, want 3", last.ExitCode)
+	}
+}
+
+// No path configured means no engine to watch for -- used by tests and any
+// deployment that has not wired the file up. It must not be treated as "found".
+func TestSidecar_NoExitCodePathNeverSignalsCompletion(t *testing.T) {
+	t.Parallel()
+
+	c := &collector{}
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "stream.jsonl")
+	if err := os.WriteFile(path, []byte(line(t, 1, "probe", 5)), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	_, stop := run(t, sidecar.Config{
+		StreamPath:    path,
+		IngestURL:     srv.URL,
+		FlushInterval: 20 * time.Millisecond,
+		PollInterval:  5 * time.Millisecond,
+	})
+	time.Sleep(60 * time.Millisecond)
+	stop() // only this closes `done`; if ExitCodePath="" ever triggered on its
+	// own, Run would have already returned before stop() and this would hang.
+}
+
+// The engine writes its own exit code; anything unreadable there is a defect
+// in that write, not a signal the run finished. One malformed value must not
+// be mistaken for completion.
+func TestSidecar_UnreadableExitCodeIsNotTreatedAsCompletion(t *testing.T) {
+	t.Parallel()
+
+	c := &collector{}
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	streamPath := filepath.Join(dir, "stream.jsonl")
+	exitCodePath := filepath.Join(dir, "exit-code")
+	if err := os.WriteFile(streamPath, []byte(line(t, 1, "probe", 5)), 0o600); err != nil {
+		t.Fatalf("seed stream: %v", err)
+	}
+	if err := os.WriteFile(exitCodePath, []byte("not-a-number"), 0o600); err != nil {
+		t.Fatalf("seed exit code: %v", err)
+	}
+
+	_, stop := run(t, sidecar.Config{
+		StreamPath:    streamPath,
+		ExitCodePath:  exitCodePath,
+		IngestURL:     srv.URL,
+		FlushInterval: 20 * time.Millisecond,
+		PollInterval:  5 * time.Millisecond,
+	})
+	time.Sleep(60 * time.Millisecond)
+	stop() // hangs if the malformed value was mistaken for completion and Run
+	// already returned on its own, since only stop() closes `done`.
+
+	for _, b := range c.all() {
+		if b.ExitCode != nil {
+			t.Errorf("a malformed exit code was reported as %d", *b.ExitCode)
+		}
+	}
+}

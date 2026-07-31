@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/metrics"
@@ -40,6 +41,11 @@ type Config struct {
 	Identity Identity
 	// StreamPath is the JSON-lines file the bzt reporter writes.
 	StreamPath string
+	// ExitCodePath is where the engine container writes bzt's exit code once it
+	// finishes. Its appearance is how the sidecar learns the engine is done on
+	// its own, rather than only when the pod is torn down -- the pod now outlives
+	// bzt so the container is not restarted (see the k8s adapter).
+	ExitCodePath string
 	// IngestURL receives batches.
 	IngestURL string
 	// Token authenticates to the control plane, sent as a bearer token.
@@ -77,6 +83,8 @@ type Sidecar struct {
 	// streamID identifies this instance. Sequences restart with the process, and
 	// without it a restarted pod's measurements would look like duplicates.
 	streamID string
+	// exitCode is bzt's exit code, once the engine container has written it.
+	exitCode *int
 }
 
 // New builds a Sidecar, applying defaults for anything the caller left unset.
@@ -133,7 +141,9 @@ func (s *Sidecar) Run(ctx context.Context, done <-chan struct{}) error {
 
 		select {
 		case <-ctx.Done():
-			// Send whatever was read before giving up; the pod is going away.
+			// The engine may have finished in the instant before teardown; pick
+			// up its exit code if so, then send whatever was read.
+			s.checkExitCode()
 			return s.flush(context.WithoutCancel(ctx), true)
 		case <-done:
 			// bzt exited. Read what it left behind, then send a final batch.
@@ -145,6 +155,13 @@ func (s *Sidecar) Run(ctx context.Context, done <-chan struct{}) error {
 				logf("push failed: %v", err)
 			}
 		case <-poll.C:
+			// The engine writes its exit code once bzt finishes and the container
+			// no longer exits with it (see the k8s adapter), so this is the only
+			// way the sidecar learns the run ended on its own rather than being
+			// torn down.
+			if s.checkExitCode() {
+				engineDone = true
+			}
 		}
 
 		if engineDone {
@@ -152,6 +169,28 @@ func (s *Sidecar) Run(ctx context.Context, done <-chan struct{}) error {
 			return s.flush(ctx, true)
 		}
 	}
+}
+
+// checkExitCode reads the engine's exit-code file if it has appeared, and
+// reports whether the engine has now been observed to have finished.
+//
+// Both call sites in Run return immediately once this reports true, so it is
+// never called again afterward -- there is no "already found" case to guard.
+func (s *Sidecar) checkExitCode() bool {
+	if s.cfg.ExitCodePath == "" {
+		return false
+	}
+	raw, err := os.ReadFile(s.cfg.ExitCodePath) //#nosec G304 -- path is this pod's own config
+	if err != nil {
+		return false // not written yet
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		logf("exit code file has unreadable content: %v", err)
+		return false
+	}
+	s.exitCode = &code
+	return true
 }
 
 // waitForStream opens the KPI stream, waiting for the engine to create it.
@@ -256,6 +295,7 @@ func (s *Sidecar) flush(ctx context.Context, final bool) error {
 		StreamID:    s.streamID,
 		Intervals:   intervals,
 		Final:       final,
+		ExitCode:    s.exitCode,
 	}
 	body, err := json.Marshal(batch)
 	if err != nil {

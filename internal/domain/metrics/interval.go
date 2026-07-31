@@ -76,6 +76,10 @@ type Batch struct {
 	// Final marks the last batch a pod will send, so the control plane knows the
 	// pod finished rather than went silent.
 	Final bool `json:"final,omitempty"`
+	// ExitCode is bzt's process exit code, present once the engine has finished
+	// on its own -- see taurus.OutcomeFromExitCode. Its absence on a final batch
+	// means the pod was torn down before the engine could write it.
+	ExitCode *int `json:"exit_code,omitempty"`
 }
 
 // Merge folds an interval's measurements into the receiver, which must already

@@ -45,6 +45,10 @@ const (
 	kpiMount       = "/honryu/kpi"
 	artifactsMount = "/honryu/artifacts"
 	kpiStream      = kpiMount + "/stream.jsonl"
+	// kpiExitCode is where the engine container writes bzt's exit code once it
+	// finishes. It is how the sidecar learns the run is over on its own, rather
+	// than only at pod teardown -- see engineScript.
+	kpiExitCode = kpiMount + "/exit-code"
 )
 
 // Config tunes the adapter.
@@ -287,20 +291,46 @@ func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
 // engineScript picks this pod's config by its StatefulSet ordinal and runs bzt
 // on it. Pods share a template, so the ordinal in the hostname is the only thing
 // distinguishing one shard from another.
+//
+// bzt is run in the foreground rather than exec'd, and the container keeps
+// running once it finishes. Two things depend on that:
+//
+//   - The StatefulSet's pods can only have restartPolicy Always -- Kubernetes
+//     rejects anything else for a controller-managed pod. exec'ing bzt made it
+//     the container's own process, so kubelet restarted the container the
+//     instant bzt exited, cleanly or not, re-running the whole load profile.
+//     Confirmed against a real cluster: a container running only `sleep 3;
+//     exit 0` restarted three times within a minute, each a clean exitCode 0.
+//   - Nothing captured bzt's exit code, so Honryu had no way to know how a run
+//     ended (taurus.OutcomeFromExitCode existed with no feed).
+//
+// No set -e: bzt's own exit code must reach the `code=$?` line, and set -e
+// would abort the script the moment bzt exits non-zero -- which includes an
+// expected criteria failure (exit 3), not only an error.
 func engineScript() string {
 	argv := taurus.Command(configMount+"/shard-${ORDINAL}.yml", artifactsMount)
-	return `set -e
-ORDINAL="${HOSTNAME##*-}"
+	return `ORDINAL="${HOSTNAME##*-}"
 mkdir -p ` + kpiMount + `
-exec ` + strings.Join(argv, " ")
+` + strings.Join(argv, " ") + `
+code=$?
+echo "$code" > ` + kpiExitCode + `
+exec tail -f /dev/null`
 }
 
-// sidecarScript runs the forwarder with this pod's identity.
+// sidecarScript runs the forwarder with this pod's identity, then keeps the
+// container alive.
+//
+// Kubernetes' restartPolicy applies to every container in a pod alike: a
+// sidecar that exits cleanly once it has pushed its final batch would be
+// restarted exactly like the engine container would without the same fix, and
+// would re-read the KPI stream from the start under a new stream id -- which
+// the control plane would take for an unrelated stream and absorb all over
+// again, doubling every measurement already pushed.
 func (s *Scheduler) sidecarScript(spec ports.DeploySpec) string {
-	return fmt.Sprintf(`set -e
-ORDINAL="${HOSTNAME##*-}"
-exec /honryu-sidecar -stream %s -ingest-url %q -execution-id %d -scenario-id %d -shard-index "${ORDINAL}"`,
-		kpiStream, s.ingestURL, spec.ExecutionID, spec.ScenarioID)
+	return fmt.Sprintf(`ORDINAL="${HOSTNAME##*-}"
+/honryu-sidecar -stream %s -exit-code %s -ingest-url %q -execution-id %d -scenario-id %d -shard-index "${ORDINAL}"
+exec tail -f /dev/null`,
+		kpiStream, kpiExitCode, s.ingestURL, spec.ExecutionID, spec.ScenarioID)
 }
 
 // configItems maps ConfigMap entries onto the paths a pod expects: shard

@@ -64,14 +64,15 @@ func run(args []string) error {
 func configFrom(args []string) (sidecar.Config, error) {
 	fs := flag.NewFlagSet("sidecar", flag.ContinueOnError)
 	var (
-		streamPath  = fs.String("stream", "/honryu/kpi/stream.jsonl", "JSON-lines KPI stream written by the engine")
-		ingestURL   = fs.String("ingest-url", "", "control-plane endpoint that receives batches")
-		executionID = fs.Int64("execution-id", 0, "execution this pod belongs to")
-		scenarioID  = fs.Int64("scenario-id", 0, "scenario this pod runs")
-		runID       = fs.Int64("run-id", 0, "run this pod is part of")
-		shardIndex  = fs.Int("shard-index", 0, "this pod's index within the execution")
-		flushEvery  = fs.Duration("flush-interval", time.Second, "how often to push a batch")
-		labelMapRaw = fs.String("label-map", "", "engine-label=honryu-label pairs, comma-separated")
+		streamPath   = fs.String("stream", "/honryu/kpi/stream.jsonl", "JSON-lines KPI stream written by the engine")
+		exitCodePath = fs.String("exit-code", "", "file the engine writes bzt's exit code to on completion")
+		ingestURL    = fs.String("ingest-url", "", "control-plane endpoint that receives batches")
+		executionID  = fs.Int64("execution-id", 0, "execution this pod belongs to")
+		scenarioID   = fs.Int64("scenario-id", 0, "scenario this pod runs")
+		runID        = fs.Int64("run-id", 0, "run this pod is part of")
+		shardIndex   = fs.Int("shard-index", 0, "this pod's index within the execution")
+		flushEvery   = fs.Duration("flush-interval", time.Second, "how often to push a batch")
+		labelMapRaw  = fs.String("label-map", "", "engine-label=honryu-label pairs, comma-separated")
 	)
 	if err := fs.Parse(args); err != nil {
 		return sidecar.Config{}, err
@@ -94,6 +95,7 @@ func configFrom(args []string) (sidecar.Config, error) {
 			ShardIndex:  *shardIndex,
 		},
 		StreamPath:    *streamPath,
+		ExitCodePath:  *exitCodePath,
 		IngestURL:     *ingestURL,
 		Token:         os.Getenv("HONRYU_INGEST_TOKEN"),
 		FlushInterval: *flushEvery,
