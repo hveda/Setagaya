@@ -14,6 +14,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/authapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/metricsapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
@@ -28,9 +29,14 @@ type Deps struct {
 	Executions *executionapp.Service
 	Lifecycle  *lifecycleapp.Service
 	Usage      *usageapp.Service
-	Admin      *adminapp.Service
-	Events     ports.EventBus
-	Store      ports.ObjectStore
+	// Metrics receives pushed measurements from engine pods.
+	Metrics *metricsapp.Service
+	// IngestToken authenticates engine pods. Empty rejects every push, so a
+	// deployment that has not configured one is closed rather than open.
+	IngestToken string
+	Admin       *adminapp.Service
+	Events      ports.EventBus
+	Store       ports.ObjectStore
 	// Auth authenticates requests and authorizes actions. When nil or disabled,
 	// the legacy no-auth owner path applies (DefaultOwners).
 	Auth *authapp.Service
@@ -42,6 +48,11 @@ type Deps struct {
 	// DefaultOwners is the owner set used when RBAC is disabled (no-auth mode).
 	DefaultOwners []string
 }
+
+// ingestPath is the engine-pod push endpoint. It authenticates with its own
+// credential rather than the user provider, so the router exempts it from user
+// authentication.
+const ingestPath = "/api/ingest"
 
 // Route is one registered endpoint. The route table is the single source of
 // truth for the API surface: NewRouter registers from it, and a test asserts
@@ -110,6 +121,8 @@ var routes = []Route{
 	{"DELETE", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeGlobalRole })},
 
 	{"GET", "/api/files/{kind}/{id}/{name}", "files", hf(func(h *handlers) http.HandlerFunc { return h.downloadFile })},
+
+	{"POST", ingestPath, "ingest", hf(func(h *handlers) http.HandlerFunc { return h.ingest })},
 }
 
 // Routes returns the registered API surface. Handlers are not exposed; callers
@@ -140,6 +153,13 @@ func NewRouter(d Deps) http.Handler {
 // disabled it is a pass-through and the legacy owner checks apply.
 func (h *handlers) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Engine pods carry a deployment credential, not a user account, and
+		// authenticate in the ingest handler itself. Sending them through the
+		// user provider would reject every push the moment RBAC was enabled.
+		if r.URL.Path == ingestPath {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if h.rbacEnabled() && strings.HasPrefix(r.URL.Path, "/api/") {
 			acct, err := h.deps.Auth.Authenticate(r)
 			if err != nil {

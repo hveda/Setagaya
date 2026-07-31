@@ -49,8 +49,8 @@ type OIDCConfig struct {
 // load tests.
 //
 // Scheduler "fake" keeps everything in-memory (local dev); "k8s" uses the
-// in-cluster Kubernetes client. Executor "fake" records triggers; "jmeter"
-// drives the JMeter agent over HTTP.
+// in-cluster Kubernetes client. Engines run bzt in a pod and push their
+// measurements back, so nothing here reaches into a cluster to collect results.
 type ClusterConfig struct {
 	Scheduler string // fake|k8s
 	Namespace string
@@ -62,6 +62,10 @@ type ClusterConfig struct {
 	EngineImages map[taurus.Executor]string
 	EnginePort   int
 	Context      string // deployment context scoping running_scenario rows
+	// IngestToken authenticates engine pods pushing measurements. Empty rejects
+	// every push, so a deployment that has not configured one is closed rather
+	// than open.
+	IngestToken string
 	// AutoPurgeInterval is how often idle engines are swept; zero disables the
 	// sweeper. AutoPurgeIdle is how long engines may sit idle before a sweep
 	// purges them.
@@ -171,6 +175,7 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.Cluster.Scheduler = strEnv(getenv, "SCHEDULER", cfg.Cluster.Scheduler)
 	cfg.Cluster.Namespace = strEnv(getenv, "K8S_NAMESPACE", cfg.Cluster.Namespace)
+	cfg.Cluster.IngestToken = strEnv(getenv, "INGEST_TOKEN", cfg.Cluster.IngestToken)
 	cfg.Cluster.DefaultEngine = taurus.Executor(
 		strEnv(getenv, "DEFAULT_ENGINE", string(cfg.Cluster.DefaultEngine)))
 	if raw := strEnv(getenv, "ENGINE_IMAGES", ""); raw != "" {

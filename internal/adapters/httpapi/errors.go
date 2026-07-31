@@ -7,6 +7,7 @@ import (
 
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/metricsapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
@@ -50,6 +51,10 @@ var conflictErrors = []error{
 	projectapp.ErrProjectHasScenarios, projectapp.ErrProjectHasExecutions,
 	run.ErrNotDeployed, run.ErrEnginesNotReady, run.ErrAlreadyRunning, run.ErrNotRunning,
 	ports.ErrEnginesUnreachable, ports.ErrRunActive,
+	// A pod pushing to an execution that is not running, or pushing for a run
+	// that has ended, is a state conflict rather than a server fault -- and a
+	// pod that outlived its run will do exactly this on every retry.
+	metricsapp.ErrNoActiveRun, metricsapp.ErrStaleRun,
 }
 
 // respondError maps an application/domain error onto an HTTP status.

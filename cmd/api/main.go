@@ -119,6 +119,8 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Executions:    executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
 		Lifecycle:     lifecycle,
 		Usage:         usage,
+		Metrics:       collector,
+		IngestToken:   cfg.Cluster.IngestToken,
 		Admin:         admin,
 		Events:        bus,
 		Store:         store,

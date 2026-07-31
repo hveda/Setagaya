@@ -28,6 +28,8 @@ type Repo interface {
 
 // Service collects and fans out engine metrics.
 type Service struct {
+	// seen deduplicates intervals a pod pushed more than once.
+	seen  *seen
 	repo  Repo
 	sched ports.Scheduler
 	sink  ports.MetricsSink
@@ -43,7 +45,8 @@ type collectRun struct{ cancel context.CancelFunc }
 
 // NewService wires the collector.
 func NewService(repo Repo, sched ports.Scheduler, sink ports.MetricsSink, bus ports.EventBus) *Service {
-	return &Service{repo: repo, sched: sched, sink: sink, bus: bus, cancels: map[int64]*collectRun{}}
+	return &Service{repo: repo, sched: sched, sink: sink, bus: bus,
+		cancels: map[int64]*collectRun{}, seen: newSeen()}
 }
 
 // Start begins background execution for a execution's current run. It is

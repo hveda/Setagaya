@@ -39,6 +39,8 @@ tags:
     description: Multi-tenancy and role grants
   - name: files
     description: Artifact download
+  - name: ingest
+    description: Measurements pushed by engine pods
 
 components:
   parameters:
@@ -68,7 +70,56 @@ components:
       required: true
       schema: { type: string }
 
+  securitySchemes:
+    engineToken:
+      type: http
+      scheme: bearer
+      description: The deployment's engine credential, held by every engine pod.
+
   schemas:
+    MetricBatch:
+      type: object
+      description: One engine pod's measurements.
+      required: [execution_id, intervals]
+      properties:
+        execution_id: { type: integer, format: int64 }
+        scenario_id: { type: integer, format: int64 }
+        run_id: { type: integer, format: int64 }
+        shard_index:
+          type: integer
+          description: The pod's index within the execution, matching the shard plan.
+        final:
+          type: boolean
+          description: Marks the last batch a pod will send, so a finished pod is distinguishable from a silent one.
+        intervals:
+          type: array
+          items: { $ref: '#/components/schemas/MetricInterval' }
+    MetricInterval:
+      type: object
+      description: One second of measurement for one request label.
+      properties:
+        ts: { type: integer, format: int64, description: Unix seconds }
+        label: { type: string }
+        concurrency: { type: integer }
+        samples: { type: integer, format: int64 }
+        succeeded: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        bytes: { type: integer, format: int64 }
+        latency:
+          type: object
+          description: Response-time buckets, keyed by response time in seconds.
+          additionalProperties: { type: integer, format: int64 }
+        response_codes:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              message: { type: string }
+              response_code: { type: string }
+              count: { type: integer, format: int64 }
     Error:
       type: object
       properties:
@@ -809,6 +860,39 @@ paths:
         '204': { $ref: '#/components/responses/NoContent' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/ingest:
+    post:
+      tags: [ingest]
+      summary: Push measurements from an engine pod
+      description: |
+        Accepts one pod's per-second measurements. Results are pushed rather than
+        scraped, so the control plane never reaches into a cluster to collect
+        them.
+
+        Authenticated with the deployment's engine credential as a bearer token,
+        not a user session: engine pods hold no account. Batches are idempotent
+        -- a pod retries a push it could not complete, and a repeated interval is
+        counted once -- and may arrive out of order.
+
+        Latency is sent as buckets rather than percentiles, because percentiles
+        from separate pods cannot be combined afterwards.
+      security:
+        - engineToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MetricBatch' }
+      responses:
+        '202': { description: Accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: The execution has no active run, or the batch belongs to a finished one
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/files/{kind}/{id}/{name}:
     get:
