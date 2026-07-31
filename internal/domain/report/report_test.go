@@ -211,6 +211,155 @@ func TestBuild_ReportsLoadShortfall(t *testing.T) {
 	}
 }
 
+// A shard reports only the virtual users it is running. The run's concurrency is
+// what every shard had in flight at the same moment, so taking the largest
+// single shard would report a sharded run as a fraction of its size -- and
+// Phase 3 exists to make runs sharded.
+func TestBuild_ConcurrencySumsAcrossShards(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Concurrency: 50, DurationSeconds: 60},
+		Intervals: []metrics.Interval{
+			// Two pods, 25 users each, the same second.
+			{Timestamp: 1000, Label: "probe", Concurrency: 25, Samples: 100, Succeeded: 100},
+			{Timestamp: 1000, Label: "probe", Concurrency: 25, Samples: 100, Succeeded: 100},
+			// A second later one pod has ramped down.
+			{Timestamp: 1001, Label: "probe", Concurrency: 25, Samples: 100, Succeeded: 100},
+			{Timestamp: 1001, Label: "probe", Concurrency: 10, Samples: 40, Succeeded: 40},
+		},
+	})
+
+	if got := rep.Achieved.Concurrency; got != 50 {
+		t.Errorf("achieved concurrency = %d, want 50 -- the peak across both shards", got)
+	}
+}
+
+// Within one shard a virtual user is executing one request at a time, so its
+// users are split across the labels it reports. Summing them recovers the
+// shard's total; taking the largest label would lose the rest.
+func TestBuild_ConcurrencySumsAcrossLabels(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Concurrency: 10, DurationSeconds: 60},
+		Intervals: []metrics.Interval{
+			{Timestamp: 1000, Label: "checkout-cart", Concurrency: 6, Samples: 60, Succeeded: 60},
+			{Timestamp: 1000, Label: "checkout-pay", Concurrency: 4, Samples: 40, Succeeded: 40},
+		},
+	})
+
+	if got := rep.Achieved.Concurrency; got != 10 {
+		t.Errorf("achieved concurrency = %d, want 10 across both labels", got)
+	}
+}
+
+// The engine sends its own per-shard aggregate alongside the per-label rows. Its
+// requests are excluded to avoid double counting, but its concurrency is the
+// shard's true total and is the better figure where it exists.
+func TestBuild_ConcurrencyPrefersTheEngineAggregate(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Concurrency: 40, DurationSeconds: 60},
+		Intervals: []metrics.Interval{
+			// Shard one: the aggregate knows about users the labels miss, e.g.
+			// users in think-time between requests.
+			{Timestamp: 1000, Label: "probe", Concurrency: 15, Samples: 100, Succeeded: 100},
+			{Timestamp: 1000, Label: "__total__", Concurrency: 20, Samples: 100, Succeeded: 100},
+			// Shard two, likewise.
+			{Timestamp: 1000, Label: "probe", Concurrency: 16, Samples: 100, Succeeded: 100},
+			{Timestamp: 1000, Label: "__total__", Concurrency: 20, Samples: 100, Succeeded: 100},
+		},
+	})
+
+	if got := rep.Achieved.Concurrency; got != 40 {
+		t.Errorf("achieved concurrency = %d, want 40 from the shards' own aggregates", got)
+	}
+	// The aggregate's samples are still excluded.
+	if got := rep.Achieved.Samples; got != 200 {
+		t.Errorf("samples = %d, want 200 -- the aggregate must not be counted twice", got)
+	}
+}
+
+// A second in which every user was between requests completes no request, so the
+// engine reports its aggregate for that second and no label row at all. Those
+// users were still running the test and still loading the target.
+func TestBuild_ConcurrencyCountsSecondsWithNoCompletedRequests(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Concurrency: 30, DurationSeconds: 60},
+		Intervals: []metrics.Interval{
+			{Timestamp: 1000, Label: "probe", Concurrency: 10, Samples: 100, Succeeded: 100},
+			// Everyone in think-time: no request finished this second.
+			{Timestamp: 1001, Label: "__total__", Concurrency: 30},
+		},
+	})
+
+	if got := rep.Achieved.Concurrency; got != 30 {
+		t.Errorf("achieved concurrency = %d, want 30 -- users between requests still count", got)
+	}
+	if got := rep.Achieved.Samples; got != 100 {
+		t.Errorf("samples = %d, want 100", got)
+	}
+}
+
+// A run that was aborted did not hold load for the duration it was asked for.
+// Reporting the requested duration would divide its samples by a window it never
+// filled, understating the rate it actually reached -- and then ShortOfRequest
+// would call a run that met its target rate a shortfall.
+func TestBuild_AchievedDurationIsMeasuredNotRequested(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1000, 0)
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomeAborted,
+		StartedAt: started,
+		EndedAt:   started.Add(10 * time.Second), // aborted early
+		Requested: report.Load{Concurrency: 10, Throughput: 100, DurationSeconds: 60},
+		Intervals: []metrics.Interval{
+			{Timestamp: 1000, Label: "probe", Concurrency: 10, Samples: 1000, Succeeded: 1000},
+		},
+	})
+
+	if got := rep.Achieved.DurationSeconds; got != 10 {
+		t.Errorf("achieved duration = %ds, want the 10s it actually ran", got)
+	}
+	if got := rep.Achieved.Throughput; got < 99 || got > 101 {
+		t.Errorf("achieved throughput = %v, want about 100/s over the 10s it ran", got)
+	}
+	// It reached the rate it was asked for; it simply stopped early. The outcome
+	// says it was aborted -- the throughput must not also claim a shortfall.
+	if rep.ShortOfRequest() {
+		t.Error("a run that met its target rate before being aborted reports a shortfall")
+	}
+}
+
+// With no wall clock the requested duration is all there is to go on.
+func TestBuild_AchievedDurationFallsBackToRequested(t *testing.T) {
+	t.Parallel()
+
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Concurrency: 10, DurationSeconds: 20},
+		Intervals: []metrics.Interval{
+			interval(1, "probe", 200, 0, metrics.Histogram{0.01: 200}),
+		},
+	})
+
+	if got := rep.Achieved.DurationSeconds; got != 20 {
+		t.Errorf("achieved duration = %d, want the requested 20", got)
+	}
+	if got := rep.Achieved.Throughput; got != 10 {
+		t.Errorf("throughput = %v, want 10/s", got)
+	}
+}
+
 func TestReport_Validate(t *testing.T) {
 	t.Parallel()
 

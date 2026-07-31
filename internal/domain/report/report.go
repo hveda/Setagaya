@@ -77,7 +77,10 @@ type Load struct {
 	// Throughput is requests per second. Zero means unlimited when requested,
 	// and nothing measured when achieved.
 	Throughput float64 `json:"throughput"`
-	// DurationSeconds is how long the load was meant to hold.
+	// DurationSeconds is how long the load held: as long as it was meant to when
+	// requested, as long as it actually did when achieved. The two differ for a
+	// run that was aborted or died early, and the achieved figure is what the
+	// achieved rate is measured over.
 	DurationSeconds int `json:"duration_seconds,omitempty"`
 	// Samples and Failed count requests; only meaningful for achieved load.
 	Samples int64 `json:"samples,omitempty"`
@@ -155,19 +158,23 @@ func Build(in Input) Report {
 	overall := metrics.Histogram{}
 	perLabel := map[string]*LabelSummary{}
 	labelHist := map[string]metrics.Histogram{}
-	peakConcurrency := 0
+	// Concurrency is accumulated per second before any peak is taken, because a
+	// shard reports only its own virtual users -- see peakConcurrency.
+	engineConc := map[int64]int{}
+	labelConc := map[int64]int{}
 
 	for _, iv := range in.Intervals {
 		if iv.Label == TotalLabel {
-			// The engine's own aggregate; its requests are already counted.
+			// The engine's own aggregate. Its requests are already counted per
+			// label, but its concurrency is this shard's true total, which is
+			// exactly what the run's concurrency is summed from.
+			engineConc[iv.Timestamp] += iv.Concurrency
 			continue
 		}
 		rep.Achieved.Samples += iv.Samples
 		rep.Achieved.Failed += iv.Failed
 		overall.Merge(iv.Latency)
-		if iv.Concurrency > peakConcurrency {
-			peakConcurrency = iv.Concurrency
-		}
+		labelConc[iv.Timestamp] += iv.Concurrency
 
 		sum, ok := perLabel[iv.Label]
 		if !ok {
@@ -180,9 +187,9 @@ func Build(in Input) Report {
 		labelHist[iv.Label].Merge(iv.Latency)
 	}
 
-	rep.Achieved.Concurrency = peakConcurrency
-	rep.Achieved.DurationSeconds = in.Requested.DurationSeconds
-	rep.Achieved.Throughput = perSecond(rep.Achieved.Samples, in.Requested.DurationSeconds)
+	rep.Achieved.Concurrency = peakConcurrency(engineConc, labelConc)
+	rep.Achieved.DurationSeconds = achievedSeconds(in)
+	rep.Achieved.Throughput = perSecond(rep.Achieved.Samples, rep.Achieved.DurationSeconds)
 	rep.ErrorRate = rate(rep.Achieved.Failed, rep.Achieved.Samples)
 	rep.Latency = overall.Percentiles(reportedPercentiles...)
 	rep.Errors, rep.Attribution = collectErrors(in.Intervals)
@@ -230,6 +237,58 @@ func (r Report) Validate() error {
 	default:
 		return fmt.Errorf("%w: %q", ErrOutcomeUnknown, r.Outcome)
 	}
+}
+
+// peakConcurrency is the most virtual users the run had in flight at once.
+//
+// A shard only ever reports its own users, so they are summed within each second
+// and the peak taken across seconds. Taking the largest single figure instead
+// would report a run sharded over four pods as a quarter of its size, which is
+// the normal case since Phase 3.
+//
+// Two readings of a second are available. Where the engine sent its own
+// aggregate row that figure is this shard's true total and is authoritative --
+// it counts users between requests, which the per-label rows cannot see. Where
+// it did not, summing the per-label rows recovers the total, since a virtual
+// user is executing one request at a time. The larger is taken so a run is never
+// reported as smaller than it demonstrably was.
+func peakConcurrency(engine, labels map[int64]int) int {
+	peak := 0
+	for ts, n := range labels {
+		if agg := engine[ts]; agg > n {
+			n = agg
+		}
+		if n > peak {
+			peak = n
+		}
+	}
+	// Seconds the engine reported an aggregate for but no label -- every user
+	// between requests, for instance.
+	for ts, n := range engine {
+		if labels[ts] == 0 && n > peak {
+			peak = n
+		}
+	}
+	return peak
+}
+
+// achievedSeconds is how long the run actually produced load.
+//
+// The requested duration is what was asked for, not what happened. A run aborted
+// after ten seconds of a requested minute did not hold load for a minute, and
+// dividing its samples by sixty understates the rate it really reached -- then
+// ShortOfRequest would report a shortfall for a run that was meeting its target
+// when it stopped, which is the opposite of what a reader needs to know.
+//
+// The wall clock is used where the caller supplied it, and the requested
+// duration stands in where it did not.
+func achievedSeconds(in Input) int {
+	if !in.StartedAt.IsZero() && in.EndedAt.After(in.StartedAt) {
+		if secs := int(in.EndedAt.Sub(in.StartedAt).Round(time.Second).Seconds()); secs > 0 {
+			return secs
+		}
+	}
+	return in.Requested.DurationSeconds
 }
 
 func rate(part, whole int64) float64 {
