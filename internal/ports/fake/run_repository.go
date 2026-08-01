@@ -46,6 +46,17 @@ func (s *Store) StopRun(_ context.Context, executionID int64) error {
 	return nil
 }
 
+// RunHistory returns a run's history record.
+func (s *Store) RunHistory(_ context.Context, runID int64) (ports.RunRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.runHistory[runID]
+	if !ok {
+		return ports.RunRecord{}, ports.ErrNotFound
+	}
+	return *rec, nil
+}
+
 // MarkScenarioRunning records a running scenario (idempotent).
 func (s *Store) MarkScenarioRunning(_ context.Context, executionID, scenarioID int64) error {
 	s.mu.Lock()

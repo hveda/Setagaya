@@ -2,6 +2,7 @@ package repositorytest
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/heridotlife/honryu/internal/ports"
@@ -56,6 +57,45 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 		}
 		if second == first {
 			t.Fatalf("re-StartRun reused run id %d", second)
+		}
+	})
+
+	// A report needs to know when its run started, and nothing else keeps that
+	// once the run has been superseded or stopped.
+	t.Run("run history records the start and, once stopped, the end", func(t *testing.T) {
+		repo := newRepo(t)
+		runID, err := repo.StartRun(ctx, execution)
+		if err != nil {
+			t.Fatalf("StartRun: %v", err)
+		}
+
+		rec, err := repo.RunHistory(ctx, runID)
+		if err != nil {
+			t.Fatalf("RunHistory: %v", err)
+		}
+		if rec.RunID != runID || rec.ExecutionID != execution {
+			t.Fatalf("RunHistory identity = %+v", rec)
+		}
+		if rec.StartedTime.IsZero() {
+			t.Error("StartedTime is zero")
+		}
+		if rec.EndTime != nil {
+			t.Errorf("EndTime = %v before the run stopped, want nil", rec.EndTime)
+		}
+
+		if err := repo.StopRun(ctx, execution); err != nil {
+			t.Fatalf("StopRun: %v", err)
+		}
+		rec, err = repo.RunHistory(ctx, runID)
+		if err != nil {
+			t.Fatalf("RunHistory after stop: %v", err)
+		}
+		if rec.EndTime == nil {
+			t.Error("EndTime is nil after the run stopped")
+		}
+
+		if _, err := repo.RunHistory(ctx, 999999); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("RunHistory(unknown) = %v, want ErrNotFound", err)
 		}
 	})
 

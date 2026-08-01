@@ -41,6 +41,10 @@ type RunRepository interface {
 	// StopRun clears the active run and stamps end_time on its history row.
 	// Stopping an execution with no active run is not an error.
 	StopRun(ctx context.Context, executionID int64) error
+	// RunHistory returns a run's history record, or ErrNotFound. It is how a
+	// report learns when its run started, since nothing else keeps that once the
+	// run itself has been superseded or stopped.
+	RunHistory(ctx context.Context, runID int64) (RunRecord, error)
 	// MarkScenarioRunning records that a scenario is executing (idempotent).
 	MarkScenarioRunning(ctx context.Context, executionID, scenarioID int64) error
 	// ClearScenarioRunning removes a scenario's running marker (idempotent).

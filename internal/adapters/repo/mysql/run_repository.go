@@ -58,6 +58,25 @@ func (r *Repository) StopRun(ctx context.Context, executionID int64) error {
 	return err
 }
 
+// RunHistory returns a run's history record, or ports.ErrNotFound.
+func (r *Repository) RunHistory(ctx context.Context, runID int64) (ports.RunRecord, error) {
+	var rec ports.RunRecord
+	var end sql.NullTime
+	err := r.db.QueryRowContext(ctx,
+		"SELECT run_id, execution_id, started_time, end_time FROM execution_run_history WHERE run_id=?",
+		runID).Scan(&rec.RunID, &rec.ExecutionID, &rec.StartedTime, &end)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ports.RunRecord{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return ports.RunRecord{}, err
+	}
+	if end.Valid {
+		rec.EndTime = &end.Time
+	}
+	return rec, nil
+}
+
 // MarkScenarioRunning records a running scenario; duplicates are ignored (idempotent).
 func (r *Repository) MarkScenarioRunning(ctx context.Context, executionID, scenarioID int64) error {
 	_, err := r.db.ExecContext(ctx,
