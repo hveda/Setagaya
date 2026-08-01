@@ -59,12 +59,25 @@ func (r *Repository) Absorb(ctx context.Context, b ports.ProgressBatch) error {
 			return err
 		}
 	}
+	// COALESCE keeps whatever was already stored when this batch carries no
+	// code -- a shard's exit code arrives once, on its final batch, and must
+	// not be overwritten by a later call that has none.
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE report_progress_shard SET seq=?, finished=finished|? WHERE run_id=? AND shard_index=?`,
-		highest, boolToInt(b.Final), b.RunID, b.ShardIndex); err != nil {
+		`UPDATE report_progress_shard SET seq=?, finished=finished|?, exit_code=COALESCE(?, exit_code)
+		 WHERE run_id=? AND shard_index=?`,
+		highest, boolToInt(b.Final), nullIntPtr(b.ExitCode), b.RunID, b.ShardIndex); err != nil {
 		return fmt.Errorf("mysql: advance shard progress: %w", err)
 	}
 	return tx.Commit()
+}
+
+// nullIntPtr converts an optional int to a value database/sql can bind as
+// NULL, mirroring nullInt64 for the *int64 case elsewhere in this package.
+func nullIntPtr(v *int) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }
 
 // lockShard takes the shard's row for update and returns the sequence already
@@ -291,12 +304,34 @@ func scanSignatureProgress(rows *sql.Rows) ([]report.ErrorSignature, error) {
 	return out, rows.Err()
 }
 
-// ShardsFinished counts the shards that have sent their final batch.
-func (r *Repository) ShardsFinished(ctx context.Context, runID int64) (int, error) {
-	var n int
-	err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM report_progress_shard WHERE run_id=? AND finished=1`, runID).Scan(&n)
-	return n, err
+// ShardStates returns each shard seen so far and its completion state.
+func (r *Repository) ShardStates(ctx context.Context, runID int64) ([]ports.ShardState, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT shard_index, finished, exit_code FROM report_progress_shard
+		 WHERE run_id=? ORDER BY shard_index`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []ports.ShardState
+	for rows.Next() {
+		var (
+			st       ports.ShardState
+			finished int
+			code     sql.NullInt64
+		)
+		if err := rows.Scan(&st.ShardIndex, &finished, &code); err != nil {
+			return nil, err
+		}
+		st.Finished = finished != 0
+		if code.Valid {
+			c := int(code.Int64)
+			st.ExitCode = &c
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
 }
 
 // Discard drops a run's working state once it has become a report.

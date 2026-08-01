@@ -148,20 +148,46 @@ func Run(t *testing.T, newProgress NewProgress) {
 		}
 	})
 
-	t.Run("CountsFinishedShards", func(t *testing.T) {
+	// A run's outcome is derived from its shards' exit codes, so the state has to
+	// carry them -- and a shard finished by pod teardown before it could write
+	// one is still finished, just without a code to report.
+	t.Run("ShardStatesReportFinishedAndExitCode", func(t *testing.T) {
 		p := newProgress(t)
-		for shard := range 3 {
-			final := shard < 2
-			if err := p.Absorb(ctx, batch(1, shard, "s1", final, iv(1, 1000, "probe", 5, 0, 0))); err != nil {
-				t.Fatalf("Absorb: %v", err)
+		passed := withExitCode(batch(1, 0, "s1", true, iv(1, 1000, "probe", 5, 0, 0)), 0)
+		if err := p.Absorb(ctx, passed); err != nil {
+			t.Fatalf("Absorb shard 0: %v", err)
+		}
+		failed := withExitCode(batch(1, 1, "s1", true, iv(1, 1000, "probe", 5, 0, 0)), 3)
+		if err := p.Absorb(ctx, failed); err != nil {
+			t.Fatalf("Absorb shard 1: %v", err)
+		}
+		// Torn down before it could write an exit code: still finished.
+		if err := p.Absorb(ctx, batch(1, 2, "s1", true, iv(1, 1000, "probe", 5, 0, 0))); err != nil {
+			t.Fatalf("Absorb shard 2: %v", err)
+		}
+
+		states, err := p.ShardStates(ctx, 1)
+		if err != nil {
+			t.Fatalf("ShardStates: %v", err)
+		}
+		if len(states) != 3 {
+			t.Fatalf("shard states = %+v, want 3", states)
+		}
+		byIndex := map[int]ports.ShardState{}
+		for _, st := range states {
+			byIndex[st.ShardIndex] = st
+			if !st.Finished {
+				t.Errorf("shard %d not finished", st.ShardIndex)
 			}
 		}
-		n, err := p.ShardsFinished(ctx, 1)
-		if err != nil {
-			t.Fatalf("ShardsFinished: %v", err)
+		if got := byIndex[0].ExitCode; got == nil || *got != 0 {
+			t.Errorf("shard 0 exit code = %v, want 0", got)
 		}
-		if n != 2 {
-			t.Errorf("finished shards = %d, want 2", n)
+		if got := byIndex[1].ExitCode; got == nil || *got != 3 {
+			t.Errorf("shard 1 exit code = %v, want 3", got)
+		}
+		if got := byIndex[2].ExitCode; got != nil {
+			t.Errorf("shard 2 exit code = %v, want none", got)
 		}
 	})
 
@@ -174,9 +200,9 @@ func Run(t *testing.T, newProgress NewProgress) {
 		if len(got.Labels) != 0 || len(got.Seconds) != 0 || len(got.Signatures) != 0 {
 			t.Errorf("snapshot of an unknown run = %+v", got)
 		}
-		n, err := p.ShardsFinished(ctx, 999)
-		if err != nil || n != 0 {
-			t.Errorf("ShardsFinished(unknown) = %d, %v", n, err)
+		states, err := p.ShardStates(ctx, 999)
+		if err != nil || len(states) != 0 {
+			t.Errorf("ShardStates(unknown) = %+v, %v", states, err)
 		}
 	})
 
@@ -197,8 +223,8 @@ func Run(t *testing.T, newProgress NewProgress) {
 		if len(got.Labels) != 0 {
 			t.Errorf("state survived Discard: %+v", got.Labels)
 		}
-		if n, _ := p.ShardsFinished(ctx, 1); n != 0 {
-			t.Errorf("finished shards after Discard = %d, want 0", n)
+		if states, _ := p.ShardStates(ctx, 1); len(states) != 0 {
+			t.Errorf("shard states after Discard = %+v, want none", states)
 		}
 	})
 
@@ -255,6 +281,11 @@ func batch(runID int64, shard int, stream string, final bool, intervals ...metri
 	return ports.ProgressBatch{
 		RunID: runID, ShardIndex: shard, StreamID: stream, Final: final, Intervals: intervals,
 	}
+}
+
+func withExitCode(b ports.ProgressBatch, code int) ports.ProgressBatch {
+	b.ExitCode = &code
+	return b
 }
 
 func iv(seq, ts int64, label string, samples, failed int64, concurrency int) metrics.Interval {

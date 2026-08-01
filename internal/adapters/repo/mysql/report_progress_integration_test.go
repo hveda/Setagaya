@@ -37,10 +37,10 @@ func TestMySQLReportProgress_ErrorsWhenDBClosed(t *testing.T) {
 		Intervals: []metrics.Interval{{Seq: 1, Timestamp: 1000, Label: "probe", Samples: 1}},
 	}
 	ops := map[string]func() error{
-		"Absorb":         func() error { return repo.Absorb(ctx, batch) },
-		"Snapshot":       func() error { _, e := repo.Snapshot(ctx, 1); return e },
-		"ShardsFinished": func() error { _, e := repo.ShardsFinished(ctx, 1); return e },
-		"Discard":        func() error { return repo.Discard(ctx, 1) },
+		"Absorb":      func() error { return repo.Absorb(ctx, batch) },
+		"Snapshot":    func() error { _, e := repo.Snapshot(ctx, 1); return e },
+		"ShardStates": func() error { _, e := repo.ShardStates(ctx, 1); return e },
+		"Discard":     func() error { return repo.Discard(ctx, 1) },
 	}
 	for name, op := range ops {
 		if err := op(); err == nil {

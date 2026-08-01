@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/heridotlife/honryu/internal/domain/report"
@@ -28,6 +29,7 @@ type shardStream struct {
 	// seq is the highest sequence absorbed from this stream.
 	seq      int64
 	finished bool
+	exitCode *int
 }
 
 // NewReportProgress builds an empty accumulator store.
@@ -75,6 +77,9 @@ func (p *ReportProgress) Absorb(_ context.Context, b ports.ProgressBatch) error 
 	if b.Final {
 		shard.finished = true
 	}
+	if b.ExitCode != nil {
+		shard.exitCode = b.ExitCode
+	}
 	return nil
 }
 
@@ -89,21 +94,20 @@ func (p *ReportProgress) Snapshot(_ context.Context, runID int64) (report.Snapsh
 	return run.acc.Snapshot(), nil
 }
 
-// ShardsFinished counts the shards that have sent their final batch.
-func (p *ReportProgress) ShardsFinished(_ context.Context, runID int64) (int, error) {
+// ShardStates returns each shard seen so far and its completion state.
+func (p *ReportProgress) ShardStates(_ context.Context, runID int64) ([]ports.ShardState, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	run, ok := p.runs[runID]
 	if !ok {
-		return 0, nil
+		return nil, nil
 	}
-	n := 0
-	for _, shard := range run.shards {
-		if shard.finished {
-			n++
-		}
+	out := make([]ports.ShardState, 0, len(run.shards))
+	for idx, shard := range run.shards {
+		out = append(out, ports.ShardState{ShardIndex: idx, Finished: shard.finished, ExitCode: shard.exitCode})
 	}
-	return n, nil
+	sort.Slice(out, func(i, j int) bool { return out[i].ShardIndex < out[j].ShardIndex })
+	return out, nil
 }
 
 // Discard drops a run's working state.
