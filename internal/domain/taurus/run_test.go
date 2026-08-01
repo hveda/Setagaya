@@ -107,3 +107,32 @@ func TestCommand_OmitsEmptyArtifactsDir(t *testing.T) {
 		}
 	}
 }
+
+// The whole reason for a severity order: one shard's target-side failure must
+// not be diluted by others that happened to pass, and one shard's engine
+// problem taints the whole run's evidence about the target regardless of what
+// the others measured.
+func TestCombineOutcomes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		codes []int
+		want  taurus.Outcome
+	}{
+		{"all passed", []int{0, 0, 0}, taurus.OutcomePassed},
+		{"one failed among passes", []int{0, 3, 0}, taurus.OutcomeFailed},
+		{"one errored dominates a failure", []int{3, 1}, taurus.OutcomeError},
+		{"one errored dominates a pass", []int{0, 0, 1}, taurus.OutcomeError},
+		{"a single passing shard", []int{0}, taurus.OutcomePassed},
+		{"no codes at all is not a pass", []int{}, taurus.OutcomeError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := taurus.CombineOutcomes(tc.codes); got != tc.want {
+				t.Errorf("CombineOutcomes(%v) = %q, want %q", tc.codes, got, tc.want)
+			}
+		})
+	}
+}

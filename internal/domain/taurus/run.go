@@ -64,6 +64,37 @@ func OutcomeFromExitCode(code int) Outcome {
 	}
 }
 
+// CombineOutcomes rolls up several shards' exit codes into one outcome for a
+// sharded run.
+//
+// Most severe wins. A shard whose engine errored means the run says nothing
+// trustworthy about the target, no matter what the other shards measured; a
+// shard whose criteria failed means the target failed, no matter that other
+// shards happened to pass. Only when every shard passed does the run pass.
+//
+// No codes at all -- every shard torn down before it could report one -- is
+// not evidence the target passed; it is no evidence at all, and is treated as
+// an error rather than assumed clean.
+func CombineOutcomes(codes []int) Outcome {
+	if len(codes) == 0 {
+		return OutcomeError
+	}
+	seen := make(map[Outcome]bool, len(codes))
+	for _, code := range codes {
+		seen[OutcomeFromExitCode(code)] = true
+	}
+	switch {
+	case seen[OutcomeError]:
+		return OutcomeError
+	case seen[OutcomeFailed]:
+		return OutcomeFailed
+	case seen[OutcomeAborted]:
+		return OutcomeAborted
+	default:
+		return OutcomePassed
+	}
+}
+
 // CountsTowardVerdict reports whether this outcome is evidence about the target.
 // Only a completed run is: an abort was Honryu's own doing, and an engine error
 // means the generator broke before it could measure anything.
