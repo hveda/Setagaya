@@ -45,7 +45,7 @@ func newIngestEnv(t *testing.T, deps func(*httpapi.Deps)) ingestEnv {
 
 	sink := fake.NewMetricsSink()
 	d := httpapi.Deps{
-		Metrics:     metricsapp.NewService(store, sink, membus.New()),
+		Metrics:     metricsapp.NewService(store, sink, membus.New(), fake.NewReportProgress(), fake.NewReportStore()),
 		IngestToken: engineToken,
 	}
 	if deps != nil {
@@ -74,7 +74,7 @@ func (e ingestEnv) batch() metrics.Batch {
 	return metrics.Batch{
 		ExecutionID: e.executionID, ScenarioID: e.scenarioID, RunID: e.runID,
 		Intervals: []metrics.Interval{{
-			Timestamp: 1, Label: "probe", Concurrency: 2, Samples: 9, Succeeded: 9,
+			Seq: 1, Timestamp: 1, Label: "probe", Concurrency: 2, Samples: 9, Succeeded: 9,
 			Latency: metrics.Histogram{0.01: 9},
 		}},
 	}

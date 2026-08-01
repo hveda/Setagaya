@@ -17,9 +17,14 @@ type env struct {
 	store       *fake.Store
 	sink        *fake.MetricsSink
 	bus         *membus.Bus
+	progress    *fake.ReportProgress
+	reports     *fake.ReportStore
 	executionID int64
 	scenarioIDs []int64
 	runID       int64
+	// seq numbers intervals across every batch a test builds, mirroring a real
+	// sidecar's stream rather than restarting at one on every call.
+	seq int64
 }
 
 func setup(t *testing.T, engines ...int) *env {
@@ -42,9 +47,11 @@ func setup(t *testing.T, engines ...int) *env {
 
 	sink := fake.NewMetricsSink()
 	bus := membus.New()
-	svc := metricsapp.NewService(store, sink, bus)
+	progress := fake.NewReportProgress()
+	reports := fake.NewReportStore()
+	svc := metricsapp.NewService(store, sink, bus, progress, reports)
 	return &env{
-		svc: svc, store: store, sink: sink, bus: bus,
+		svc: svc, store: store, sink: sink, bus: bus, progress: progress, reports: reports,
 		executionID: executionID, scenarioIDs: scenarioIDs, runID: runID,
 	}
 }

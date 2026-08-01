@@ -17,6 +17,9 @@ type ReportStore struct {
 
 	// SaveErr, when set, is returned by SaveReport.
 	SaveErr error
+	// GetErr, when set, is returned by GetReport instead of its usual result --
+	// a transient store failure, distinct from ErrNotFound.
+	GetErr error
 }
 
 // NewReportStore builds an empty store.
@@ -44,6 +47,9 @@ func (s *ReportStore) SaveReport(_ context.Context, r report.Report) error {
 func (s *ReportStore) GetReport(_ context.Context, runID int64) (report.Report, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.GetErr != nil {
+		return report.Report{}, s.GetErr
+	}
 	r, ok := s.reports[runID]
 	if !ok {
 		return report.Report{}, ports.ErrNotFound

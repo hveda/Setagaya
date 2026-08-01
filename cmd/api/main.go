@@ -57,6 +57,8 @@ type repository interface {
 	ports.UsageRepository
 	ports.TenantRepository
 	ports.RoleAssignmentRepository
+	ports.ReportProgress
+	ports.ReportStore
 }
 
 func main() {
@@ -96,7 +98,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 	sink := promsink.New(prometheus.DefaultRegisterer)
 	bus := eventbus.New()
-	collector := metricsapp.NewService(repo, sink, bus)
+	collector := metricsapp.NewService(repo, sink, bus, repo, repo)
 	// Nothing to resume after a restart: pods push, so a run already under way
 	// simply keeps sending to whichever controller is listening.
 	usage := usageapp.NewService(repo)

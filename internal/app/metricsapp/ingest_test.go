@@ -15,10 +15,12 @@ func batch(e *env, shard int, tss ...int64) metrics.Batch {
 		ScenarioID:  e.scenarioIDs[0],
 		RunID:       e.runID,
 		ShardIndex:  shard,
+		StreamID:    "s1",
 	}
 	for _, ts := range tss {
+		e.seq++
 		b.Intervals = append(b.Intervals, metrics.Interval{
-			Timestamp: ts, Label: "checkout-cart",
+			Seq: e.seq, Timestamp: ts, Label: "checkout-cart",
 			Concurrency: 5, Samples: 10, Succeeded: 10,
 			Latency: metrics.Histogram{0.01: 10},
 		})

@@ -9,6 +9,8 @@ import (
 
 	"github.com/heridotlife/honryu/internal/domain/engine"
 	"github.com/heridotlife/honryu/internal/domain/metrics"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Ingest errors. Callers compare with errors.Is.
@@ -83,6 +85,18 @@ func (s *Service) Ingest(ctx context.Context, batch metrics.Batch) error {
 		return fmt.Errorf("%w: batch run %d, current run %d", ErrStaleRun, batch.RunID, runID)
 	}
 
+	progressBatch := ports.ProgressBatch{
+		RunID: runID, ShardIndex: batch.ShardIndex, StreamID: batch.StreamID,
+		Final: batch.Final, ExitCode: batch.ExitCode, Intervals: batch.Intervals,
+	}
+	// Validated before anything is forwarded: a batch this malformed can only
+	// come from a sidecar older than the control plane, and rejecting it after
+	// the live view already published it would leave that view showing data the
+	// permanent record refused.
+	if err := progressBatch.Validate(); err != nil {
+		return err
+	}
+
 	for _, in := range batch.Intervals {
 		key := intervalKey(batch, in)
 		if !s.seen.mark(batch.ExecutionID, key) {
@@ -92,12 +106,72 @@ func (s *Service) Ingest(ctx context.Context, batch metrics.Batch) error {
 		s.record(batch, in, runID)
 	}
 
-	if batch.Final {
-		// The pod is done. Its intervals cannot arrive again, so stop
-		// remembering them.
-		s.seen.forget(batch.ExecutionID)
+	// The permanent record is accumulated independently of the live-view dedup
+	// above: ReportProgress keeps its own per-shard sequence, exact across a
+	// control-plane restart in a way the in-memory seen map is not.
+	if err := s.progress.Absorb(ctx, progressBatch); err != nil {
+		return err
 	}
+
+	if !batch.Final {
+		return nil
+	}
+	done, err := s.allShardsFinished(ctx, batch.ExecutionID, runID)
+	if err != nil {
+		return err
+	}
+	if !done {
+		return nil
+	}
+	if err := s.finalizeCompleted(ctx, batch.ExecutionID, runID); err != nil {
+		return err
+	}
+	// The run is over and its report is written; its intervals cannot arrive
+	// again, so stop remembering them.
+	s.seen.forget(batch.ExecutionID)
 	return nil
+}
+
+// allShardsFinished reports whether every shard the execution's load profile
+// called for has said it will send no more, which is how a run is known to be
+// complete without asking a cluster.
+func (s *Service) allShardsFinished(ctx context.Context, executionID, runID int64) (bool, error) {
+	states, err := s.progress.ShardStates(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	finished := 0
+	for _, st := range states {
+		if st.Finished {
+			finished++
+		}
+	}
+	profile, err := s.repo.LoadProfileFor(ctx, executionID)
+	if err != nil {
+		return false, err
+	}
+	planned := 0
+	for _, e := range profile {
+		planned += e.Engines
+	}
+	return planned > 0 && finished >= planned, nil
+}
+
+// finalizeCompleted rolls up every shard's exit code into the run's outcome and
+// finalises it. Called only once every shard has finished on its own -- a run
+// Honryu stopped itself is finalised as an abort instead, by Finalize.
+func (s *Service) finalizeCompleted(ctx context.Context, executionID, runID int64) error {
+	states, err := s.progress.ShardStates(ctx, runID)
+	if err != nil {
+		return err
+	}
+	var codes []int
+	for _, st := range states {
+		if st.ExitCode != nil {
+			codes = append(codes, *st.ExitCode)
+		}
+	}
+	return s.finalize(ctx, executionID, runID, taurus.CombineOutcomes(codes))
 }
 
 // intervalKey identifies one measurement uniquely within a run: which pod, which

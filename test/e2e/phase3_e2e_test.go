@@ -27,6 +27,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/usageapp"
 	"github.com/heridotlife/honryu/internal/domain/metrics"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 	"github.com/heridotlife/honryu/test/dbtest"
 )
@@ -43,7 +44,7 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	sink := fake.NewMetricsSink()
 	bus := membus.New()
 
-	collector := metricsapp.NewService(repo, sink, bus)
+	collector := metricsapp.NewService(repo, sink, bus, repo, repo)
 	usage := usageapp.NewService(repo)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, lifecycleapp.StaticImage("jmeter")).WithMetrics(collector).WithUsage(usage)
 	admin := adminapp.NewService(repo, sched, lifecycle)
@@ -93,9 +94,9 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 			default:
 			}
 			body, _ := json.Marshal(metrics.Batch{
-				ExecutionID: collID, ScenarioID: scenarioID, RunID: runID, ShardIndex: 0,
+				ExecutionID: collID, ScenarioID: scenarioID, RunID: runID, ShardIndex: 0, StreamID: "e2e",
 				Intervals: []metrics.Interval{{
-					Timestamp: ts, Label: "home", Concurrency: 8, Samples: 20, Succeeded: 20,
+					Seq: ts + 1, Timestamp: ts, Label: "home", Concurrency: 8, Samples: 20, Succeeded: 20,
 					Latency: metrics.Histogram{0.0125: 20}, ResponseCodes: map[string]int64{"200": 20},
 				}},
 			})
@@ -131,6 +132,22 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	}
 
 	postAction(t, client, base+"/stop", http.StatusOK)
+
+	// Stop ends the run through the same teardown that finalises its report --
+	// via the real MySQL adapter this exercises, not a fake standing in for it.
+	rep, err := repo.GetReport(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("GetReport after Stop: %v", err)
+	}
+	if rep.ExecutionID != collID || rep.RunID != runID {
+		t.Fatalf("report identity = %+v", rep)
+	}
+	if rep.Outcome != taurus.OutcomeAborted {
+		t.Fatalf("report outcome = %q, want aborted -- Honryu stopped this run itself", rep.Outcome)
+	}
+	if rep.Achieved.Samples == 0 {
+		t.Fatalf("report has no achieved samples: %+v", rep.Achieved)
+	}
 
 	// Usage history now has one finished launch for this execution.
 	var history []map[string]any

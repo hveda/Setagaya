@@ -39,20 +39,26 @@ type Repo interface {
 	ports.RunRepository
 }
 
-// Metrics is the metric-execution lifecycle the run drives: Start streaming on
-// trigger, Stop on teardown, and Purge (stop + drop series) on purge. The
-// metricsapp service implements it; a no-op default is used when none is wired
-// (e.g. in tests that don't exercise metrics).
-// Metrics is the metric use-case's hook into the lifecycle. Only purging
-// remains: with measurements pushed, there is no collection to start or stop --
-// pods send while they run and stop when they are gone.
+// Metrics is the metric use-case's hook into the lifecycle. With measurements
+// pushed, there is no collection to start or stop -- pods send while they run
+// and stop when they are gone -- so what remains is dropping a purged
+// execution's series, and finalising a run's report when Honryu itself ends it
+// rather than letting it finish on its own.
+//
+// The metricsapp service implements it; a no-op default is used when none is
+// wired (e.g. in tests that don't exercise metrics).
 type Metrics interface {
 	Purge(executionID int64)
+	// Finalize writes the report for a run Honryu is deliberately ending.
+	// Idempotent: a run already finalised by its own natural completion is left
+	// untouched.
+	Finalize(ctx context.Context, executionID, runID int64) error
 }
 
 type noopMetrics struct{}
 
-func (noopMetrics) Purge(int64) {}
+func (noopMetrics) Purge(int64)                                  {}
+func (noopMetrics) Finalize(context.Context, int64, int64) error { return nil }
 
 // Usage records the usage of a run: a launch opened on trigger and closed on
 // teardown. The usageapp service implements it; a no-op default is used when
@@ -370,6 +376,14 @@ func (s *Service) teardown(ctx context.Context, executionID int64) error {
 	// Close the usage launch (best effort).
 	vu := run.VirtualUsers(loadprofile.Profile{Tests: scenarios})
 	_ = s.usage.RecordFinish(ctx, executionID, vu)
+
+	// Finalise the report before the run's identity is cleared: Finalize needs
+	// the run id, and StopRun is what forgets it. Best effort, matching
+	// RecordFinish above -- a customer must be able to stop or purge a broken
+	// execution even if writing its final report fails.
+	if runID, running, err := s.repo.CurrentRun(ctx, executionID); err == nil && running {
+		_ = s.metrics.Finalize(ctx, executionID, runID)
+	}
 	return s.repo.StopRun(ctx, executionID)
 }
 

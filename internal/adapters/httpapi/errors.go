@@ -41,6 +41,9 @@ var badRequestErrors = []error{
 	run.ErrNoScenarios, lifecycleapp.ErrNoTestFile,
 	tenant.ErrNameRequired, tenant.ErrNameTooLong, tenant.ErrNameInvalid,
 	tenant.ErrDisplayNameRequired, tenant.ErrStatusInvalid,
+	// An unsequenced batch is a sidecar contract violation, not a transient
+	// failure -- retrying it would never succeed, so it must not read as one.
+	ports.ErrUnsequencedBatch,
 	tenantapp.ErrUnknownRole, tenantapp.ErrGlobalRoleScoped,
 }
 

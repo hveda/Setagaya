@@ -54,25 +54,33 @@ type Store struct {
 	tenantSeq int64
 	tenants   map[int64]tenant.Tenant
 	grants    []ports.RoleGrant // role assignments, deduped by subject/role/tenant
+
+	// Embedded rather than reimplemented: a run's report and its working state
+	// are keyed by run id alone, with no cross-aggregate rule tying them to the
+	// rest of Store the way scenarios and executions tie to each other.
+	*ReportProgress
+	*ReportStore
 }
 
 // NewStore returns an empty in-memory Store.
 func NewStore() *Store {
 	return &Store{
-		now:           time.Now,
-		projects:      make(map[int64]project.Project),
-		scenarios:     make(map[int64]scenario.Scenario),
-		planTest:      make(map[int64]string),
-		planData:      make(map[int64]map[string]struct{}),
-		executions:    make(map[int64]execution.Execution),
-		execData:      make(map[int64]map[string]struct{}),
-		exec:          make(map[int64][]loadprofile.Entry),
-		currentRun:    make(map[int64]int64),
-		runHistory:    make(map[int64]*ports.RunRecord),
-		running:       make(map[int64]map[int64]time.Time),
-		deployContext: "default",
-		openLaunch:    make(map[int64]*ports.LaunchRecord),
-		tenants:       make(map[int64]tenant.Tenant),
+		now:            time.Now,
+		projects:       make(map[int64]project.Project),
+		scenarios:      make(map[int64]scenario.Scenario),
+		planTest:       make(map[int64]string),
+		planData:       make(map[int64]map[string]struct{}),
+		executions:     make(map[int64]execution.Execution),
+		execData:       make(map[int64]map[string]struct{}),
+		exec:           make(map[int64][]loadprofile.Entry),
+		currentRun:     make(map[int64]int64),
+		runHistory:     make(map[int64]*ports.RunRecord),
+		running:        make(map[int64]map[int64]time.Time),
+		deployContext:  "default",
+		openLaunch:     make(map[int64]*ports.LaunchRecord),
+		tenants:        make(map[int64]tenant.Tenant),
+		ReportProgress: NewReportProgress(),
+		ReportStore:    NewReportStore(),
 	}
 }
 
@@ -95,6 +103,8 @@ var (
 	_ ports.UsageRepository          = (*Store)(nil)
 	_ ports.TenantRepository         = (*Store)(nil)
 	_ ports.RoleAssignmentRepository = (*Store)(nil)
+	_ ports.ReportProgress           = (*Store)(nil)
+	_ ports.ReportStore              = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------

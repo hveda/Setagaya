@@ -359,10 +359,19 @@ func TestStop_WhenEnginesUnreachable(t *testing.T) {
 
 // recordingMetrics implements lifecycleapp.Metrics and records the calls.
 type recordingMetrics struct {
-	purged []int64
+	purged    []int64
+	finalized []int64 // run ids
+	// FinalizeErr, when set, is returned by Finalize -- teardown must tolerate
+	// it, since a customer must be able to stop a broken execution regardless.
+	FinalizeErr error
 }
 
 func (m *recordingMetrics) Purge(id int64) { m.purged = append(m.purged, id) }
+
+func (m *recordingMetrics) Finalize(_ context.Context, _, runID int64) error {
+	m.finalized = append(m.finalized, runID)
+	return m.FinalizeErr
+}
 
 // Purging an execution must drop its metric series: with measurements pushed
 // there is nothing to start or stop, but nothing else would ever remove them.
@@ -381,6 +390,79 @@ func TestMetricsHook_PurgeDropsSeries(t *testing.T) {
 	}
 	if len(rec.purged) != 1 || rec.purged[0] != e.executionID {
 		t.Fatalf("purged = %v, want [%d]", rec.purged, e.executionID)
+	}
+}
+
+// Stop and Purge both end a run through teardown, so both must finalise its
+// report -- Honryu is the one deciding the run is over, and Finalize needs the
+// run id before StopRun forgets it.
+func TestMetricsHook_StopFinalizesTheReport(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+	rec := &recordingMetrics{}
+	e.svc.WithMetrics(rec)
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	runID, ok, _ := e.store.CurrentRun(ctx, e.executionID)
+	if !ok {
+		t.Fatal("no active run after trigger")
+	}
+
+	if err := e.svc.Stop(ctx, e.executionID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if len(rec.finalized) != 1 || rec.finalized[0] != runID {
+		t.Fatalf("finalized = %v, want [%d]", rec.finalized, runID)
+	}
+}
+
+// Deploying without ever triggering leaves no run to finalise, and Purge must
+// not invent one.
+func TestMetricsHook_PurgeWithoutARunNeverFinalizes(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+	rec := &recordingMetrics{}
+	e.svc.WithMetrics(rec)
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Purge(ctx, e.executionID); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if len(rec.finalized) != 0 {
+		t.Errorf("finalized = %v, want none: nothing was ever triggered", rec.finalized)
+	}
+}
+
+// A customer must be able to stop or purge a broken execution even if writing
+// its final report fails -- that failure must not become the reason teardown
+// itself fails.
+func TestMetricsHook_StopSucceedsEvenIfFinalizeFails(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+	rec := &recordingMetrics{FinalizeErr: errors.New("boom")}
+	e.svc.WithMetrics(rec)
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	if err := e.svc.Stop(ctx, e.executionID); err != nil {
+		t.Fatalf("Stop: %v, want nil despite Finalize failing", err)
+	}
+	if len(rec.finalized) != 1 {
+		t.Fatalf("Finalize was not attempted")
 	}
 }
 
