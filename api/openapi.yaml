@@ -31,6 +31,11 @@ tags:
     description: Runnable units grouping scenarios
   - name: lifecycle
     description: Deploying, triggering, and observing runs
+  - name: reports
+    description: >-
+      Post-run diagnosis: stored reports, captured engine logs, and the
+      compiled config each run actually used -- retrievable after the engines
+      and their pods are gone, with no cluster access
   - name: usage
     description: Engine usage accounting
   - name: admin
@@ -69,6 +74,23 @@ components:
       in: query
       required: true
       schema: { type: string }
+    RunID:
+      name: run_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Shard:
+      name: shard
+      in: path
+      required: true
+      description: The pod's index within its scenario, matching the shard plan.
+      schema: { type: integer }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum reports to return, most recent first. Omitted or non-positive means no limit.
+      schema: { type: integer }
 
   securitySchemes:
     engineToken:
@@ -195,6 +217,82 @@ components:
         display_name: { type: string }
         status: { type: string }
         created_time: { type: string, format: date-time }
+
+    Report:
+      type: object
+      description: What a run is judged on, kept after its engines and pods are gone.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        scenario_id:
+          type: integer
+          format: int64
+          description: Populated only when the execution's profile has exactly one scenario; 0 otherwise, since the label breakdown covers the multi-scenario case.
+        run_id: { type: integer, format: int64 }
+        engine: { type: string }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        outcome:
+          type: string
+          enum: [passed, failed, aborted, error]
+        requested: { $ref: '#/components/schemas/Load' }
+        achieved: { $ref: '#/components/schemas/Load' }
+        error_rate:
+          type: number
+          description: Every failure, whoever caused it. Not a verdict input on its own -- attribution splits it by side.
+        latency:
+          type: object
+          description: 'Percentile number to response-time seconds, e.g. {"95": 0.2}.'
+          additionalProperties: { type: number }
+        attribution: { $ref: '#/components/schemas/Attribution' }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ErrorSignature' }
+        labels:
+          type: array
+          items: { $ref: '#/components/schemas/LabelSummary' }
+    Load:
+      type: object
+      description: A rate of work, requested or achieved.
+      properties:
+        concurrency: { type: integer }
+        throughput:
+          type: number
+          description: Requests per second. Zero means unlimited when requested, nothing measured when achieved.
+        duration_seconds: { type: integer }
+        samples: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+    Attribution:
+      type: object
+      description: A run's failures, split by who caused them. All three are always present -- unknown is never folded into target or engine.
+      properties:
+        target: { type: integer, format: int64 }
+        engine: { type: integer, format: int64 }
+        unknown: { type: integer, format: int64 }
+    ErrorSignature:
+      type: object
+      description: One failure mode across a run, keyed on label, response code, and side -- never on engine message text, which differs per engine for the same failure.
+      properties:
+        label: { type: string }
+        response_code: { type: string }
+        side:
+          type: string
+          enum: [target, engine, unknown]
+        count: { type: integer, format: int64 }
+        exemplars:
+          type: array
+          description: A bounded sample of the engine wordings behind this signature, for a human to read -- never the grouping key.
+          items: { type: string }
+    LabelSummary:
+      type: object
+      description: One request's share of a run.
+      properties:
+        label: { type: string }
+        samples: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        error_rate: { type: number }
+        latency:
+          type: object
+          additionalProperties: { type: number }
 
   responses:
     BadRequest:
@@ -682,6 +780,72 @@ paths:
           description: SSE stream
           content:
             text/event-stream: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/reports:
+    get:
+      tags: [reports]
+      summary: List an execution's reports, most recent first
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Report' }
+
+  /api/runs/{run_id}/report:
+    get:
+      tags: [reports]
+      summary: Fetch a run's stored report
+      parameters: [{ $ref: '#/components/parameters/RunID' }]
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Report' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log:
+    get:
+      tags: [reports]
+      summary: Fetch a shard's captured engine log
+      description: >-
+        Durable, unlike /api/executions/{execution_id}/scenarios/{scenario_id}/logs:
+        this survives the pod's teardown, keyed by the run that produced it
+        rather than reflecting whatever is currently deployed.
+      parameters:
+        - { $ref: '#/components/parameters/RunID' }
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/Shard' }
+      responses:
+        '200':
+          description: Engine log
+          content:
+            text/plain: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config:
+    get:
+      tags: [reports]
+      summary: Fetch a shard's compiled Taurus config, exactly as the run used it
+      description: >-
+        A snapshot taken when the run started, immune to a later re-deploy
+        changing what is currently staged for the scenario.
+      parameters:
+        - { $ref: '#/components/parameters/RunID' }
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/Shard' }
+      responses:
+        '200':
+          description: Compiled Taurus YAML
+          content:
+            text/plain: {}
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/usage/history:

@@ -6,6 +6,7 @@
 package lifecycleapp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -211,9 +212,15 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 
 	// StartRun's id identified the run to the engine agents; with the agent
 	// protocol gone, the run is identified in metrics by the ingest path (task 21).
-	if _, err := s.repo.StartRun(ctx, executionID); err != nil {
+	runID, err := s.repo.StartRun(ctx, executionID)
+	if err != nil {
 		return err
 	}
+	// Snapshot each scenario's currently-deployed config under this run's own
+	// id, so what a re-deploy stages afterward can never change what this run
+	// is shown to have used. Best effort, matching log capture: a customer must
+	// be able to trigger even if the object store snapshot fails.
+	s.snapshotConfigs(ctx, runID, scenarios)
 
 	// Under Taurus there is no separate trigger step: a pod runs bzt and starts
 	// generating load the moment it starts, so this records that the run is under
@@ -308,6 +315,22 @@ func (s *Service) captureLogs(ctx context.Context, executionID, runID int64) {
 	}
 }
 
+// snapshotConfigs copies each scenario's staged compiled config into a
+// run-keyed object, so a later re-deploy changing the staged copy can never
+// alter what this run is shown to have used. One shard's failure does not
+// stop the others from being tried.
+func (s *Service) snapshotConfigs(ctx context.Context, runID int64, scenarios []loadprofile.Entry) {
+	for _, ep := range scenarios {
+		for i := 0; i < ep.Engines; i++ {
+			raw, err := s.store.Download(ctx, deployedConfigKey(ep.ScenarioID, i))
+			if err != nil {
+				continue
+			}
+			_ = s.store.Upload(ctx, runConfigKey(runID, ep.ScenarioID, i), bytes.NewReader(raw))
+		}
+	}
+}
+
 // podScenarioPath is where a scenario's artefacts are mounted in an engine pod.
 const podScenarioPath = "/honryu/config/scenario/"
 
@@ -386,8 +409,25 @@ func (s *Service) compileShards(
 			return nil, nil, fmt.Errorf("lifecycleapp: encode shard config: %w", mErr)
 		}
 		specs[i] = ports.ShardSpec{Index: sh.Index, Concurrency: sh.Concurrency, Config: raw}
+		// Staged for Trigger to snapshot into a run-keyed copy once a run id
+		// exists. Best effort: a customer must be able to deploy even if the
+		// object store that makes the config independently retrievable is down --
+		// the pod still gets it directly, through the ConfigMap.
+		_ = s.store.Upload(ctx, deployedConfigKey(entry.ScenarioID, sh.Index), bytes.NewReader(raw))
 	}
 	return specs, files, nil
+}
+
+// deployedConfigKey is where a scenario's currently-deployed compiled config
+// stages, ahead of a run existing to snapshot it into.
+func deployedConfigKey(scenarioID int64, shard int) string {
+	return fmt.Sprintf("scenario/%d/compiled/shard-%d.yml", scenarioID, shard)
+}
+
+// runConfigKey is the object-store key for one shard's compiled config, as the
+// run actually used it -- immune to a later re-deploy changing the staged copy.
+func runConfigKey(runID, scenarioID int64, shard int) string {
+	return fmt.Sprintf("run/%d/scenario-%d-shard-%d.yml", runID, scenarioID, shard)
 }
 
 // engineOf is the execution's engine, or the deployment default when it named

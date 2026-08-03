@@ -31,6 +31,9 @@ type Deps struct {
 	Usage      *usageapp.Service
 	// Metrics receives pushed measurements from engine pods.
 	Metrics *metricsapp.Service
+	// Reports serves a run's stored report, the durable record of what it
+	// produced.
+	Reports ports.ReportStore
 	// IngestToken authenticates engine pods. Empty rejects every push, so a
 	// deployment that has not configured one is closed rather than open.
 	IngestToken string
@@ -104,6 +107,11 @@ var routes = []Route{
 	{"GET", "/api/executions/{execution_id}/engines", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.executionEngines })},
 	{"GET", "/api/executions/{execution_id}/scenarios/{scenario_id}/logs", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.scenarioPodLog })},
 	{"GET", "/api/executions/{execution_id}/stream", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.streamExecution })},
+
+	{"GET", "/api/executions/{execution_id}/reports", "reports", hf(func(h *handlers) http.HandlerFunc { return h.executionReports })},
+	{"GET", "/api/runs/{run_id}/report", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runReport })},
+	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardLog })},
+	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardConfig })},
 
 	{"GET", "/api/usage/history", "usage", hf(func(h *handlers) http.HandlerFunc { return h.usageHistory })},
 	{"GET", "/api/usage/summary", "usage", hf(func(h *handlers) http.HandlerFunc { return h.usageSummary })},

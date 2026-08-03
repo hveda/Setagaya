@@ -144,6 +144,77 @@ func TestTrigger_HappyPathStartsRunAndMarksScenariosRunning(t *testing.T) {
 	}
 }
 
+// The compiled config is retrievable per run (spec AC), independent of the
+// cluster and independent of a later re-deploy: a run's config is a snapshot
+// taken when it started, not a live view of whatever is currently deployed.
+func TestTrigger_SnapshotsEachShardsCompiledConfig(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2) // one scenario, two shards
+	ctx := context.Background()
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	runID, _, _ := e.store.CurrentRun(ctx, e.executionID)
+
+	for shard := 0; shard < 2; shard++ {
+		key := fmt.Sprintf("run/%d/scenario-%d-shard-%d.yml", runID, e.planIDs[0], shard)
+		got, err := e.obj.Download(ctx, key)
+		if err != nil {
+			t.Fatalf("Download(%q): %v", key, err)
+		}
+		if len(got) == 0 {
+			t.Errorf("shard %d config is empty", shard)
+		}
+	}
+}
+
+// A re-deploy changes what is currently staged, but a run that already
+// started must keep showing the config it actually ran -- otherwise
+// diagnosing a failed run would show a config that was never the one at fault.
+func TestTrigger_SnapshotSurvivesALaterRedeploy(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+	ctx := context.Background()
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	runID, _, _ := e.store.CurrentRun(ctx, e.executionID)
+	key := fmt.Sprintf("run/%d/scenario-%d-shard-0.yml", runID, e.planIDs[0])
+	first, err := e.obj.Download(ctx, key)
+	if err != nil {
+		t.Fatalf("Download after trigger: %v", err)
+	}
+
+	if err := e.svc.Stop(ctx, e.executionID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	// Re-deploy with a different profile, changing what is staged.
+	if err := e.store.StoreLoadProfile(ctx, e.executionID, false, []loadprofile.Entry{
+		{Name: "p", ScenarioID: e.planIDs[0], Concurrency: 99, Rampup: 1, Engines: 1, Duration: 30},
+	}); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("re-Deploy: %v", err)
+	}
+
+	again, err := e.obj.Download(ctx, key)
+	if err != nil {
+		t.Fatalf("Download after re-deploy: %v", err)
+	}
+	if string(again) != string(first) {
+		t.Error("the run's snapshotted config changed after a later re-deploy")
+	}
+}
+
 // A native scenario without its script cannot run. The failure now lands on
 // Deploy rather than Trigger: the config that points at the script is compiled
 // when the pods are created, so nothing is deployed at all instead of pods
