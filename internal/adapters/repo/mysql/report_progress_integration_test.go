@@ -4,6 +4,7 @@ package mysql_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
@@ -46,6 +47,68 @@ func TestMySQLReportProgress_ErrorsWhenDBClosed(t *testing.T) {
 		if err := op(); err == nil {
 			t.Errorf("%s on a closed database returned no error", name)
 		}
+	}
+}
+
+// Shards flush independently, so two of them absorbing the same label at
+// nearly the same moment is routine, not exceptional. Without a lock spanning
+// the read and the write, both transactions would read the same pre-update
+// histogram, merge their own delta on top of it, and whichever commits last
+// would silently discard the other's buckets -- corrupting the run's latency
+// percentiles with no error raised anywhere. This drives that concurrently for
+// real against MySQL rather than asserting on the SQL shape.
+func TestMySQLReportProgress_ConcurrentShardsDoNotLoseEachOthersLatency(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	repo := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	const shards = 8
+	var wg sync.WaitGroup
+	errs := make([]error, shards)
+	var start sync.WaitGroup
+	start.Add(1)
+	for shard := range shards {
+		wg.Add(1)
+		go func(shard int) {
+			defer wg.Done()
+			start.Wait() // maximise the chance every goroutine races at once
+			errs[shard] = repo.Absorb(ctx, ports.ProgressBatch{
+				RunID: 1, ShardIndex: shard, StreamID: "s", Final: true,
+				Intervals: []metrics.Interval{{
+					Seq: 1, Timestamp: 1000, Label: "checkout",
+					Samples: 10, Succeeded: 10,
+					Latency: metrics.Histogram{float64(shard) + 0.01: 10},
+				}},
+			})
+		}(shard)
+	}
+	start.Done()
+	wg.Wait()
+
+	for shard, err := range errs {
+		if err != nil {
+			t.Fatalf("Absorb shard %d: %v", shard, err)
+		}
+	}
+
+	snap, err := repo.Snapshot(ctx, 1)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(snap.Labels) != 1 {
+		t.Fatalf("labels = %+v, want one (checkout)", snap.Labels)
+	}
+	label := snap.Labels[0]
+	if label.Samples != shards*10 {
+		t.Errorf("samples = %d, want %d -- every shard's count must survive even if this bug is fixed", label.Samples, shards*10)
+	}
+	// This is the assertion the race actually breaks: each shard wrote a bucket
+	// at a distinct key (shard+0.01), so every key surviving is direct evidence
+	// no shard's histogram write was lost to a concurrent overwrite.
+	if len(label.Latency) != shards {
+		t.Errorf("latency buckets = %v, want %d distinct buckets (one per shard) -- a concurrent write silently dropped at least one shard's histogram",
+			label.Latency, shards)
 	}
 }
 

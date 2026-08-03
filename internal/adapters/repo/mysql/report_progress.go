@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/heridotlife/honryu/internal/domain/metrics"
@@ -146,70 +145,91 @@ func mergeProgress(ctx context.Context, tx *sql.Tx, runID int64, s report.Snapsh
 	return nil
 }
 
+// mergeLabel folds an interval's-worth of measurements into a label's stored
+// progress.
+//
+// samples/failed are additive in SQL (`col=col+?`), which MySQL serializes on
+// its own. latency is a JSON histogram that can only be merged in Go, so the
+// row is locked first: two shards flushing the same label at nearly the same
+// moment (routine, since shards flush independently) would otherwise both
+// read the same pre-update histogram, each merge their own delta on top of it,
+// and the second write would silently discard the first shard's buckets --
+// corrupting the run's latency percentiles with no error or signal that it
+// happened. Locking the row for the read-merge-write serializes the two
+// instead of losing one.
 func mergeLabel(ctx context.Context, tx *sql.Tx, runID int64, l report.LabelProgress) error {
-	var raw []byte
-	err := tx.QueryRowContext(ctx,
-		`SELECT latency FROM report_progress_label WHERE run_id=? AND label=?`,
-		runID, l.Label).Scan(&raw)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-	case err != nil:
-		return fmt.Errorf("mysql: read label progress: %w", err)
-	default:
-		var stored metrics.Histogram
-		if err := decodeJSON(raw, &stored); err != nil {
-			return fmt.Errorf("mysql: decode label latency: %w", err)
-		}
-		merged := metrics.Histogram{}
-		merged.Merge(stored)
-		merged.Merge(l.Latency)
-		l.Latency = merged
+	// The insert makes the row exist so it can be locked; the select then takes
+	// the lock whether this call created it or another did.
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO report_progress_label (run_id, label) VALUES (?,?)
+		 ON DUPLICATE KEY UPDATE run_id=run_id`,
+		runID, l.Label); err != nil {
+		return fmt.Errorf("mysql: open label progress: %w", err)
 	}
 
-	latency, err := json.Marshal(l.Latency)
+	var raw []byte
+	if err := tx.QueryRowContext(ctx,
+		`SELECT latency FROM report_progress_label WHERE run_id=? AND label=? FOR UPDATE`,
+		runID, l.Label).Scan(&raw); err != nil {
+		return fmt.Errorf("mysql: lock label progress: %w", err)
+	}
+	var stored metrics.Histogram
+	if err := decodeJSON(raw, &stored); err != nil {
+		return fmt.Errorf("mysql: decode label latency: %w", err)
+	}
+	merged := metrics.Histogram{}
+	merged.Merge(stored)
+	merged.Merge(l.Latency)
+
+	latency, err := json.Marshal(merged)
 	if err != nil {
 		return fmt.Errorf("mysql: encode label latency: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO report_progress_label (run_id, label, samples, failed, latency)
-		 VALUES (?,?,?,?,?)
-		 ON DUPLICATE KEY UPDATE
-			samples=samples+VALUES(samples), failed=failed+VALUES(failed), latency=VALUES(latency)`,
-		runID, l.Label, l.Samples, l.Failed, latency); err != nil {
+		`UPDATE report_progress_label SET samples=samples+?, failed=failed+?, latency=?
+		 WHERE run_id=? AND label=?`,
+		l.Samples, l.Failed, latency, runID, l.Label); err != nil {
 		return fmt.Errorf("mysql: merge label %q: %w", l.Label, err)
 	}
 	return nil
 }
 
+// mergeSignature is mergeLabel's counterpart for a run's error signatures:
+// count is additive in SQL, exemplars is a JSON array that can only be merged
+// in Go, so the row is locked first for the same reason -- two shards
+// reporting the same signature concurrently must not let one's exemplar
+// wordings silently overwrite the other's.
 func mergeSignature(ctx context.Context, tx *sql.Tx, runID int64, sig report.ErrorSignature) error {
-	var raw []byte
-	err := tx.QueryRowContext(ctx,
-		`SELECT exemplars FROM report_progress_signature
-		 WHERE run_id=? AND label=? AND response_code=? AND side=?`,
-		runID, sig.Label, sig.ResponseCode, string(sig.Side)).Scan(&raw)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-	case err != nil:
-		return fmt.Errorf("mysql: read signature progress: %w", err)
-	default:
-		var stored []string
-		if err := decodeJSON(raw, &stored); err != nil {
-			return fmt.Errorf("mysql: decode exemplars: %w", err)
-		}
-		// The domain owns how many wordings are kept and how long they may be;
-		// re-merging through it keeps that bound in one place.
-		sig.Exemplars = report.MergeExemplars(stored, sig.Exemplars)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO report_progress_signature (run_id, label, response_code, side) VALUES (?,?,?,?)
+		 ON DUPLICATE KEY UPDATE run_id=run_id`,
+		runID, sig.Label, sig.ResponseCode, string(sig.Side)); err != nil {
+		return fmt.Errorf("mysql: open signature progress: %w", err)
 	}
 
-	exemplars, err := json.Marshal(sig.Exemplars)
+	var raw []byte
+	if err := tx.QueryRowContext(ctx,
+		`SELECT exemplars FROM report_progress_signature
+		 WHERE run_id=? AND label=? AND response_code=? AND side=? FOR UPDATE`,
+		runID, sig.Label, sig.ResponseCode, string(sig.Side)).Scan(&raw); err != nil {
+		return fmt.Errorf("mysql: lock signature progress: %w", err)
+	}
+	var stored []string
+	if err := decodeJSON(raw, &stored); err != nil {
+		return fmt.Errorf("mysql: decode exemplars: %w", err)
+	}
+	// The domain owns how many wordings are kept and how long they may be;
+	// re-merging through it keeps that bound in one place.
+	merged := report.MergeExemplars(stored, sig.Exemplars)
+
+	exemplars, err := json.Marshal(merged)
 	if err != nil {
 		return fmt.Errorf("mysql: encode exemplars: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO report_progress_signature (run_id, label, response_code, side, count, exemplars)
-		 VALUES (?,?,?,?,?,?)
-		 ON DUPLICATE KEY UPDATE count=count+VALUES(count), exemplars=VALUES(exemplars)`,
-		runID, sig.Label, sig.ResponseCode, string(sig.Side), sig.Count, exemplars); err != nil {
+		`UPDATE report_progress_signature SET count=count+?, exemplars=?
+		 WHERE run_id=? AND label=? AND response_code=? AND side=?`,
+		sig.Count, exemplars, runID, sig.Label, sig.ResponseCode, string(sig.Side)); err != nil {
 		return fmt.Errorf("mysql: merge signature: %w", err)
 	}
 	return nil
