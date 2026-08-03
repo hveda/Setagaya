@@ -6,11 +6,58 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/metrics"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
+
+// A report's Engine reflects which Taurus executor ran the load. Populated
+// from the execution's own configured preference; a defaulted execution
+// (empty preference, deployment default applies) is a known, narrower gap
+// than every report having none at all.
+func TestFinalize_PopulatesEngineFromTheExecution(t *testing.T) {
+	t.Parallel()
+	e := setup(t, 1)
+	ctx := context.Background()
+
+	existing, err := e.store.GetExecution(ctx, e.executionID)
+	if err != nil {
+		t.Fatalf("GetExecution: %v", err)
+	}
+	// A fresh execution with its engine set, since setup()'s own execution
+	// leaves it empty (the case the doc comment already covers).
+	withEngine, err := execution.New("k6-run", existing.ProjectID)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	withEngine.Engine = taurus.ExecutorK6
+	executionID, err := e.store.CreateExecution(ctx, withEngine)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	if err := e.store.StoreLoadProfile(ctx, executionID, false, []loadprofile.Entry{
+		{Name: "p", ScenarioID: e.scenarioIDs[0], Concurrency: 1, Rampup: 1, Engines: 1, Duration: 1},
+	}); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	runID, err := e.store.StartRun(ctx, executionID)
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	if err := e.svc.Finalize(ctx, executionID, runID); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	rep, err := e.reports.GetReport(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if rep.Engine != taurus.ExecutorK6 {
+		t.Errorf("engine = %q, want %q", rep.Engine, taurus.ExecutorK6)
+	}
+}
 
 // finalBatch builds a shard's last batch, carrying its exit code.
 func finalBatch(e *env, shard int, exitCode int) metrics.Batch {

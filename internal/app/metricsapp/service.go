@@ -19,6 +19,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/run"
@@ -29,6 +30,9 @@ import (
 // Repo is the persistence the service reads to attribute a pushed batch and to
 // finalise a run's report.
 type Repo interface {
+	// GetExecution supplies a report's Engine, from the execution's own
+	// configured preference.
+	GetExecution(ctx context.Context, executionID int64) (execution.Execution, error)
 	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
 	CurrentRun(ctx context.Context, executionID int64) (int64, bool, error)
 	// RunHistory supplies a report's StartedAt: nothing else keeps when a run
@@ -109,14 +113,24 @@ func (s *Service) finalize(ctx context.Context, executionID, runID int64, outcom
 	if err != nil {
 		return err
 	}
+	exe, err := s.repo.GetExecution(ctx, executionID)
+	if err != nil {
+		return err
+	}
 
 	meta := report.Meta{
 		ExecutionID: executionID,
 		RunID:       runID,
-		StartedAt:   history.StartedTime,
-		EndedAt:     s.now(),
-		Requested:   requestedLoad(profile),
-		Outcome:     outcome,
+		// The execution's own configured preference. Empty when it deferred to
+		// the deployment's default engine instead of naming one -- that
+		// resolution happens in lifecycleapp at deploy time and is not
+		// currently threaded through to here, so a defaulted execution's
+		// report still under-reports which engine actually ran.
+		Engine:    exe.Engine,
+		StartedAt: history.StartedTime,
+		EndedAt:   s.now(),
+		Requested: requestedLoad(profile),
+		Outcome:   outcome,
 	}
 	// An execution can bundle several scenarios under one run; ScenarioID is
 	// informational and only unambiguous when there is exactly one. The label
