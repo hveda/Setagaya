@@ -13,6 +13,9 @@ import (
 type ObjectStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte
+
+	// UploadErr, when set, is returned by Upload instead of storing anything.
+	UploadErr error
 }
 
 // NewObjectStore returns an empty in-memory ObjectStore.
@@ -30,6 +33,9 @@ func (o *ObjectStore) Upload(_ context.Context, key string, content io.Reader) e
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.UploadErr != nil {
+		return o.UploadErr
+	}
 	o.objects[key] = data
 	return nil
 }

@@ -21,6 +21,8 @@ type Scheduler struct {
 	Unreachable bool
 	// PodLogText is returned by PodLog for deployed scenarios.
 	PodLogText string
+	// PodLogErr, when set, is returned by PodLog instead of a log.
+	PodLogErr error
 	// IngressIP is reported by EngineDetail.
 	IngressIP string
 	// Pools is returned by NodePools.
@@ -144,6 +146,9 @@ func (s *Scheduler) PodLog(_ context.Context, _ ports.ClusterRef, executionID, s
 	d, ok := s.deployments[executionID][scenarioID]
 	if !ok || shard < 0 || shard >= len(d.spec.Shards) {
 		return "", ports.ErrEnginesUnreachable
+	}
+	if s.PodLogErr != nil {
+		return "", s.PodLogErr
 	}
 	// Shard-specific, like a real pod's: the port promises logs addressed per
 	// pod, and a fake that answered every shard identically could not catch a

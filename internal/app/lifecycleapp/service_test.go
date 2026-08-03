@@ -25,6 +25,7 @@ const image = "honryu/jmeter:latest"
 type env struct {
 	store *fake.Store
 	sched *fake.Scheduler
+	obj   *fake.ObjectStore
 	svc   *lifecycleapp.Service
 
 	projectID   int64
@@ -72,7 +73,7 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 
 	sched := fake.NewScheduler()
 	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
-	return &env{store: store, sched: sched, svc: svc, projectID: projectID, executionID: executionID, planIDs: planIDs}
+	return &env{store: store, sched: sched, obj: obj, svc: svc, projectID: projectID, executionID: executionID, planIDs: planIDs}
 }
 
 func TestDeploy_HappyPath(t *testing.T) {
@@ -354,6 +355,105 @@ func TestStop_WhenEnginesUnreachable(t *testing.T) {
 	}
 	if rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID); len(rps) != 0 {
 		t.Fatalf("running scenarios after stop = %d, want 0", len(rps))
+	}
+}
+
+// Engine logs are the only diagnosis left once a pod is gone, and Purge is
+// what deletes it -- so this is the last moment they exist anywhere else.
+func TestPurge_CapturesEngineLogsBeforeDeletingPods(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2) // one scenario, two shards
+	ctx := context.Background()
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	runID, ok, _ := e.store.CurrentRun(ctx, e.executionID)
+	if !ok {
+		t.Fatal("no active run after trigger")
+	}
+
+	if err := e.svc.Purge(ctx, e.executionID); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+
+	for shard := 0; shard < 2; shard++ {
+		key := fmt.Sprintf("run/%d/scenario-%d-shard-%d.log", runID, e.planIDs[0], shard)
+		got, err := e.obj.Download(ctx, key)
+		if err != nil {
+			t.Fatalf("Download(%q): %v", key, err)
+		}
+		if len(got) == 0 {
+			t.Errorf("shard %d log is empty", shard)
+		}
+	}
+}
+
+// Purge must still remove a broken execution's engines even if capturing its
+// logs fails -- diagnosability degrades, the operation does not.
+func TestPurge_LogCaptureFailureDoesNotFailPurge(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+	ctx := context.Background()
+	e.obj.UploadErr = errors.New("bucket unavailable")
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	if err := e.svc.Purge(ctx, e.executionID); err != nil {
+		t.Fatalf("Purge: %v, want nil despite the log store failing", err)
+	}
+}
+
+// A shard whose pod is already unreachable must not stop the others from
+// being captured.
+func TestPurge_CapturesTheShardsItCanReach(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	runID, _, _ := e.store.CurrentRun(ctx, e.executionID)
+
+	e.sched.PodLogErr = errors.New("pod unreachable")
+	if err := e.svc.Purge(ctx, e.executionID); err != nil {
+		t.Fatalf("Purge: %v, want nil despite every shard being unreachable", err)
+	}
+
+	key := fmt.Sprintf("run/%d/scenario-%d-shard-0.log", runID, e.planIDs[0])
+	if _, err := e.obj.Download(ctx, key); !errors.Is(err, ports.ErrObjectNotFound) {
+		t.Errorf("Download after every PodLog failed = %v, want ErrObjectNotFound", err)
+	}
+}
+
+// Deploying without ever triggering leaves no run to key logs by, and Purge
+// must not invent one.
+func TestPurge_WithoutARunNeverCapturesLogs(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+	ctx := context.Background()
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Purge(ctx, e.executionID); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+
+	key := fmt.Sprintf("run/0/scenario-%d-shard-0.log", e.planIDs[0])
+	if _, err := e.obj.Download(ctx, key); !errors.Is(err, ports.ErrObjectNotFound) {
+		t.Errorf("Download = %v, want ErrObjectNotFound -- nothing was ever triggered", err)
 	}
 }
 

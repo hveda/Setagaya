@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -255,18 +256,56 @@ func (s *Service) Stop(ctx context.Context, executionID int64) error {
 
 // Purge stops any in-progress run and removes all engines of an execution.
 func (s *Service) Purge(ctx context.Context, executionID int64) error {
-	if _, running, err := s.repo.CurrentRun(ctx, executionID); err != nil {
+	runID, running, err := s.repo.CurrentRun(ctx, executionID)
+	if err != nil {
 		return err
-	} else if running {
+	}
+	if running {
 		if err := s.teardown(ctx, executionID); err != nil {
 			return err
 		}
+		// After teardown, before the pods that hold them are deleted: this is
+		// the last moment engine logs exist anywhere but here.
+		s.captureLogs(ctx, executionID, runID)
 	}
 	if err := s.sched.PurgeExecution(ctx, "", executionID); err != nil {
 		return err
 	}
 	s.metrics.Purge(executionID)
 	return nil
+}
+
+// runLogKey is the object-store key for one shard's engine log.
+//
+// Retention is a lifecycle policy on the underlying bucket (the same GCS/Nexus
+// adapters already used for scenario and execution artefacts), not something
+// this code tracks -- there is no TTL concept on ObjectStore, and adding a
+// sweep would duplicate a capability object storage already has.
+func runLogKey(runID, scenarioID int64, shard int) string {
+	return fmt.Sprintf("run/%d/scenario-%d-shard-%d.log", runID, scenarioID, shard)
+}
+
+// captureLogs saves each shard's engine output before Purge deletes its pod,
+// so a run stays diagnosable after the cluster no longer has it.
+//
+// Best effort throughout: a customer must be able to purge a broken execution
+// even if a log capture fails, and a missing log degrades diagnosability
+// rather than the run itself. One shard's failure does not stop the others
+// from being tried.
+func (s *Service) captureLogs(ctx context.Context, executionID, runID int64) {
+	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
+	if err != nil {
+		return
+	}
+	for _, ep := range scenarios {
+		for i := 0; i < ep.Engines; i++ {
+			log, err := s.sched.PodLog(ctx, "", executionID, ep.ScenarioID, i)
+			if err != nil {
+				continue
+			}
+			_ = s.store.Upload(ctx, runLogKey(runID, ep.ScenarioID, i), strings.NewReader(log))
+		}
+	}
 }
 
 // podScenarioPath is where a scenario's artefacts are mounted in an engine pod.
