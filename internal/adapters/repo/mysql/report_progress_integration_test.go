@@ -34,7 +34,7 @@ func TestMySQLReportProgress_ErrorsWhenDBClosed(t *testing.T) {
 	}
 
 	batch := ports.ProgressBatch{
-		RunID: 1, ShardIndex: 0, StreamID: "s1",
+		RunID: 1, ScenarioID: 1, ShardIndex: 0, StreamID: "s1",
 		Intervals: []metrics.Interval{{Seq: 1, Timestamp: 1000, Label: "probe", Samples: 1}},
 	}
 	ops := map[string]func() error{
@@ -74,7 +74,7 @@ func TestMySQLReportProgress_ConcurrentShardsDoNotLoseEachOthersLatency(t *testi
 			defer wg.Done()
 			start.Wait() // maximise the chance every goroutine races at once
 			errs[shard] = repo.Absorb(ctx, ports.ProgressBatch{
-				RunID: 1, ShardIndex: shard, StreamID: "s", Final: true,
+				RunID: 1, ScenarioID: 1, ShardIndex: shard, StreamID: "s", Final: true,
 				Intervals: []metrics.Interval{{
 					Seq: 1, Timestamp: 1000, Label: "checkout",
 					Samples: 10, Succeeded: 10,
@@ -123,7 +123,7 @@ func TestMySQLReportProgress_MergeErrorsOnCorruptStoredProgress(t *testing.T) {
 	ctx := context.Background()
 
 	first := ports.ProgressBatch{
-		RunID: 1, ShardIndex: 0, StreamID: "s1",
+		RunID: 1, ScenarioID: 1, ShardIndex: 0, StreamID: "s1",
 		Intervals: []metrics.Interval{{
 			Seq: 1, Timestamp: 1000, Label: "probe", Samples: 1, Failed: 1,
 			Errors: []metrics.ErrorGroup{{Message: "Not Found", ResponseCode: "404", Count: 1}},
@@ -143,7 +143,7 @@ func TestMySQLReportProgress_MergeErrorsOnCorruptStoredProgress(t *testing.T) {
 	}
 
 	second := ports.ProgressBatch{
-		RunID: 1, ShardIndex: 0, StreamID: "s1",
+		RunID: 1, ScenarioID: 1, ShardIndex: 0, StreamID: "s1",
 		Intervals: []metrics.Interval{{
 			Seq: 2, Timestamp: 1001, Label: "probe", Samples: 1, Failed: 1,
 			Errors: []metrics.ErrorGroup{{Message: "Not Found", ResponseCode: "404", Count: 1}},

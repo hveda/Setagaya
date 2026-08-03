@@ -16,12 +16,22 @@ var (
 	ErrUnsequencedBatch = errors.New("ports: batch intervals carry no sequence")
 	// ErrProgressRunRequired means the batch names no run to accumulate into.
 	ErrProgressRunRequired = errors.New("ports: a valid run id is required")
+	// ErrProgressScenarioRequired means the batch names no scenario. Shard
+	// index alone cannot key a run's working state -- it repeats across an
+	// execution's scenarios -- so a batch without one cannot be absorbed
+	// safely.
+	ErrProgressScenarioRequired = errors.New("ports: a valid scenario id is required")
 )
 
 // ProgressBatch is one shard's push, on its way into a run's working state.
 type ProgressBatch struct {
 	RunID int64
-	// ShardIndex identifies the pod within the execution.
+	// ScenarioID identifies which scenario's StatefulSet this shard belongs to.
+	// An execution can bundle several scenarios under one run, each deployed as
+	// its own StatefulSet with its own ordinals starting again at 0 -- without
+	// this, two scenarios' shard 0 would collide on the same working state.
+	ScenarioID int64
+	// ShardIndex identifies the pod within its scenario's StatefulSet.
 	ShardIndex int
 	// StreamID names the sidecar instance. Sequences count from one per
 	// instance, so a change of stream means a restarted pod rather than a
@@ -38,6 +48,9 @@ type ProgressBatch struct {
 
 // ShardState is one shard's completion state within a run.
 type ShardState struct {
+	// ScenarioID and ShardIndex together identify the shard: ShardIndex alone
+	// repeats across an execution's scenarios.
+	ScenarioID int64
 	ShardIndex int
 	// Finished means this shard sent its last batch. It does not imply an exit
 	// code is known -- a pod torn down before it could write one still finishes.
@@ -55,6 +68,9 @@ type ShardState struct {
 func (b ProgressBatch) Validate() error {
 	if b.RunID <= 0 {
 		return ErrProgressRunRequired
+	}
+	if b.ScenarioID <= 0 {
+		return ErrProgressScenarioRequired
 	}
 	for _, iv := range b.Intervals {
 		if iv.Seq <= 0 {

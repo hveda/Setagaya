@@ -86,7 +86,7 @@ func (s *Service) Ingest(ctx context.Context, batch metrics.Batch) error {
 	}
 
 	progressBatch := ports.ProgressBatch{
-		RunID: runID, ShardIndex: batch.ShardIndex, StreamID: batch.StreamID,
+		RunID: runID, ScenarioID: batch.ScenarioID, ShardIndex: batch.ShardIndex, StreamID: batch.StreamID,
 		Final: batch.Final, ExitCode: batch.ExitCode, Intervals: batch.Intervals,
 	}
 	// Validated before anything is forwarded: a batch this malformed can only

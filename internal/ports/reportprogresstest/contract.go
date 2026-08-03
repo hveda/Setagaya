@@ -246,6 +246,35 @@ func Run(t *testing.T, newProgress NewProgress) {
 		}
 	})
 
+	// An execution can bundle several scenarios under one run, each deployed as
+	// its own StatefulSet whose ordinals start again at 0 -- shard index alone
+	// must not collide across them.
+	t.Run("ShardsAreKeyedByScenarioNotIndexAlone", func(t *testing.T) {
+		p := newProgress(t)
+		// Deliberately the same stream id: before scenario was part of the key,
+		// this looked like the same shard continuing its own stream, and the
+		// second scenario's interval was silently dropped as an already-seen
+		// sequence rather than absorbed as a different pod's data.
+		if err := p.Absorb(ctx, batchForScenario(1, 10, 0, "s1", true, iv(1, 1000, "probe", 5, 0, 0))); err != nil {
+			t.Fatalf("Absorb scenario 10 shard 0: %v", err)
+		}
+		if err := p.Absorb(ctx, batchForScenario(1, 20, 0, "s1", true, iv(1, 1000, "probe", 7, 0, 0))); err != nil {
+			t.Fatalf("Absorb scenario 20 shard 0: %v", err)
+		}
+
+		states, err := p.ShardStates(ctx, 1)
+		if err != nil {
+			t.Fatalf("ShardStates: %v", err)
+		}
+		if len(states) != 2 {
+			t.Fatalf("shard states = %+v, want 2 -- one per scenario's shard 0", states)
+		}
+		got := restore(t, p, 1)
+		if len(got.Labels) != 1 || got.Labels[0].Samples != 12 {
+			t.Errorf("samples = %+v, want 12 (5+7) -- both scenarios' shard 0 must accumulate, not collide", got.Labels)
+		}
+	})
+
 	// The whole point of persisting the working state: what is read back has to
 	// produce the same report as the accumulator that wrote it.
 	t.Run("SnapshotRebuildsTheSameReport", func(t *testing.T) {
@@ -277,9 +306,16 @@ func Run(t *testing.T, newProgress NewProgress) {
 	})
 }
 
+// batch builds a batch for scenario 1 -- every case here but one is about a
+// single scenario's own shards, so the scenario id is a fixed, uninteresting
+// constant rather than a parameter every call site has to repeat.
 func batch(runID int64, shard int, stream string, final bool, intervals ...metrics.Interval) ports.ProgressBatch {
+	return batchForScenario(runID, 1, shard, stream, final, intervals...)
+}
+
+func batchForScenario(runID, scenarioID int64, shard int, stream string, final bool, intervals ...metrics.Interval) ports.ProgressBatch {
 	return ports.ProgressBatch{
-		RunID: runID, ShardIndex: shard, StreamID: stream, Final: final, Intervals: intervals,
+		RunID: runID, ScenarioID: scenarioID, ShardIndex: shard, StreamID: stream, Final: final, Intervals: intervals,
 	}
 }
 

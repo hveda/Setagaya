@@ -20,7 +20,15 @@ type ReportProgress struct {
 
 type progressRun struct {
 	acc    *report.Accumulator
-	shards map[int]*shardStream
+	shards map[shardKey]*shardStream
+}
+
+// shardKey identifies a pod within a run. Shard index alone cannot: it is a
+// StatefulSet ordinal scoped to one scenario's own pods, and repeats across
+// every scenario an execution bundles into one run.
+type shardKey struct {
+	scenarioID int64
+	shardIndex int
 }
 
 // shardStream is one pod's position in its own stream.
@@ -52,13 +60,14 @@ func (p *ReportProgress) Absorb(_ context.Context, b ports.ProgressBatch) error 
 
 	run, ok := p.runs[b.RunID]
 	if !ok {
-		run = &progressRun{acc: report.NewAccumulator(), shards: map[int]*shardStream{}}
+		run = &progressRun{acc: report.NewAccumulator(), shards: map[shardKey]*shardStream{}}
 		p.runs[b.RunID] = run
 	}
-	shard, ok := run.shards[b.ShardIndex]
+	key := shardKey{scenarioID: b.ScenarioID, shardIndex: b.ShardIndex}
+	shard, ok := run.shards[key]
 	if !ok {
 		shard = &shardStream{streamID: b.StreamID}
-		run.shards[b.ShardIndex] = shard
+		run.shards[key] = shard
 	}
 	// A different stream is a restarted pod, whose sequences begin again at one.
 	// Holding the old watermark would discard everything it measures from here on.
@@ -103,10 +112,18 @@ func (p *ReportProgress) ShardStates(_ context.Context, runID int64) ([]ports.Sh
 		return nil, nil
 	}
 	out := make([]ports.ShardState, 0, len(run.shards))
-	for idx, shard := range run.shards {
-		out = append(out, ports.ShardState{ShardIndex: idx, Finished: shard.finished, ExitCode: shard.exitCode})
+	for key, shard := range run.shards {
+		out = append(out, ports.ShardState{
+			ScenarioID: key.scenarioID, ShardIndex: key.shardIndex,
+			Finished: shard.finished, ExitCode: shard.exitCode,
+		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ShardIndex < out[j].ShardIndex })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ScenarioID != out[j].ScenarioID {
+			return out[i].ScenarioID < out[j].ScenarioID
+		}
+		return out[i].ShardIndex < out[j].ShardIndex
+	})
 	return out, nil
 }
 

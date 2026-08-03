@@ -80,6 +80,46 @@ func TestIngest_NaturalCompletionCombinesShardExitCodes(t *testing.T) {
 	}
 }
 
+// An execution can bundle several scenarios under one run, each deployed as
+// its own StatefulSet whose shard ordinals start again at 0. Both scenarios'
+// shard 0 must accumulate independently, not collide on the same working
+// state -- reproduced here through real Ingest calls, deliberately using the
+// same stream id for both, which is exactly what made them look like the same
+// pod restarting before scenario was part of the key.
+func TestIngest_TwoScenariosShard0DoNotCollide(t *testing.T) {
+	t.Parallel()
+	e := setup(t, 1, 1) // two scenarios, one shard each
+	ctx := context.Background()
+
+	code := 0
+	for _, scenarioID := range e.scenarioIDs {
+		e.seq++
+		b := metrics.Batch{
+			ExecutionID: e.executionID, ScenarioID: scenarioID, RunID: e.runID,
+			ShardIndex: 0, StreamID: "s1", Final: true, ExitCode: &code,
+			Intervals: []metrics.Interval{{
+				Seq: e.seq, Timestamp: 1000, Label: "checkout-cart",
+				Concurrency: 5, Samples: 10, Succeeded: 10,
+				Latency: metrics.Histogram{0.01: 10},
+			}},
+		}
+		if err := e.svc.Ingest(ctx, b); err != nil {
+			t.Fatalf("Ingest scenario %d: %v", scenarioID, err)
+		}
+	}
+
+	rep, err := e.reports.GetReport(ctx, e.runID)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if rep.Outcome != taurus.OutcomePassed {
+		t.Errorf("outcome = %q, want passed", rep.Outcome)
+	}
+	if rep.Achieved.Samples != 20 {
+		t.Errorf("achieved samples = %d, want 20 (10 from each scenario's shard 0)", rep.Achieved.Samples)
+	}
+}
+
 // A run does not finalise until every shard its load profile called for has
 // finished -- one shard's Final must not be mistaken for the whole run's.
 func TestIngest_DoesNotFinalizeUntilEveryShardIsDone(t *testing.T) {
