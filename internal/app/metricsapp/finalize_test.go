@@ -127,6 +127,32 @@ func TestIngest_NaturalCompletionCombinesShardExitCodes(t *testing.T) {
 	}
 }
 
+// A shard torn down before bzt could write its exit code is inconclusive, not
+// simply absent from the rollup -- otherwise a run where one shard vanished
+// and the rest passed would be reported as a clean pass.
+func TestIngest_NaturalCompletionTreatsAMissingExitCodeAsInconclusive(t *testing.T) {
+	t.Parallel()
+	e := setup(t, 2) // one scenario, two shards
+	ctx := context.Background()
+
+	if err := e.svc.Ingest(ctx, finalBatch(e, 0, 0)); err != nil {
+		t.Fatalf("Ingest shard 0: %v", err)
+	}
+	missing := batch(e, 1, 1)
+	missing.Final = true // no ExitCode: torn down before it could write one
+	if err := e.svc.Ingest(ctx, missing); err != nil {
+		t.Fatalf("Ingest shard 1: %v", err)
+	}
+
+	rep, err := e.reports.GetReport(ctx, e.runID)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if rep.Outcome != taurus.OutcomeError {
+		t.Errorf("outcome = %q, want error (shard 1 never reported an exit code)", rep.Outcome)
+	}
+}
+
 // An execution can bundle several scenarios under one run, each deployed as
 // its own StatefulSet whose shard ordinals start again at 0. Both scenarios'
 // shard 0 must accumulate independently, not collide on the same working

@@ -157,6 +157,15 @@ func (s *Service) allShardsFinished(ctx context.Context, executionID, runID int6
 	return planned > 0 && finished >= planned, nil
 }
 
+// exitCodeUnknown stands in for a finished shard whose exit code never
+// arrived: torn down before bzt could write it (see metrics.Batch.ExitCode).
+// It is not a code bzt would ever produce, so it rolls up through
+// taurus.OutcomeFromExitCode's default case to OutcomeError -- the same
+// "no evidence" treatment CombineOutcomes already gives a run with no exit
+// codes at all. Simply omitting such a shard would let the rest of the
+// shards' codes decide the outcome as though this one had never run.
+const exitCodeUnknown = -1
+
 // finalizeCompleted rolls up every shard's exit code into the run's outcome and
 // finalises it. Called only once every shard has finished on its own -- a run
 // Honryu stopped itself is finalised as an abort instead, by Finalize.
@@ -165,11 +174,13 @@ func (s *Service) finalizeCompleted(ctx context.Context, executionID, runID int6
 	if err != nil {
 		return err
 	}
-	var codes []int
+	codes := make([]int, 0, len(states))
 	for _, st := range states {
-		if st.ExitCode != nil {
-			codes = append(codes, *st.ExitCode)
+		if st.ExitCode == nil {
+			codes = append(codes, exitCodeUnknown)
+			continue
 		}
+		codes = append(codes, *st.ExitCode)
 	}
 	return s.finalize(ctx, executionID, runID, taurus.CombineOutcomes(codes))
 }
