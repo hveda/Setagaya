@@ -23,11 +23,21 @@ const reportColumns = `run_id, execution_id, scenario_id, engine, outcome, start
 	achieved_samples, achieved_failed, error_rate,
 	attribution_target, attribution_engine, attribution_unknown, latency, labels`
 
-// SaveReport stores a run's report, replacing any earlier one for the same run.
+// SaveReport stores a run's report. The first report saved for a run is the
+// one that survives -- saving again for the same run is a no-op, not a
+// replacement.
+//
+// This is what makes a run's own natural completion and a concurrent
+// Honryu-initiated Stop/Purge race safely: both compute a report and both call
+// SaveReport, but the run_id primary key lets only the first insert succeed;
+// the second hits a duplicate key, which is treated as success rather than an
+// error, and the report already stored -- whichever finalisation actually
+// finished first -- is left alone. A plain upsert would let whichever call
+// commits last silently overwrite the other's verdict.
 //
 // The summary and its error signatures are written in one transaction. A report
-// whose signatures were half-replaced would attribute a run's failures to a mix
-// of two attempts, which is worse than having no report at all: it looks
+// whose signatures were half-written would attribute a run's failures to a
+// mix of two attempts, which is worse than having no report at all: it looks
 // complete.
 func (r *Repository) SaveReport(ctx context.Context, rep report.Report) error {
 	if err := rep.Validate(); err != nil {
@@ -49,23 +59,7 @@ func (r *Repository) SaveReport(ctx context.Context, rep report.Report) error {
 	defer func() { _ = tx.Rollback() }() // no-op once committed
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO execution_report (`+reportColumns+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON DUPLICATE KEY UPDATE
-			execution_id=VALUES(execution_id), scenario_id=VALUES(scenario_id),
-			engine=VALUES(engine), outcome=VALUES(outcome),
-			started_at=VALUES(started_at), ended_at=VALUES(ended_at),
-			requested_concurrency=VALUES(requested_concurrency),
-			requested_throughput=VALUES(requested_throughput),
-			requested_duration_seconds=VALUES(requested_duration_seconds),
-			achieved_concurrency=VALUES(achieved_concurrency),
-			achieved_throughput=VALUES(achieved_throughput),
-			achieved_duration_seconds=VALUES(achieved_duration_seconds),
-			achieved_samples=VALUES(achieved_samples), achieved_failed=VALUES(achieved_failed),
-			error_rate=VALUES(error_rate),
-			attribution_target=VALUES(attribution_target),
-			attribution_engine=VALUES(attribution_engine),
-			attribution_unknown=VALUES(attribution_unknown),
-			latency=VALUES(latency), labels=VALUES(labels)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rep.RunID, rep.ExecutionID, rep.ScenarioID, string(rep.Engine), string(rep.Outcome),
 		rep.StartedAt.UTC(), rep.EndedAt.UTC(),
 		rep.Requested.Concurrency, rep.Requested.Throughput, rep.Requested.DurationSeconds,
@@ -74,15 +68,15 @@ func (r *Repository) SaveReport(ctx context.Context, rep report.Report) error {
 		rep.Attribution.Target, rep.Attribution.Engine, rep.Attribution.Unknown,
 		latency, labels,
 	); err != nil {
+		if isDuplicateKey(err) {
+			// Someone else's finalisation already won for this run; nothing to
+			// write, and returning success is what lets a caller finalising
+			// concurrently discard its working state unconditionally afterward.
+			return nil
+		}
 		return fmt.Errorf("mysql: save report: %w", err)
 	}
 
-	// Replace rather than merge: a re-saved run's failures are the new attempt's,
-	// and a signature the second attempt did not produce must not linger.
-	if _, err := tx.ExecContext(ctx,
-		"DELETE FROM report_error_signature WHERE run_id=?", rep.RunID); err != nil {
-		return fmt.Errorf("mysql: clear error signatures: %w", err)
-	}
 	for _, e := range rep.Errors {
 		exemplars, err := json.Marshal(e.Exemplars)
 		if err != nil {

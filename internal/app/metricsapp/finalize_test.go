@@ -228,15 +228,39 @@ func TestFinalize_PropagatesAReportStoreSaveFailure(t *testing.T) {
 	}
 }
 
-// A store error other than "not found" is not the same as "never finalised":
-// it must stop finalisation rather than be mistaken for a fresh run.
-func TestFinalize_PropagatesAReportStoreReadFailure(t *testing.T) {
+// A retry after Discard fails must retry Discard, not skip it because the
+// report already exists. Before finalize stopped guarding on "does a report
+// already exist", that early return meant a Discard failure orphaned a run's
+// working state permanently: any retry saw the report already saved and
+// returned before ever calling Discard again.
+func TestFinalize_RetryAfterDiscardFailureStillDiscards(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 1)
-	e.reports.GetErr = errors.New("boom")
+	ctx := context.Background()
+	// Seed some working state, so there is something for Discard to actually
+	// need to clean up.
+	if err := e.svc.Ingest(ctx, batch(e, 0, 1)); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	e.progress.DiscardErr = errors.New("boom")
 
 	if err := e.svc.Finalize(context.Background(), e.executionID, e.runID); err == nil {
-		t.Error("Finalize succeeded despite GetReport failing")
+		t.Fatal("Finalize succeeded despite Discard failing")
+	}
+	rep, err := e.reports.GetReport(context.Background(), e.runID)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if rep.Outcome != taurus.OutcomeAborted {
+		t.Fatalf("report was not saved before Discard failed: %+v", rep)
+	}
+
+	e.progress.DiscardErr = nil
+	if err := e.svc.Finalize(context.Background(), e.executionID, e.runID); err != nil {
+		t.Fatalf("retried Finalize: %v, want Discard to be retried and succeed", err)
+	}
+	if states, _ := e.progress.ShardStates(context.Background(), e.runID); len(states) != 0 {
+		t.Errorf("working state survived the retried Discard: %+v", states)
 	}
 }
 

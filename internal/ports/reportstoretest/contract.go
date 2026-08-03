@@ -65,9 +65,13 @@ func Run(t *testing.T, newStore NewStore) {
 		}
 	})
 
-	// A run has one outcome. A retry after a partial failure must replace the
-	// earlier report, not leave two records disagreeing about the same run.
-	t.Run("SaveIsIdempotentPerRun", func(t *testing.T) {
+	// A run has one outcome, decided once. The first report saved for a run is
+	// the one that survives: natural completion and a concurrent
+	// Honryu-initiated Stop/Purge race to finalise the same run, both may
+	// compute and save a report, and whichever actually persists first must
+	// stand -- a plain replace-on-conflict would let whichever commits last
+	// silently overwrite the other's verdict.
+	t.Run("SaveKeepsTheFirstReportForARun", func(t *testing.T) {
 		s := newStore(t)
 		first := sample(1, 10, time.Unix(2000, 0))
 		if err := s.SaveReport(ctx, first); err != nil {
@@ -84,8 +88,8 @@ func Run(t *testing.T, newStore NewStore) {
 		if err != nil {
 			t.Fatalf("GetReport: %v", err)
 		}
-		if got.Outcome != taurus.OutcomeFailed || got.ErrorRate != 0.5 {
-			t.Errorf("second save did not replace the first: %+v", got)
+		if got.Outcome != taurus.OutcomePassed || got.ErrorRate != first.ErrorRate {
+			t.Errorf("second save overwrote the first: %+v", got)
 		}
 		list, err := s.ListReports(ctx, 1, 0)
 		if err != nil {

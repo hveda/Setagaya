@@ -16,6 +16,8 @@ type ReportProgress struct {
 
 	// AbsorbErr, when set, is returned by Absorb.
 	AbsorbErr error
+	// DiscardErr, when set, is returned by Discard instead of clearing anything.
+	DiscardErr error
 }
 
 type progressRun struct {
@@ -131,6 +133,9 @@ func (p *ReportProgress) ShardStates(_ context.Context, runID int64) ([]ports.Sh
 func (p *ReportProgress) Discard(_ context.Context, runID int64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.DiscardErr != nil {
+		return p.DiscardErr
+	}
 	delete(p.runs, runID)
 	return nil
 }

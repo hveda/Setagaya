@@ -4,6 +4,7 @@ package mysql_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,9 +84,11 @@ func TestMySQLReportStore_ErrorSignaturesRoundTrip(t *testing.T) {
 	}
 }
 
-// A re-saved run replaces its failures rather than accumulating them. Two
-// attempts' signatures in one report would describe a run that never happened.
-func TestMySQLReportStore_ResaveReplacesSignatures(t *testing.T) {
+// A re-saved run keeps its first attempt's signatures rather than replacing
+// them with a second, differing attempt's. A run has one outcome, decided
+// once by whichever finalisation actually persisted first; a later save
+// racing with (or retrying after) it must not overwrite what already stood.
+func TestMySQLReportStore_ResaveKeepsTheFirstAttemptsSignatures(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	truncateAll(t, db)
 	store := mysqladapter.NewRepository(db)
@@ -119,11 +122,81 @@ func TestMySQLReportStore_ResaveReplacesSignatures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetReport: %v", err)
 	}
-	if len(got.Errors) != 1 {
-		t.Fatalf("errors = %+v, want only the second attempt's", got.Errors)
+	if len(got.Errors) != 2 {
+		t.Fatalf("errors = %+v, want the first attempt's two signatures, untouched", got.Errors)
 	}
-	if got.Errors[0].Count != 7 || got.Errors[0].ResponseCode != "404" {
-		t.Errorf("error = %+v, want the 404 counted 7 times", got.Errors[0])
+	byCode := map[string]int64{}
+	for _, e := range got.Errors {
+		byCode[e.ResponseCode] = e.Count
+	}
+	if byCode["404"] != 5 || byCode["502"] != 5 {
+		t.Errorf("errors = %+v, want the first attempt's counts (404:5, 502:5), not the second's", got.Errors)
+	}
+}
+
+// The actual race this fixes: a run's natural completion and a concurrent
+// Honryu-initiated Stop/Purge both compute a report for the same run and both
+// call SaveReport. Only one persists; the other's insert must lose to the
+// primary key, not overwrite the winner.
+func TestMySQLReportStore_ConcurrentSavesForTheSameRunDoNotOverwrite(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	build := func(outcome taurus.Outcome) report.Report {
+		return report.Build(report.Input{
+			ExecutionID: 1, RunID: 60, Outcome: outcome,
+			StartedAt: time.Unix(9000, 0).UTC(),
+			EndedAt:   time.Unix(9060, 0).UTC(),
+			Requested: report.Load{DurationSeconds: 60},
+			Intervals: []metrics.Interval{
+				{Timestamp: 9000, Label: "probe", Samples: 100, Succeeded: 100},
+			},
+		})
+	}
+
+	const attempts = 8
+	var wg sync.WaitGroup
+	errs := make([]error, attempts)
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := range attempts {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			start.Wait()
+			outcome := taurus.OutcomePassed
+			if i%2 == 0 {
+				outcome = taurus.OutcomeAborted
+			}
+			errs[i] = store.SaveReport(ctx, build(outcome))
+		}(i)
+	}
+	start.Done()
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("SaveReport attempt %d: %v", i, err)
+		}
+	}
+
+	got, err := store.GetReport(ctx, 60)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if got.Outcome != taurus.OutcomePassed && got.Outcome != taurus.OutcomeAborted {
+		t.Fatalf("outcome = %q, want one of the attempts' outcomes", got.Outcome)
+	}
+	// The real assertion: exactly one report exists for this run, whichever
+	// attempt actually won -- not a mix, and not silently corrupted by a race.
+	list, err := store.ListReports(ctx, 1, 0)
+	if err != nil {
+		t.Fatalf("ListReports: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("reports for execution 1 = %d, want exactly 1", len(list))
 	}
 }
 

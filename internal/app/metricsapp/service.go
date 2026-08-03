@@ -17,7 +17,6 @@ package metricsapp
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
@@ -81,20 +80,23 @@ func (s *Service) Purge(executionID int64) {
 // untouched. That is what stops a Purge called after a run has already
 // finished from overwriting its real verdict with "aborted" -- teardown and
 // natural completion are racing to finalise the same run, and whichever gets
-// there first decides it.
+// there first decides it. The guarantee comes from SaveReport itself (the
+// first report saved for a run is the one that survives), not from a check
+// here first: a plain existence check followed later by a save would leave a
+// window where both racers could pass the check before either had written.
 func (s *Service) Finalize(ctx context.Context, executionID, runID int64) error {
 	return s.finalize(ctx, executionID, runID, taurus.OutcomeAborted)
 }
 
 // finalize builds a run's report from its accumulated measurements, stores it,
 // and discards the working state that produced it.
+//
+// Discard runs whether this call's SaveReport actually wrote the report or
+// found one already there: either way the working state this run produced is
+// no longer needed, and running it unconditionally means a retry after a
+// prior Discard failure still cleans up rather than short-circuiting on an
+// early "already finalised" check the way a return-before-Discard would.
 func (s *Service) finalize(ctx context.Context, executionID, runID int64, outcome taurus.Outcome) error {
-	if _, err := s.reports.GetReport(ctx, runID); err == nil {
-		return nil // already finalised by whichever trigger got there first
-	} else if !errors.Is(err, ports.ErrNotFound) {
-		return err
-	}
-
 	snapshot, err := s.progress.Snapshot(ctx, runID)
 	if err != nil {
 		return err

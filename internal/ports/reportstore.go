@@ -14,9 +14,17 @@ import (
 // retention, and the campaign they belonged to -- so this is durable storage,
 // not a query against a metrics system that will have forgotten.
 type ReportStore interface {
-	// SaveReport stores a run's report. Saving the same run twice replaces the
-	// earlier report rather than adding a second: a run has one outcome, and a
-	// retry after a partial failure must not leave two disagreeing records.
+	// SaveReport stores a run's report. A run has one outcome: the first report
+	// saved for a run is the one that survives, and saving again for the same
+	// run is a no-op rather than a replacement.
+	//
+	// This is what makes it safe for a run's natural completion and a
+	// concurrent Honryu-initiated Stop/Purge to race to finalise the same run:
+	// both may compute a report and both call SaveReport, but only the first to
+	// actually persist wins, and the caller that lost can still discard its
+	// working state unconditionally rather than needing to know which one it
+	// was. A plain replace-on-conflict would let whichever call happened to
+	// commit last silently overwrite the other's verdict.
 	SaveReport(ctx context.Context, r report.Report) error
 	// GetReport returns a run's report, or ErrNotFound.
 	GetReport(ctx context.Context, runID int64) (report.Report, error)

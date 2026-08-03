@@ -29,7 +29,10 @@ func NewReportStore() *ReportStore {
 
 var _ ports.ReportStore = (*ReportStore)(nil)
 
-// SaveReport stores a report, replacing any earlier one for the same run.
+// SaveReport stores a report. The first report saved for a run is the one
+// that survives -- saving again for the same run is a no-op, not a
+// replacement, so two concurrent finalisations racing for the same run cannot
+// let the second overwrite the first's verdict.
 func (s *ReportStore) SaveReport(_ context.Context, r report.Report) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
@@ -39,6 +42,9 @@ func (s *ReportStore) SaveReport(_ context.Context, r report.Report) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.reports[r.RunID]; exists {
+		return nil
+	}
 	s.reports[r.RunID] = r
 	return nil
 }
