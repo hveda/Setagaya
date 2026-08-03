@@ -33,6 +33,11 @@ import (
 const managedByLabel = "managed-by"
 const managedByValue = "honryu"
 
+// engineContainer is the pod container running bzt, as opposed to the sidecar
+// beside it. A pod's logs must name it explicitly: the Kubernetes API refuses
+// GetLogs on a multi-container pod that does not.
+const engineContainer = "engine"
+
 // defaultPoolLabel groups nodes into pools when Config.PoolLabel is unset.
 const defaultPoolLabel = "cloud.google.com/gke-nodepool"
 
@@ -245,7 +250,7 @@ func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
 		},
 		Containers: []corev1.Container{
 			{
-				Name:    "engine",
+				Name:    engineContainer,
 				Image:   spec.Image,
 				Command: []string{"/bin/sh", "-c", engineScript()},
 				// No port: an engine serves nothing. It ran an HTTP agent the
@@ -470,22 +475,32 @@ func (s *Scheduler) PurgeExecution(ctx context.Context, _ ports.ClusterRef, exec
 	return s.client.CoreV1().Pods(s.ns).DeleteCollection(ctx, del, metav1.ListOptions{LabelSelector: fmt.Sprintf("execution=%d", executionID)})
 }
 
-// PodLog returns the logs of a scenario's first engine pod.
+// PodLog returns the engine container's logs from one shard's pod.
+//
+// The pod is found by its StatefulSet ordinal suffix rather than by name
+// reconstruction, since the name embeds the project id this method is not
+// given. The engine container is named explicitly: a pod with more than one
+// container -- every engine pod, since the sidecar shares it -- is rejected by
+// the Kubernetes API otherwise.
 func (s *Scheduler) PodLog(ctx context.Context, _ ports.ClusterRef, executionID, scenarioID int64, shard int) (string, error) {
 	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return "", err
 	}
-	if len(pods.Items) == 0 {
-		return "", ports.ErrEnginesUnreachable
+	suffix := fmt.Sprintf("-%d", shard)
+	for i := range pods.Items {
+		if !strings.HasSuffix(pods.Items[i].Name, suffix) {
+			continue
+		}
+		req := s.client.CoreV1().Pods(s.ns).GetLogs(pods.Items[i].Name, &corev1.PodLogOptions{Container: engineContainer})
+		body, err := req.DoRaw(ctx)
+		if err != nil {
+			return "", err
+		}
+		return string(body), nil
 	}
-	req := s.client.CoreV1().Pods(s.ns).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{})
-	body, err := req.DoRaw(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
+	return "", ports.ErrEnginesUnreachable
 }
 
 // NodePools groups cluster nodes by their pool label, reporting each pool's

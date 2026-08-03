@@ -5,6 +5,7 @@ package schedulertest
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/heridotlife/honryu/internal/ports"
@@ -80,8 +81,18 @@ func RunSchedulerContract(t *testing.T, newHarness NewHarness) {
 			t.Fatalf("detail engines = %d, want 5", len(detail.Engines))
 		}
 
+		// Shard logs are addressed per pod, not only for the first: engine-side
+		// fault attribution needs the shard that actually saw the failure, and an
+		// implementation that silently ignored which one was asked for would
+		// answer every shard alike -- including one that does not exist.
 		if _, err := s.PodLog(ctx, "", execution, planA, 0); err != nil {
-			t.Fatalf("PodLog: %v", err)
+			t.Fatalf("PodLog(shard 0): %v", err)
+		}
+		if _, err := s.PodLog(ctx, "", execution, planA, 1); err != nil {
+			t.Fatalf("PodLog(shard 1): %v", err)
+		}
+		if _, err := s.PodLog(ctx, "", execution, planA, 99); !errors.Is(err, ports.ErrEnginesUnreachable) {
+			t.Fatalf("PodLog(shard 99, which was never deployed) = %v, want ErrEnginesUnreachable", err)
 		}
 
 		if err := s.PurgeExecution(ctx, "", execution); err != nil {

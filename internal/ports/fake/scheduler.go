@@ -138,13 +138,17 @@ func (s *Scheduler) PurgeExecution(_ context.Context, _ ports.ClusterRef, execut
 }
 
 // PodLog returns the canned log for a deployed scenario.
-func (s *Scheduler) PodLog(_ context.Context, _ ports.ClusterRef, executionID, scenarioID int64, _ int) (string, error) {
+func (s *Scheduler) PodLog(_ context.Context, _ ports.ClusterRef, executionID, scenarioID int64, shard int) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.deployments[executionID][scenarioID]; !ok {
+	d, ok := s.deployments[executionID][scenarioID]
+	if !ok || shard < 0 || shard >= len(d.spec.Shards) {
 		return "", ports.ErrEnginesUnreachable
 	}
-	return s.PodLogText, nil
+	// Shard-specific, like a real pod's: the port promises logs addressed per
+	// pod, and a fake that answered every shard identically could not catch a
+	// caller that silently ignored the one it asked for.
+	return fmt.Sprintf("%s (shard %d)", s.PodLogText, shard), nil
 }
 
 // DeployedExecutions maps execution id to its earliest deploy time.
