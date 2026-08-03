@@ -51,7 +51,14 @@ var targetFaults = []string{
 	"i/o timeout",
 	"timeout awaiting",
 	"no route to host",
-	"eof",
+	// Not the bare "eof": apiritif's messages carry the request URL, and "eof"
+	// as a substring matches inside ordinary words a URL can contain --
+	// "geofence", "videofeed". These are how a dropped connection actually
+	// reads, specific enough that a URL cannot produce them by accident.
+	"eofexception",
+	"unexpected eof",
+	"remote end closed connection",
+	"connection aborted",
 }
 
 // AttributeError decides who a failure belongs to.

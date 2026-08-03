@@ -89,6 +89,37 @@ func TestAttributeError(t *testing.T) {
 			metrics.ErrorGroup{Message: "boom", ResponseCode: "N/A"},
 			report.SideUnknown,
 		},
+		// apiritif's messages carry the request URL, and a bare "eof" substring
+		// match would fire inside an ordinary word a URL can contain. An
+		// unrecognised failure against such a URL must stay unknown, not be
+		// guessed into target just because of what the path happens to spell.
+		{
+			"unrecognised failure against a url containing eof as a substring",
+			metrics.ErrorGroup{Message: "Request to http://svc/geofence/v1 didn't succeed: something went sideways"},
+			report.SideUnknown,
+		},
+		{
+			"unrecognised failure against a url spelling eof another way",
+			metrics.ErrorGroup{Message: "Request to http://svc/videofeed didn't succeed: something went sideways"},
+			report.SideUnknown,
+		},
+		// The real wordings a dropped connection produces, specific enough that
+		// a URL cannot spell them by accident.
+		{
+			"jmeter EOFException",
+			metrics.ErrorGroup{Message: "java.io.EOFException: null"},
+			report.SideTarget,
+		},
+		{
+			"unexpected eof reading body",
+			metrics.ErrorGroup{Message: "unexpected EOF while reading response"},
+			report.SideTarget,
+		},
+		{
+			"remote end closed the connection",
+			metrics.ErrorGroup{Message: "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"},
+			report.SideTarget,
+		},
 	}
 
 	for _, tc := range cases {
