@@ -1,9 +1,10 @@
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 )
 
 // runReport returns a run's stored report -- the durable record of what it
@@ -72,11 +73,7 @@ func (h *handlers) runShardObject(w http.ResponseWriter, r *http.Request, kind, 
 		writeError(w, http.StatusBadRequest, "invalid shard")
 		return
 	}
-	// Mirrors lifecycleapp's runLogKey/runConfigKey exactly -- the same
-	// duplication already exists between lifecycleapp.scenarioKey and this
-	// package's downloadFile, rather than a shared key package neither side
-	// otherwise needs.
-	key := fmt.Sprintf("run/%d/scenario-%d-shard-%d.%s", runID, scenarioID, shard, kind)
+	key := lifecycleapp.RunShardKey(runID, scenarioID, int(shard), kind)
 	data, err := h.deps.Store.Download(r.Context(), key)
 	if err != nil {
 		respondError(w, err)

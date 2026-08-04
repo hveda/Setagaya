@@ -161,7 +161,7 @@ func TestTrigger_SnapshotsEachShardsCompiledConfig(t *testing.T) {
 	runID, _, _ := e.store.CurrentRun(ctx, e.executionID)
 
 	for shard := 0; shard < 2; shard++ {
-		key := fmt.Sprintf("run/%d/scenario-%d-shard-%d.yml", runID, e.planIDs[0], shard)
+		key := lifecycleapp.RunShardKey(runID, e.planIDs[0], shard, "yml")
 		got, err := e.obj.Download(ctx, key)
 		if err != nil {
 			t.Fatalf("Download(%q): %v", key, err)
@@ -187,7 +187,7 @@ func TestTrigger_SnapshotSurvivesALaterRedeploy(t *testing.T) {
 		t.Fatalf("Trigger: %v", err)
 	}
 	runID, _, _ := e.store.CurrentRun(ctx, e.executionID)
-	key := fmt.Sprintf("run/%d/scenario-%d-shard-0.yml", runID, e.planIDs[0])
+	key := lifecycleapp.RunShardKey(runID, e.planIDs[0], 0, "yml")
 	first, err := e.obj.Download(ctx, key)
 	if err != nil {
 		t.Fatalf("Download after trigger: %v", err)
@@ -452,7 +452,7 @@ func TestPurge_CapturesEngineLogsBeforeDeletingPods(t *testing.T) {
 	}
 
 	for shard := 0; shard < 2; shard++ {
-		key := fmt.Sprintf("run/%d/scenario-%d-shard-%d.log", runID, e.planIDs[0], shard)
+		key := lifecycleapp.RunShardKey(runID, e.planIDs[0], shard, "log")
 		got, err := e.obj.Download(ctx, key)
 		if err != nil {
 			t.Fatalf("Download(%q): %v", key, err)
@@ -502,7 +502,7 @@ func TestPurge_CapturesTheShardsItCanReach(t *testing.T) {
 		t.Fatalf("Purge: %v, want nil despite every shard being unreachable", err)
 	}
 
-	key := fmt.Sprintf("run/%d/scenario-%d-shard-0.log", runID, e.planIDs[0])
+	key := lifecycleapp.RunShardKey(runID, e.planIDs[0], 0, "log")
 	if _, err := e.obj.Download(ctx, key); !errors.Is(err, ports.ErrObjectNotFound) {
 		t.Errorf("Download after every PodLog failed = %v, want ErrObjectNotFound", err)
 	}
@@ -522,7 +522,7 @@ func TestPurge_WithoutARunNeverCapturesLogs(t *testing.T) {
 		t.Fatalf("Purge: %v", err)
 	}
 
-	key := fmt.Sprintf("run/0/scenario-%d-shard-0.log", e.planIDs[0])
+	key := lifecycleapp.RunShardKey(0, e.planIDs[0], 0, "log")
 	if _, err := e.obj.Download(ctx, key); !errors.Is(err, ports.ErrObjectNotFound) {
 		t.Errorf("Download = %v, want ErrObjectNotFound -- nothing was ever triggered", err)
 	}

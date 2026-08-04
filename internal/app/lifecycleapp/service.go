@@ -282,14 +282,23 @@ func (s *Service) Purge(ctx context.Context, executionID int64) error {
 	return nil
 }
 
-// runLogKey is the object-store key for one shard's engine log.
+// RunShardKey is the object-store key for one shard's captured run artefact --
+// its engine log (ext "log") or the compiled config it ran (ext "yml").
+// Exported so the httpapi adapter's read side computes the same key this
+// package's write side does, rather than keeping its own copy of the format
+// in sync by hand.
 //
 // Retention is a lifecycle policy on the underlying bucket (the same GCS/Nexus
 // adapters already used for scenario and execution artefacts), not something
 // this code tracks -- there is no TTL concept on ObjectStore, and adding a
 // sweep would duplicate a capability object storage already has.
+func RunShardKey(runID, scenarioID int64, shard int, ext string) string {
+	return fmt.Sprintf("run/%d/scenario-%d-shard-%d.%s", runID, scenarioID, shard, ext)
+}
+
+// runLogKey is the object-store key for one shard's engine log.
 func runLogKey(runID, scenarioID int64, shard int) string {
-	return fmt.Sprintf("run/%d/scenario-%d-shard-%d.log", runID, scenarioID, shard)
+	return RunShardKey(runID, scenarioID, shard, "log")
 }
 
 // captureLogs saves each shard's engine output before Purge deletes its pod,
@@ -427,7 +436,7 @@ func deployedConfigKey(scenarioID int64, shard int) string {
 // runConfigKey is the object-store key for one shard's compiled config, as the
 // run actually used it -- immune to a later re-deploy changing the staged copy.
 func runConfigKey(runID, scenarioID int64, shard int) string {
-	return fmt.Sprintf("run/%d/scenario-%d-shard-%d.yml", runID, scenarioID, shard)
+	return RunShardKey(runID, scenarioID, shard, "yml")
 }
 
 // engineOf is the execution's engine, or the deployment default when it named

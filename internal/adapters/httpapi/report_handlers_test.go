@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/domain/metrics"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
@@ -158,7 +159,7 @@ func TestReportHTTP_MalformedLimitIsIgnored(t *testing.T) {
 func TestReportHTTP_FetchesACapturedShardLog(t *testing.T) {
 	t.Parallel()
 	h, _, obj := newReportEnv(t)
-	if err := obj.Upload(context.Background(), "run/42/scenario-3-shard-1.log", strings.NewReader("boom: 500")); err != nil {
+	if err := obj.Upload(context.Background(), lifecycleapp.RunShardKey(42, 3, 1, "log"), strings.NewReader("boom: 500")); err != nil {
 		t.Fatalf("seed log: %v", err)
 	}
 
@@ -177,7 +178,7 @@ func TestReportHTTP_FetchesACapturedShardLog(t *testing.T) {
 func TestReportHTTP_FetchesTheSnapshottedShardConfig(t *testing.T) {
 	t.Parallel()
 	h, _, obj := newReportEnv(t)
-	if err := obj.Upload(context.Background(), "run/42/scenario-3-shard-1.yml", strings.NewReader("execution: []")); err != nil {
+	if err := obj.Upload(context.Background(), lifecycleapp.RunShardKey(42, 3, 1, "yml"), strings.NewReader("execution: []")); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 
