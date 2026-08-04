@@ -232,6 +232,58 @@ func TestFinalize_DoesNotOverwriteANaturallyCompletedReport(t *testing.T) {
 	}
 }
 
+// A shard can finish naturally, with a real bzt exit code, in the instant
+// before Stop reaches the same run -- allShardsFinished only fires once every
+// shard has, so the run is still open for Finalize to race with. That
+// shard's evidence must not be silently discarded just because Stop got
+// there: a criteria failure or an engine error is more severe than an
+// ordinary abort and must still surface.
+func TestFinalize_SurfacesAFailureFromAShardThatAlreadyFinished(t *testing.T) {
+	t.Parallel()
+	e := setup(t, 2) // one scenario, two shards
+	ctx := context.Background()
+
+	if err := e.svc.Ingest(ctx, finalBatch(e, 0, 3)); err != nil { // criteria failed
+		t.Fatalf("Ingest shard 0: %v", err)
+	}
+
+	if err := e.svc.Finalize(ctx, e.executionID, e.runID); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	rep, err := e.reports.GetReport(ctx, e.runID)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if rep.Outcome != taurus.OutcomeFailed {
+		t.Errorf("outcome = %q, want failed (shard 0 already reported a real criteria failure)", rep.Outcome)
+	}
+}
+
+// The reverse must also hold: a shard that happened to finish cleanly before
+// Stop reached the run does not make the report say "passed" -- the run was
+// still stopped before every shard could, and that is what the outcome must
+// say regardless of what the lucky shard measured.
+func TestFinalize_DoesNotDowngradeAbortedToPassed(t *testing.T) {
+	t.Parallel()
+	e := setup(t, 2)
+	ctx := context.Background()
+
+	if err := e.svc.Ingest(ctx, finalBatch(e, 0, 0)); err != nil { // passed cleanly
+		t.Fatalf("Ingest shard 0: %v", err)
+	}
+
+	if err := e.svc.Finalize(ctx, e.executionID, e.runID); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	rep, err := e.reports.GetReport(ctx, e.runID)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if rep.Outcome != taurus.OutcomeAborted {
+		t.Errorf("outcome = %q, want aborted (the run was still stopped, whatever shard 0 measured)", rep.Outcome)
+	}
+}
+
 // An execution can bundle several scenarios under one run. ScenarioID is only
 // unambiguous when there is exactly one; the per-request label breakdown
 // already covers the rest.

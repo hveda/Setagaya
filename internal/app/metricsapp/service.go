@@ -89,7 +89,36 @@ func (s *Service) Purge(executionID int64) {
 // here first: a plain existence check followed later by a save would leave a
 // window where both racers could pass the check before either had written.
 func (s *Service) Finalize(ctx context.Context, executionID, runID int64) error {
-	return s.finalize(ctx, executionID, runID, taurus.OutcomeAborted)
+	outcome, err := s.stopOutcome(ctx, runID)
+	if err != nil {
+		return err
+	}
+	return s.finalize(ctx, executionID, runID, outcome)
+}
+
+// stopOutcome is the outcome for a run Honryu is deliberately ending.
+//
+// Not derived from shard exit codes the way finalizeCompleted's is:
+// taurus.OutcomeFromExitCode's own doc comment establishes that bzt's real
+// exit codes cannot tell a deliberate stop from a crash, so Honryu's own
+// certainty that it issued the stop -- OutcomeAborted -- is the baseline, not
+// something inferred here. But a shard that had already finished naturally,
+// with a real exit code, in the race between Stop and that shard's own last
+// Final batch is real evidence and must not be silently discarded just
+// because Stop reached the run first: if that evidence is more severe than an
+// ordinary abort -- a criteria failure or an engine error -- it must win.
+func (s *Service) stopOutcome(ctx context.Context, runID int64) (taurus.Outcome, error) {
+	states, err := s.progress.ShardStates(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	outcomes := []taurus.Outcome{taurus.OutcomeAborted}
+	for _, st := range states {
+		if st.Finished && st.ExitCode != nil {
+			outcomes = append(outcomes, taurus.OutcomeFromExitCode(*st.ExitCode))
+		}
+	}
+	return taurus.WorstOutcome(outcomes), nil
 }
 
 // finalize builds a run's report from its accumulated measurements, stores it,
