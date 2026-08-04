@@ -146,7 +146,12 @@ func (s *Sidecar) Run(ctx context.Context, done <-chan struct{}) error {
 			s.checkExitCode()
 			return s.flush(context.WithoutCancel(ctx), true)
 		case <-done:
-			// bzt exited. Read what it left behind, then send a final batch.
+			// bzt exited. The exit-code file may have appeared in the instant
+			// before this fired but after poll.C's last tick; check for it
+			// directly so a real exit code isn't missed on the very path that
+			// exists to report one.
+			s.checkExitCode()
+			// Read what bzt left behind, then send a final batch.
 			engineDone = true
 		case <-flush.C:
 			if err := s.flush(ctx, false); err != nil {
@@ -174,8 +179,10 @@ func (s *Sidecar) Run(ctx context.Context, done <-chan struct{}) error {
 // checkExitCode reads the engine's exit-code file if it has appeared, and
 // reports whether the engine has now been observed to have finished.
 //
-// Both call sites in Run return immediately once this reports true, so it is
-// never called again afterward -- there is no "already found" case to guard.
+// It is safe to call repeatedly, including after it has already reported
+// true: a file that has already been parsed just parses the same way again,
+// which is what lets every shutdown path in Run call it unconditionally
+// rather than tracking whether some earlier call already found it.
 func (s *Sidecar) checkExitCode() bool {
 	if s.cfg.ExitCodePath == "" {
 		return false

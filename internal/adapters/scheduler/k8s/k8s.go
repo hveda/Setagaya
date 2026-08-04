@@ -278,6 +278,19 @@ func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: "kpi", MountPath: kpiMount, ReadOnly: true},
 				},
+				// Like the engine container: /bin/sh is this container's PID 1 and
+				// does not forward the pod-teardown SIGTERM to the foreground
+				// sidecar process, so without this hook the sidecar never observes
+				// ordinary teardown and cannot flush what it has buffered since its
+				// last periodic tick. pkill reaches it directly, by command-line
+				// match, bypassing PID 1 entirely.
+				Lifecycle: &corev1.Lifecycle{
+					PreStop: &corev1.LifecycleHandler{
+						Exec: &corev1.ExecAction{
+							Command: []string{"/bin/sh", "-c", "pkill -TERM -f honryu-sidecar || true"},
+						},
+					},
+				},
 				Env: []corev1.EnvVar{{
 					Name: "HONRYU_INGEST_TOKEN",
 					ValueFrom: &corev1.EnvVarSource{

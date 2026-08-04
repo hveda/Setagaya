@@ -466,6 +466,38 @@ func TestK8sScheduler_PodsStopGracefully(t *testing.T) {
 	}
 }
 
+// /bin/sh is the sidecar container's PID 1 too, and forwards pod-teardown
+// SIGTERM to the sidecar process no better than it does to bzt's -- the
+// sidecar needs the same direct-signal hook the engine container has, or a
+// pod deleted mid-run loses whatever the sidecar buffered since its last tick.
+func TestK8sScheduler_SidecarStopsGracefully(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{
+		Namespace: ns, SidecarImage: "honryu/sidecar:1", IngestURL: "http://control/api/ingest",
+	})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(1),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+
+	side := containerNamed(t, set, "sidecar")
+	if side.Lifecycle == nil || side.Lifecycle.PreStop == nil || side.Lifecycle.PreStop.Exec == nil {
+		t.Fatal("sidecar has no preStop hook, so a deleted pod loses its unflushed buffer")
+	}
+	hook := strings.Join(side.Lifecycle.PreStop.Exec.Command, " ")
+	if !strings.Contains(hook, "honryu-sidecar") {
+		t.Errorf("preStop hook = %q, want it to target the sidecar process", hook)
+	}
+}
+
 // The sidecar shares the pod so the KPI handover never crosses a network, and it
 // must know which shard it speaks for or measurements cannot be attributed.
 func TestK8sScheduler_SidecarRunsBesideTheEngine(t *testing.T) {

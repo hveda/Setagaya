@@ -518,6 +518,60 @@ func TestSidecar_DetectsEngineCompletionFromTheExitCodeFile(t *testing.T) {
 	}
 }
 
+// The exit-code file can appear in the instant after poll.C's last tick but
+// before <-done fires -- readable on disk, but not yet checked. That code must
+// not be lost just because completion arrived by signal rather than by the
+// next poll.
+func TestSidecar_DonePicksUpAnExitCodeWrittenSincePollLastChecked(t *testing.T) {
+	t.Parallel()
+
+	c := &collector{}
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	streamPath := filepath.Join(dir, "stream.jsonl")
+	exitCodePath := filepath.Join(dir, "exit-code")
+	if err := os.WriteFile(streamPath, []byte(line(t, 1, "probe", 5)), 0o600); err != nil {
+		t.Fatalf("seed stream: %v", err)
+	}
+
+	sc := sidecar.New(sidecar.Config{
+		StreamPath:    streamPath,
+		ExitCodePath:  exitCodePath,
+		IngestURL:     srv.URL,
+		FlushInterval: 20 * time.Millisecond,
+		PollInterval:  time.Hour, // never ticks: isolates the <-done path
+	})
+	done := make(chan struct{})
+	errc := make(chan error, 1)
+	go func() { errc <- sc.Run(context.Background(), done) }()
+
+	time.Sleep(30 * time.Millisecond) // let the sidecar open the stream and settle
+	if err := os.WriteFile(exitCodePath, []byte("3\n"), 0o600); err != nil {
+		t.Fatalf("write exit code: %v", err)
+	}
+	close(done) // completion arrives by signal, not by the next poll tick
+
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar did not stop after done fired")
+	}
+
+	batches := c.all()
+	if len(batches) == 0 || !batches[len(batches)-1].Final {
+		t.Fatalf("last batch is not final: %+v", batches)
+	}
+	last := batches[len(batches)-1]
+	if last.ExitCode == nil || *last.ExitCode != 3 {
+		t.Errorf("ExitCode = %v, want 3 (checkExitCode must run on the <-done path too)", last.ExitCode)
+	}
+}
+
 // No path configured means no engine to watch for -- used by tests and any
 // deployment that has not wired the file up. It must not be treated as "found".
 func TestSidecar_NoExitCodePathNeverSignalsCompletion(t *testing.T) {
