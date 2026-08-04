@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -460,6 +461,36 @@ func TestPurge_CapturesEngineLogsBeforeDeletingPods(t *testing.T) {
 		if len(got) == 0 {
 			t.Errorf("shard %d log is empty", shard)
 		}
+	}
+}
+
+// Each shard's PodLog/Upload round trip is independent of every other's, so
+// Purge fetches them concurrently rather than one after another -- a customer
+// is waiting on this request, and an execution can have dozens of shards.
+func TestPurge_CapturesShardLogsConcurrently(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 5) // one scenario, five shards
+	ctx := context.Background()
+	e.sched.PodLogDelay = 40 * time.Millisecond
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+
+	start := time.Now()
+	if err := e.svc.Purge(ctx, e.executionID); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// Five shards run one after another would take at least 5*40ms = 200ms;
+	// concurrently, one shard's delay dominates. A generous margin above one
+	// delay still rules out serial execution without being timing-flaky.
+	if elapsed >= 3*e.sched.PodLogDelay {
+		t.Errorf("Purge took %v capturing 5 shards' logs at %v each, want well under serial time -- looks sequential", elapsed, e.sched.PodLogDelay)
 	}
 }
 

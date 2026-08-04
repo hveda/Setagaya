@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -308,36 +309,55 @@ func runLogKey(runID, scenarioID int64, shard int) string {
 // even if a log capture fails, and a missing log degrades diagnosability
 // rather than the run itself. One shard's failure does not stop the others
 // from being tried.
+//
+// Every shard's PodLog/Upload round trip is independent of every other's, so
+// they run concurrently rather than one after another -- an execution with
+// several scenarios can have dozens of shards, and Purge is a request a
+// customer is waiting on.
 func (s *Service) captureLogs(ctx context.Context, executionID, runID int64) {
 	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return
 	}
+	var wg sync.WaitGroup
 	for _, ep := range scenarios {
 		for i := 0; i < ep.Engines; i++ {
-			log, err := s.sched.PodLog(ctx, "", executionID, ep.ScenarioID, i)
-			if err != nil {
-				continue
-			}
-			_ = s.store.Upload(ctx, runLogKey(runID, ep.ScenarioID, i), strings.NewReader(log))
+			wg.Add(1)
+			go func(scenarioID int64, shard int) {
+				defer wg.Done()
+				log, err := s.sched.PodLog(ctx, "", executionID, scenarioID, shard)
+				if err != nil {
+					return
+				}
+				_ = s.store.Upload(ctx, runLogKey(runID, scenarioID, shard), strings.NewReader(log))
+			}(ep.ScenarioID, i)
 		}
 	}
+	wg.Wait()
 }
 
 // snapshotConfigs copies each scenario's staged compiled config into a
 // run-keyed object, so a later re-deploy changing the staged copy can never
 // alter what this run is shown to have used. One shard's failure does not
-// stop the others from being tried.
+// stop the others from being tried, and -- as with captureLogs -- every
+// shard's Download/Upload round trip is independent, so they run
+// concurrently on this Trigger request path a customer is waiting on.
 func (s *Service) snapshotConfigs(ctx context.Context, runID int64, scenarios []loadprofile.Entry) {
+	var wg sync.WaitGroup
 	for _, ep := range scenarios {
 		for i := 0; i < ep.Engines; i++ {
-			raw, err := s.store.Download(ctx, deployedConfigKey(ep.ScenarioID, i))
-			if err != nil {
-				continue
-			}
-			_ = s.store.Upload(ctx, runConfigKey(runID, ep.ScenarioID, i), bytes.NewReader(raw))
+			wg.Add(1)
+			go func(scenarioID int64, shard int) {
+				defer wg.Done()
+				raw, err := s.store.Download(ctx, deployedConfigKey(scenarioID, shard))
+				if err != nil {
+					return
+				}
+				_ = s.store.Upload(ctx, runConfigKey(runID, scenarioID, shard), bytes.NewReader(raw))
+			}(ep.ScenarioID, i)
 		}
 	}
+	wg.Wait()
 }
 
 // podScenarioPath is where a scenario's artefacts are mounted in an engine pod.

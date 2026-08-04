@@ -23,6 +23,10 @@ type Scheduler struct {
 	PodLogText string
 	// PodLogErr, when set, is returned by PodLog instead of a log.
 	PodLogErr error
+	// PodLogDelay, when set, is slept before PodLog returns -- lets a test prove
+	// callers fetch multiple shards' logs concurrently rather than one after
+	// another.
+	PodLogDelay time.Duration
 	// IngressIP is reported by EngineDetail.
 	IngressIP string
 	// Pools is returned by NodePools.
@@ -141,6 +145,12 @@ func (s *Scheduler) PurgeExecution(_ context.Context, _ ports.ClusterRef, execut
 
 // PodLog returns the canned log for a deployed scenario.
 func (s *Scheduler) PodLog(_ context.Context, _ ports.ClusterRef, executionID, scenarioID int64, shard int) (string, error) {
+	// Outside the lock: PodLogDelay simulates per-shard I/O latency, and holding
+	// the lock across it would itself force concurrent callers to serialize,
+	// defeating the point of a delay a test uses to prove they don't.
+	if s.PodLogDelay > 0 {
+		time.Sleep(s.PodLogDelay)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d, ok := s.deployments[executionID][scenarioID]
