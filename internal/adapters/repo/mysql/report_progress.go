@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/heridotlife/honryu/internal/domain/metrics"
 	"github.com/heridotlife/honryu/internal/domain/report"
@@ -137,105 +138,194 @@ func mergeProgress(ctx context.Context, tx *sql.Tx, runID int64, s report.Snapsh
 
 	// Buckets and exemplars need the old value to merge against, so these are
 	// read under the shard lock already held.
-	for _, l := range s.Labels {
-		if err := mergeLabel(ctx, tx, runID, l); err != nil {
-			return err
-		}
+	if err := mergeLabels(ctx, tx, runID, s.Labels); err != nil {
+		return err
 	}
-	for _, sig := range s.Signatures {
-		if err := mergeSignature(ctx, tx, runID, sig); err != nil {
-			return err
-		}
+	if err := mergeSignatures(ctx, tx, runID, s.Signatures); err != nil {
+		return err
 	}
 	return nil
 }
 
-// mergeLabel folds an interval's-worth of measurements into a label's stored
-// progress.
+// mergeLabels folds a batch's worth of measurements into every label's stored
+// progress, in three round trips total no matter how many distinct labels the
+// batch touches -- rather than three per label, which turned a batch touching
+// 20-30 labels into 60-90 sequential round trips while the shard's row lock
+// from Absorb was held.
 //
-// samples/failed are additive in SQL (`col=col+?`), which MySQL serializes on
-// its own. latency is a JSON histogram that can only be merged in Go, so the
-// row is locked first: two shards flushing the same label at nearly the same
-// moment (routine, since shards flush independently) would otherwise both
-// read the same pre-update histogram, each merge their own delta on top of it,
-// and the second write would silently discard the first shard's buckets --
-// corrupting the run's latency percentiles with no error or signal that it
-// happened. Locking the row for the read-merge-write serializes the two
-// instead of losing one.
-func mergeLabel(ctx context.Context, tx *sql.Tx, runID int64, l report.LabelProgress) error {
-	// The insert makes the row exist so it can be locked; the select then takes
-	// the lock whether this call created it or another did.
+// samples/failed are additive in SQL (`col=col+VALUES(col)`), which MySQL
+// serializes on its own. latency is a JSON histogram that can only be merged
+// in Go, so every row is locked first: two shards flushing the same label at
+// nearly the same moment (routine, since shards flush independently) would
+// otherwise both read the same pre-update histogram, each merge their own
+// delta on top of it, and the second write would silently discard the first
+// shard's buckets -- corrupting the run's latency percentiles with no error or
+// signal that it happened. Locking every row for the read-merge-write
+// serializes that instead of losing one.
+//
+// The lock order two concurrent calls take is the primary key order MySQL's
+// own index range scan visits, not the order labels happen to appear in a
+// batch -- so two shards locking an overlapping set of labels in one query
+// each cannot deadlock on it the way locking them one at a time, in whatever
+// order a batch happened to list them, could.
+func mergeLabels(ctx context.Context, tx *sql.Tx, runID int64, labels []report.LabelProgress) error {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	// The insert makes every row exist so it can be locked; the select then
+	// takes the lock on all of them, whether this call created them or another
+	// did.
+	openArgs := make([]any, 0, len(labels)*2)
+	openRows := make([]string, len(labels))
+	inClause := make([]string, len(labels))
+	inArgs := make([]any, 0, len(labels)+1)
+	inArgs = append(inArgs, runID)
+	for i, l := range labels {
+		openRows[i] = "(?,?)"
+		openArgs = append(openArgs, runID, l.Label)
+		inClause[i] = "?"
+		inArgs = append(inArgs, l.Label)
+	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO report_progress_label (run_id, label) VALUES (?,?)
+		`INSERT INTO report_progress_label (run_id, label) VALUES `+strings.Join(openRows, ",")+`
 		 ON DUPLICATE KEY UPDATE run_id=run_id`,
-		runID, l.Label); err != nil {
+		openArgs...); err != nil {
 		return fmt.Errorf("mysql: open label progress: %w", err)
 	}
 
-	var raw []byte
-	if err := tx.QueryRowContext(ctx,
-		`SELECT latency FROM report_progress_label WHERE run_id=? AND label=? FOR UPDATE`,
-		runID, l.Label).Scan(&raw); err != nil {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT label, latency FROM report_progress_label
+		 WHERE run_id=? AND label IN (`+strings.Join(inClause, ",")+`) FOR UPDATE`,
+		inArgs...)
+	if err != nil {
 		return fmt.Errorf("mysql: lock label progress: %w", err)
 	}
-	var stored metrics.Histogram
-	if err := decodeJSON(raw, &stored); err != nil {
-		return fmt.Errorf("mysql: decode label latency: %w", err)
+	stored := make(map[string]metrics.Histogram, len(labels))
+	for rows.Next() {
+		var (
+			label string
+			raw   []byte
+		)
+		if err := rows.Scan(&label, &raw); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("mysql: scan label progress: %w", err)
+		}
+		var h metrics.Histogram
+		if err := decodeJSON(raw, &h); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("mysql: decode label latency: %w", err)
+		}
+		stored[label] = h
 	}
-	merged := metrics.Histogram{}
-	merged.Merge(stored)
-	merged.Merge(l.Latency)
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
 
-	latency, err := json.Marshal(merged)
-	if err != nil {
-		return fmt.Errorf("mysql: encode label latency: %w", err)
+	mergeRows := make([]string, len(labels))
+	mergeArgs := make([]any, 0, len(labels)*5)
+	for i, l := range labels {
+		merged := metrics.Histogram{}
+		merged.Merge(stored[l.Label])
+		merged.Merge(l.Latency)
+		latency, err := json.Marshal(merged)
+		if err != nil {
+			return fmt.Errorf("mysql: encode label latency: %w", err)
+		}
+		mergeRows[i] = "(?,?,?,?,?)"
+		mergeArgs = append(mergeArgs, runID, l.Label, l.Samples, l.Failed, latency)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE report_progress_label SET samples=samples+?, failed=failed+?, latency=?
-		 WHERE run_id=? AND label=?`,
-		l.Samples, l.Failed, latency, runID, l.Label); err != nil {
-		return fmt.Errorf("mysql: merge label %q: %w", l.Label, err)
+		`INSERT INTO report_progress_label (run_id, label, samples, failed, latency) VALUES `+strings.Join(mergeRows, ",")+`
+		 ON DUPLICATE KEY UPDATE
+			samples=samples+VALUES(samples), failed=failed+VALUES(failed), latency=VALUES(latency)`,
+		mergeArgs...); err != nil {
+		return fmt.Errorf("mysql: merge labels: %w", err)
 	}
 	return nil
 }
 
-// mergeSignature is mergeLabel's counterpart for a run's error signatures:
+// mergeSignatures is mergeLabels' counterpart for a run's error signatures:
 // count is additive in SQL, exemplars is a JSON array that can only be merged
-// in Go, so the row is locked first for the same reason -- two shards
+// in Go, so every row is locked first for the same reason -- two shards
 // reporting the same signature concurrently must not let one's exemplar
-// wordings silently overwrite the other's.
-func mergeSignature(ctx context.Context, tx *sql.Tx, runID int64, sig report.ErrorSignature) error {
+// wordings silently overwrite the other's. Batched the same way and for the
+// same reason.
+func mergeSignatures(ctx context.Context, tx *sql.Tx, runID int64, sigs []report.ErrorSignature) error {
+	if len(sigs) == 0 {
+		return nil
+	}
+
+	openArgs := make([]any, 0, len(sigs)*4)
+	openRows := make([]string, len(sigs))
+	inClause := make([]string, len(sigs))
+	inArgs := make([]any, 0, len(sigs)*3+1)
+	inArgs = append(inArgs, runID)
+	for i, sig := range sigs {
+		openRows[i] = "(?,?,?,?)"
+		openArgs = append(openArgs, runID, sig.Label, sig.ResponseCode, string(sig.Side))
+		inClause[i] = "(?,?,?)"
+		inArgs = append(inArgs, sig.Label, sig.ResponseCode, string(sig.Side))
+	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO report_progress_signature (run_id, label, response_code, side) VALUES (?,?,?,?)
+		`INSERT INTO report_progress_signature (run_id, label, response_code, side) VALUES `+strings.Join(openRows, ",")+`
 		 ON DUPLICATE KEY UPDATE run_id=run_id`,
-		runID, sig.Label, sig.ResponseCode, string(sig.Side)); err != nil {
+		openArgs...); err != nil {
 		return fmt.Errorf("mysql: open signature progress: %w", err)
 	}
 
-	var raw []byte
-	if err := tx.QueryRowContext(ctx,
-		`SELECT exemplars FROM report_progress_signature
-		 WHERE run_id=? AND label=? AND response_code=? AND side=? FOR UPDATE`,
-		runID, sig.Label, sig.ResponseCode, string(sig.Side)).Scan(&raw); err != nil {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT label, response_code, side, exemplars FROM report_progress_signature
+		 WHERE run_id=? AND (label, response_code, side) IN (`+strings.Join(inClause, ",")+`) FOR UPDATE`,
+		inArgs...)
+	if err != nil {
 		return fmt.Errorf("mysql: lock signature progress: %w", err)
 	}
-	var stored []string
-	if err := decodeJSON(raw, &stored); err != nil {
-		return fmt.Errorf("mysql: decode exemplars: %w", err)
+	stored := make(map[report.Signature][]string, len(sigs))
+	for rows.Next() {
+		var (
+			key  report.Signature
+			side string
+			raw  []byte
+		)
+		if err := rows.Scan(&key.Label, &key.ResponseCode, &side, &raw); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("mysql: scan signature progress: %w", err)
+		}
+		key.Side = report.Side(side)
+		var exemplars []string
+		if err := decodeJSON(raw, &exemplars); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("mysql: decode exemplars: %w", err)
+		}
+		stored[key] = exemplars
 	}
-	// The domain owns how many wordings are kept and how long they may be;
-	// re-merging through it keeps that bound in one place.
-	merged := report.MergeExemplars(stored, sig.Exemplars)
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
 
-	exemplars, err := json.Marshal(merged)
-	if err != nil {
-		return fmt.Errorf("mysql: encode exemplars: %w", err)
+	mergeRows := make([]string, len(sigs))
+	mergeArgs := make([]any, 0, len(sigs)*6)
+	for i, sig := range sigs {
+		// The domain owns how many wordings are kept and how long they may be;
+		// re-merging through it keeps that bound in one place.
+		merged := report.MergeExemplars(stored[sig.Signature], sig.Exemplars)
+		exemplars, err := json.Marshal(merged)
+		if err != nil {
+			return fmt.Errorf("mysql: encode exemplars: %w", err)
+		}
+		mergeRows[i] = "(?,?,?,?,?,?)"
+		mergeArgs = append(mergeArgs, runID, sig.Label, sig.ResponseCode, string(sig.Side), sig.Count, exemplars)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE report_progress_signature SET count=count+?, exemplars=?
-		 WHERE run_id=? AND label=? AND response_code=? AND side=?`,
-		sig.Count, exemplars, runID, sig.Label, sig.ResponseCode, string(sig.Side)); err != nil {
-		return fmt.Errorf("mysql: merge signature: %w", err)
+		`INSERT INTO report_progress_signature (run_id, label, response_code, side, count, exemplars) VALUES `+strings.Join(mergeRows, ",")+`
+		 ON DUPLICATE KEY UPDATE count=count+VALUES(count), exemplars=VALUES(exemplars)`,
+		mergeArgs...); err != nil {
+		return fmt.Errorf("mysql: merge signatures: %w", err)
 	}
 	return nil
 }

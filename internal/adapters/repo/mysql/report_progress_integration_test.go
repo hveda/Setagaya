@@ -112,6 +112,118 @@ func TestMySQLReportProgress_ConcurrentShardsDoNotLoseEachOthersLatency(t *testi
 	}
 }
 
+// mergeLabels/mergeSignatures batch every distinct label or signature in one
+// query each, rather than one query per label -- this proves the batched read
+// and the batched upsert both keep each label's own samples/failed/latency
+// separate rather than cross-contaminating them.
+func TestMySQLReportProgress_AbsorbMergesSeveralDistinctLabelsInOneBatch(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	repo := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	labels := []string{"checkout", "cart", "search", "profile", "logout"}
+	var intervals []metrics.Interval
+	for i, label := range labels {
+		intervals = append(intervals, metrics.Interval{
+			Seq: int64(i) + 1, Timestamp: 1000, Label: label,
+			Samples: int64(i) + 1, Succeeded: int64(i) + 1,
+			Latency: metrics.Histogram{float64(i) + 0.01: int64(i) + 1},
+		})
+	}
+	if err := repo.Absorb(ctx, ports.ProgressBatch{
+		RunID: 1, ScenarioID: 1, ShardIndex: 0, StreamID: "s", Final: true,
+		Intervals: intervals,
+	}); err != nil {
+		t.Fatalf("Absorb: %v", err)
+	}
+
+	snap, err := repo.Snapshot(ctx, 1)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(snap.Labels) != len(labels) {
+		t.Fatalf("labels = %+v, want %d distinct labels", snap.Labels, len(labels))
+	}
+	byLabel := make(map[string]int64, len(labels))
+	for _, l := range snap.Labels {
+		byLabel[l.Label] = l.Samples
+	}
+	for i, label := range labels {
+		if got, want := byLabel[label], int64(i)+1; got != want {
+			t.Errorf("label %q samples = %d, want %d -- a batched merge must not cross-contaminate labels", label, got, want)
+		}
+	}
+}
+
+// Two shards absorbing overlapping sets of several labels each, in different
+// orders, must not deadlock: the batched lock order comes from MySQL's own
+// index scan over the primary key, not from the order labels happen to
+// appear in either shard's batch.
+func TestMySQLReportProgress_ConcurrentOverlappingMultiLabelBatchesDoNotDeadlock(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	repo := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	forward := []string{"a", "b", "c", "d", "e"}
+	backward := []string{"e", "d", "c", "b", "a"}
+
+	// Distinct shard indices, each sending exactly one batch: Absorb's own
+	// per-shard sequence dedup means concurrent batches for the *same* shard
+	// racing in an unpredictable order would make one falsely look like an
+	// already-absorbed retry of the other -- a hazard of a contrived test, not
+	// what this is after. Separate shards racing on the same label rows is the
+	// real scenario, and it needs no such care.
+	const shardsPerOrder = 10
+	total := 2 * shardsPerOrder
+	var wg sync.WaitGroup
+	errs := make([]error, total)
+	var start sync.WaitGroup
+	start.Add(1)
+	run := func(errIdx, shardIndex int, order []string) {
+		defer wg.Done()
+		start.Wait()
+		var intervals []metrics.Interval
+		for j, label := range order {
+			intervals = append(intervals, metrics.Interval{
+				Seq: int64(j) + 1, Timestamp: 1000, Label: label,
+				Samples: 1, Succeeded: 1, Latency: metrics.Histogram{0.01: 1},
+			})
+		}
+		errs[errIdx] = repo.Absorb(ctx, ports.ProgressBatch{
+			RunID: 1, ScenarioID: 1, ShardIndex: shardIndex, StreamID: "s",
+			Intervals: intervals,
+		})
+	}
+	for i := 0; i < shardsPerOrder; i++ {
+		wg.Add(2)
+		go run(i, i, forward)
+		go run(shardsPerOrder+i, shardsPerOrder+i, backward)
+	}
+	start.Done()
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("Absorb %d: %v (want no deadlock)", i, err)
+		}
+	}
+
+	snap, err := repo.Snapshot(ctx, 1)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(snap.Labels) != len(forward) {
+		t.Fatalf("labels = %+v, want %d", snap.Labels, len(forward))
+	}
+	for _, l := range snap.Labels {
+		if l.Samples != int64(total) {
+			t.Errorf("label %q samples = %d, want %d (one per shard)", l.Label, l.Samples, total)
+		}
+	}
+}
+
 // A batch that merges into a label or signature already holding stored progress
 // takes the read-then-merge path, not the plain insert every other test here
 // exercises. Corrupting what is stored proves that path is reached and handled
