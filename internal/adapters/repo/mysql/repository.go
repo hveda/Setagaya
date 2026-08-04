@@ -62,7 +62,9 @@ func nullString(s string) any {
 	return s
 }
 
-func nullInt64(v *int64) any {
+// nullPtr converts an optional scalar to a value database/sql can bind as
+// NULL.
+func nullPtr[T any](v *T) any {
 	if v == nil {
 		return nil
 	}

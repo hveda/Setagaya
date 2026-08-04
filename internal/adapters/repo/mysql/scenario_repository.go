@@ -23,7 +23,7 @@ func (r *Repository) CreateScenario(ctx context.Context, p scenario.Scenario) (i
 		"INSERT INTO scenario (name, project_id, kind, engine, tenant_id, created_by, updated_by)"+
 			" VALUES (?, ?, ?, ?, ?, ?, ?)",
 		p.Name, p.ProjectID, string(p.Kind), string(p.Engine),
-		nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
+		nullPtr(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("mysql: create scenario: %w", err)

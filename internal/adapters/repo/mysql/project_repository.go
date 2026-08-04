@@ -17,7 +17,7 @@ const projectColumns = "id, name, owner, sid, tenant_id, created_by, updated_by,
 func (r *Repository) CreateProject(ctx context.Context, p project.Project) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		"INSERT INTO project (name, owner, sid, tenant_id, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?)",
-		p.Name, p.Owner, nullString(p.SID), nullInt64(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
+		p.Name, p.Owner, nullString(p.SID), nullPtr(p.TenantID), nullString(p.CreatedBy), nullString(p.UpdatedBy),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("mysql: create project: %w", err)

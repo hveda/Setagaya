@@ -19,7 +19,7 @@ func (r *Repository) CreateExecution(ctx context.Context, c execution.Execution)
 	res, err := r.db.ExecContext(ctx,
 		"INSERT INTO execution (name, project_id, engine, csv_split, tenant_id, created_by, updated_by)"+
 			" VALUES (?, ?, ?, ?, ?, ?, ?)",
-		c.Name, c.ProjectID, string(c.Engine), boolToInt(c.CSVSplit), nullInt64(c.TenantID), nullString(c.CreatedBy), nullString(c.UpdatedBy),
+		c.Name, c.ProjectID, string(c.Engine), boolToInt(c.CSVSplit), nullPtr(c.TenantID), nullString(c.CreatedBy), nullString(c.UpdatedBy),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("mysql: create execution: %w", err)

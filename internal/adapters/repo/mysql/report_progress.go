@@ -65,19 +65,10 @@ func (r *Repository) Absorb(ctx context.Context, b ports.ProgressBatch) error {
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE report_progress_shard SET seq=?, finished=finished|?, exit_code=COALESCE(?, exit_code)
 		 WHERE run_id=? AND scenario_id=? AND shard_index=?`,
-		highest, boolToInt(b.Final), nullIntPtr(b.ExitCode), b.RunID, b.ScenarioID, b.ShardIndex); err != nil {
+		highest, boolToInt(b.Final), nullPtr(b.ExitCode), b.RunID, b.ScenarioID, b.ShardIndex); err != nil {
 		return fmt.Errorf("mysql: advance shard progress: %w", err)
 	}
 	return tx.Commit()
-}
-
-// nullIntPtr converts an optional int to a value database/sql can bind as
-// NULL, mirroring nullInt64 for the *int64 case elsewhere in this package.
-func nullIntPtr(v *int) any {
-	if v == nil {
-		return nil
-	}
-	return *v
 }
 
 // lockShard takes the shard's row for update and returns the sequence already
