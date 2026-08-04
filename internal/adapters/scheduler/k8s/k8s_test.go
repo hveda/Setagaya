@@ -399,6 +399,43 @@ func TestK8sScheduler_SidecarDoesNotExitAfterItsFinalPush(t *testing.T) {
 	}
 }
 
+// The container must keep running even after a crash -- restarting it would
+// hit the same stale-stream double-counting problem staying alive after a
+// clean exit avoids -- but a crash that leaves no trace anywhere is a shard
+// that silently stops reporting with no way for an operator to learn why.
+func TestK8sScheduler_SidecarLogsItsExitCodeOnCrash(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{
+		Namespace: ns, SidecarImage: "honryu/sidecar:1", IngestURL: "http://control/api/ingest",
+	})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(1),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, engine.ScenarioName(1, 2, 3), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	side := containerNamed(t, set, "sidecar")
+	script := strings.Join(side.Command, " ")
+
+	if !strings.Contains(script, "code=$?") {
+		t.Errorf("sidecar script does not capture its own exit code: %q", script)
+	}
+	if !strings.Contains(script, `echo "honryu-sidecar exited $code"`) {
+		t.Errorf("sidecar script does not log a non-zero exit: %q", script)
+	}
+	// The log line must run before the container is kept alive, or a crash
+	// right before that line would still vanish without a trace.
+	if i, j := strings.Index(script, "honryu-sidecar exited"), strings.Index(script, "exec tail"); i < 0 || j < 0 || i > j {
+		t.Errorf("crash log must precede exec tail -f /dev/null: %q", script)
+	}
+}
+
 // A re-deploy may change the shard plan, so the configs are replaced rather than
 // left describing the previous run.
 func TestK8sScheduler_RedeployReplacesShardConfigs(t *testing.T) {

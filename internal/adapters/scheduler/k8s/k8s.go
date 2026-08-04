@@ -344,9 +344,19 @@ exec tail -f /dev/null`
 // would re-read the KPI stream from the start under a new stream id -- which
 // the control plane would take for an unrelated stream and absorb all over
 // again, doubling every measurement already pushed.
+//
+// A crash is logged to stderr rather than let its exit code propagate as the
+// container's own. Letting it propagate would make kubelet's CrashLoopBackOff
+// the visible signal, but a restart hits exactly the stale-stream problem the
+// paragraph above describes: nothing here lets a restarted sidecar resume a
+// stream instead of re-reading it from the start, so trading a silent hang
+// for a silently doubled report is not the fix. A log line is the one signal
+// available that costs nothing extra to be wrong about.
 func (s *Scheduler) sidecarScript(spec ports.DeploySpec) string {
 	return fmt.Sprintf(`ORDINAL="${HOSTNAME##*-}"
 /honryu-sidecar -stream %s -exit-code %s -ingest-url %q -execution-id %d -scenario-id %d -shard-index "${ORDINAL}"
+code=$?
+if [ "$code" -ne 0 ]; then echo "honryu-sidecar exited $code" >&2; fi
 exec tail -f /dev/null`,
 		kpiStream, kpiExitCode, s.ingestURL, spec.ExecutionID, spec.ScenarioID)
 }
