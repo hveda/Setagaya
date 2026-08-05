@@ -38,6 +38,9 @@ type Repo interface {
 	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
 	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
 	ScenarioFilesFor(ctx context.Context, scenarioID int64) (ports.ScenarioFiles, error)
+	// GetScenarioRequests returns a portable scenario's declarative workload.
+	// ErrNotFound means nothing has been uploaded yet.
+	GetScenarioRequests(ctx context.Context, scenarioID int64) ([]byte, error)
 	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
 	ports.RunRepository
 }
@@ -409,8 +412,32 @@ func (s *Service) compileShards(
 	}
 
 	si := compile.ScenarioInput{Scenario: sc}
-	if sc.Kind == scenario.KindNative {
+	switch sc.Kind {
+	case scenario.KindNative:
 		si.ScriptPath = podScenarioPath + pf.TestFile
+	case scenario.KindPortable:
+		raw, reqErr := s.repo.GetScenarioRequests(ctx, entry.ScenarioID)
+		switch {
+		case errors.Is(reqErr, ports.ErrNotFound):
+			// Nothing uploaded yet. si.Requests stays nil, and
+			// compile.Taurus's own ErrRequestsRequired surfaces below --
+			// the same error a portable scenario has always failed to
+			// deploy with, not a new, duplicate check.
+		case reqErr != nil:
+			return nil, nil, fmt.Errorf("lifecycleapp: scenario %d requests: %w", entry.ScenarioID, reqErr)
+		default:
+			var frag taurus.Scenario
+			if err := yaml.Unmarshal(raw, &frag); err != nil {
+				// scenarioapp.SetRequests validates before storing, so a
+				// stored fragment that fails to parse here would mean the
+				// stored bytes were corrupted after the fact, not a bad
+				// upload -- worth its own error rather than silently
+				// falling through to "no requests".
+				return nil, nil, fmt.Errorf("lifecycleapp: scenario %d stored requests: %w", entry.ScenarioID, err)
+			}
+			si.Requests = frag.Requests
+			si.DefaultAddress = frag.DefaultAddress
+		}
 	}
 	for _, name := range pf.Data {
 		si.DataPaths = append(si.DataPaths, podScenarioPath+name)

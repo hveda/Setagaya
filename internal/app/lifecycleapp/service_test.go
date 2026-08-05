@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/domain/compile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
@@ -783,6 +784,91 @@ func TestDeploy_CompilesAConfigPerShard(t *testing.T) {
 	// The script the configs point at has to travel with them.
 	if _, ok := spec.ScenarioFiles["test.jmx"]; !ok {
 		t.Errorf("scenario files = %v, want the test plan", spec.ScenarioFiles)
+	}
+}
+
+// A portable scenario compiles compile.ScenarioInput.Requests from whatever
+// was uploaded via scenarioapp.SetRequests -- this is the wiring that makes a
+// portable scenario runnable at all, not just able to accept an upload.
+func TestDeploy_PortableScenarioCompilesUploadedRequests(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := execution.New("peak", projectID)
+	executionID, _ := store.CreateExecution(ctx, coll)
+
+	pl, _ := scenario.New("portable", projectID)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /checkout\n")
+	if err := store.SetScenarioRequests(ctx, scenarioID, raw); err != nil {
+		t.Fatalf("SetScenarioRequests: %v", err)
+	}
+
+	tests := []loadprofile.Entry{{Name: "p", ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: 1, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, tests); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	sched := fake.NewScheduler()
+	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
+	if err := svc.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	spec, ok := sched.LastDeploy(executionID, scenarioID)
+	if !ok {
+		t.Fatal("nothing was deployed")
+	}
+	if len(spec.Shards) != 1 {
+		t.Fatalf("deployed %d shards, want 1", len(spec.Shards))
+	}
+	var cfg taurus.Config
+	if err := yaml.Unmarshal(spec.Shards[0].Config, &cfg); err != nil {
+		t.Fatalf("shard config is not valid YAML: %v", err)
+	}
+	if len(cfg.Scenarios) != 1 {
+		t.Fatalf("compiled config has %d scenarios, want 1", len(cfg.Scenarios))
+	}
+	for _, ts := range cfg.Scenarios {
+		if ts.DefaultAddress != "http://example.com" {
+			t.Errorf("default-address = %q, want http://example.com", ts.DefaultAddress)
+		}
+		if len(ts.Requests) != 1 || ts.Requests[0].URL != "/checkout" {
+			t.Errorf("requests = %+v, want one request to /checkout", ts.Requests)
+		}
+	}
+}
+
+// A portable scenario with nothing uploaded must fail exactly the way it
+// always has -- compile.ErrRequestsRequired -- not hang or silently deploy
+// with an empty workload.
+func TestDeploy_PortableScenarioWithoutRequestsFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := execution.New("peak", projectID)
+	executionID, _ := store.CreateExecution(ctx, coll)
+
+	pl, _ := scenario.New("portable", projectID)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+
+	tests := []loadprofile.Entry{{Name: "p", ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: 1, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, tests); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	sched := fake.NewScheduler()
+	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
+	if err := svc.Deploy(ctx, executionID); !errors.Is(err, compile.ErrRequestsRequired) {
+		t.Fatalf("Deploy(portable, no requests) = %v, want ErrRequestsRequired", err)
 	}
 }
 
