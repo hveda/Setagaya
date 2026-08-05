@@ -124,6 +124,45 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 	})
 
+	// A portable scenario's declarative requests fragment: nothing uploaded
+	// yet must read as ErrNotFound (not an empty byte slice, which would be
+	// indistinguishable from "uploaded an empty fragment"), and a later
+	// upload must overwrite rather than merge with the one before it.
+	t.Run("RequestsRoundTrip", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		id := mustCreateScenario(t, repo, "portable", 10)
+
+		if _, err := repo.GetScenarioRequests(ctx, id); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("GetScenarioRequests before any upload = %v, want ErrNotFound", err)
+		}
+
+		first := []byte("requests:\n  - url: http://example.com/one\n")
+		if err := repo.SetScenarioRequests(ctx, id, first); err != nil {
+			t.Fatalf("SetScenarioRequests: %v", err)
+		}
+		got, err := repo.GetScenarioRequests(ctx, id)
+		if err != nil {
+			t.Fatalf("GetScenarioRequests: %v", err)
+		}
+		if string(got) != string(first) {
+			t.Errorf("GetScenarioRequests = %q, want %q", got, first)
+		}
+
+		second := []byte("requests:\n  - url: http://example.com/two\n")
+		if err := repo.SetScenarioRequests(ctx, id, second); err != nil {
+			t.Fatalf("SetScenarioRequests (overwrite): %v", err)
+		}
+		got, err = repo.GetScenarioRequests(ctx, id)
+		if err != nil {
+			t.Fatalf("GetScenarioRequests after overwrite: %v", err)
+		}
+		if string(got) != string(second) {
+			t.Errorf("GetScenarioRequests after overwrite = %q, want %q (not merged with the first upload)", got, second)
+		}
+	})
+
 	t.Run("CreateGetListDelete", func(t *testing.T) {
 		repo := newRepo(t)
 		ctx := context.Background()

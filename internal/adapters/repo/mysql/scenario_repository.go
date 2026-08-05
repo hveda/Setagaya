@@ -152,6 +152,33 @@ func (r *Repository) SetScenarioKind(ctx context.Context, scenarioID int64, kind
 	return nil
 }
 
+// SetScenarioRequests stores a portable scenario's declarative workload,
+// overwriting whatever was stored before -- PUT semantics, no partial patch.
+func (r *Repository) SetScenarioRequests(ctx context.Context, scenarioID int64, raw []byte) error {
+	_, err := r.db.ExecContext(ctx,
+		"INSERT INTO scenario_requests (scenario_id, raw) VALUES (?, ?)"+
+			" ON DUPLICATE KEY UPDATE raw = VALUES(raw)",
+		scenarioID, raw)
+	if err != nil {
+		return fmt.Errorf("mysql: set scenario requests: %w", err)
+	}
+	return nil
+}
+
+// GetScenarioRequests returns a portable scenario's stored fragment, or
+// ports.ErrNotFound if nothing has been uploaded yet.
+func (r *Repository) GetScenarioRequests(ctx context.Context, scenarioID int64) ([]byte, error) {
+	var raw []byte
+	err := r.db.QueryRowContext(ctx, "SELECT raw FROM scenario_requests WHERE scenario_id = ?", scenarioID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ports.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mysql: get scenario requests: %w", err)
+	}
+	return raw, nil
+}
+
 // ScenarioInUse reports whether the scenario is referenced by any execution's
 // execution configuration.
 func (r *Repository) ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error) {

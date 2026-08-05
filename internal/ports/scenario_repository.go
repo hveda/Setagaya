@@ -35,6 +35,16 @@ type ScenarioRepository interface {
 	// what decides this, so it changes after creation.
 	SetScenarioKind(ctx context.Context, scenarioID int64, kind scenario.Kind, engine taurus.Executor) error
 
+	// SetScenarioRequests stores a portable scenario's declarative workload, as
+	// the raw bytes of a Taurus `scenarios:` YAML fragment the caller has
+	// already parsed and validated. Raw, not a parsed struct: the encoding is
+	// the caller's concern, and storing exactly what was uploaded avoids any
+	// lossy round-trip through re-marshaling.
+	SetScenarioRequests(ctx context.Context, scenarioID int64, raw []byte) error
+	// GetScenarioRequests returns a portable scenario's stored fragment.
+	// ErrNotFound means nothing has been uploaded yet.
+	GetScenarioRequests(ctx context.Context, scenarioID int64) ([]byte, error)
+
 	// ScenarioInUse reports whether the scenario is referenced by any execution's
 	// execution configuration.
 	ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error)

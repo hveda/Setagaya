@@ -32,10 +32,11 @@ type Store struct {
 	projectSeq int64
 	projects   map[int64]project.Project
 
-	planSeq   int64
-	scenarios map[int64]scenario.Scenario
-	planTest  map[int64]string              // scenarioID -> JMX filename
-	planData  map[int64]map[string]struct{} // scenarioID -> data filenames
+	planSeq          int64
+	scenarios        map[int64]scenario.Scenario
+	planTest         map[int64]string              // scenarioID -> JMX filename
+	planData         map[int64]map[string]struct{} // scenarioID -> data filenames
+	scenarioRequests map[int64][]byte              // scenarioID -> raw requests fragment
 
 	collSeq    int64
 	executions map[int64]execution.Execution
@@ -65,22 +66,23 @@ type Store struct {
 // NewStore returns an empty in-memory Store.
 func NewStore() *Store {
 	return &Store{
-		now:            time.Now,
-		projects:       make(map[int64]project.Project),
-		scenarios:      make(map[int64]scenario.Scenario),
-		planTest:       make(map[int64]string),
-		planData:       make(map[int64]map[string]struct{}),
-		executions:     make(map[int64]execution.Execution),
-		execData:       make(map[int64]map[string]struct{}),
-		exec:           make(map[int64][]loadprofile.Entry),
-		currentRun:     make(map[int64]int64),
-		runHistory:     make(map[int64]*ports.RunRecord),
-		running:        make(map[int64]map[int64]time.Time),
-		deployContext:  "default",
-		openLaunch:     make(map[int64]*ports.LaunchRecord),
-		tenants:        make(map[int64]tenant.Tenant),
-		ReportProgress: NewReportProgress(),
-		ReportStore:    NewReportStore(),
+		now:              time.Now,
+		projects:         make(map[int64]project.Project),
+		scenarios:        make(map[int64]scenario.Scenario),
+		planTest:         make(map[int64]string),
+		planData:         make(map[int64]map[string]struct{}),
+		scenarioRequests: make(map[int64][]byte),
+		executions:       make(map[int64]execution.Execution),
+		execData:         make(map[int64]map[string]struct{}),
+		exec:             make(map[int64][]loadprofile.Entry),
+		currentRun:       make(map[int64]int64),
+		runHistory:       make(map[int64]*ports.RunRecord),
+		running:          make(map[int64]map[int64]time.Time),
+		deployContext:    "default",
+		openLaunch:       make(map[int64]*ports.LaunchRecord),
+		tenants:          make(map[int64]tenant.Tenant),
+		ReportProgress:   NewReportProgress(),
+		ReportStore:      NewReportStore(),
 	}
 }
 
@@ -228,6 +230,7 @@ func (s *Store) DeleteScenario(_ context.Context, id int64) error {
 	delete(s.scenarios, id)
 	delete(s.planTest, id)
 	delete(s.planData, id)
+	delete(s.scenarioRequests, id)
 	return nil
 }
 
@@ -290,6 +293,31 @@ func (s *Store) SetScenarioKind(_ context.Context, scenarioID int64, kind scenar
 	sc.Engine = engine
 	s.scenarios[scenarioID] = sc
 	return nil
+}
+
+// SetScenarioRequests stores a portable scenario's declarative workload,
+// overwriting whatever was stored before.
+func (s *Store) SetScenarioRequests(_ context.Context, scenarioID int64, raw []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stored := make([]byte, len(raw))
+	copy(stored, raw)
+	s.scenarioRequests[scenarioID] = stored
+	return nil
+}
+
+// GetScenarioRequests returns a portable scenario's stored fragment, or
+// ports.ErrNotFound if nothing has been uploaded yet.
+func (s *Store) GetScenarioRequests(_ context.Context, scenarioID int64) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	raw, ok := s.scenarioRequests[scenarioID]
+	if !ok {
+		return nil, ports.ErrNotFound
+	}
+	out := make([]byte, len(raw))
+	copy(out, raw)
+	return out, nil
 }
 
 func (s *Store) ScenarioInUse(_ context.Context, scenarioID int64) (bool, error) {
