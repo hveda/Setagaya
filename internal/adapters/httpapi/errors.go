@@ -32,7 +32,7 @@ var badRequestErrors = []error{
 	execution.ErrNameRequired, execution.ErrNameTooLong, execution.ErrProjectRequired,
 	loadprofile.ErrScenarioRequired, loadprofile.ErrEnginesInvalid, loadprofile.ErrConcurrencyInvalid,
 	loadprofile.ErrDurationInvalid, loadprofile.ErrNoScenarios,
-	scenarioapp.ErrInvalidFilename,
+	scenarioapp.ErrInvalidFilename, scenarioapp.ErrRequestsInvalid,
 	// An unusable JMeter plan is the caller's file, not a server fault: the
 	// import must say which of the three ways it was unusable.
 	jmx.ErrMalformed, jmx.ErrNotJMX, jmx.ErrNoTestPlan,

@@ -555,6 +555,39 @@ paths:
         '204': { $ref: '#/components/responses/NoContent' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/scenarios/{scenario_id}/requests:
+    put:
+      tags: [scenarios]
+      summary: Upload a portable scenario's declarative workload
+      description: |
+        A Taurus `scenarios:` fragment (requests, default-address, headers,
+        data-sources) -- the same shape Taurus itself expects, not a separate
+        request-definition vocabulary. Only meaningful for a portable
+        scenario; an engine-native scenario runs its uploaded script instead.
+        Replaces whatever was uploaded before in full -- there is no partial
+        patch.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/executions:
     post:
       tags: [executions]

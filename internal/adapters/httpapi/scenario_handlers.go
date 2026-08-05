@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -157,6 +158,37 @@ func (h *handlers) uploadScenarioFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "uploaded"})
+}
+
+// setScenarioRequests uploads a portable scenario's declarative workload, as
+// the raw bytes of a Taurus `scenarios:` fragment -- scenarioapp.SetRequests
+// does the parsing and validation, so this handler only moves bytes.
+func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "scenario_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
+		return
+	}
+	if err := h.authorizeScenario(r, id); err != nil {
+		respondError(w, err)
+		return
+	}
+	file, _, err := parseUpload(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid file upload")
+		return
+	}
+	defer func() { _ = file.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(file, maxUploadBytes))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read requests")
+		return
+	}
+	if err := h.deps.Scenarios.SetRequests(r.Context(), id, raw); err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "requests stored"})
 }
 
 func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {

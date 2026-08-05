@@ -86,6 +86,48 @@ func TestFileEndpointsHappyPath(t *testing.T) {
 	}
 }
 
+// A portable scenario has nothing to compile until its declarative requests
+// are uploaded; this exercises the endpoint that supplies them end to end
+// through the router, not just the service method underneath it.
+func TestScenarioRequests_UploadHappyPath(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}}))
+	scenarioID := decodeID(t, postForm(t, h, "/api/scenarios", url.Values{"name": {"portable"}, "project_id": {itoa(projectID)}}))
+
+	rec := putMultipart(t, h, "/api/scenarios/"+itoa(scenarioID)+"/requests", "requests.yml",
+		"requests:\n  - url: /checkout\n")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload requests = %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScenarioRequests_RejectsInvalidFragment(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}}))
+	scenarioID := decodeID(t, postForm(t, h, "/api/scenarios", url.Values{"name": {"portable"}, "project_id": {itoa(projectID)}}))
+
+	// Valid YAML, but no requests -- rejected as a bad upload, not silently
+	// accepted and left to fail at deploy time instead.
+	rec := putMultipart(t, h, "/api/scenarios/"+itoa(scenarioID)+"/requests", "requests.yml", "default-address: http://example.com\n")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("upload requests with none = %d, want 400 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScenarioRequests_UnknownScenarioIs404(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	rec := putMultipart(t, h, "/api/scenarios/999999/requests", "requests.yml", "requests:\n  - url: /checkout\n")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("upload requests for unknown scenario = %d, want 404 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandlers_InvalidID_400(t *testing.T) {
 	t.Parallel()
 	h := newFullRouter(t)
@@ -98,6 +140,7 @@ func TestHandlers_InvalidID_400(t *testing.T) {
 		{http.MethodGet, "/api/scenarios/x/files"},
 		{http.MethodPut, "/api/scenarios/x/files"},
 		{http.MethodDelete, "/api/scenarios/x/files"},
+		{http.MethodPut, "/api/scenarios/x/requests"},
 		{http.MethodGet, "/api/executions/x"},
 		{http.MethodDelete, "/api/executions/x"},
 		{http.MethodGet, "/api/executions/x/files"},
