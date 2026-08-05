@@ -11,6 +11,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
+	"github.com/heridotlife/honryu/internal/domain/compile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/jmx"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
@@ -39,6 +40,10 @@ var badRequestErrors = []error{
 	executionapp.ErrInvalidFilename, executionapp.ErrExecutionMismatch,
 	executionapp.ErrScenarioNotInProject, executionapp.ErrEngineLimit,
 	run.ErrNoScenarios, lifecycleapp.ErrNoTestFile,
+	// A portable scenario deployed with no requests uploaded yet is a
+	// configuration gap on the caller's side, the same as a native scenario
+	// with no script (ErrNoTestFile above) -- not a server fault.
+	compile.ErrRequestsRequired,
 	tenant.ErrNameRequired, tenant.ErrNameTooLong, tenant.ErrNameInvalid,
 	tenant.ErrDisplayNameRequired, tenant.ErrStatusInvalid,
 	// An unsequenced batch is a sidecar contract violation, not a transient

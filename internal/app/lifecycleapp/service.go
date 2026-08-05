@@ -593,8 +593,18 @@ func (s *Service) Resume(ctx context.Context) ([]ports.RunningScenario, error) {
 
 // --- helpers ----------------------------------------------------------------
 
+// ensureTestFiles requires an uploaded script for every native scenario in
+// the profile -- a portable scenario runs from its declarative requests
+// instead (see compileShards), and has no test file to check for.
 func (s *Service) ensureTestFiles(ctx context.Context, scenarios []loadprofile.Entry) error {
 	for _, ep := range scenarios {
+		sc, err := s.repo.GetScenario(ctx, ep.ScenarioID)
+		if err != nil {
+			return err
+		}
+		if sc.Kind != scenario.KindNative {
+			continue
+		}
 		pf, err := s.repo.ScenarioFilesFor(ctx, ep.ScenarioID)
 		if err != nil {
 			return err
