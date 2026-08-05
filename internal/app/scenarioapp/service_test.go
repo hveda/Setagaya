@@ -132,6 +132,24 @@ func TestSetRequests_ValidFragmentPersists(t *testing.T) {
 	}
 }
 
+// A scenario pinned native by an uploaded script has nothing that ever reads
+// stored requests (compileShards only checks for a portable scenario), so
+// accepting an upload here would silently store data nothing will ever use.
+func TestSetRequests_RejectsNativeScenario(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "will-be-native", 10)
+	if err := svc.UploadFile(ctx, p.ID, "scenario.jmx", strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+
+	raw := []byte("requests:\n  - url: /checkout\n")
+	if err := svc.SetRequests(ctx, p.ID, raw); !errors.Is(err, scenarioapp.ErrScenarioNotPortable) {
+		t.Fatalf("SetRequests(native scenario) = %v, want ErrScenarioNotPortable", err)
+	}
+}
+
 func TestSetRequests_UnknownScenario(t *testing.T) {
 	t.Parallel()
 	svc, _, _ := newScenarioService(t)

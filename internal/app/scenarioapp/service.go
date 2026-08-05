@@ -22,9 +22,10 @@ import (
 
 // Business-rule errors. Callers compare with errors.Is.
 var (
-	ErrScenarioInUse   = errors.New("scenarioapp: scenario is in use by an execution")
-	ErrInvalidFilename = errors.New("scenarioapp: invalid filename")
-	ErrRequestsInvalid = errors.New("scenarioapp: requests fragment is invalid")
+	ErrScenarioInUse       = errors.New("scenarioapp: scenario is in use by an execution")
+	ErrInvalidFilename     = errors.New("scenarioapp: invalid filename")
+	ErrRequestsInvalid     = errors.New("scenarioapp: requests fragment is invalid")
+	ErrScenarioNotPortable = errors.New("scenarioapp: scenario is not portable")
 )
 
 // Repo is the repository surface the scenario service needs.
@@ -238,11 +239,20 @@ func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename str
 // rejected with a clear reason at upload time, rather than only surfacing as
 // compile.ErrRequestsRequired the next time the scenario is deployed.
 //
+// Rejected for a native scenario: compileShards never reads a native
+// scenario's stored requests (it runs the uploaded script instead), so
+// accepting the upload here would silently store data nothing will ever use
+// -- a success response indistinguishable from a meaningful one.
+//
 // raw is stored exactly as uploaded, not the re-marshaled struct: a caller's
 // YAML formatting, comments, and key order survive untouched.
 func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte) error {
-	if _, err := s.repo.GetScenario(ctx, scenarioID); err != nil {
+	sc, err := s.repo.GetScenario(ctx, scenarioID)
+	if err != nil {
 		return err
+	}
+	if sc.Kind != scenario.KindPortable {
+		return fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
 	}
 	var frag taurus.Scenario
 	if err := yaml.Unmarshal(raw, &frag); err != nil {

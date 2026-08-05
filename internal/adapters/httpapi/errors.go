@@ -55,7 +55,7 @@ var badRequestErrors = []error{
 // conflictErrors are state conflicts → HTTP 409.
 var conflictErrors = []error{
 	ports.ErrFileExists,
-	scenarioapp.ErrScenarioInUse,
+	scenarioapp.ErrScenarioInUse, scenarioapp.ErrScenarioNotPortable,
 	projectapp.ErrProjectHasScenarios, projectapp.ErrProjectHasExecutions,
 	run.ErrNotDeployed, run.ErrEnginesNotReady, run.ErrAlreadyRunning, run.ErrNotRunning,
 	ports.ErrEnginesUnreachable, ports.ErrRunActive,

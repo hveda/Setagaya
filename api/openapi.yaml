@@ -562,10 +562,11 @@ paths:
       description: |
         A Taurus `scenarios:` fragment (requests, default-address, headers,
         data-sources) -- the same shape Taurus itself expects, not a separate
-        request-definition vocabulary. Only meaningful for a portable
-        scenario; an engine-native scenario runs its uploaded script instead.
-        Replaces whatever was uploaded before in full -- there is no partial
-        patch.
+        request-definition vocabulary. Only valid for a portable scenario; an
+        engine-native scenario (pinned by an uploaded script) rejects this
+        with a conflict, since it runs its script instead and would never
+        read a stored fragment. Replaces whatever was uploaded before in
+        full -- there is no partial patch.
       requestBody:
         required: true
         content:
@@ -587,6 +588,7 @@ paths:
                   message: { type: string }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /api/executions:
     post:

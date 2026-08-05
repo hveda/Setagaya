@@ -118,6 +118,23 @@ func TestScenarioRequests_RejectsInvalidFragment(t *testing.T) {
 	}
 }
 
+// A scenario already pinned native by an uploaded script has nothing that
+// ever reads stored requests -- accepting the upload would be a silent no-op,
+// so it is rejected as a conflict instead.
+func TestScenarioRequests_RejectsNativeScenarioIs409(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	projectID := decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}}))
+	scenarioID := decodeID(t, postForm(t, h, "/api/scenarios", url.Values{"name": {"native"}, "project_id": {itoa(projectID)}}))
+	putMultipart(t, h, "/api/scenarios/"+itoa(scenarioID)+"/files", "scenario.jmx", "<jmx/>")
+
+	rec := putMultipart(t, h, "/api/scenarios/"+itoa(scenarioID)+"/requests", "requests.yml", "requests:\n  - url: /checkout\n")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("upload requests for native scenario = %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestScenarioRequests_UnknownScenarioIs404(t *testing.T) {
 	t.Parallel()
 	h := newFullRouter(t)
