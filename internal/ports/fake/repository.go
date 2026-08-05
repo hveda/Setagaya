@@ -13,6 +13,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/domain/tenant"
@@ -56,6 +57,9 @@ type Store struct {
 	tenants   map[int64]tenant.Tenant
 	grants    []ports.RoleGrant // role assignments, deduped by subject/role/tenant
 
+	reservationSeq int64
+	reservations   map[int64]reservation.Reservation
+
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
 	// rest of Store the way scenarios and executions tie to each other.
@@ -81,6 +85,7 @@ func NewStore() *Store {
 		deployContext:    "default",
 		openLaunch:       make(map[int64]*ports.LaunchRecord),
 		tenants:          make(map[int64]tenant.Tenant),
+		reservations:     make(map[int64]reservation.Reservation),
 		ReportProgress:   NewReportProgress(),
 		ReportStore:      NewReportStore(),
 	}
@@ -107,6 +112,7 @@ var (
 	_ ports.RoleAssignmentRepository = (*Store)(nil)
 	_ ports.ReportProgress           = (*Store)(nil)
 	_ ports.ReportStore              = (*Store)(nil)
+	_ ports.ReservationRepository    = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------

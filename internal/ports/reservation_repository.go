@@ -1,0 +1,22 @@
+package ports
+
+import (
+	"context"
+	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/reservation"
+)
+
+// ReservationRepository persists time-bounded engine-capacity reservations --
+// the ledger that makes quota a guarantee rather than a best-effort check.
+type ReservationRepository interface {
+	// CreateReservation persists r and returns its assigned ID.
+	CreateReservation(ctx context.Context, r reservation.Reservation) (int64, error)
+	// DeleteReservation removes a reservation, freeing its capacity
+	// immediately rather than waiting for its declared end time.
+	DeleteReservation(ctx context.Context, id int64) error
+	// ReservationsInWindow returns every reservation for tenant+cluster whose
+	// window overlaps [start, end) -- the query a quota check runs to decide
+	// whether a new reservation fits.
+	ReservationsInWindow(ctx context.Context, tenantID int64, cluster string, start, end time.Time) ([]reservation.Reservation, error)
+}

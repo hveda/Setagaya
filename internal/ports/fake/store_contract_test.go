@@ -43,3 +43,10 @@ func TestFakeStore_RoleAssignmentContract(t *testing.T) {
 		return fake.NewStore()
 	})
 }
+
+func TestFakeStore_ReservationContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunReservationRepositoryContract(t, func(_ *testing.T) ports.ReservationRepository {
+		return fake.NewStore()
+	})
+}
