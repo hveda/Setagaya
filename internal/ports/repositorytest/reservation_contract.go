@@ -109,6 +109,43 @@ func RunReservationRepositoryContract(t *testing.T, newRepo NewReservationRepo) 
 			t.Fatalf("ReservationsInWindow = %+v, want only tenant 1's default-cluster reservation", got)
 		}
 	})
+
+	// An unconfigured ceiling reads as 0 -- unconfigured, not unlimited -- and
+	// is scoped per cluster, not shared across a tenant's clusters.
+	t.Run("CeilingDefaultsToZeroAndIsPerCluster", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		got, err := repo.GetCeiling(ctx, 1, "default")
+		if err != nil {
+			t.Fatalf("GetCeiling before configured: %v", err)
+		}
+		if got != 0 {
+			t.Fatalf("GetCeiling before configured = %d, want 0", got)
+		}
+
+		if err := repo.SetCeiling(ctx, 1, "default", 10); err != nil {
+			t.Fatalf("SetCeiling: %v", err)
+		}
+		got, err = repo.GetCeiling(ctx, 1, "default")
+		if err != nil {
+			t.Fatalf("GetCeiling: %v", err)
+		}
+		if got != 10 {
+			t.Fatalf("GetCeiling = %d, want 10", got)
+		}
+
+		if got, err := repo.GetCeiling(ctx, 1, "eu-west"); err != nil || got != 0 {
+			t.Fatalf("GetCeiling(other cluster) = %d,%v, want 0,nil -- ceiling is per cluster", got, err)
+		}
+
+		if err := repo.SetCeiling(ctx, 1, "default", 20); err != nil {
+			t.Fatalf("SetCeiling (overwrite): %v", err)
+		}
+		if got, err := repo.GetCeiling(ctx, 1, "default"); err != nil || got != 20 {
+			t.Fatalf("GetCeiling after overwrite = %d,%v, want 20,nil", got, err)
+		}
+	})
 }
 
 func mustReserve(t *testing.T, repo ports.ReservationRepository, tenantID int64, cluster string, start, end time.Time, executionID int64) int64 {

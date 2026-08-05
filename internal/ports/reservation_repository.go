@@ -19,4 +19,11 @@ type ReservationRepository interface {
 	// window overlaps [start, end) -- the query a quota check runs to decide
 	// whether a new reservation fits.
 	ReservationsInWindow(ctx context.Context, tenantID int64, cluster string, start, end time.Time) ([]reservation.Reservation, error)
+
+	// GetCeiling returns a tenant's engine quota ceiling for cluster, or 0 if
+	// never configured -- nothing runs until a ceiling is explicitly set,
+	// rather than defaulting to unlimited.
+	GetCeiling(ctx context.Context, tenantID int64, cluster string) (int, error)
+	// SetCeiling sets a tenant's per-cluster engine quota ceiling.
+	SetCeiling(ctx context.Context, tenantID int64, cluster string, ceiling int) error
 }

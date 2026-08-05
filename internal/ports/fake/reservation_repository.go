@@ -46,3 +46,26 @@ func (s *Store) ReservationsInWindow(_ context.Context, tenantID int64, cluster 
 	}
 	return out, nil
 }
+
+// quotaKey identifies a tenant's ceiling within one cluster.
+type quotaKey struct {
+	tenantID int64
+	cluster  string
+}
+
+// GetCeiling returns a tenant's quota ceiling for cluster, or 0 if never
+// configured.
+func (s *Store) GetCeiling(_ context.Context, tenantID int64, cluster string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.quotaCeilings[quotaKey{tenantID, cluster}], nil
+}
+
+// SetCeiling sets a tenant's per-cluster quota ceiling, overwriting whatever
+// was configured before.
+func (s *Store) SetCeiling(_ context.Context, tenantID int64, cluster string, ceiling int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.quotaCeilings[quotaKey{tenantID, cluster}] = ceiling
+	return nil
+}

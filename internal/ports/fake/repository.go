@@ -59,6 +59,7 @@ type Store struct {
 
 	reservationSeq int64
 	reservations   map[int64]reservation.Reservation
+	quotaCeilings  map[quotaKey]int // (tenantID, cluster) -> ceiling; absent means unconfigured
 
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
@@ -86,6 +87,7 @@ func NewStore() *Store {
 		openLaunch:       make(map[int64]*ports.LaunchRecord),
 		tenants:          make(map[int64]tenant.Tenant),
 		reservations:     make(map[int64]reservation.Reservation),
+		quotaCeilings:    make(map[quotaKey]int),
 		ReportProgress:   NewReportProgress(),
 		ReportStore:      NewReportStore(),
 	}

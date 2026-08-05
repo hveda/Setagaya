@@ -59,6 +59,7 @@ type repository interface {
 	ports.RoleAssignmentRepository
 	ports.ReportProgress
 	ports.ReportStore
+	ports.ReservationRepository
 }
 
 func main() {
@@ -127,7 +128,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Events:        bus,
 		Store:         store,
 		Auth:          authapp.NewService(authProvider, repo, cfg.Auth.EnableRBAC),
-		Tenants:       tenantapp.NewService(repo, repo),
+		Tenants:       tenantapp.NewService(repo, repo, repo),
 		Audit:         audit,
 		DefaultOwners: []string{"honryu"},
 	})

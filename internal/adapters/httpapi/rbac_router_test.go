@@ -45,7 +45,7 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 	audit := auditmem.New(nil)
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects: projectapp.NewService(store),
-		Tenants:  tenantapp.NewService(store, store),
+		Tenants:  tenantapp.NewService(store, store, store),
 		Auth:     auth,
 		Audit:    audit,
 	})

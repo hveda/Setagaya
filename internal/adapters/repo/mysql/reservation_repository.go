@@ -2,6 +2,8 @@ package mysql
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -65,4 +67,33 @@ func scanReservation(s rowScanner) (reservation.Reservation, error) {
 		return reservation.Reservation{}, err
 	}
 	return res, nil
+}
+
+// GetCeiling returns a tenant's quota ceiling for cluster, or 0 if never
+// configured -- absence is not an error, it is the normal unconfigured state.
+func (r *Repository) GetCeiling(ctx context.Context, tenantID int64, cluster string) (int, error) {
+	var ceiling int
+	err := r.db.QueryRowContext(ctx,
+		"SELECT ceiling FROM tenant_quota WHERE tenant_id = ? AND cluster = ?",
+		tenantID, cluster).Scan(&ceiling)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("mysql: get ceiling: %w", err)
+	}
+	return ceiling, nil
+}
+
+// SetCeiling sets a tenant's per-cluster quota ceiling, overwriting whatever
+// was configured before.
+func (r *Repository) SetCeiling(ctx context.Context, tenantID int64, cluster string, ceiling int) error {
+	_, err := r.db.ExecContext(ctx,
+		"INSERT INTO tenant_quota (tenant_id, cluster, ceiling) VALUES (?, ?, ?)"+
+			" ON DUPLICATE KEY UPDATE ceiling = VALUES(ceiling)",
+		tenantID, cluster, ceiling)
+	if err != nil {
+		return fmt.Errorf("mysql: set ceiling: %w", err)
+	}
+	return nil
 }

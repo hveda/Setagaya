@@ -998,6 +998,56 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/tenants/{tenant_id}/quota:
+    get:
+      tags: [tenants]
+      summary: Get a tenant's per-cluster engine quota ceiling
+      description: |
+        Reads as 0 when never configured -- unconfigured, not unlimited.
+        `cluster` defaults to the implicit default cluster (until Phase 8's
+        registry exists) when omitted.
+      parameters:
+        - { $ref: '#/components/parameters/TenantID' }
+        - name: cluster
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Ceiling
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cluster: { type: string }
+                  ceiling: { type: integer }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [tenants]
+      summary: Set a tenant's per-cluster engine quota ceiling
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [ceiling]
+              properties:
+                cluster: { type: string }
+                ceiling: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/tenants/{tenant_id}/roles:
     post:
       tags: [tenants]
