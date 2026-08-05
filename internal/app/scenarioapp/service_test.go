@@ -112,6 +112,96 @@ func TestFileLifecycle(t *testing.T) {
 	}
 }
 
+func TestSetRequests_ValidFragmentPersists(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /checkout\n")
+	if err := svc.SetRequests(ctx, p.ID, raw); err != nil {
+		t.Fatalf("SetRequests: %v", err)
+	}
+
+	got, err := store.GetScenarioRequests(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetScenarioRequests: %v", err)
+	}
+	if string(got) != string(raw) {
+		t.Errorf("stored requests = %q, want %q (stored exactly as uploaded, not re-marshaled)", got, raw)
+	}
+}
+
+func TestSetRequests_UnknownScenario(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	raw := []byte("requests:\n  - url: /checkout\n")
+	if err := svc.SetRequests(context.Background(), 999, raw); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("SetRequests(unknown scenario) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSetRequests_RejectsMalformedYAML(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	if err := svc.SetRequests(ctx, p.ID, []byte("not: [valid: yaml")); !errors.Is(err, scenarioapp.ErrRequestsInvalid) {
+		t.Fatalf("SetRequests(malformed YAML) = %v, want ErrRequestsInvalid", err)
+	}
+}
+
+func TestSetRequests_RejectsEmptyRequests(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	// Valid YAML, but no requests -- exactly what would otherwise reach
+	// compile.Taurus and only fail there as ErrRequestsRequired, with a worse
+	// error at the wrong layer.
+	if err := svc.SetRequests(ctx, p.ID, []byte("default-address: http://example.com\n")); !errors.Is(err, scenarioapp.ErrRequestsInvalid) {
+		t.Fatalf("SetRequests(no requests) = %v, want ErrRequestsInvalid", err)
+	}
+}
+
+func TestSetRequests_RejectsRequestWithNoURL(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	if err := svc.SetRequests(ctx, p.ID, []byte("requests:\n  - method: GET\n")); !errors.Is(err, scenarioapp.ErrRequestsInvalid) {
+		t.Fatalf("SetRequests(request with no url) = %v, want ErrRequestsInvalid", err)
+	}
+}
+
+// A later upload overwrites, never merges with, an earlier one -- PUT
+// semantics, matching the persistence layer's own contract.
+func TestSetRequests_LaterUploadOverwrites(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	if err := svc.SetRequests(ctx, p.ID, []byte("requests:\n  - url: /one\n")); err != nil {
+		t.Fatalf("SetRequests (first): %v", err)
+	}
+	second := []byte("requests:\n  - url: /two\n")
+	if err := svc.SetRequests(ctx, p.ID, second); err != nil {
+		t.Fatalf("SetRequests (second): %v", err)
+	}
+
+	got, err := store.GetScenarioRequests(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetScenarioRequests: %v", err)
+	}
+	if string(got) != string(second) {
+		t.Errorf("stored requests = %q, want %q (the second upload alone)", got, second)
+	}
+}
+
 func TestUploadFile_InvalidFilename(t *testing.T) {
 	t.Parallel()
 	svc, _, _ := newScenarioService(t)

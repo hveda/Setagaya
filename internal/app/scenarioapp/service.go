@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	yaml "gopkg.in/yaml.v3"
+
 	"github.com/heridotlife/honryu/internal/domain/jmx"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
@@ -22,6 +24,7 @@ import (
 var (
 	ErrScenarioInUse   = errors.New("scenarioapp: scenario is in use by an execution")
 	ErrInvalidFilename = errors.New("scenarioapp: invalid filename")
+	ErrRequestsInvalid = errors.New("scenarioapp: requests fragment is invalid")
 )
 
 // Repo is the repository surface the scenario service needs.
@@ -35,6 +38,7 @@ type Repo interface {
 	DeleteScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error
 	ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error)
 	SetScenarioKind(ctx context.Context, scenarioID int64, kind scenario.Kind, engine taurus.Executor) error
+	SetScenarioRequests(ctx context.Context, scenarioID int64, raw []byte) error
 }
 
 // Service provides scenario use-cases.
@@ -226,6 +230,33 @@ func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename str
 		return err
 	}
 	return s.store.Delete(ctx, scenarioKey(scenarioID, filename))
+}
+
+// SetRequests stores a portable scenario's declarative workload from raw,
+// the bytes of a Taurus `scenarios:` fragment (the same shape as one entry
+// of Config.Scenarios) -- validated here so a malformed or empty upload is
+// rejected with a clear reason at upload time, rather than only surfacing as
+// compile.ErrRequestsRequired the next time the scenario is deployed.
+//
+// raw is stored exactly as uploaded, not the re-marshaled struct: a caller's
+// YAML formatting, comments, and key order survive untouched.
+func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte) error {
+	if _, err := s.repo.GetScenario(ctx, scenarioID); err != nil {
+		return err
+	}
+	var frag taurus.Scenario
+	if err := yaml.Unmarshal(raw, &frag); err != nil {
+		return fmt.Errorf("%w: %w", ErrRequestsInvalid, err)
+	}
+	if len(frag.Requests) == 0 {
+		return fmt.Errorf("%w: at least one request is required", ErrRequestsInvalid)
+	}
+	for i, req := range frag.Requests {
+		if req.URL == "" {
+			return fmt.Errorf("%w: request %d has no url", ErrRequestsInvalid, i)
+		}
+	}
+	return s.repo.SetScenarioRequests(ctx, scenarioID, raw)
 }
 
 func scenarioKey(scenarioID int64, filename string) string {
