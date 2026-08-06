@@ -71,6 +71,32 @@ func (r *Repository) ReservationsInWindow(ctx context.Context, tenantID int64, c
 	return out, nil
 }
 
+// ReservationsForTenant returns every reservation for tenant+cluster,
+// regardless of window.
+func (r *Repository) ReservationsForTenant(ctx context.Context, tenantID int64, cluster string) ([]reservation.Reservation, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT id, tenant_id, cluster, engine_count, start_time, end_time, execution_id"+
+			" FROM reservation WHERE tenant_id = ? AND cluster = ?",
+		tenantID, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: reservations for tenant: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []reservation.Reservation{}
+	for rows.Next() {
+		res, scanErr := scanReservation(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("mysql: scan reservation: %w", scanErr)
+		}
+		out = append(out, res)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterate reservations: %w", err)
+	}
+	return out, nil
+}
+
 func scanReservation(s rowScanner) (reservation.Reservation, error) {
 	var res reservation.Reservation
 	if err := s.Scan(&res.ID, &res.TenantID, &res.Cluster, &res.EngineCount, &res.Start, &res.End, &res.ExecutionID); err != nil {

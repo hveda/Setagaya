@@ -14,6 +14,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
@@ -186,8 +187,11 @@ func seedDueExecution(t *testing.T, store *fake.Store, obj *fake.ObjectStore, te
 // already due.
 func newTestServices(store *fake.Store, obj *fake.ObjectStore, now time.Time) (*scheduleapp.Service, *lifecycleapp.Service, *fake.Scheduler) {
 	sched := fake.NewScheduler()
-	quota := quotaapp.NewService(store)
+	quota := quotaapp.NewService(store).WithNow(func() time.Time { return now })
 	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest")).WithQuota(quota)
+	// Matches run()'s own wiring order exactly: retrofitted after lifecycle
+	// exists, since lifecycle itself depends on quota.
+	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(store, quota).WithNow(func() time.Time { return now })
 	return schedules, lifecycle, sched
 }
@@ -290,6 +294,57 @@ func TestFireOnce_TriggerReRejectsWhenCapacityDrainedSinceCreation(t *testing.T)
 	}
 	if _, running, _ := store.CurrentRun(ctx, executionID); running {
 		t.Fatal("execution shows running despite Trigger's own quota re-check rejecting it")
+	}
+}
+
+// End to end: a tenant's earlier execution has overrun its declared duration
+// (reservation end passed, run never stopped) and is the only thing standing
+// between a newly due occurrence and admission. fireOnce's call into
+// lifecycle.Trigger reclaims that capacity (quota.WithStopper(lifecycle),
+// wired exactly as run() wires it) by stopping the overrunning execution,
+// then admits and fires the due one.
+func TestFireOnce_ReclaimsOverrunCapacityFromTheSameTenantToFireADueOccurrence(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	now := time.Now()
+
+	overrunExecutionID := seedDueExecution(t, store, obj, tenantID, 2)
+	if err := store.SetCeiling(ctx, tenantID, "", 2); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: tenantID, Cluster: "", EngineCount: 2,
+		Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour), ExecutionID: overrunExecutionID,
+	}); err != nil {
+		t.Fatalf("CreateReservation (overrun): %v", err)
+	}
+	if _, err := store.StartRun(ctx, overrunExecutionID); err != nil {
+		t.Fatalf("StartRun (overrun): %v", err)
+	}
+
+	dueExecutionID := seedDueExecution(t, store, obj, tenantID, 2)
+	schedules, lifecycle, sched := newTestServices(store, obj, now)
+	fireAt := now
+	if _, err := schedules.Create(ctx, schedule.Schedule{
+		ExecutionID: dueExecutionID, TenantID: tenantID, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+	}); err != nil {
+		t.Fatalf("Create schedule: %v", err)
+	}
+
+	fireOnce(ctx, schedules, lifecycle)
+
+	deployed, _ := sched.DeployedExecutions(ctx, "")
+	if _, ok := deployed[dueExecutionID]; !ok {
+		t.Fatal("the due execution was not deployed")
+	}
+	if _, running, _ := store.CurrentRun(ctx, dueExecutionID); !running {
+		t.Fatal("the due execution was not triggered -- reclaim should have freed enough capacity to admit it")
+	}
+	if _, running, _ := store.CurrentRun(ctx, overrunExecutionID); running {
+		t.Fatal("the overrunning execution is still running -- it should have been reclaimed (stopped)")
 	}
 }
 

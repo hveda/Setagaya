@@ -75,6 +75,11 @@ func run(parent context.Context, getenv func(string) string) error {
 	// admission (Quota) to behave like a manual Trigger.
 	quota := quotaapp.NewService(repo)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).WithQuota(quota)
+	// Retrofitted after lifecycle exists (lifecycle itself depends on quota
+	// above) -- the only order that avoids a circular construction. Lets a
+	// scheduled fire reclaim the same tenant's own overrunning capacity when
+	// it's what stands in the way of admission.
+	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(repo, quota)
 
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)

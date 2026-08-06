@@ -60,6 +60,20 @@ func (s *Store) ReservationsInWindow(_ context.Context, tenantID int64, cluster 
 	return out, nil
 }
 
+// ReservationsForTenant returns every reservation for tenant+cluster,
+// regardless of window.
+func (s *Store) ReservationsForTenant(_ context.Context, tenantID int64, cluster string) ([]reservation.Reservation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []reservation.Reservation{}
+	for _, r := range s.reservations {
+		if r.TenantID == tenantID && r.Cluster == cluster {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
 // quotaKey identifies a tenant's ceiling within one cluster.
 type quotaKey struct {
 	tenantID int64

@@ -112,3 +112,222 @@ func TestReserve_RejectsInvalidWindow(t *testing.T) {
 		t.Fatalf("Reserve(end before start) = %v, want ErrWindowInvalid", err)
 	}
 }
+
+// fakeStopper mimics what lifecycleapp.Service.Stop does to a quota
+// reservation via its teardown -- clears the run and releases the
+// reservation -- without pulling in the full lifecycleapp package, and
+// records which executions it was asked to stop.
+type fakeStopper struct {
+	store   *fake.Store
+	stopped []int64
+}
+
+func (f *fakeStopper) Stop(ctx context.Context, executionID int64) error {
+	f.stopped = append(f.stopped, executionID)
+	_ = f.store.StopRun(ctx, executionID)
+	return f.store.ReleaseReservationsForExecution(ctx, executionID)
+}
+
+// A reservation whose declared end has passed but whose execution is still
+// running is exactly the "overrun" case: it still occupies its capacity, so
+// a new request that cannot fit alongside it triggers reclaim.
+func TestReserve_ReclaimsOverrunReservationWhenCapacityIsNeeded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := at(1_000_000)
+	stopper := &fakeStopper{store: store}
+	svc := quotaapp.NewService(store).WithNow(func() time.Time { return now }).WithStopper(stopper)
+
+	if err := store.SetCeiling(ctx, 1, "default", 5); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 1, Cluster: "default", EngineCount: 5, Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour), ExecutionID: 100,
+	}); err != nil {
+		t.Fatalf("CreateReservation (overrun): %v", err)
+	}
+	if _, err := store.StartRun(ctx, 100); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	r, err := svc.Reserve(ctx, 1, "default", 5, now, now.Add(time.Hour), 200)
+	if err != nil {
+		t.Fatalf("Reserve = %v, want the overrunning reservation reclaimed and this one admitted", err)
+	}
+	if r.ExecutionID != 200 {
+		t.Fatalf("Reserve = %+v, want a reservation for execution 200", r)
+	}
+	if len(stopper.stopped) != 1 || stopper.stopped[0] != 100 {
+		t.Fatalf("stopped = %v, want [100]", stopper.stopped)
+	}
+
+	got, err := store.ReservationsForTenant(ctx, 1, "default")
+	if err != nil {
+		t.Fatalf("ReservationsForTenant: %v", err)
+	}
+	if len(got) != 1 || got[0].ExecutionID != 200 {
+		t.Fatalf("ReservationsForTenant = %+v, want only the new reservation -- the overrun one was freed", got)
+	}
+}
+
+// The exact non-goal the spec calls out: an overrunning run whose capacity
+// nobody needs keeps running untouched.
+func TestReserve_LeavesOverrunReservationAloneWhenCapacityAllows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := at(1_000_000)
+	stopper := &fakeStopper{store: store}
+	svc := quotaapp.NewService(store).WithNow(func() time.Time { return now }).WithStopper(stopper)
+
+	if err := store.SetCeiling(ctx, 1, "default", 10); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 1, Cluster: "default", EngineCount: 5, Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour), ExecutionID: 100,
+	}); err != nil {
+		t.Fatalf("CreateReservation (overrun): %v", err)
+	}
+	if _, err := store.StartRun(ctx, 100); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	if _, err := svc.Reserve(ctx, 1, "default", 3, now, now.Add(time.Hour), 200); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	if len(stopper.stopped) != 0 {
+		t.Fatalf("stopped = %v, want none -- there was already enough headroom without reclaiming", stopper.stopped)
+	}
+	if _, running, err := store.CurrentRun(ctx, 100); err != nil || !running {
+		t.Fatalf("execution 100 running = %v, %v, want still running (untouched)", running, err)
+	}
+}
+
+// Reclaim only ever applies to an admission happening now: a request for a
+// future window (a schedule's advance reservation) must not force-stop
+// today's overrunning execution to make room for a booking next week --
+// that capacity will naturally be re-evaluated when its own time comes.
+func TestReserve_DoesNotReclaimForAFutureBooking(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := at(1_000_000)
+	stopper := &fakeStopper{store: store}
+	svc := quotaapp.NewService(store).WithNow(func() time.Time { return now }).WithStopper(stopper)
+
+	if err := store.SetCeiling(ctx, 1, "default", 5); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 1, Cluster: "default", EngineCount: 5, Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour), ExecutionID: 100,
+	}); err != nil {
+		t.Fatalf("CreateReservation (overrun): %v", err)
+	}
+	if _, err := store.StartRun(ctx, 100); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	future := now.AddDate(0, 0, 7)
+	if _, err := svc.Reserve(ctx, 1, "default", 5, future, future.Add(time.Hour), 200); !errors.Is(err, quotaapp.ErrOverQuota) {
+		t.Fatalf("Reserve (future booking) = %v, want ErrOverQuota -- reclaim must not apply", err)
+	}
+	if len(stopper.stopped) != 0 {
+		t.Fatalf("stopped = %v, want none -- a future booking must never trigger reclaim", stopper.stopped)
+	}
+}
+
+// A reservation whose declared end has passed but whose execution is not
+// (or no longer) running has nothing left to reclaim and must not count
+// against the ceiling at all -- it is simply stale, not overrunning.
+func TestReserve_IgnoresOverrunReservationsWhoseExecutionIsNotRunning(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := at(1_000_000)
+	svc := quotaapp.NewService(store).WithNow(func() time.Time { return now })
+
+	if err := store.SetCeiling(ctx, 1, "default", 5); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 1, Cluster: "default", EngineCount: 5, Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour), ExecutionID: 100,
+	}); err != nil {
+		t.Fatalf("CreateReservation (stale, never started): %v", err)
+	}
+
+	if _, err := svc.Reserve(ctx, 1, "default", 5, now, now.Add(time.Hour), 200); err != nil {
+		t.Fatalf("Reserve = %v, want nil -- a non-running stale reservation must not count as used capacity", err)
+	}
+}
+
+// Without a stopper wired, reclaim has nothing to reclaim with -- Reserve
+// falls through to its ordinary rejection rather than surfacing a confusing
+// internal error.
+func TestReserve_NoStopperWiredFallsThroughToOrdinaryRejection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := at(1_000_000)
+	svc := quotaapp.NewService(store).WithNow(func() time.Time { return now }) // no WithStopper
+
+	if err := store.SetCeiling(ctx, 1, "default", 5); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 1, Cluster: "default", EngineCount: 5, Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour), ExecutionID: 100,
+	}); err != nil {
+		t.Fatalf("CreateReservation (overrun): %v", err)
+	}
+	if _, err := store.StartRun(ctx, 100); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	if _, err := svc.Reserve(ctx, 1, "default", 5, now, now.Add(time.Hour), 200); !errors.Is(err, quotaapp.ErrOverQuota) {
+		t.Fatalf("Reserve (no stopper wired) = %v, want ErrOverQuota", err)
+	}
+}
+
+// Reclaim frees overrunning reservations earliest-declared-end first, and
+// stops as soon as enough capacity has been freed -- an overrunning run
+// whose capacity nobody needs (here, the second one) is left running
+// untouched even mid-reclaim.
+func TestReserve_ReclaimStopsAsSoonAsEnoughCapacityIsFreed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := at(1_000_000)
+	stopper := &fakeStopper{store: store}
+	svc := quotaapp.NewService(store).WithNow(func() time.Time { return now }).WithStopper(stopper)
+
+	if err := store.SetCeiling(ctx, 1, "default", 10); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	// Earliest declared end, execution 100.
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 1, Cluster: "default", EngineCount: 5, Start: now.Add(-3 * time.Hour), End: now.Add(-2 * time.Hour), ExecutionID: 100,
+	}); err != nil {
+		t.Fatalf("CreateReservation (100): %v", err)
+	}
+	// Later declared end, execution 101 -- reclaiming 100 alone is enough.
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 1, Cluster: "default", EngineCount: 5, Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour), ExecutionID: 101,
+	}); err != nil {
+		t.Fatalf("CreateReservation (101): %v", err)
+	}
+	for _, id := range []int64{100, 101} {
+		if _, err := store.StartRun(ctx, id); err != nil {
+			t.Fatalf("StartRun(%d): %v", id, err)
+		}
+	}
+
+	if _, err := svc.Reserve(ctx, 1, "default", 3, now, now.Add(time.Hour), 200); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	if len(stopper.stopped) != 1 || stopper.stopped[0] != 100 {
+		t.Fatalf("stopped = %v, want [100] only -- reclaiming it alone already freed enough", stopper.stopped)
+	}
+	if _, running, err := store.CurrentRun(ctx, 101); err != nil || !running {
+		t.Fatalf("execution 101 running = %v, %v, want still running (untouched)", running, err)
+	}
+}

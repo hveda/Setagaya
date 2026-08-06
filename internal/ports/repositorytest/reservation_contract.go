@@ -172,6 +172,32 @@ func RunReservationRepositoryContract(t *testing.T, newRepo NewReservationRepo) 
 			t.Fatalf("GetCeiling after overwrite = %d,%v, want 20,nil", got, err)
 		}
 	})
+
+	// Unlike InWindow, ReservationsForTenant ignores windows entirely -- it's
+	// what an overrun-reclaim pass scans to find every reservation for a
+	// tenant+cluster regardless of whether it overlaps anything in
+	// particular, including ones whose declared window is long past.
+	t.Run("ForTenantIgnoresWindowButScopesByTenantAndCluster", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		mustReserve(t, repo, 1, "default", at(-1000), at(-900), 1) // long past
+		mustReserve(t, repo, 1, "default", at(0), at(100), 2)
+		mustReserve(t, repo, 2, "default", at(0), at(100), 3) // different tenant
+		mustReserve(t, repo, 1, "eu-west", at(0), at(100), 4) // different cluster
+
+		got, err := repo.ReservationsForTenant(ctx, 1, "default")
+		if err != nil {
+			t.Fatalf("ReservationsForTenant: %v", err)
+		}
+		gotExec := make(map[int64]bool, len(got))
+		for _, r := range got {
+			gotExec[r.ExecutionID] = true
+		}
+		if len(got) != 2 || !gotExec[1] || !gotExec[2] {
+			t.Fatalf("ReservationsForTenant = %+v, want executions 1 and 2 (tenant 1's default-cluster reservations, any window)", got)
+		}
+	})
 }
 
 func mustReserve(t *testing.T, repo ports.ReservationRepository, tenantID int64, cluster string, start, end time.Time, executionID int64) int64 {

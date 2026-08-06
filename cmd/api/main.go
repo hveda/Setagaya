@@ -109,6 +109,12 @@ func run(ctx context.Context, getenv func(string) string) error {
 	quota := quotaapp.NewService(repo)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).
 		WithMetrics(collector).WithUsage(usage).WithQuota(quota)
+	// Retrofitted after lifecycle exists, since lifecycle itself depends on
+	// quota (WithQuota above) -- this is the only order that avoids a
+	// circular construction. Lets a manual Trigger reclaim the same tenant's
+	// own overrunning capacity, exactly like a scheduled one (cmd/scheduler)
+	// can.
+	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(repo, quota)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
