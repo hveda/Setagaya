@@ -3,6 +3,7 @@ package quotaapp_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -329,5 +330,65 @@ func TestReserve_ReclaimStopsAsSoonAsEnoughCapacityIsFreed(t *testing.T) {
 	}
 	if _, running, err := store.CurrentRun(ctx, 101); err != nil || !running {
 		t.Fatalf("execution 101 running = %v, %v, want still running (untouched)", running, err)
+	}
+}
+
+// The concrete guarantee Reserve exists to provide: many concurrent
+// admission decisions for the same tenant+cluster (a manual Trigger racing a
+// scheduled fire, or several cmd/api or cmd/scheduler replicas at once) must
+// never jointly admit more than the ceiling, even though each call on its
+// own only asks for a fraction of it. Without WithTenantLock serializing the
+// read-then-write admission decision, every one of these could read the
+// ceiling as unclaimed before any of them commits a reservation.
+func TestReserve_ConcurrentCallsNeverJointlyExceedTheCeiling(t *testing.T) {
+	t.Parallel()
+	svc, store := newQuotaService(t)
+	ctx := context.Background()
+	const ceiling = 5
+	const callers = 20
+	if err := store.SetCeiling(ctx, 1, "default", ceiling); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	admitted := 0
+	rejected := 0
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(executionID int64) {
+			defer wg.Done()
+			_, err := svc.Reserve(ctx, 1, "default", 1, at(0), at(3600), executionID)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				admitted++
+			case errors.Is(err, quotaapp.ErrOverQuota):
+				rejected++
+			default:
+				t.Errorf("Reserve(executionID=%d) = %v, want nil or ErrOverQuota", executionID, err)
+			}
+		}(int64(100 + i))
+	}
+	wg.Wait()
+
+	if admitted != ceiling {
+		t.Fatalf("admitted = %d, want exactly %d (the ceiling) -- concurrent callers jointly over-admitted", admitted, ceiling)
+	}
+	if admitted+rejected != callers {
+		t.Fatalf("admitted+rejected = %d, want %d (every caller accounted for)", admitted+rejected, callers)
+	}
+
+	got, err := store.ReservationsInWindow(ctx, 1, "default", at(0), at(3600))
+	if err != nil {
+		t.Fatalf("ReservationsInWindow: %v", err)
+	}
+	sum := 0
+	for _, r := range got {
+		sum += r.EngineCount
+	}
+	if sum != ceiling {
+		t.Fatalf("total reserved engines = %d, want exactly %d (the ceiling), got reservations = %+v", sum, ceiling, got)
 	}
 }

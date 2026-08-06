@@ -3,6 +3,7 @@ package repositorytest
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -196,6 +197,106 @@ func RunReservationRepositoryContract(t *testing.T, newRepo NewReservationRepo) 
 		}
 		if len(got) != 2 || !gotExec[1] || !gotExec[2] {
 			t.Fatalf("ReservationsForTenant = %+v, want executions 1 and 2 (tenant 1's default-cluster reservations, any window)", got)
+		}
+	})
+
+	// This is the guarantee quotaapp.Reserve relies on: two concurrent
+	// admission decisions for the same tenant+cluster must not interleave,
+	// or each could read the same "used capacity" before either commits its
+	// own reservation, jointly admitting more than any ceiling allows.
+	t.Run("WithTenantLockSerializesConcurrentCallsForTheSameKey", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		var mu sync.Mutex
+		inside, maxConcurrent := 0, 0
+		var wg sync.WaitGroup
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = repo.WithTenantLock(ctx, 1, "default", func(context.Context) error {
+					mu.Lock()
+					inside++
+					if inside > maxConcurrent {
+						maxConcurrent = inside
+					}
+					mu.Unlock()
+
+					time.Sleep(10 * time.Millisecond)
+
+					mu.Lock()
+					inside--
+					mu.Unlock()
+					return nil
+				})
+			}()
+		}
+		wg.Wait()
+		if maxConcurrent != 1 {
+			t.Fatalf("max concurrent holders of the same tenant+cluster lock = %d, want 1", maxConcurrent)
+		}
+	})
+
+	// A different tenant+cluster must not queue behind an unrelated one --
+	// only the actual contended resource should serialize.
+	t.Run("WithTenantLockDoesNotBlockADifferentKey", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		started := make(chan struct{}, 2)
+		release := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, key := range []struct {
+			tenantID int64
+			cluster  string
+		}{{1, "default"}, {2, "default"}} {
+			key := key
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = repo.WithTenantLock(ctx, key.tenantID, key.cluster, func(context.Context) error {
+					started <- struct{}{}
+					<-release
+					return nil
+				})
+			}()
+		}
+		for i := 0; i < 2; i++ {
+			select {
+			case <-started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("a different tenant+cluster's WithTenantLock blocked on an unrelated one")
+			}
+		}
+		close(release)
+		wg.Wait()
+	})
+
+	// fn's error must reach the caller unchanged, and the lock must still be
+	// released -- otherwise every future admission for the tenant+cluster
+	// would hang after the first rejection.
+	t.Run("WithTenantLockPropagatesFnErrorAndStillReleasesTheLock", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		sentinel := errors.New("boom")
+
+		err := repo.WithTenantLock(ctx, 1, "default", func(context.Context) error { return sentinel })
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("WithTenantLock error = %v, want %v", err, sentinel)
+		}
+
+		done := make(chan error, 1)
+		go func() {
+			done <- repo.WithTenantLock(ctx, 1, "default", func(context.Context) error { return nil })
+		}()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("WithTenantLock after a prior fn error = %v, want nil", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("WithTenantLock after a prior fn error hung -- lock not released")
 		}
 	})
 }

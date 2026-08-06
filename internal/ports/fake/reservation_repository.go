@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/reservation"
@@ -95,4 +96,11 @@ func (s *Store) SetCeiling(_ context.Context, tenantID int64, cluster string, ce
 	defer s.mu.Unlock()
 	s.quotaCeilings[quotaKey{tenantID, cluster}] = ceiling
 	return nil
+}
+
+// WithTenantLock runs fn while holding an exclusive lock scoped to
+// tenantID+cluster, distinct from s.mu (fn calls back into this Store's own
+// methods, which lock s.mu themselves).
+func (s *Store) WithTenantLock(ctx context.Context, tenantID int64, cluster string, fn func(context.Context) error) error {
+	return s.withNamedLock(fmt.Sprintf("tenant:%d:%s", tenantID, cluster), func() error { return fn(ctx) })
 }

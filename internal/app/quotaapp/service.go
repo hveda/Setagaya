@@ -94,6 +94,13 @@ func (s *Service) WithNow(now func() time.Time) *Service {
 // request itself starts now (not a future booking), the overrunning
 // execution is force-stopped to free it before rejecting outright -- an
 // overrunning run whose capacity nobody needs is left running untouched.
+//
+// The whole read-then-write admission decision runs under
+// Repo.WithTenantLock, scoped to tenantID+cluster: without it, two
+// concurrent callers (a manual Trigger racing a scheduled fire, or two
+// cmd/api or cmd/scheduler replicas) could each read the same used capacity
+// before either commits its own reservation, jointly admitting more than the
+// ceiling allows -- exactly the guarantee this ledger exists to provide.
 func (s *Service) Reserve(ctx context.Context, tenantID int64, cluster string, engineCount int, start, end time.Time, executionID int64) (reservation.Reservation, error) {
 	r := reservation.Reservation{
 		TenantID: tenantID, Cluster: cluster, EngineCount: engineCount,
@@ -103,33 +110,39 @@ func (s *Service) Reserve(ctx context.Context, tenantID int64, cluster string, e
 		return reservation.Reservation{}, err
 	}
 
-	ceiling, err := s.repo.GetCeiling(ctx, tenantID, cluster)
-	if err != nil {
-		return reservation.Reservation{}, err
-	}
-	used, overrun, err := s.usedCapacity(ctx, tenantID, cluster, start, end)
-	if err != nil {
-		return reservation.Reservation{}, err
-	}
-
-	if used+engineCount > ceiling && !start.After(s.now()) {
-		freed, reclaimErr := s.reclaimOverrun(ctx, overrun, used+engineCount-ceiling)
-		if reclaimErr != nil {
-			return reservation.Reservation{}, reclaimErr
+	err := s.repo.WithTenantLock(ctx, tenantID, cluster, func(ctx context.Context) error {
+		ceiling, err := s.repo.GetCeiling(ctx, tenantID, cluster)
+		if err != nil {
+			return err
 		}
-		used -= freed
-	}
-	if used+engineCount > ceiling {
-		return reservation.Reservation{}, fmt.Errorf(
-			"%w: tenant %d cluster %q wants %d engines, %d already reserved in this window, ceiling %d",
-			ErrOverQuota, tenantID, cluster, engineCount, used, ceiling)
-	}
+		used, overrun, err := s.usedCapacity(ctx, tenantID, cluster, start, end)
+		if err != nil {
+			return err
+		}
 
-	id, err := s.repo.CreateReservation(ctx, r)
+		if used+engineCount > ceiling && !start.After(s.now()) {
+			freed, reclaimErr := s.reclaimOverrun(ctx, overrun, used+engineCount-ceiling)
+			if reclaimErr != nil {
+				return reclaimErr
+			}
+			used -= freed
+		}
+		if used+engineCount > ceiling {
+			return fmt.Errorf(
+				"%w: tenant %d cluster %q wants %d engines, %d already reserved in this window, ceiling %d",
+				ErrOverQuota, tenantID, cluster, engineCount, used, ceiling)
+		}
+
+		id, err := s.repo.CreateReservation(ctx, r)
+		if err != nil {
+			return err
+		}
+		r.ID = id
+		return nil
+	})
 	if err != nil {
 		return reservation.Reservation{}, err
 	}
-	r.ID = id
 	return r, nil
 }
 

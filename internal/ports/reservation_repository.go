@@ -37,4 +37,15 @@ type ReservationRepository interface {
 	// applicable, or already released) has nothing to release, which is a
 	// normal outcome, not a fault.
 	ReleaseReservationsForExecution(ctx context.Context, executionID int64) error
+
+	// WithTenantLock runs fn while holding an exclusive lock scoped to
+	// tenantID+cluster, serializing concurrent admission decisions for the
+	// same tenant+cluster -- e.g. a manual Trigger racing a scheduled fire,
+	// or two cmd/api or cmd/scheduler replicas admitting at once. Without
+	// this, two concurrent callers could each read the same "used capacity"
+	// before either commits its own reservation, jointly admitting more than
+	// the ceiling allows. A call for a different tenant+cluster must not
+	// block on this one. fn's error (if any) is returned unchanged; the lock
+	// is always released, even when fn errors.
+	WithTenantLock(ctx context.Context, tenantID int64, cluster string, fn func(ctx context.Context) error) error
 }

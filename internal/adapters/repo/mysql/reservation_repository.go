@@ -13,6 +13,44 @@ import (
 
 var _ ports.ReservationRepository = (*Repository)(nil)
 
+// tenantLockTimeout bounds how long WithTenantLock waits to acquire the
+// named lock before giving up -- long enough to ride out a reclaim's Stop
+// call on another connection, short enough that a stuck holder cannot wedge
+// every future admission decision for the tenant+cluster indefinitely.
+const tenantLockTimeout = 10 * time.Second
+
+// WithTenantLock serializes concurrent admission decisions for tenantID+
+// cluster using a MySQL named lock (GET_LOCK/RELEASE_LOCK): unlike a row
+// lock, this works even when no tenant_quota row exists yet, and it is
+// visible to every connection against this database -- other cmd/api or
+// cmd/scheduler replicas racing the same tenant+cluster block here too, not
+// just goroutines within this process.
+func (r *Repository) WithTenantLock(ctx context.Context, tenantID int64, cluster string, fn func(context.Context) error) error {
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("mysql: acquire connection for tenant lock: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	name := fmt.Sprintf("honryu:quota:%d:%s", tenantID, cluster)
+	var got sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, ?)", name, tenantLockTimeout.Seconds()).Scan(&got); err != nil {
+		return fmt.Errorf("mysql: get tenant lock %q: %w", name, err)
+	}
+	if !got.Valid || got.Int64 != 1 {
+		return fmt.Errorf("mysql: could not acquire tenant lock %q within %s", name, tenantLockTimeout)
+	}
+	defer func() {
+		// Released on the same connection that acquired it (MySQL named
+		// locks are session-scoped); best effort with a fresh context since
+		// ctx may already be done -- closing the connection (above, deferred
+		// first so it runs after this) also drops the lock as a backstop.
+		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", name)
+	}()
+
+	return fn(ctx)
+}
+
 // CreateReservation inserts r and returns its auto-assigned ID.
 func (r *Repository) CreateReservation(ctx context.Context, res reservation.Reservation) (int64, error) {
 	result, err := r.db.ExecContext(ctx,

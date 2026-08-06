@@ -26,6 +26,12 @@ type Store struct {
 	mu  sync.Mutex
 	now func() time.Time
 
+	// namedLocks backs WithTenantLock/WithScheduleLock: a lock per key,
+	// distinct from mu, since fn typically calls back into other Store
+	// methods that themselves lock mu -- reusing mu here would self-deadlock.
+	namedLocksMu sync.Mutex
+	namedLocks   map[string]*sync.Mutex
+
 	// MarkRunningErr, when set, is returned by MarkScenarioRunning. It lets a
 	// test drive the lifecycle's roll-back path, which fires when no scenario of
 	// a run could be marked running.
@@ -81,6 +87,7 @@ type Store struct {
 func NewStore() *Store {
 	return &Store{
 		now:              time.Now,
+		namedLocks:       make(map[string]*sync.Mutex),
 		projects:         make(map[int64]project.Project),
 		scenarios:        make(map[int64]scenario.Scenario),
 		planTest:         make(map[int64]string),
@@ -106,6 +113,25 @@ func NewStore() *Store {
 
 // NewProjectRepository returns a Store viewed as a ProjectRepository.
 func NewProjectRepository() *Store { return NewStore() }
+
+// withNamedLock runs fn while holding the lock for key, creating it on first
+// use. Backs WithTenantLock/WithScheduleLock: a real concurrency primitive,
+// not a no-op, so a test racing two goroutines against the fake store
+// exercises the same serialization the MySQL adapter provides via named
+// locks.
+func (s *Store) withNamedLock(key string, fn func() error) error {
+	s.namedLocksMu.Lock()
+	lock, ok := s.namedLocks[key]
+	if !ok {
+		lock = &sync.Mutex{}
+		s.namedLocks[key] = lock
+	}
+	s.namedLocksMu.Unlock()
+
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
+}
 
 // SetNow overrides the clock used for created/started timestamps, for
 // deterministic tests.
