@@ -21,7 +21,8 @@ export interface ApiClientOptions {
 }
 
 export class ApiClient {
-  private readonly baseUrl: string;
+  /** Exposed read-only so callers needing a raw URL (e.g. EventSource, which can't use fetch) can build one. */
+  readonly baseUrl: string;
   private readonly getToken: () => string | null;
 
   constructor(options: ApiClientOptions = {}) {

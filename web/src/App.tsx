@@ -1,21 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import DashboardLayout from './components/DashboardLayout';
-import Card, { CardContent, CardHeader, CardTitle } from './components/ui/Card';
+import LiveStatus from './pages/LiveStatus';
 import Reports from './pages/Reports';
 import Reservations from './pages/Reservations';
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-body-sm">This page is not built yet.</p>
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function App() {
   return (
@@ -26,7 +13,7 @@ export default function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/:runId" element={<Reports />} />
           <Route path="/reservations" element={<Reservations />} />
-          <Route path="/status" element={<Placeholder title="Live Status" />} />
+          <Route path="/status" element={<LiveStatus />} />
         </Routes>
       </DashboardLayout>
     </BrowserRouter>
