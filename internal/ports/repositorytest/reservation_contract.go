@@ -59,6 +59,32 @@ func RunReservationRepositoryContract(t *testing.T, newRepo NewReservationRepo) 
 		}
 	})
 
+	// Unlike DeleteReservation (by id), releasing an execution with no
+	// reservation at all is not an error -- Stop/teardown calls this
+	// unconditionally, and most executions never had one to begin with.
+	t.Run("ReleaseForExecutionIsIdempotentAndScoped", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		if err := repo.ReleaseReservationsForExecution(ctx, 999); err != nil {
+			t.Fatalf("ReleaseReservationsForExecution(nothing to release) = %v, want nil", err)
+		}
+
+		mustReserve(t, repo, 1, "default", at(0), at(60), 100)
+		mustReserve(t, repo, 1, "default", at(0), at(60), 101) // different execution, same window
+
+		if err := repo.ReleaseReservationsForExecution(ctx, 100); err != nil {
+			t.Fatalf("ReleaseReservationsForExecution: %v", err)
+		}
+		got, err := repo.ReservationsInWindow(ctx, 1, "default", at(0), at(60))
+		if err != nil {
+			t.Fatalf("ReservationsInWindow: %v", err)
+		}
+		if len(got) != 1 || got[0].ExecutionID != 101 {
+			t.Fatalf("ReservationsInWindow after release = %+v, want only execution 101's reservation left", got)
+		}
+	})
+
 	// The exact case a naive query would get wrong: a reservation whose
 	// window straddles the query window's boundary must still be found, and
 	// one that merely touches it (ends exactly where the query starts, or

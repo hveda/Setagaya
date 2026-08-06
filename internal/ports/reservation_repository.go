@@ -26,4 +26,11 @@ type ReservationRepository interface {
 	GetCeiling(ctx context.Context, tenantID int64, cluster string) (int, error)
 	// SetCeiling sets a tenant's per-cluster engine quota ceiling.
 	SetCeiling(ctx context.Context, tenantID int64, cluster string, ceiling int) error
+
+	// ReleaseReservationsForExecution deletes every reservation belonging to
+	// executionID, freeing their capacity immediately. Not an error when
+	// there are none -- an execution with no reservation (quota not
+	// applicable, or already released) has nothing to release, which is a
+	// normal outcome, not a fault.
+	ReleaseReservationsForExecution(ctx context.Context, executionID int64) error
 }

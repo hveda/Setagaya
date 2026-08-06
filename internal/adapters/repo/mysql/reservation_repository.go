@@ -34,6 +34,16 @@ func (r *Repository) DeleteReservation(ctx context.Context, id int64) error {
 	return execDelete(ctx, r.db, "DELETE FROM reservation WHERE id = ?", id)
 }
 
+// ReleaseReservationsForExecution deletes every reservation belonging to
+// executionID. Unlike DeleteReservation, deleting none is not an error --
+// an execution with no reservation has nothing to release.
+func (r *Repository) ReleaseReservationsForExecution(ctx context.Context, executionID int64) error {
+	if _, err := r.db.ExecContext(ctx, "DELETE FROM reservation WHERE execution_id = ?", executionID); err != nil {
+		return fmt.Errorf("mysql: release reservations for execution: %w", err)
+	}
+	return nil
+}
+
 // ReservationsInWindow returns every reservation for tenant+cluster whose
 // window overlaps [start, end): start_time < end AND end_time > start is the
 // half-open-interval overlap test, matching reservation.Reservation.Overlaps.

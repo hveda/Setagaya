@@ -29,6 +29,19 @@ func (s *Store) DeleteReservation(_ context.Context, id int64) error {
 	return nil
 }
 
+// ReleaseReservationsForExecution deletes every reservation belonging to
+// executionID. Unlike DeleteReservation, deleting none is not an error.
+func (s *Store) ReleaseReservationsForExecution(_ context.Context, executionID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, r := range s.reservations {
+		if r.ExecutionID == executionID {
+			delete(s.reservations, id)
+		}
+	}
+	return nil
+}
+
 // ReservationsInWindow returns every reservation for tenant+cluster whose
 // window overlaps [start, end).
 func (s *Store) ReservationsInWindow(_ context.Context, tenantID int64, cluster string, start, end time.Time) ([]reservation.Reservation, error) {

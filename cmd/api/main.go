@@ -39,6 +39,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/quotaapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/app/usageapp"
@@ -103,8 +104,9 @@ func run(ctx context.Context, getenv func(string) string) error {
 	// Nothing to resume after a restart: pods push, so a run already under way
 	// simply keeps sending to whichever controller is listening.
 	usage := usageapp.NewService(repo)
+	quota := quotaapp.NewService(repo)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).
-		WithMetrics(collector).WithUsage(usage)
+		WithMetrics(collector).WithUsage(usage).WithQuota(quota)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 

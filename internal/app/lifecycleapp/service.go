@@ -20,6 +20,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/shard"
@@ -79,6 +80,26 @@ type noopUsage struct{}
 func (noopUsage) RecordStart(context.Context, int64, string, int, int) error { return nil }
 func (noopUsage) RecordFinish(context.Context, int64, int) error             { return nil }
 
+// Quota is the admission-control hook into Trigger: the reservation ledger
+// that turns a tenant's engine quota into a guarantee rather than a
+// best-effort check. Only consulted when an execution declares a tenant
+// (TenantID != nil) -- multi-tenancy is opt-in, and an execution with no
+// tenant has no ceiling to check against.
+//
+// The quotaapp service implements it; a no-op default is used when none is
+// wired (e.g. in tests that don't exercise quota), and always admits.
+type Quota interface {
+	Reserve(ctx context.Context, tenantID int64, cluster string, engineCount int, start, end time.Time, executionID int64) (reservation.Reservation, error)
+	Release(ctx context.Context, executionID int64) error
+}
+
+type noopQuota struct{}
+
+func (noopQuota) Reserve(context.Context, int64, string, int, time.Time, time.Time, int64) (reservation.Reservation, error) {
+	return reservation.Reservation{}, nil
+}
+func (noopQuota) Release(context.Context, int64) error { return nil }
+
 // Service implements the lifecycle use-cases.
 type Service struct {
 	repo  Repo
@@ -89,6 +110,9 @@ type Service struct {
 	defaultEngine taurus.Executor
 	metrics       Metrics
 	usage         Usage
+	quota         Quota
+	// now is the reservation window's clock, overridable for deterministic tests.
+	now func() time.Time
 }
 
 // ImageResolver returns the container image for an engine. An empty engine
@@ -110,7 +134,10 @@ func StaticImage(image string) ImageResolver {
 // NewService wires the lifecycle service. image resolves an execution's engine
 // to the container image its pods run.
 func NewService(repo Repo, sched ports.Scheduler, store ports.ObjectStore, image ImageResolver) *Service {
-	return &Service{repo: repo, sched: sched, store: store, image: image, defaultEngine: taurus.ExecutorJMeter, metrics: noopMetrics{}, usage: noopUsage{}}
+	return &Service{
+		repo: repo, sched: sched, store: store, image: image, defaultEngine: taurus.ExecutorJMeter,
+		metrics: noopMetrics{}, usage: noopUsage{}, quota: noopQuota{}, now: time.Now,
+	}
 }
 
 // WithMetrics attaches the metric collector started on trigger and stopped on
@@ -126,6 +153,24 @@ func (s *Service) WithMetrics(m Metrics) *Service {
 func (s *Service) WithUsage(u Usage) *Service {
 	if u != nil {
 		s.usage = u
+	}
+	return s
+}
+
+// WithQuota attaches the quota admission/release hook. Returns the receiver
+// for chaining.
+func (s *Service) WithQuota(q Quota) *Service {
+	if q != nil {
+		s.quota = q
+	}
+	return s
+}
+
+// WithNow overrides the clock a reservation window is measured from. Returns
+// the receiver for chaining.
+func (s *Service) WithNow(now func() time.Time) *Service {
+	if now != nil {
+		s.now = now
 	}
 	return s
 }
@@ -212,6 +257,17 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	phase := run.DerivePhase(status.PoolSize, running)
 	if err := run.CanTrigger(phase, ec, status.PoolSize); err != nil {
 		return err
+	}
+
+	// Quota is opt-in with the tenant it scopes to: an execution that never
+	// named one has no ceiling to check against, so every existing deployment
+	// (none of which set up tenant context) triggers exactly as before.
+	if coll.TenantID != nil {
+		start := s.now()
+		end := start.Add(time.Duration(reservationWindowSeconds(scenarios)) * time.Second)
+		if _, err := s.quota.Reserve(ctx, *coll.TenantID, "", ec.TotalEngines(), start, end, executionID); err != nil {
+			return err
+		}
 	}
 
 	// StartRun's id identified the run to the engine agents; with the agent
@@ -495,6 +551,21 @@ func engineOf(exe execution.Execution, fallback taurus.Executor) taurus.Executor
 	return fallback
 }
 
+// reservationWindowSeconds is how long a triggered run's quota reservation
+// should last: the longest scenario's ramp-up plus hold time, matching how
+// compile.Taurus turns those same fields into a shard's actual run time
+// (RampUp + HoldFor) -- the reservation covers exactly as long as the run can
+// actually occupy engines.
+func reservationWindowSeconds(scenarios []loadprofile.Entry) int {
+	longest := 0
+	for _, ep := range scenarios {
+		if d := ep.Rampup + ep.Duration; d > longest {
+			longest = d
+		}
+	}
+	return longest
+}
+
 // teardown stops metric execution and engines, and clears run/running-scenario
 // state (best effort on the engine stop calls, which may already be gone).
 func (s *Service) teardown(ctx context.Context, executionID int64) error {
@@ -511,6 +582,13 @@ func (s *Service) teardown(ctx context.Context, executionID int64) error {
 	// Close the usage launch (best effort).
 	vu := run.VirtualUsers(loadprofile.Profile{Tests: scenarios})
 	_ = s.usage.RecordFinish(ctx, executionID, vu)
+
+	// Release any quota reservation immediately rather than waiting for its
+	// declared end -- Stop/Purge means the engines are gone now. Best effort,
+	// matching RecordFinish: a customer must be able to stop or purge a broken
+	// execution even if releasing its reservation fails, and most executions
+	// (no tenant, or already released) never had one to begin with.
+	_ = s.quota.Release(ctx, executionID)
 
 	// Finalise the report before the run's identity is cleared: Finalize needs
 	// the run id, and StopRun is what forgets it. Best effort, matching

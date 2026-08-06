@@ -69,3 +69,10 @@ func (s *Service) Reserve(ctx context.Context, tenantID int64, cluster string, e
 	r.ID = id
 	return r, nil
 }
+
+// Release frees an execution's reservation immediately, rather than waiting
+// for its declared end -- called on Stop/teardown. Not an error when the
+// execution never had one (quota did not apply, or it was already released).
+func (s *Service) Release(ctx context.Context, executionID int64) error {
+	return s.repo.ReleaseReservationsForExecution(ctx, executionID)
+}
