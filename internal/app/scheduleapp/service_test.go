@@ -325,6 +325,56 @@ func TestDelete_DoesNotReleaseAnotherSchedulesReservation(t *testing.T) {
 	}
 }
 
+// A rejected occurrence never held a reservation -- Delete must skip it
+// rather than trying (and failing) to release one, while still releasing
+// every occurrence alongside it that did get admitted.
+func TestDelete_SkipsRejectedOccurrencesButReleasesReservedOnes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	const tenantID = int64(7)
+	executionID := seedExecution(t, store, 2, 30*3600) // 2 engines, 30-hour duration
+	if err := store.SetCeiling(ctx, tenantID, "", 2); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := newService(store, now)
+
+	// Same overlapping-window setup as the recurring partial-success test:
+	// alternating reserved/rejected occurrences.
+	view, err := svc.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindRecurring, Recurrence: "0 0 * * *", Active: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var reservationIDs []int64
+	var sawRejected bool
+	for _, occ := range view.Occurrences {
+		switch occ.Status {
+		case ports.OccurrenceReserved:
+			reservationIDs = append(reservationIDs, *occ.ReservationID)
+		case ports.OccurrenceRejected:
+			sawRejected = true
+		}
+	}
+	if len(reservationIDs) == 0 || !sawRejected {
+		t.Fatalf("expected a mix of reserved and rejected occurrences, got %+v", view.Occurrences)
+	}
+
+	if err := svc.Delete(ctx, view.Schedule.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := store.GetSchedule(ctx, view.Schedule.ID); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("GetSchedule after delete = %v, want ErrNotFound", err)
+	}
+	for _, id := range reservationIDs {
+		if err := store.DeleteReservation(ctx, id); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("reservation %d was not released by Delete: DeleteReservation = %v, want ErrNotFound (already gone)", id, err)
+		}
+	}
+}
+
 func TestDelete_MissingSchedule(t *testing.T) {
 	t.Parallel()
 	store := fake.NewStore()

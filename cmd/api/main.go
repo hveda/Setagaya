@@ -41,6 +41,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/quotaapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/app/usageapp"
 	"github.com/heridotlife/honryu/internal/config"
@@ -61,6 +62,7 @@ type repository interface {
 	ports.ReportProgress
 	ports.ReportStore
 	ports.ReservationRepository
+	ports.ScheduleRepository
 }
 
 func main() {
@@ -107,6 +109,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	quota := quotaapp.NewService(repo)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).
 		WithMetrics(collector).WithUsage(usage).WithQuota(quota)
+	schedules := scheduleapp.NewService(repo, quota)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 
@@ -122,6 +125,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Scenarios:     scenarioapp.NewService(repo, store),
 		Executions:    executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
 		Lifecycle:     lifecycle,
+		Schedules:     schedules,
 		Usage:         usage,
 		Metrics:       collector,
 		Reports:       repo,

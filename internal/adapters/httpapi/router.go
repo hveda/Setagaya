@@ -17,6 +17,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/app/usageapp"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -28,7 +29,10 @@ type Deps struct {
 	Scenarios  *scenarioapp.Service
 	Executions *executionapp.Service
 	Lifecycle  *lifecycleapp.Service
-	Usage      *usageapp.Service
+	// Schedules administers time-triggered executions. Optional; nil disables
+	// the /api/executions/{execution_id}/schedules endpoints.
+	Schedules *scheduleapp.Service
+	Usage     *usageapp.Service
 	// Metrics receives pushed measurements from engine pods.
 	Metrics *metricsapp.Service
 	// Reports serves a run's stored report, the durable record of what it
@@ -108,6 +112,10 @@ var routes = []Route{
 	{"GET", "/api/executions/{execution_id}/engines", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.executionEngines })},
 	{"GET", "/api/executions/{execution_id}/scenarios/{scenario_id}/logs", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.scenarioPodLog })},
 	{"GET", "/api/executions/{execution_id}/stream", "lifecycle", hf(func(h *handlers) http.HandlerFunc { return h.streamExecution })},
+
+	{"POST", "/api/executions/{execution_id}/schedules", "schedules", hf(func(h *handlers) http.HandlerFunc { return h.createSchedule })},
+	{"GET", "/api/executions/{execution_id}/schedules", "schedules", hf(func(h *handlers) http.HandlerFunc { return h.listSchedules })},
+	{"DELETE", "/api/executions/{execution_id}/schedules/{schedule_id}", "schedules", hf(func(h *handlers) http.HandlerFunc { return h.deleteSchedule })},
 
 	{"GET", "/api/executions/{execution_id}/reports", "reports", hf(func(h *handlers) http.HandlerFunc { return h.executionReports })},
 	{"GET", "/api/runs/{run_id}/report", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runReport })},

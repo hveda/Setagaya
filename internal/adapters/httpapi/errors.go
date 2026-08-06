@@ -18,6 +18,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/domain/tenant"
 	"github.com/heridotlife/honryu/internal/ports"
 )
@@ -51,6 +52,8 @@ var badRequestErrors = []error{
 	// failure -- retrying it would never succeed, so it must not read as one.
 	ports.ErrUnsequencedBatch,
 	tenantapp.ErrUnknownRole, tenantapp.ErrGlobalRoleScoped,
+	schedule.ErrExecutionRequired, schedule.ErrKindInvalid, schedule.ErrFireAtRequired,
+	schedule.ErrRecurrenceRequired, schedule.ErrRecurrenceInvalid, schedule.ErrWindowInvalid,
 }
 
 // conflictErrors are state conflicts → HTTP 409.

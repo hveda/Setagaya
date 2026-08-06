@@ -31,6 +31,10 @@ tags:
     description: Runnable units grouping scenarios
   - name: lifecycle
     description: Deploying, triggering, and observing runs
+  - name: schedules
+    description: >-
+      Time-triggered executions: one-shot or recurring, each occurrence's
+      quota admission decided (and its capacity held, if admitted) up front
   - name: reports
     description: >-
       Post-run diagnosis: stored reports, captured engine logs, and the
@@ -66,6 +70,11 @@ components:
       schema: { type: integer, format: int64 }
     TenantID:
       name: tenant_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ScheduleID:
+      name: schedule_id
       in: path
       required: true
       schema: { type: integer, format: int64 }
@@ -217,6 +226,40 @@ components:
         display_name: { type: string }
         status: { type: string }
         created_time: { type: string, format: date-time }
+    Occurrence:
+      type: object
+      description: One computed fire time for a schedule and its outcome, decided when it was reserved -- not deferred until it actually fires.
+      properties:
+        id: { type: integer, format: int64 }
+        fire_time: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [reserved, rejected, fired, completed]
+        reservation_id:
+          type: integer
+          format: int64
+          description: Present only while status is reserved.
+    Schedule:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+        tenant_id: { type: integer, format: int64 }
+        cluster: { type: string }
+        kind:
+          type: string
+          enum: [one_shot, recurring]
+        fire_at:
+          type: string
+          format: date-time
+          description: Set for kind=one_shot.
+        recurrence:
+          type: string
+          description: A standard 5-field cron expression. Set for kind=recurring.
+        active: { type: boolean }
+        occurrences:
+          type: array
+          items: { $ref: '#/components/schemas/Occurrence' }
 
     Report:
       type: object
@@ -815,6 +858,79 @@ paths:
           description: SSE stream
           content:
             text/event-stream: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/schedules:
+    post:
+      tags: [schedules]
+      summary: Create a time-triggered schedule for the execution
+      description: |
+        Computes every occurrence within the 7-day admission horizon (a
+        one-shot schedule's single fire_at; a recurring schedule's cron
+        recurrence stepped forward) and reserves each independently. An
+        occurrence that does not fit the tenant's quota is marked rejected,
+        not an error on the whole call -- partial success, visible on the
+        returned schedule's occurrences.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [tenant_id, kind]
+              properties:
+                tenant_id: { type: integer, format: int64 }
+                cluster: { type: string }
+                kind:
+                  type: string
+                  enum: [one_shot, recurring]
+                fire_at:
+                  type: string
+                  format: date-time
+                  description: Required for kind=one_shot.
+                recurrence:
+                  type: string
+                  description: A standard 5-field cron expression. Required for kind=recurring.
+      responses:
+        '201':
+          description: Schedule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Schedule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      tags: [schedules]
+      summary: List an execution's schedules and their occurrences' statuses
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Schedule' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/schedules/{schedule_id}:
+    delete:
+      tags: [schedules]
+      summary: Delete a schedule
+      description: Releases every occurrence that still holds a reservation.
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/ScheduleID' }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/executions/{execution_id}/reports:

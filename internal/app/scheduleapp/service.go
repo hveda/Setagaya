@@ -126,6 +126,13 @@ func (s *Service) Create(ctx context.Context, sc schedule.Schedule) (ScheduleVie
 	return ScheduleView{Schedule: sc, Occurrences: occs}, nil
 }
 
+// Get returns the schedule with id, or ports.ErrNotFound -- the lookup an
+// HTTP handler needs to authorize a request against the schedule's actual
+// owning execution before acting on it.
+func (s *Service) Get(ctx context.Context, id int64) (schedule.Schedule, error) {
+	return s.repo.GetSchedule(ctx, id)
+}
+
 // List returns every schedule for an execution, each with its occurrences.
 func (s *Service) List(ctx context.Context, executionID int64) ([]ScheduleView, error) {
 	schedules, err := s.repo.ListSchedulesByExecution(ctx, executionID)
