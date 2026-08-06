@@ -226,6 +226,17 @@ components:
         display_name: { type: string }
         status: { type: string }
         created_time: { type: string, format: date-time }
+    Reservation:
+      type: object
+      description: A tenant's claim on engine capacity for a bounded window -- the reservation calendar's unit.
+      properties:
+        id: { type: integer, format: int64 }
+        tenant_id: { type: integer, format: int64 }
+        cluster: { type: string }
+        engine_count: { type: integer }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        execution_id: { type: integer, format: int64 }
     Occurrence:
       type: object
       description: One computed fire time for a schedule and its outcome, decided when it was reserved -- not deferred until it actually fires.
@@ -1204,6 +1215,37 @@ paths:
                 type: object
                 properties:
                   message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/tenants/{tenant_id}/reservations:
+    get:
+      tags: [tenants]
+      summary: List a tenant's engine-capacity reservations over a date range
+      description: |
+        The reservation calendar's data source. `from`/`to` default to
+        [now, now+7d) when omitted -- the same rolling horizon a recurring
+        schedule's occurrences are reserved within. `cluster` defaults to
+        the implicit default cluster (until Phase 8's registry exists).
+      parameters:
+        - { $ref: '#/components/parameters/TenantID' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: cluster
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reservations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Reservation' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 

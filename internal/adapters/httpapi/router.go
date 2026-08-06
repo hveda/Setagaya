@@ -39,6 +39,10 @@ type Deps struct {
 	// Reports serves a run's stored report, the durable record of what it
 	// produced.
 	Reports ports.ReportStore
+	// Reservations backs the reservation calendar (GET
+	// /api/tenants/{tenant_id}/reservations). Required alongside Tenants for
+	// that endpoint; nil disables it (tenantAdminGate 404s first anyway).
+	Reservations ports.ReservationRepository
 	// IngestToken authenticates engine pods. Empty rejects every push, so a
 	// deployment that has not configured one is closed rather than open.
 	IngestToken string
@@ -141,6 +145,7 @@ var routes = []Route{
 	{"PATCH", "/api/tenants/{tenant_id}", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.setTenantStatus })},
 	{"PUT", "/api/tenants/{tenant_id}/quota", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.setTenantQuota })},
 	{"GET", "/api/tenants/{tenant_id}/quota", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.getTenantQuota })},
+	{"GET", "/api/tenants/{tenant_id}/reservations", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.tenantReservations })},
 	{"POST", "/api/tenants/{tenant_id}/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.assignTenantRole })},
 	{"DELETE", "/api/tenants/{tenant_id}/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeTenantRole })},
 	{"POST", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.assignGlobalRole })},

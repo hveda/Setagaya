@@ -142,6 +142,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Usage:         usage,
 		Metrics:       collector,
 		Reports:       repo,
+		Reservations:  repo,
 		IngestToken:   cfg.Cluster.IngestToken,
 		Admin:         admin,
 		Events:        bus,
