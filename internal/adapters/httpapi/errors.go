@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
@@ -54,6 +55,7 @@ var badRequestErrors = []error{
 	tenantapp.ErrUnknownRole, tenantapp.ErrGlobalRoleScoped,
 	schedule.ErrExecutionRequired, schedule.ErrKindInvalid, schedule.ErrFireAtRequired,
 	schedule.ErrRecurrenceRequired, schedule.ErrRecurrenceInvalid, schedule.ErrWindowInvalid,
+	adminapp.ErrScopeInvalid,
 }
 
 // conflictErrors are state conflicts → HTTP 409.

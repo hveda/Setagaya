@@ -127,6 +127,7 @@ var routes = []Route{
 
 	{"GET", "/api/admin/executions", "admin", hf(func(h *handlers) http.HandlerFunc { return h.adminExecutions })},
 	{"GET", "/api/admin/nodes", "admin", hf(func(h *handlers) http.HandlerFunc { return h.adminNodes })},
+	{"POST", "/api/admin/abort", "admin", hf(func(h *handlers) http.HandlerFunc { return h.abortExecutions })},
 
 	{"POST", "/api/tenants", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.createTenant })},
 	{"GET", "/api/tenants", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.listTenants })},

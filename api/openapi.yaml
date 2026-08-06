@@ -1049,6 +1049,49 @@ paths:
             application/json: {}
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /api/admin/abort:
+    post:
+      tags: [admin]
+      summary: Kill-switch -- tear down every in-flight execution matching a scope
+      description: |
+        Tears down every matching in-flight execution via the existing
+        Stop/Purge, within a bounded time. `campaign` is a valid scope now
+        (unreachable until Phase 6 introduces campaigns) so this endpoint
+        will not need touching again once it does -- it currently matches
+        nothing rather than erroring. Requires a service-provider admin
+        under RBAC.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [scope, value]
+              properties:
+                scope:
+                  type: string
+                  enum: [tenant, cluster, campaign, execution_list]
+                value:
+                  type: string
+                  description: >-
+                    A tenant id (scope=tenant), a cluster ref (scope=cluster,
+                    empty for the default cluster), unused (scope=campaign),
+                    or a comma-separated list of execution ids
+                    (scope=execution_list).
+      responses:
+        '200':
+          description: Aborted execution ids
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  aborted:
+                    type: array
+                    items: { type: integer, format: int64 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /api/tenants:
     get:
       tags: [tenants]

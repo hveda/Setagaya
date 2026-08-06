@@ -13,7 +13,10 @@ import (
 	auditmem "github.com/heridotlife/honryu/internal/adapters/audit/memory"
 	"github.com/heridotlife/honryu/internal/adapters/auth/token"
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/domain/account"
@@ -26,6 +29,7 @@ import (
 type rbacFixture struct {
 	router http.Handler
 	store  *fake.Store
+	sched  *fake.Scheduler
 	prov   *token.Provider
 	audit  *auditmem.Log
 }
@@ -33,6 +37,8 @@ type rbacFixture struct {
 func newRBACFixture(t *testing.T) *rbacFixture {
 	t.Helper()
 	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	sched := fake.NewScheduler()
 	prov := token.New()
 	// Seed the admin principal and its global grant.
 	prov.Register("admin-tok", account.Account{Subject: "admin", Email: "admin@x"})
@@ -43,13 +49,17 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 	}
 	auth := authapp.NewService(prov, store, true)
 	audit := auditmem.New(nil)
+	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
 	router := httpapi.NewRouter(httpapi.Deps{
-		Projects: projectapp.NewService(store),
-		Tenants:  tenantapp.NewService(store, store, store),
-		Auth:     auth,
-		Audit:    audit,
+		Projects:   projectapp.NewService(store),
+		Executions: executionapp.NewService(store, obj, 100),
+		Tenants:    tenantapp.NewService(store, store, store),
+		Admin:      adminapp.NewService(store, sched, lifecycle),
+		Store:      obj,
+		Auth:       auth,
+		Audit:      audit,
 	})
-	return &rbacFixture{router: router, store: store, prov: prov, audit: audit}
+	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit}
 }
 
 func (f *rbacFixture) req(t *testing.T, method, path, tok string, form url.Values) *httptest.ResponseRecorder {
