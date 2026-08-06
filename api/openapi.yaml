@@ -882,6 +882,12 @@ paths:
         occurrence that does not fit the tenant's quota is marked rejected,
         not an error on the whole call -- partial success, visible on the
         returned schedule's occurrences.
+
+        tenant_id decides which tenant's quota the schedule's occurrences
+        draw against, so under RBAC the caller must be authorized for that
+        specific tenant (global or tenant-scoped), not merely authorized to
+        manage the execution -- the same rule creating a project under a
+        given tenant_id already follows.
       parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
       requestBody:
         required: true
@@ -910,6 +916,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Schedule' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     get:
       tags: [schedules]

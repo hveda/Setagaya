@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/schedule"
 )
 
@@ -49,6 +51,14 @@ func toScheduleResponse(v scheduleapp.ScheduleView) scheduleResponse {
 // createSchedule creates a time-triggered execution -- one-shot (fire_at) or
 // recurring (recurrence, a cron expression) -- and reserves every occurrence
 // within the 7-day admission horizon that fits the tenant's quota.
+//
+// tenant_id is still taken from the request (execution.TenantID is never
+// populated by any current code path, so there is no server-side source to
+// derive it from -- see authorizeScheduleTenant), but it is no longer
+// trusted unchecked: authorizeScheduleTenant requires the caller be
+// authorized for that specific tenant, the same rule createProject already
+// applies to a client-declared tenant_id, so a caller cannot attribute a
+// schedule's quota to a tenant they have no relationship to.
 func (h *handlers) createSchedule(w http.ResponseWriter, r *http.Request) {
 	executionID, ok := pathInt(r, "execution_id")
 	if !ok {
@@ -66,6 +76,10 @@ func (h *handlers) createSchedule(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := strconv.ParseInt(r.PostForm.Get("tenant_id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid tenant_id")
+		return
+	}
+	if err := h.authorizeScheduleTenant(r.Context(), tenantID); err != nil {
+		respondError(w, err)
 		return
 	}
 	sc := schedule.Schedule{
@@ -145,4 +159,26 @@ func (h *handlers) authorizeSchedule(r *http.Request, scheduleID int64) error {
 		return err
 	}
 	return h.authorizeExecution(r, sc.ExecutionID)
+}
+
+// authorizeScheduleTenant checks the caller may attribute a schedule's
+// occurrences -- and the quota they reserve -- to tenantID. Under RBAC this
+// requires a role, global or scoped to tenantID specifically, granting
+// rbac.ResourceProject/ActionUpdate: the same permission authorizeExecution
+// already requires for the execution's own project, and the same pattern
+// createProject already applies to its own client-declared tenant_id.
+// Without this, authorizeExecution alone only proves the caller may manage
+// the execution -- not that tenantID is a tenant they have any relationship
+// to. In no-auth mode authorizeExecution has already fully vetted the
+// caller, so tenant_id is accepted as given, matching every other no-auth
+// route.
+func (h *handlers) authorizeScheduleTenant(ctx context.Context, tenantID int64) error {
+	if !h.rbacEnabled() {
+		return nil
+	}
+	dec := h.deps.Auth.Authorize(accountFrom(ctx), rbac.Request{Resource: rbac.ResourceProject, Action: rbac.ActionUpdate, TenantID: &tenantID})
+	if !dec.Allowed {
+		return errForbidden
+	}
+	return nil
 }

@@ -1,14 +1,18 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	auditmem "github.com/heridotlife/honryu/internal/adapters/audit/memory"
 	"github.com/heridotlife/honryu/internal/adapters/auth/token"
@@ -18,6 +22,9 @@ import (
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/quotaapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/domain/account"
 	"github.com/heridotlife/honryu/internal/domain/rbac"
@@ -50,11 +57,14 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 	auth := authapp.NewService(prov, store, true)
 	audit := auditmem.New(nil)
 	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
+	quota := quotaapp.NewService(store)
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:   projectapp.NewService(store),
+		Scenarios:  scenarioapp.NewService(store, obj),
 		Executions: executionapp.NewService(store, obj, 100),
 		Tenants:    tenantapp.NewService(store, store, store),
 		Admin:      adminapp.NewService(store, sched, lifecycle),
+		Schedules:  scheduleapp.NewService(store, quota),
 		Store:      obj,
 		Auth:       auth,
 		Audit:      audit,
@@ -382,4 +392,98 @@ func equalSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// createProjectInTenantReturningID is createProjectInTenant plus the
+// project's assigned id, needed to create an execution under it.
+func createProjectInTenantReturningID(t *testing.T, f *rbacFixture, name, owner string, tenantID int64) int64 {
+	t.Helper()
+	form := url.Values{"name": {name}, "owner": {owner}, "tenant_id": {strconv.FormatInt(tenantID, 10)}}
+	rec := f.req(t, http.MethodPost, "/api/projects", "admin-tok", form)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project %q status = %d (%s)", name, rec.Code, rec.Body.String())
+	}
+	return decodeID(t, rec)
+}
+
+// putMultipartAuth is putMultipart (router_phase1_test.go) plus a bearer
+// token, needed once RBAC requires every /api/ request to authenticate.
+func putMultipartAuth(t *testing.T, f *rbacFixture, path, tok, filename, content string) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := fw.Write([]byte(content)); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	_ = mw.Close()
+
+	r := httptest.NewRequest(http.MethodPut, path, &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	if tok != "" {
+		r.Header.Set("Authorization", "Bearer "+tok)
+	}
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, r)
+	return rec
+}
+
+// createSchedule's tenant_id is a client-declared value, not derived from
+// anything already authorized by authorizeExecution -- authorizeScheduleTenant
+// must independently verify the caller is authorized for the specific
+// tenant named, the same rule createProject already applies to its own
+// client-declared tenant_id. Without it, alice (authorized only in acme, her
+// own tenant) could attribute a schedule's quota to globex, a tenant she has
+// no relationship to at all.
+func TestRBAC_CreateScheduleRequiresAuthorizationForTheDeclaredTenant(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	globex := createTenant(t, f, "globex", "Globex")
+	f.prov.Register("alice-tok", account.Account{Subject: "alice"})
+	assignRole(t, f, acme, "alice", rbac.RoleTenantEditor)
+
+	// Admin sets up alice's project, scenario, execution, and load profile in
+	// acme -- only the createSchedule call itself is under test.
+	projectID := createProjectInTenantReturningID(t, f, "acme-web", "team-a", acme)
+	scenarioID := decodeID(t, f.req(t, http.MethodPost, "/api/scenarios", "admin-tok",
+		url.Values{"name": {"smoke"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+	executionID := decodeID(t, f.req(t, http.MethodPost, "/api/executions", "admin-tok",
+		url.Values{"name": {"peak"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+	configYAML := fmt.Sprintf(`multi-test:
+  collectionid: %d
+  tests:
+    - testid: %d
+      concurrency: 10
+      rampup: 1
+      engines: 2
+      duration: 30
+`, executionID, scenarioID)
+	path := "/api/executions/" + strconv.FormatInt(executionID, 10) + "/config"
+	if rec := putMultipartAuth(t, f, path, "admin-tok", "config.yaml", configYAML); rec.Code != http.StatusOK {
+		t.Fatalf("upload config = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	fireAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	schedulePath := "/api/executions/" + strconv.FormatInt(executionID, 10) + "/schedules"
+
+	// Alice, authorized only in acme, cannot attribute a schedule to globex.
+	rec := f.req(t, http.MethodPost, schedulePath, "alice-tok", url.Values{
+		"tenant_id": {strconv.FormatInt(globex, 10)}, "kind": {"one_shot"}, "fire_at": {fireAt},
+	})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("alice create schedule for globex = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Alice can attribute one to acme, her own tenant.
+	rec = f.req(t, http.MethodPost, schedulePath, "alice-tok", url.Values{
+		"tenant_id": {strconv.FormatInt(acme, 10)}, "kind": {"one_shot"}, "fire_at": {fireAt},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("alice create schedule for acme = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
 }
