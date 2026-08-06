@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.2
