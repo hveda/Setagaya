@@ -383,3 +383,108 @@ func TestDelete_MissingSchedule(t *testing.T) {
 		t.Fatalf("Delete(missing) = %v, want ErrNotFound", err)
 	}
 }
+
+func TestClaimDue_NothingDueReturnsFalse(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := newService(store, now)
+	executionID := seedExecution(t, store, 2, 30)
+	if err := store.SetCeiling(ctx, 7, "", 2); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	fireAt := now.Add(time.Hour) // not due yet
+	if _, err := svc.Create(ctx, schedule.Schedule{ExecutionID: executionID, TenantID: 7, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, found, err := svc.ClaimDue(ctx, now)
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if found {
+		t.Fatalf("ClaimDue found = true, want false -- nothing is due yet")
+	}
+}
+
+// Claiming a due occurrence releases the reservation it held: Trigger makes
+// its own live one against the execution's current load profile, so holding
+// onto the advance hold would double-count the same capacity.
+func TestClaimDue_ClaimsDueOccurrenceAndReleasesItsReservation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	const tenantID = int64(7)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := newService(store, now)
+	executionID := seedExecution(t, store, 2, 30)
+	if err := store.SetCeiling(ctx, tenantID, "eu-west", 2); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	fireAt := now.Add(time.Minute)
+	view, err := svc.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Cluster: "eu-west", Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	reservationID := *view.Occurrences[0].ReservationID
+
+	claim, found, err := svc.ClaimDue(ctx, fireAt) // exactly due
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if !found {
+		t.Fatalf("ClaimDue found = false, want true -- the occurrence is due now")
+	}
+	if claim.Occurrence.ID != view.Occurrences[0].ID || claim.Schedule.ID != view.Schedule.ID {
+		t.Fatalf("ClaimDue claim = %+v, want the occurrence/schedule just created", claim)
+	}
+	if claim.Schedule.ExecutionID != executionID || claim.Schedule.TenantID != tenantID || claim.Schedule.Cluster != "eu-west" {
+		t.Fatalf("ClaimDue claim.Schedule = %+v, missing the fields cmd/scheduler needs to fire it", claim.Schedule)
+	}
+
+	if err := store.DeleteReservation(ctx, reservationID); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("the occurrence's hold reservation was not released by ClaimDue: DeleteReservation = %v, want ErrNotFound (already gone)", err)
+	}
+
+	// Already claimed: a second call must not find it again.
+	_, found, err = svc.ClaimDue(ctx, fireAt)
+	if err != nil {
+		t.Fatalf("ClaimDue (second): %v", err)
+	}
+	if found {
+		t.Fatalf("ClaimDue found the same occurrence twice")
+	}
+}
+
+// A rejected occurrence held no reservation to release -- ClaimDue must not
+// error just because there was nothing to delete.
+func TestClaimDue_RejectedOccurrenceNeverClaimable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := newService(store, now)
+	executionID := seedExecution(t, store, 5, 30) // wants more engines than the ceiling allows
+	if err := store.SetCeiling(ctx, 7, "", 1); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	fireAt := now.Add(time.Minute)
+	view, err := svc.Create(ctx, schedule.Schedule{ExecutionID: executionID, TenantID: 7, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if view.Occurrences[0].Status != ports.OccurrenceRejected {
+		t.Fatalf("occurrence status = %v, want rejected (over quota)", view.Occurrences[0].Status)
+	}
+
+	_, found, err := svc.ClaimDue(ctx, fireAt)
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if found {
+		t.Fatalf("ClaimDue found a rejected occurrence, want none claimable")
+	}
+}

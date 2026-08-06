@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -82,4 +83,29 @@ func (s *Store) OccurrencesForSchedule(_ context.Context, scheduleID int64) ([]p
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].FireTime.Before(out[j].FireTime) })
 	return out, nil
+}
+
+// ClaimDueOccurrence finds the earliest still-reserved occurrence due at or
+// before now and marks it fired. The Store's single mutex, held for the
+// whole operation, gives the same exclusivity a real row lock would.
+func (s *Store) ClaimDueOccurrence(_ context.Context, now time.Time) (ports.Occurrence, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var claimed ports.Occurrence
+	found := false
+	for _, o := range s.occurrences {
+		if o.Status != ports.OccurrenceReserved || o.FireTime.After(now) {
+			continue
+		}
+		if !found || o.FireTime.Before(claimed.FireTime) {
+			claimed = o
+			found = true
+		}
+	}
+	if !found {
+		return ports.Occurrence{}, false, nil
+	}
+	claimed.Status = ports.OccurrenceFired
+	s.occurrences[claimed.ID] = claimed
+	return claimed, true, nil
 }

@@ -150,6 +150,37 @@ func (s *Service) List(ctx context.Context, executionID int64) ([]ScheduleView, 
 	return out, nil
 }
 
+// Claim is the occurrence cmd/scheduler just claimed, together with the
+// schedule it belongs to (for its ExecutionID, TenantID, and Cluster).
+type Claim struct {
+	Occurrence ports.Occurrence
+	Schedule   schedule.Schedule
+}
+
+// ClaimDue claims the earliest due, still-reserved occurrence across every
+// schedule, if any, and releases the reservation it held. Firing hands
+// admission over to lifecycleapp.Trigger's own live reservation -- checked
+// again at the moment it actually fires, against the execution's current
+// load profile rather than whatever it was when the schedule was created --
+// so holding onto the advance reservation here would double-count the same
+// capacity rather than re-verify it.
+func (s *Service) ClaimDue(ctx context.Context, now time.Time) (Claim, bool, error) {
+	occ, found, err := s.repo.ClaimDueOccurrence(ctx, now)
+	if err != nil || !found {
+		return Claim{}, found, err
+	}
+	if occ.ReservationID != nil {
+		if err := s.repo.DeleteReservation(ctx, *occ.ReservationID); err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return Claim{}, false, err
+		}
+	}
+	sc, err := s.repo.GetSchedule(ctx, occ.ScheduleID)
+	if err != nil {
+		return Claim{}, false, err
+	}
+	return Claim{Occurrence: occ, Schedule: sc}, true, nil
+}
+
 // Delete removes a schedule and releases every occurrence that still holds a
 // reservation. An occurrence already fired or rejected has nothing to
 // release -- its history is discarded along with the schedule itself

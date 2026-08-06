@@ -167,4 +167,102 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 			t.Errorf("occs[1] = %+v, want the rejected occurrence at t=120 with no reservation id", occs[1])
 		}
 	})
+
+	t.Run("ClaimDueOccurrenceReturnsFalseWhenNothingIsDue", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		id, err := repo.CreateSchedule(ctx, schedule.Schedule{ExecutionID: 1, TenantID: 7, Kind: schedule.KindRecurring, Recurrence: "* * * * *"})
+		if err != nil {
+			t.Fatalf("CreateSchedule: %v", err)
+		}
+		// Reserved but not due yet, and rejected (never claimable regardless
+		// of fire time) -- neither should ever be returned.
+		if _, err := repo.CreateOccurrence(ctx, ports.Occurrence{ScheduleID: id, FireTime: at(1000), Status: ports.OccurrenceReserved}); err != nil {
+			t.Fatalf("CreateOccurrence: %v", err)
+		}
+		if _, err := repo.CreateOccurrence(ctx, ports.Occurrence{ScheduleID: id, FireTime: at(0), Status: ports.OccurrenceRejected}); err != nil {
+			t.Fatalf("CreateOccurrence: %v", err)
+		}
+
+		_, found, err := repo.ClaimDueOccurrence(ctx, at(500))
+		if err != nil {
+			t.Fatalf("ClaimDueOccurrence: %v", err)
+		}
+		if found {
+			t.Fatalf("ClaimDueOccurrence found = true, want false -- nothing reserved is due yet")
+		}
+	})
+
+	// The claim is the exclusive hand-off cmd/scheduler relies on: the
+	// earliest due, still-reserved occurrence is returned and immediately
+	// marked fired so a second call (or a second replica) never sees it
+	// again, and occurrences due later are claimed in fire-time order.
+	t.Run("ClaimDueOccurrenceClaimsEarliestDueFirstAndMarksItFired", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		id, err := repo.CreateSchedule(ctx, schedule.Schedule{ExecutionID: 1, TenantID: 7, Kind: schedule.KindRecurring, Recurrence: "* * * * *"})
+		if err != nil {
+			t.Fatalf("CreateSchedule: %v", err)
+		}
+		earlyReservation := int64(11)
+		lateReservation := int64(22)
+		if _, err := repo.CreateOccurrence(ctx, ports.Occurrence{
+			ScheduleID: id, FireTime: at(100), Status: ports.OccurrenceReserved, ReservationID: &lateReservation,
+		}); err != nil {
+			t.Fatalf("CreateOccurrence: %v", err)
+		}
+		if _, err := repo.CreateOccurrence(ctx, ports.Occurrence{
+			ScheduleID: id, FireTime: at(50), Status: ports.OccurrenceReserved, ReservationID: &earlyReservation,
+		}); err != nil {
+			t.Fatalf("CreateOccurrence: %v", err)
+		}
+		if _, err := repo.CreateOccurrence(ctx, ports.Occurrence{ScheduleID: id, FireTime: at(1000), Status: ports.OccurrenceReserved}); err != nil {
+			t.Fatalf("CreateOccurrence: %v", err) // due later; must not be claimed yet
+		}
+
+		now := at(200) // both t=50 and t=100 are due; t=1000 is not
+		got, found, err := repo.ClaimDueOccurrence(ctx, now)
+		if err != nil {
+			t.Fatalf("ClaimDueOccurrence: %v", err)
+		}
+		if !found || !got.FireTime.Equal(at(50)) || got.ReservationID == nil || *got.ReservationID != earlyReservation {
+			t.Fatalf("ClaimDueOccurrence first claim = %+v, want the t=50 occurrence (earliest due)", got)
+		}
+		if got.Status != ports.OccurrenceFired {
+			t.Errorf("claimed occurrence status = %v, want fired", got.Status)
+		}
+
+		got, found, err = repo.ClaimDueOccurrence(ctx, now)
+		if err != nil {
+			t.Fatalf("ClaimDueOccurrence (second): %v", err)
+		}
+		if !found || !got.FireTime.Equal(at(100)) || got.ReservationID == nil || *got.ReservationID != lateReservation {
+			t.Fatalf("ClaimDueOccurrence second claim = %+v, want the t=100 occurrence", got)
+		}
+
+		// Both due occurrences are now claimed; only the not-yet-due one is left.
+		_, found, err = repo.ClaimDueOccurrence(ctx, now)
+		if err != nil {
+			t.Fatalf("ClaimDueOccurrence (third): %v", err)
+		}
+		if found {
+			t.Fatalf("ClaimDueOccurrence found a third occurrence, want none left due")
+		}
+
+		occs, err := repo.OccurrencesForSchedule(ctx, id)
+		if err != nil {
+			t.Fatalf("OccurrencesForSchedule: %v", err)
+		}
+		fired := 0
+		for _, o := range occs {
+			if o.Status == ports.OccurrenceFired {
+				fired++
+			}
+		}
+		if fired != 2 {
+			t.Fatalf("fired occurrences in storage = %d, want 2 (the claims must persist)", fired)
+		}
+	})
 }

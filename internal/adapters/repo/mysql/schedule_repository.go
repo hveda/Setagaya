@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -159,4 +160,45 @@ func (r *Repository) OccurrencesForSchedule(ctx context.Context, scheduleID int6
 		return nil, fmt.Errorf("mysql: iterate occurrences: %w", err)
 	}
 	return out, nil
+}
+
+// ClaimDueOccurrence locks and claims the earliest still-reserved occurrence
+// due at or before now, in one short transaction (SELECT ... FOR UPDATE, then
+// the UPDATE marking it fired, mirroring lockShard in report_progress.go) --
+// two replicas racing this at once serialize on the lock, and only one sees
+// the row before the other's transaction commits and moves it out of
+// "reserved".
+func (r *Repository) ClaimDueOccurrence(ctx context.Context, now time.Time) (ports.Occurrence, bool, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ports.Occurrence{}, false, fmt.Errorf("mysql: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var (
+		o             ports.Occurrence
+		reservationID sql.NullInt64
+	)
+	row := tx.QueryRowContext(ctx,
+		"SELECT id, schedule_id, fire_time, reservation_id FROM schedule_occurrence"+
+			" WHERE status = ? AND fire_time <= ? ORDER BY fire_time LIMIT 1 FOR UPDATE",
+		string(ports.OccurrenceReserved), now)
+	if err := row.Scan(&o.ID, &o.ScheduleID, &o.FireTime, &reservationID); errors.Is(err, sql.ErrNoRows) {
+		return ports.Occurrence{}, false, nil
+	} else if err != nil {
+		return ports.Occurrence{}, false, fmt.Errorf("mysql: claim due occurrence: %w", err)
+	}
+	if reservationID.Valid {
+		id := reservationID.Int64
+		o.ReservationID = &id
+	}
+	o.Status = ports.OccurrenceFired
+
+	if _, err := tx.ExecContext(ctx, "UPDATE schedule_occurrence SET status = ? WHERE id = ?", string(ports.OccurrenceFired), o.ID); err != nil {
+		return ports.Occurrence{}, false, fmt.Errorf("mysql: mark occurrence fired: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ports.Occurrence{}, false, fmt.Errorf("mysql: commit claim: %w", err)
+	}
+	return o, true, nil
 }

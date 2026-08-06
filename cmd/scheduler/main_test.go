@@ -1,0 +1,361 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/quotaapp"
+	"github.com/heridotlife/honryu/internal/app/scheduleapp"
+	"github.com/heridotlife/honryu/internal/config"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/schedule"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+)
+
+func TestNewRepository_Fake(t *testing.T) {
+	t.Parallel()
+	repo, err := newRepository(config.DBConfig{Driver: "fake"}, "default")
+	if err != nil || repo == nil {
+		t.Fatalf("newRepository(fake) = %v, %v", repo, err)
+	}
+}
+
+func TestNewRepository_Unsupported(t *testing.T) {
+	t.Parallel()
+	if _, err := newRepository(config.DBConfig{Driver: "postgres"}, "default"); err == nil {
+		t.Fatal("newRepository(postgres): expected error, got nil")
+	}
+}
+
+func TestNewRepository_MySQL_Unreachable(t *testing.T) {
+	t.Parallel()
+	// Nothing listens on port 1, so the ping fails fast: covers the mysql
+	// open-ok / ping-error wiring branch without needing a container.
+	_, err := newRepository(config.DBConfig{
+		Driver: "mysql",
+		DSN:    "honryu:secret@tcp(127.0.0.1:1)/honryu?parseTime=true",
+	}, "default")
+	if err == nil {
+		t.Fatal("newRepository(mysql, unreachable): expected error, got nil")
+	}
+}
+
+func TestNewScheduler(t *testing.T) {
+	t.Parallel()
+	if s, err := newScheduler(config.ClusterConfig{Scheduler: "fake"}); err != nil || s == nil {
+		t.Fatalf("newScheduler(fake) = %v, %v", s, err)
+	}
+	if _, err := newScheduler(config.ClusterConfig{Scheduler: "k8s", Namespace: "default", EnginePort: 8080}); err == nil {
+		t.Fatal("newScheduler(k8s) outside cluster: expected error, got nil")
+	}
+	if _, err := newScheduler(config.ClusterConfig{Scheduler: "nope"}); err == nil {
+		t.Fatal("newScheduler(nope): expected error, got nil")
+	}
+}
+
+func TestNewObjectStore(t *testing.T) {
+	t.Parallel()
+	if s, err := newObjectStore(config.StorageConfig{Driver: "local", Root: t.TempDir()}); err != nil || s == nil {
+		t.Fatalf("newObjectStore(local) = %v, %v", s, err)
+	}
+	s, err := newObjectStore(config.StorageConfig{
+		Driver: "nexus", BaseURL: "https://nexus.example", Repo: "raw", Username: "u", Password: "p",
+	})
+	if err != nil || s == nil {
+		t.Fatalf("newObjectStore(nexus) = %v, %v", s, err)
+	}
+	if got := s.URL("scenario/1/a.jmx"); got != "https://nexus.example/repository/raw/scenario/1/a.jmx" {
+		t.Fatalf("nexus URL = %q", got)
+	}
+	if _, err := newObjectStore(config.StorageConfig{Driver: "s3"}); err == nil {
+		t.Fatal("newObjectStore(s3): expected error, got nil")
+	}
+}
+
+func TestSetupLogging_AllVariants(t *testing.T) {
+	// Not parallel: mutates the global slog default logger.
+	for _, c := range []config.LogConfig{
+		{Level: "debug", Format: "text"},
+		{Level: "info", Format: "json"},
+		{Level: "warn", Format: "json"},
+		{Level: "error", Format: "text"},
+		{Level: "unknown", Format: "unknown"},
+	} {
+		setupLogging(c)
+	}
+}
+
+func TestRun_ConfigError(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{"HONRYU_HTTP_PORT": "not-a-number"}
+	if err := run(context.Background(), func(k string) string { return env[k] }); err == nil {
+		t.Fatal("run with invalid config: expected error, got nil")
+	}
+}
+
+// A valid config that fails at wiring (rather than at Load/validate) --
+// here, a well-formed mysql driver selection with an unreachable DSN --
+// covers run()'s own newRepository error-return branch.
+func TestRun_NewRepositoryError(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{
+		"HONRYU_DB_DRIVER": "mysql",
+		"HONRYU_DB_DSN":    "honryu:secret@tcp(127.0.0.1:1)/honryu?parseTime=true",
+	}
+	if err := run(context.Background(), func(k string) string { return env[k] }); err == nil {
+		t.Fatal("run with an unreachable mysql DSN: expected error, got nil")
+	}
+}
+
+func TestRun_TicksUntilContextCancelled(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{
+		"HONRYU_DB_DRIVER":               "fake",
+		"HONRYU_LOG_FORMAT":              "text",
+		"HONRYU_SCHEDULER_TICK_INTERVAL": "10ms",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, func(k string) string { return env[k] }) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not return within 5s of its context being cancelled")
+	}
+}
+
+// seedDueExecution creates a project, scenario (with a test file), execution,
+// and load profile via the fake store, plus a tenant quota ceiling, and
+// returns the execution id -- everything fireOnce's Deploy+Trigger call
+// needs to actually succeed.
+func seedDueExecution(t *testing.T, store *fake.Store, obj *fake.ObjectStore, tenantID int64, engines int) int64 {
+	t.Helper()
+	ctx := context.Background()
+	p, _ := project.New("web", "honryu", "")
+	projectID, err := store.CreateProject(ctx, p)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	pl, _ := scenario.NewNative("scenario", projectID, taurus.ExecutorJMeter)
+	scenarioID, err := store.CreateScenario(ctx, pl)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
+		t.Fatalf("AddScenarioFile: %v", err)
+	}
+	if err := obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("upload test file: %v", err)
+	}
+
+	e, _ := execution.New("peak", projectID)
+	e.TenantID = &tenantID
+	executionID, err := store.CreateExecution(ctx, e)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	entries := []loadprofile.Entry{{ScenarioID: scenarioID, Concurrency: 10, Engines: engines, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, entries); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	if err := store.SetCeiling(ctx, tenantID, "", engines); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	return executionID
+}
+
+// newTestServices wires scheduleapp/lifecycleapp against fakes. now pins the
+// clock scheduleapp.Create measures its admission horizon from -- a fire
+// time equal to now is included in that horizon (the boundary is inclusive),
+// and since real wall-clock time only advances from here, by the time
+// fireOnce runs (which claims against the real clock) that same fire time is
+// already due.
+func newTestServices(store *fake.Store, obj *fake.ObjectStore, now time.Time) (*scheduleapp.Service, *lifecycleapp.Service, *fake.Scheduler) {
+	sched := fake.NewScheduler()
+	quota := quotaapp.NewService(store)
+	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest")).WithQuota(quota)
+	schedules := scheduleapp.NewService(store, quota).WithNow(func() time.Time { return now })
+	return schedules, lifecycle, sched
+}
+
+func TestFireOnce_NothingDueIsANoOp(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	schedules, lifecycle, sched := newTestServices(store, fake.NewObjectStore(), time.Now())
+
+	fireOnce(context.Background(), schedules, lifecycle)
+
+	deployed, _ := sched.DeployedExecutions(context.Background(), "")
+	if len(deployed) != 0 {
+		t.Fatalf("deployed executions = %v, want none -- nothing was due", deployed)
+	}
+}
+
+// The end-to-end path fireOnce exists for: claim, deploy, trigger, and the
+// occurrence's hold reservation released in favor of Trigger's own live one.
+func TestFireOnce_DeploysAndTriggersTheDueExecution(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	executionID := seedDueExecution(t, store, obj, tenantID, 2)
+	now := time.Now()
+	schedules, lifecycle, sched := newTestServices(store, obj, now)
+
+	fireAt := now // included in the horizon, and already due by the time fireOnce runs
+	view, err := schedules.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("Create schedule: %v", err)
+	}
+	if view.Occurrences[0].Status != "reserved" {
+		t.Fatalf("occurrence status = %v, want reserved", view.Occurrences[0].Status)
+	}
+
+	fireOnce(ctx, schedules, lifecycle)
+
+	deployed, _ := sched.DeployedExecutions(ctx, "")
+	if _, ok := deployed[executionID]; !ok {
+		t.Fatalf("execution %d was not deployed", executionID)
+	}
+	if _, running, _ := store.CurrentRun(ctx, executionID); !running {
+		t.Fatal("execution was not triggered -- no active run after fireOnce")
+	}
+
+	occs, err := store.OccurrencesForSchedule(ctx, view.Schedule.ID)
+	if err != nil {
+		t.Fatalf("OccurrencesForSchedule: %v", err)
+	}
+	if len(occs) != 1 || occs[0].Status != "fired" {
+		t.Fatalf("occurrence after fireOnce = %+v, want status fired", occs)
+	}
+
+	// A second tick must not fire it again: the claim already consumed it.
+	before, _ := sched.DeployedExecutions(ctx, "")
+	fireOnce(ctx, schedules, lifecycle)
+	after, _ := sched.DeployedExecutions(ctx, "")
+	if fmt.Sprint(before) != fmt.Sprint(after) {
+		t.Fatalf("a second fireOnce changed deployed executions: before=%v after=%v", before, after)
+	}
+}
+
+// Firing re-checks quota at the moment it actually happens (spec: "re-checked
+// again when that time actually arrives, catching drift from other activity
+// in between"): if capacity the occurrence held at creation time is gone by
+// fire time, Deploy still succeeds (it does not check quota) but Trigger's
+// own live Reserve call rejects, and fireOnce must log that and return
+// without panicking rather than leaving the execution half-started.
+func TestFireOnce_TriggerReRejectsWhenCapacityDrainedSinceCreation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	executionID := seedDueExecution(t, store, obj, tenantID, 2) // ceiling 2, wants 2
+	now := time.Now()
+	schedules, lifecycle, sched := newTestServices(store, obj, now)
+
+	fireAt := now
+	if _, err := schedules.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+	}); err != nil {
+		t.Fatalf("Create schedule: %v", err)
+	}
+	// Capacity dries up between schedule creation and its fire time.
+	if err := store.SetCeiling(ctx, tenantID, "", 0); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+
+	fireOnce(ctx, schedules, lifecycle) // must not panic
+
+	deployed, _ := sched.DeployedExecutions(ctx, "")
+	if _, ok := deployed[executionID]; !ok {
+		t.Fatal("execution was not deployed -- Deploy does not check quota and must still have succeeded")
+	}
+	if _, running, _ := store.CurrentRun(ctx, executionID); running {
+		t.Fatal("execution shows running despite Trigger's own quota re-check rejecting it")
+	}
+}
+
+// A deploy/trigger failure (here: no test file, so Deploy fails ErrNoTestFile)
+// must not panic or block the loop -- it is logged and the tick moves on.
+func TestFireOnce_DeployFailureDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	tenantID := int64(7)
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	pl, _ := scenario.NewNative("scenario", projectID, taurus.ExecutorJMeter) // no test file uploaded
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	e, _ := execution.New("peak", projectID)
+	e.TenantID = &tenantID
+	executionID, _ := store.CreateExecution(ctx, e)
+	if err := store.StoreLoadProfile(ctx, executionID, false, []loadprofile.Entry{
+		{ScenarioID: scenarioID, Concurrency: 10, Engines: 1, Duration: 30},
+	}); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	if err := store.SetCeiling(ctx, tenantID, "", 1); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+
+	now := time.Now()
+	schedules, lifecycle, _ := newTestServices(store, fake.NewObjectStore(), now)
+	fireAt := now
+	if _, err := schedules.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+	}); err != nil {
+		t.Fatalf("Create schedule: %v", err)
+	}
+
+	fireOnce(ctx, schedules, lifecycle) // must not panic
+
+	if _, running, _ := store.CurrentRun(ctx, executionID); running {
+		t.Fatal("execution shows running despite Deploy failing (no test file)")
+	}
+}
+
+func TestRunLoop_FiresOnEachTickUntilCancelled(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	executionID := seedDueExecution(t, store, obj, tenantID, 2)
+	now := time.Now()
+	schedules, lifecycle, sched := newTestServices(store, obj, now)
+
+	fireAt := now
+	if _, err := schedules.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+	}); err != nil {
+		t.Fatalf("Create schedule: %v", err)
+	}
+
+	loopCtx, cancel := context.WithTimeout(ctx, 60*time.Millisecond)
+	defer cancel()
+	runLoop(loopCtx, schedules, lifecycle, 10*time.Millisecond)
+
+	deployed, _ := sched.DeployedExecutions(ctx, "")
+	if _, ok := deployed[executionID]; !ok {
+		t.Fatal("runLoop never fired the due occurrence within its ticking window")
+	}
+}

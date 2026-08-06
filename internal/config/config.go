@@ -17,13 +17,21 @@ import (
 
 // Config is the fully-resolved, validated runtime configuration.
 type Config struct {
-	HTTP    HTTPConfig
-	DB      DBConfig
-	Log     LogConfig
-	Storage StorageConfig
-	Limits  LimitsConfig
-	Cluster ClusterConfig
-	Auth    AuthConfig
+	HTTP      HTTPConfig
+	DB        DBConfig
+	Log       LogConfig
+	Storage   StorageConfig
+	Limits    LimitsConfig
+	Cluster   ClusterConfig
+	Auth      AuthConfig
+	Scheduler SchedulerConfig
+}
+
+// SchedulerConfig configures cmd/scheduler's fire-due-occurrences loop.
+type SchedulerConfig struct {
+	// TickInterval is how often cmd/scheduler polls for a due occurrence to
+	// claim and fire.
+	TickInterval time.Duration
 }
 
 // AuthConfig selects the authentication provider and toggles RBAC.
@@ -144,7 +152,8 @@ func Load(getenv func(string) string) (Config, error) {
 			Context:       "default",
 			AutoPurgeIdle: time.Hour,
 		},
-		Auth: AuthConfig{Mode: "none"},
+		Auth:      AuthConfig{Mode: "none"},
+		Scheduler: SchedulerConfig{TickInterval: 30 * time.Second},
 	}
 
 	var err error
@@ -202,6 +211,9 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Auth.OIDC.Issuer = strEnv(getenv, "OIDC_ISSUER", cfg.Auth.OIDC.Issuer)
 	cfg.Auth.OIDC.Audience = strEnv(getenv, "OIDC_AUDIENCE", cfg.Auth.OIDC.Audience)
 	cfg.Auth.OIDC.JWKSURL = strEnv(getenv, "OIDC_JWKS_URL", cfg.Auth.OIDC.JWKSURL)
+	if cfg.Scheduler.TickInterval, err = durEnv(getenv, "SCHEDULER_TICK_INTERVAL", cfg.Scheduler.TickInterval); err != nil {
+		return Config{}, err
+	}
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
@@ -258,6 +270,9 @@ func (c Config) validate() error {
 		if c.Auth.OIDC.JWKSURL == "" {
 			return fmt.Errorf("config: auth mode oidc requires %sOIDC_JWKS_URL", envPrefix)
 		}
+	}
+	if c.Scheduler.TickInterval <= 0 {
+		return fmt.Errorf("config: %sSCHEDULER_TICK_INTERVAL must be positive", envPrefix)
 	}
 	return nil
 }

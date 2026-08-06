@@ -57,4 +57,13 @@ type ScheduleRepository interface {
 	// OccurrencesForSchedule returns every occurrence belonging to
 	// scheduleID, ordered by fire time.
 	OccurrencesForSchedule(ctx context.Context, scheduleID int64) ([]Occurrence, error)
+
+	// ClaimDueOccurrence atomically finds the earliest still-reserved
+	// occurrence whose fire time is at or before now, marks it fired, and
+	// returns it -- the exclusive hand-off that lets more than one
+	// cmd/scheduler replica poll concurrently without two of them firing the
+	// same occurrence. found is false when nothing is due. Implementations
+	// must make the find-and-mark step atomic (row-locking in MySQL; the
+	// fake's single mutex gives the same guarantee for free).
+	ClaimDueOccurrence(ctx context.Context, now time.Time) (o Occurrence, found bool, err error)
 }
