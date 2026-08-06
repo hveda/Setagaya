@@ -265,4 +265,71 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 			t.Fatalf("fired occurrences in storage = %d, want 2 (the claims must persist)", fired)
 		}
 	})
+
+	// The horizon-extension pass only ever needs recurring, active schedules:
+	// a one-shot has exactly one occurrence and nothing to extend, and an
+	// inactive schedule is paused, not rolled forward.
+	t.Run("ListActiveRecurringSchedulesFiltersKindAndActive", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		wantID, err := repo.CreateSchedule(ctx, schedule.Schedule{
+			ExecutionID: 1, TenantID: 7, Kind: schedule.KindRecurring, Recurrence: "* * * * *", Active: true,
+		})
+		if err != nil {
+			t.Fatalf("CreateSchedule (active recurring): %v", err)
+		}
+		if _, err := repo.CreateSchedule(ctx, schedule.Schedule{
+			ExecutionID: 2, TenantID: 7, Kind: schedule.KindRecurring, Recurrence: "* * * * *", Active: false,
+		}); err != nil {
+			t.Fatalf("CreateSchedule (inactive recurring): %v", err)
+		}
+		fireAt := at(100)
+		if _, err := repo.CreateSchedule(ctx, schedule.Schedule{
+			ExecutionID: 3, TenantID: 7, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+		}); err != nil {
+			t.Fatalf("CreateSchedule (active one-shot): %v", err)
+		}
+
+		got, err := repo.ListActiveRecurringSchedules(ctx)
+		if err != nil {
+			t.Fatalf("ListActiveRecurringSchedules: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != wantID {
+			t.Fatalf("ListActiveRecurringSchedules = %+v, want only the active recurring schedule", got)
+		}
+	})
+
+	t.Run("HorizonExtensionRoundTrips", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		if _, found, err := repo.LastHorizonExtension(ctx); err != nil || found {
+			t.Fatalf("LastHorizonExtension before any run = found:%v, err:%v, want found:false", found, err)
+		}
+
+		if err := repo.RecordHorizonExtension(ctx, at(100)); err != nil {
+			t.Fatalf("RecordHorizonExtension: %v", err)
+		}
+		got, found, err := repo.LastHorizonExtension(ctx)
+		if err != nil {
+			t.Fatalf("LastHorizonExtension: %v", err)
+		}
+		if !found || !got.Equal(at(100)) {
+			t.Fatalf("LastHorizonExtension = %v, found:%v, want %v, found:true", got, found, at(100))
+		}
+
+		// A later run overwrites the earlier one -- only the most recent
+		// success is ever queryable.
+		if err := repo.RecordHorizonExtension(ctx, at(200)); err != nil {
+			t.Fatalf("RecordHorizonExtension (second): %v", err)
+		}
+		got, found, err = repo.LastHorizonExtension(ctx)
+		if err != nil {
+			t.Fatalf("LastHorizonExtension (after second run): %v", err)
+		}
+		if !found || !got.Equal(at(200)) {
+			t.Fatalf("LastHorizonExtension after second run = %v, found:%v, want %v, found:true", got, found, at(200))
+		}
+	})
 }

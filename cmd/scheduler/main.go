@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -79,8 +80,18 @@ func run(parent context.Context, getenv func(string) string) error {
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	slog.Info("scheduler started", "tick_interval", cfg.Scheduler.TickInterval, "db_driver", cfg.DB.Driver)
+	slog.Info("scheduler started",
+		"tick_interval", cfg.Scheduler.TickInterval, "horizon_interval", cfg.Scheduler.HorizonInterval, "db_driver", cfg.DB.Driver)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runHorizonLoop(ctx, schedules, cfg.Scheduler.HorizonInterval)
+	}()
+
 	runLoop(ctx, schedules, lifecycle, cfg.Scheduler.TickInterval)
+	wg.Wait()
 	slog.Info("scheduler shut down")
 	return nil
 }
@@ -128,6 +139,39 @@ func fireOnce(ctx context.Context, schedules *scheduleapp.Service, lifecycle *li
 		return
 	}
 	log.Info("fired due occurrence")
+}
+
+// runHorizonLoop rolls every active recurring schedule's occurrence horizon
+// forward on a slower interval than runLoop's fire-due tick -- it only needs
+// to keep occurrences reserved out to the 7-day horizon, not react promptly
+// to a fire time arriving. Runs once immediately on startup (rather than
+// waiting for the first tick) so a schedule whose horizon drifted below 7
+// days while cmd/scheduler was down is caught up right away.
+func runHorizonLoop(ctx context.Context, schedules *scheduleapp.Service, interval time.Duration) {
+	extendHorizonsOnce(ctx, schedules)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			extendHorizonsOnce(ctx, schedules)
+		}
+	}
+}
+
+// extendHorizonsOnce runs one horizon-extension pass. A failure (including a
+// single schedule's own) is logged, not retried here -- ExtendHorizons
+// itself still records the pass's completion even when part of it failed
+// (see scheduleapp.ExtendHorizons), so a stalled job is what shows up as
+// missing here, not a partial one.
+func extendHorizonsOnce(ctx context.Context, schedules *scheduleapp.Service) {
+	if err := schedules.ExtendHorizons(ctx); err != nil {
+		slog.Error("extend schedule horizons", "error", err)
+		return
+	}
+	slog.Info("extended schedule horizons")
 }
 
 // newRepository selects the repository implementation from config, matching

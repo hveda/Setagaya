@@ -46,6 +46,11 @@ type ScheduleRepository interface {
 	GetSchedule(ctx context.Context, id int64) (schedule.Schedule, error)
 	// ListSchedulesByExecution returns every schedule belonging to executionID.
 	ListSchedulesByExecution(ctx context.Context, executionID int64) ([]schedule.Schedule, error)
+	// ListActiveRecurringSchedules returns every active recurring schedule
+	// across all executions -- what the horizon-extension pass rolls forward.
+	// One-shot schedules are never returned: they have exactly one occurrence,
+	// computed once at creation, with no horizon to extend.
+	ListActiveRecurringSchedules(ctx context.Context) ([]schedule.Schedule, error)
 	// DeleteSchedule removes a schedule and every occurrence it owns, or
 	// ErrNotFound. Deleting a schedule does not itself release any
 	// still-reserved occurrence's reservation -- the caller (scheduleapp)
@@ -66,4 +71,14 @@ type ScheduleRepository interface {
 	// must make the find-and-mark step atomic (row-locking in MySQL; the
 	// fake's single mutex gives the same guarantee for free).
 	ClaimDueOccurrence(ctx context.Context, now time.Time) (o Occurrence, found bool, err error)
+
+	// RecordHorizonExtension records that the recurring-schedule
+	// horizon-extension pass completed at t, overwriting whatever was
+	// recorded before -- a single timestamp queryable to tell whether the
+	// background job is stalled, rather than silently leaving future
+	// occurrences unguarded.
+	RecordHorizonExtension(ctx context.Context, t time.Time) error
+	// LastHorizonExtension returns the last successful horizon-extension
+	// pass's timestamp, or found=false if one has never completed.
+	LastHorizonExtension(ctx context.Context) (t time.Time, found bool, err error)
 }

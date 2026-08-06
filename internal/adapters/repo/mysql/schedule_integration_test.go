@@ -91,3 +91,39 @@ func TestMySQLScheduleRepository_ClaimDueOccurrence_ConcurrentClaimsExactlyOneWi
 		t.Fatalf("occurrence after the race = %+v, want status fired", occs)
 	}
 }
+
+// Every schedule/occurrence operation must surface a database error rather
+// than panicking or silently swallowing it.
+func TestMySQLScheduleRepository_ErrorsWhenDBClosed(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	repo := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	fireAt := time.Unix(0, 0).UTC()
+	ops := map[string]func() error{
+		"CreateSchedule": func() error {
+			_, e := repo.CreateSchedule(ctx, schedule.Schedule{ExecutionID: 1, TenantID: 7, Kind: schedule.KindOneShot, FireAt: &fireAt})
+			return e
+		},
+		"GetSchedule":                  func() error { _, e := repo.GetSchedule(ctx, 1); return e },
+		"ListSchedulesByExecution":     func() error { _, e := repo.ListSchedulesByExecution(ctx, 1); return e },
+		"ListActiveRecurringSchedules": func() error { _, e := repo.ListActiveRecurringSchedules(ctx); return e },
+		"DeleteSchedule":               func() error { return repo.DeleteSchedule(ctx, 1) },
+		"CreateOccurrence": func() error {
+			_, e := repo.CreateOccurrence(ctx, ports.Occurrence{ScheduleID: 1, FireTime: fireAt, Status: ports.OccurrenceReserved})
+			return e
+		},
+		"OccurrencesForSchedule": func() error { _, e := repo.OccurrencesForSchedule(ctx, 1); return e },
+		"ClaimDueOccurrence":     func() error { _, _, e := repo.ClaimDueOccurrence(ctx, fireAt); return e },
+		"RecordHorizonExtension": func() error { return repo.RecordHorizonExtension(ctx, fireAt) },
+		"LastHorizonExtension":   func() error { _, _, e := repo.LastHorizonExtension(ctx); return e },
+	}
+	for name, op := range ops {
+		if err := op(); err == nil {
+			t.Errorf("%s on a closed database returned no error", name)
+		}
+	}
+}

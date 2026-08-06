@@ -66,6 +66,9 @@ type Store struct {
 	schedules     map[int64]schedule.Schedule
 	occurrenceSeq int64
 	occurrences   map[int64]ports.Occurrence
+	// horizonRunAt is when the horizon-extension pass last completed
+	// successfully; nil means it has never run.
+	horizonRunAt *time.Time
 
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the

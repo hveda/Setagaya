@@ -359,3 +359,73 @@ func TestRunLoop_FiresOnEachTickUntilCancelled(t *testing.T) {
 		t.Fatal("runLoop never fired the due occurrence within its ticking window")
 	}
 }
+
+func TestExtendHorizonsOnce_RecordsCompletion(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	schedules, _, _ := newTestServices(store, fake.NewObjectStore(), time.Now())
+
+	extendHorizonsOnce(context.Background(), schedules)
+
+	if _, found, err := schedules.LastHorizonExtension(context.Background()); err != nil || !found {
+		t.Fatalf("LastHorizonExtension after extendHorizonsOnce = found:%v, err:%v, want found:true", found, err)
+	}
+}
+
+// runHorizonLoop runs its pass immediately on startup, before ever checking
+// ctx -- even a context cancelled before the call still gets one pass, since
+// a schedule whose horizon drifted below 7 days while cmd/scheduler was down
+// must be caught up right away, not left to wait for the first tick.
+func TestRunHorizonLoop_RunsImmediatelyBeforeCheckingContext(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	schedules, _, _ := newTestServices(store, fake.NewObjectStore(), time.Now())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runHorizonLoop(ctx, schedules, time.Hour)
+
+	if _, found, err := schedules.LastHorizonExtension(context.Background()); err != nil || !found {
+		t.Fatalf("LastHorizonExtension after runHorizonLoop = found:%v, err:%v, want found:true (its immediate pass must still run)", found, err)
+	}
+}
+
+// A schedule whose execution lost its load profile fails to extend, but
+// extendHorizonsOnce must not panic on that -- it logs and moves on, and the
+// pass still records its own completion (scheduleapp.ExtendHorizons does
+// that even for a partial failure).
+func TestExtendHorizonsOnce_ScheduleErrorDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	executionID := seedDueExecution(t, store, obj, tenantID, 2)
+	now := time.Now()
+	schedules, _, _ := newTestServices(store, obj, now)
+
+	if _, err := schedules.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindRecurring, Recurrence: "0 0 * * *", Active: true,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := store.StoreLoadProfile(ctx, executionID, false, nil); err != nil {
+		t.Fatalf("StoreLoadProfile (clear): %v", err)
+	}
+
+	extendHorizonsOnce(ctx, schedules) // must not panic
+
+	if _, found, err := schedules.LastHorizonExtension(ctx); err != nil || !found {
+		t.Fatalf("LastHorizonExtension after a partial failure = found:%v, err:%v, want found:true", found, err)
+	}
+}
+
+func TestRunHorizonLoop_TicksMoreThanOnceUntilCancelled(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	schedules, _, _ := newTestServices(store, fake.NewObjectStore(), time.Now())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	runHorizonLoop(ctx, schedules, 10*time.Millisecond) // must return once ctx is done, without panicking
+}

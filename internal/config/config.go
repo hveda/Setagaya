@@ -32,6 +32,11 @@ type SchedulerConfig struct {
 	// TickInterval is how often cmd/scheduler polls for a due occurrence to
 	// claim and fire.
 	TickInterval time.Duration
+	// HorizonInterval is how often the recurring-schedule horizon-extension
+	// pass runs -- much less frequent than TickInterval, since it only needs
+	// to keep occurrences reserved out to the 7-day horizon, not react to a
+	// fire time arriving.
+	HorizonInterval time.Duration
 }
 
 // AuthConfig selects the authentication provider and toggles RBAC.
@@ -153,7 +158,7 @@ func Load(getenv func(string) string) (Config, error) {
 			AutoPurgeIdle: time.Hour,
 		},
 		Auth:      AuthConfig{Mode: "none"},
-		Scheduler: SchedulerConfig{TickInterval: 30 * time.Second},
+		Scheduler: SchedulerConfig{TickInterval: 30 * time.Second, HorizonInterval: 24 * time.Hour},
 	}
 
 	var err error
@@ -212,6 +217,9 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Auth.OIDC.Audience = strEnv(getenv, "OIDC_AUDIENCE", cfg.Auth.OIDC.Audience)
 	cfg.Auth.OIDC.JWKSURL = strEnv(getenv, "OIDC_JWKS_URL", cfg.Auth.OIDC.JWKSURL)
 	if cfg.Scheduler.TickInterval, err = durEnv(getenv, "SCHEDULER_TICK_INTERVAL", cfg.Scheduler.TickInterval); err != nil {
+		return Config{}, err
+	}
+	if cfg.Scheduler.HorizonInterval, err = durEnv(getenv, "SCHEDULER_HORIZON_INTERVAL", cfg.Scheduler.HorizonInterval); err != nil {
 		return Config{}, err
 	}
 
@@ -273,6 +281,9 @@ func (c Config) validate() error {
 	}
 	if c.Scheduler.TickInterval <= 0 {
 		return fmt.Errorf("config: %sSCHEDULER_TICK_INTERVAL must be positive", envPrefix)
+	}
+	if c.Scheduler.HorizonInterval <= 0 {
+		return fmt.Errorf("config: %sSCHEDULER_HORIZON_INTERVAL must be positive", envPrefix)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ package scheduleapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
@@ -105,9 +106,23 @@ func (s *Service) Create(ctx context.Context, sc schedule.Schedule) (ScheduleVie
 	}
 	sc.ID = id
 
+	occs, err := s.reserveOccurrences(ctx, sc, fireTimes, profile, window)
+	if err != nil {
+		return ScheduleView{}, err
+	}
+	return ScheduleView{Schedule: sc, Occurrences: occs}, nil
+}
+
+// reserveOccurrences reserves and persists one occurrence per fireTime for
+// sc (which must already have its ID set), sizing every reservation from the
+// same profile/window the caller already computed. Occurrences that fit the
+// tenant's quota are marked reserved; ones that don't are marked rejected --
+// partial success, not all-or-nothing. Shared by Create (a schedule's first
+// horizon) and extendOne (rolling that horizon forward later).
+func (s *Service) reserveOccurrences(ctx context.Context, sc schedule.Schedule, fireTimes []time.Time, profile loadprofile.Profile, window time.Duration) ([]ports.Occurrence, error) {
 	occs := make([]ports.Occurrence, 0, len(fireTimes))
 	for _, fireTime := range fireTimes {
-		occ := ports.Occurrence{ScheduleID: id, FireTime: fireTime}
+		occ := ports.Occurrence{ScheduleID: sc.ID, FireTime: fireTime}
 		r, reserveErr := s.quota.Reserve(ctx, sc.TenantID, sc.Cluster, profile.TotalEngines(), fireTime, fireTime.Add(window), sc.ExecutionID)
 		if reserveErr != nil {
 			occ.Status = ports.OccurrenceRejected
@@ -118,12 +133,12 @@ func (s *Service) Create(ctx context.Context, sc schedule.Schedule) (ScheduleVie
 		}
 		occID, createErr := s.repo.CreateOccurrence(ctx, occ)
 		if createErr != nil {
-			return ScheduleView{}, createErr
+			return nil, createErr
 		}
 		occ.ID = occID
 		occs = append(occs, occ)
 	}
-	return ScheduleView{Schedule: sc, Occurrences: occs}, nil
+	return occs, nil
 }
 
 // Get returns the schedule with id, or ports.ErrNotFound -- the lookup an
@@ -179,6 +194,79 @@ func (s *Service) ClaimDue(ctx context.Context, now time.Time) (Claim, bool, err
 		return Claim{}, false, err
 	}
 	return Claim{Occurrence: occ, Schedule: sc}, true, nil
+}
+
+// ExtendHorizons rolls every active recurring schedule's occurrence horizon
+// forward to maintain at least horizonDays out from now, and records that
+// this pass completed -- the timestamp cmd/scheduler's slower horizon tick
+// relies on to make a stalled extension job observable rather than silently
+// leaving future occurrences unguarded. One-shot schedules are untouched:
+// they have exactly one occurrence, computed once at creation, with no
+// horizon to extend. A single schedule's failure (e.g. its execution's load
+// profile was removed since the schedule was created) does not stop the
+// others from being extended; every failure is collected and returned
+// together, after the pass still records its own completion.
+func (s *Service) ExtendHorizons(ctx context.Context) error {
+	schedules, err := s.repo.ListActiveRecurringSchedules(ctx)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	to := now.AddDate(0, 0, horizonDays)
+
+	var errs []error
+	for _, sc := range schedules {
+		if err := s.extendOne(ctx, sc, now, to); err != nil {
+			errs = append(errs, fmt.Errorf("schedule %d: %w", sc.ID, err))
+		}
+	}
+	if err := s.repo.RecordHorizonExtension(ctx, now); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// extendOne reserves whatever new occurrences sc needs to reach the horizon
+// [now, to): starting from just after its latest already-known occurrence
+// (never re-computing or duplicating one that already exists), or from now
+// if it has none yet.
+func (s *Service) extendOne(ctx context.Context, sc schedule.Schedule, now, to time.Time) error {
+	existing, err := s.repo.OccurrencesForSchedule(ctx, sc.ID)
+	if err != nil {
+		return err
+	}
+	from := now
+	if n := len(existing); n > 0 {
+		if last := existing[n-1].FireTime; last.After(from) {
+			from = last.Add(time.Nanosecond)
+		}
+	}
+	if !to.After(from) {
+		return nil // horizon already covers everything; nothing new to reserve
+	}
+
+	scenarios, err := s.repo.LoadProfileFor(ctx, sc.ExecutionID)
+	if err != nil {
+		return err
+	}
+	if len(scenarios) == 0 {
+		return loadprofile.ErrNoScenarios
+	}
+	profile := loadprofile.Profile{Tests: scenarios}
+	window := time.Duration(profile.LongestDurationSeconds()) * time.Second
+
+	fireTimes, err := sc.Occurrences(from, to)
+	if err != nil {
+		return err
+	}
+	_, err = s.reserveOccurrences(ctx, sc, fireTimes, profile, window)
+	return err
+}
+
+// LastHorizonExtension returns when the horizon-extension pass last
+// completed successfully, or found=false if it has never run.
+func (s *Service) LastHorizonExtension(ctx context.Context) (time.Time, bool, error) {
+	return s.repo.LastHorizonExtension(ctx)
 }
 
 // Delete removes a schedule and releases every occurrence that still holds a

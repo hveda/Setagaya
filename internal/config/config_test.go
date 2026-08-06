@@ -60,6 +60,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Scheduler.TickInterval != 30*time.Second {
 		t.Errorf("Scheduler.TickInterval = %s, want 30s", cfg.Scheduler.TickInterval)
 	}
+	if cfg.Scheduler.HorizonInterval != 24*time.Hour {
+		t.Errorf("Scheduler.HorizonInterval = %s, want 24h", cfg.Scheduler.HorizonInterval)
+	}
 }
 
 func TestLoad_AuthOverrides(t *testing.T) {
@@ -115,18 +118,19 @@ func TestLoad_Overrides(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := Load(envMap(map[string]string{
-		"HONRYU_HTTP_PORT":               "9090",
-		"HONRYU_HTTP_READ_TIMEOUT":       "5s",
-		"HONRYU_HTTP_WRITE_TIMEOUT":      "7s",
-		"HONRYU_HTTP_IDLE_TIMEOUT":       "2m",
-		"HONRYU_DB_DRIVER":               "mysql",
-		"HONRYU_DB_DSN":                  "user:pw@tcp(db:3306)/honryu",
-		"HONRYU_LOG_LEVEL":               "debug",
-		"HONRYU_LOG_FORMAT":              "text",
-		"HONRYU_STORAGE_ROOT":            "/data/honryu",
-		"HONRYU_STORAGE_BASE_URL":        "https://cdn.example.com",
-		"HONRYU_MAX_ENGINES":             "42",
-		"HONRYU_SCHEDULER_TICK_INTERVAL": "5s",
+		"HONRYU_HTTP_PORT":                  "9090",
+		"HONRYU_HTTP_READ_TIMEOUT":          "5s",
+		"HONRYU_HTTP_WRITE_TIMEOUT":         "7s",
+		"HONRYU_HTTP_IDLE_TIMEOUT":          "2m",
+		"HONRYU_DB_DRIVER":                  "mysql",
+		"HONRYU_DB_DSN":                     "user:pw@tcp(db:3306)/honryu",
+		"HONRYU_LOG_LEVEL":                  "debug",
+		"HONRYU_LOG_FORMAT":                 "text",
+		"HONRYU_STORAGE_ROOT":               "/data/honryu",
+		"HONRYU_STORAGE_BASE_URL":           "https://cdn.example.com",
+		"HONRYU_MAX_ENGINES":                "42",
+		"HONRYU_SCHEDULER_TICK_INTERVAL":    "5s",
+		"HONRYU_SCHEDULER_HORIZON_INTERVAL": "12h",
 	}))
 	if err != nil {
 		t.Fatalf("Load with overrides: unexpected error: %v", err)
@@ -161,6 +165,9 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 	if cfg.Scheduler.TickInterval != 5*time.Second {
 		t.Errorf("Scheduler.TickInterval = %s, want 5s", cfg.Scheduler.TickInterval)
+	}
+	if cfg.Scheduler.HorizonInterval != 12*time.Hour {
+		t.Errorf("Scheduler.HorizonInterval = %s, want 12h", cfg.Scheduler.HorizonInterval)
 	}
 }
 
@@ -200,6 +207,8 @@ func TestLoad_ValidationErrors(t *testing.T) {
 		"nexus without repo":    {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_STORAGE_BASE_URL": "https://x"},
 		"bad tick interval":     {"HONRYU_SCHEDULER_TICK_INTERVAL": "never"},
 		"zero tick interval":    {"HONRYU_SCHEDULER_TICK_INTERVAL": "0s"},
+		"bad horizon interval":  {"HONRYU_SCHEDULER_HORIZON_INTERVAL": "never"},
+		"zero horizon interval": {"HONRYU_SCHEDULER_HORIZON_INTERVAL": "0s"},
 	}
 
 	for name, env := range cases {

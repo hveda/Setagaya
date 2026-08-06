@@ -65,6 +65,31 @@ func (r *Repository) ListSchedulesByExecution(ctx context.Context, executionID i
 	return out, nil
 }
 
+// ListActiveRecurringSchedules returns every active recurring schedule
+// across all executions.
+func (r *Repository) ListActiveRecurringSchedules(ctx context.Context) ([]schedule.Schedule, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT "+scheduleColumns+" FROM schedule WHERE kind = ? AND active = TRUE",
+		string(schedule.KindRecurring))
+	if err != nil {
+		return nil, fmt.Errorf("mysql: list active recurring schedules: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []schedule.Schedule{}
+	for rows.Next() {
+		s, scanErr := scanSchedule(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("mysql: scan schedule: %w", scanErr)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterate schedules: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteSchedule removes a schedule and every occurrence it owns, or
 // ports.ErrNotFound. Both deletes commit together: a schedule gone with its
 // occurrences left behind would orphan rows a later ScheduleID could collide
@@ -201,4 +226,30 @@ func (r *Repository) ClaimDueOccurrence(ctx context.Context, now time.Time) (por
 		return ports.Occurrence{}, false, fmt.Errorf("mysql: commit claim: %w", err)
 	}
 	return o, true, nil
+}
+
+// RecordHorizonExtension records that the horizon-extension pass completed
+// at t, overwriting whatever was recorded before.
+func (r *Repository) RecordHorizonExtension(ctx context.Context, t time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		"INSERT INTO scheduler_horizon_run (id, last_success_at) VALUES (1, ?) ON DUPLICATE KEY UPDATE last_success_at = VALUES(last_success_at)",
+		t)
+	if err != nil {
+		return fmt.Errorf("mysql: record horizon extension: %w", err)
+	}
+	return nil
+}
+
+// LastHorizonExtension returns the last successful horizon-extension pass's
+// timestamp, or found=false if one has never completed.
+func (r *Repository) LastHorizonExtension(ctx context.Context) (time.Time, bool, error) {
+	var t time.Time
+	err := r.db.QueryRowContext(ctx, "SELECT last_success_at FROM scheduler_horizon_run WHERE id = 1").Scan(&t)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("mysql: last horizon extension: %w", err)
+	}
+	return t, true, nil
 }

@@ -43,6 +43,20 @@ func (s *Store) ListSchedulesByExecution(_ context.Context, executionID int64) (
 	return out, nil
 }
 
+// ListActiveRecurringSchedules returns every active recurring schedule
+// across all executions.
+func (s *Store) ListActiveRecurringSchedules(_ context.Context) ([]schedule.Schedule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []schedule.Schedule{}
+	for _, sc := range s.schedules {
+		if sc.Kind == schedule.KindRecurring && sc.Active {
+			out = append(out, sc)
+		}
+	}
+	return out, nil
+}
+
 // DeleteSchedule removes a schedule and every occurrence it owns, or
 // ports.ErrNotFound.
 func (s *Store) DeleteSchedule(_ context.Context, id int64) error {
@@ -108,4 +122,24 @@ func (s *Store) ClaimDueOccurrence(_ context.Context, now time.Time) (ports.Occu
 	claimed.Status = ports.OccurrenceFired
 	s.occurrences[claimed.ID] = claimed
 	return claimed, true, nil
+}
+
+// RecordHorizonExtension records that the horizon-extension pass completed
+// at t, overwriting whatever was recorded before.
+func (s *Store) RecordHorizonExtension(_ context.Context, t time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.horizonRunAt = &t
+	return nil
+}
+
+// LastHorizonExtension returns the last successful horizon-extension pass's
+// timestamp, or found=false if one has never completed.
+func (s *Store) LastHorizonExtension(_ context.Context) (time.Time, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.horizonRunAt == nil {
+		return time.Time{}, false, nil
+	}
+	return *s.horizonRunAt, true, nil
 }
