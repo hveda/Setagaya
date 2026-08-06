@@ -50,3 +50,10 @@ func TestFakeStore_ReservationContract(t *testing.T) {
 		return fake.NewStore()
 	})
 }
+
+func TestFakeStore_ScheduleContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunScheduleRepositoryContract(t, func(_ *testing.T) ports.ScheduleRepository {
+		return fake.NewStore()
+	})
+}

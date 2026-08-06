@@ -15,6 +15,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/domain/tenant"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -61,6 +62,11 @@ type Store struct {
 	reservations   map[int64]reservation.Reservation
 	quotaCeilings  map[quotaKey]int // (tenantID, cluster) -> ceiling; absent means unconfigured
 
+	scheduleSeq   int64
+	schedules     map[int64]schedule.Schedule
+	occurrenceSeq int64
+	occurrences   map[int64]ports.Occurrence
+
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
 	// rest of Store the way scenarios and executions tie to each other.
@@ -88,6 +94,8 @@ func NewStore() *Store {
 		tenants:          make(map[int64]tenant.Tenant),
 		reservations:     make(map[int64]reservation.Reservation),
 		quotaCeilings:    make(map[quotaKey]int),
+		schedules:        make(map[int64]schedule.Schedule),
+		occurrences:      make(map[int64]ports.Occurrence),
 		ReportProgress:   NewReportProgress(),
 		ReportStore:      NewReportStore(),
 	}
