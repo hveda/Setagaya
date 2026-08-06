@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -47,6 +48,7 @@ import (
 	"github.com/heridotlife/honryu/internal/config"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
+	"github.com/heridotlife/honryu/web"
 )
 
 // repository is the full repository surface the API wires into its services.
@@ -126,6 +128,11 @@ func run(ctx context.Context, getenv func(string) string) error {
 	audit := auditmem.New(slog.Default())
 	slog.Info("auth configured", "mode", cfg.Auth.Mode, "rbac_enabled", cfg.Auth.EnableRBAC)
 
+	webAssets, err := fs.Sub(web.Dist, "dist")
+	if err != nil {
+		return fmt.Errorf("web assets: %w", err)
+	}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
 		Scenarios:     scenarioapp.NewService(repo, store),
@@ -143,6 +150,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Tenants:       tenantapp.NewService(repo, repo, repo),
 		Audit:         audit,
 		DefaultOwners: []string{"honryu"},
+		StaticAssets:  webAssets,
 	})
 
 	srv := &http.Server{

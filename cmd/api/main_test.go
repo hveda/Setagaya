@@ -99,6 +99,18 @@ func TestRun_ServesAndShutsDownCleanly(t *testing.T) {
 		t.Fatalf("GET /api/projects status = %d, want 200", resp.StatusCode)
 	}
 
+	// The embedded SPA build (web.Dist, unwrapped by run()'s fs.Sub) is
+	// served for "/" -- proves the embed and fs.Sub wiring actually work,
+	// not just that they compiled.
+	staticResp, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	_ = staticResp.Body.Close()
+	if staticResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / status = %d, want 200", staticResp.StatusCode)
+	}
+
 	cancel()
 	select {
 	case err := <-done:

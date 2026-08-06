@@ -5,6 +5,7 @@
 package httpapi
 
 import (
+	"io/fs"
 	"net/http"
 	"strings"
 
@@ -54,6 +55,11 @@ type Deps struct {
 	Audit ports.AuditLog
 	// DefaultOwners is the owner set used when RBAC is disabled (no-auth mode).
 	DefaultOwners []string
+	// StaticAssets serves the SPA build (web/dist, unwrapped from web.Dist's
+	// "dist/" prefix by the caller) for any unmatched non-/api/ path.
+	// Optional; nil disables static serving (e.g. in tests that only exercise
+	// the JSON API).
+	StaticAssets fs.FS
 }
 
 // ingestPath is the engine-pod push endpoint. It authenticates with its own
@@ -162,6 +168,12 @@ func NewRouter(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	for _, r := range routes {
 		mux.Handle(r.Method+" "+r.Pattern, r.handler(h))
+	}
+	if d.StaticAssets != nil {
+		// A registered "/" pattern is ServeMux's catch-all: every /api/...
+		// pattern above is more specific and always wins for a matching
+		// request, so this only ever runs for what none of them claimed.
+		mux.Handle("/", newStaticHandler(d.StaticAssets))
 	}
 
 	return h.authenticate(mux)
