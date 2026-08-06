@@ -81,4 +81,16 @@ type ScheduleRepository interface {
 	// LastHorizonExtension returns the last successful horizon-extension
 	// pass's timestamp, or found=false if one has never completed.
 	LastHorizonExtension(ctx context.Context) (t time.Time, found bool, err error)
+
+	// WithScheduleLock runs fn while holding an exclusive lock scoped to
+	// scheduleID, serializing occurrence-mutating operations for one
+	// schedule -- specifically, horizon extension: without this, two
+	// cmd/scheduler replicas extending the same schedule's horizon around
+	// the same time could each read the same "existing occurrences" before
+	// either commits its own new ones, creating duplicate occurrences (and
+	// reservations) for the same fire time, which would later each be
+	// claimed and fired independently. A call for a different scheduleID
+	// must not block on this one. fn's error (if any) is returned
+	// unchanged; the lock is always released, even when fn errors.
+	WithScheduleLock(ctx context.Context, scheduleID int64, fn func(ctx context.Context) error) error
 }

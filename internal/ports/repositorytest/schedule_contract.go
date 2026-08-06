@@ -3,7 +3,9 @@ package repositorytest
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -330,6 +332,103 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 		}
 		if !found || !got.Equal(at(200)) {
 			t.Fatalf("LastHorizonExtension after second run = %v, found:%v, want %v, found:true", got, found, at(200))
+		}
+	})
+
+	// This is the guarantee scheduleapp.extendOne relies on: two
+	// cmd/scheduler replicas extending the same schedule's horizon around
+	// the same time must not interleave, or each could read the same
+	// "existing occurrences" before either commits its own new ones,
+	// duplicating occurrences (and reservations) for the same fire time.
+	t.Run("WithScheduleLockSerializesConcurrentCallsForTheSameSchedule", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		var mu sync.Mutex
+		inside, maxConcurrent := 0, 0
+		var wg sync.WaitGroup
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = repo.WithScheduleLock(ctx, 1, func(context.Context) error {
+					mu.Lock()
+					inside++
+					if inside > maxConcurrent {
+						maxConcurrent = inside
+					}
+					mu.Unlock()
+
+					time.Sleep(10 * time.Millisecond)
+
+					mu.Lock()
+					inside--
+					mu.Unlock()
+					return nil
+				})
+			}()
+		}
+		wg.Wait()
+		if maxConcurrent != 1 {
+			t.Fatalf("max concurrent holders of the same schedule lock = %d, want 1", maxConcurrent)
+		}
+	})
+
+	// A different scheduleID must not queue behind an unrelated one.
+	t.Run("WithScheduleLockDoesNotBlockADifferentSchedule", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		started := make(chan struct{}, 2)
+		release := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, scheduleID := range []int64{1, 2} {
+			scheduleID := scheduleID
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = repo.WithScheduleLock(ctx, scheduleID, func(context.Context) error {
+					started <- struct{}{}
+					<-release
+					return nil
+				})
+			}()
+		}
+		for i := 0; i < 2; i++ {
+			select {
+			case <-started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("a different schedule's WithScheduleLock blocked on an unrelated one")
+			}
+		}
+		close(release)
+		wg.Wait()
+	})
+
+	// fn's error must reach the caller unchanged, and the lock must still be
+	// released -- otherwise every future extension for the schedule would
+	// hang after the first failure.
+	t.Run("WithScheduleLockPropagatesFnErrorAndStillReleasesTheLock", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		sentinel := errors.New("boom")
+
+		err := repo.WithScheduleLock(ctx, 1, func(context.Context) error { return sentinel })
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("WithScheduleLock error = %v, want %v", err, sentinel)
+		}
+
+		done := make(chan error, 1)
+		go func() {
+			done <- repo.WithScheduleLock(ctx, 1, func(context.Context) error { return nil })
+		}()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("WithScheduleLock after a prior fn error = %v, want nil", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("WithScheduleLock after a prior fn error hung -- lock not released")
 		}
 	})
 }

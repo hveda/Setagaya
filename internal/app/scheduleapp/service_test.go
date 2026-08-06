@@ -3,6 +3,7 @@ package scheduleapp_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -579,6 +580,79 @@ func TestExtendHorizons_RollsRecurringScheduleForwardWithoutDuplicating(t *testi
 	}
 	if len(occs2) != 10 {
 		t.Fatalf("Occurrences after a second ExtendHorizons at the same now = %d, want still 10", len(occs2))
+	}
+}
+
+// cmd/scheduler's horizon loop runs on every replica, unlike the row-locked
+// fire-due-occurrence claim. Two replicas -- modeled here as two independent
+// *scheduleapp.Service instances sharing one store, exactly like two
+// processes sharing one MySQL database -- extending the same schedule's
+// horizon at once must still end up with exactly the occurrences the
+// horizon calls for, never duplicates. (Repo.WithScheduleLock's mutual
+// exclusion is proven deterministically, with an artificial sleep to force
+// the interleaving, in repositorytest's
+// WithScheduleLockSerializesConcurrentCallsForTheSameSchedule -- this test
+// checks extendOne is actually wired to use it.)
+func TestExtendHorizons_ConcurrentReplicasDoNotDuplicateOccurrences(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	const tenantID = int64(7)
+	executionID := seedExecution(t, store, 1, 30) // 1 engine, 30s duration
+	if err := store.SetCeiling(ctx, tenantID, "", 100); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	seeder := newService(store, t0)
+	view, err := seeder.Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindRecurring, Recurrence: "0 0 * * *", Active: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if len(view.Occurrences) != 7 {
+		t.Fatalf("Occurrences after Create = %d, want 7 (Jan 1..7)", len(view.Occurrences))
+	}
+
+	// Three days later: two replicas, both seeing the same horizon target
+	// (now+7d = Jan 11), both racing to reserve the same three new fire
+	// times (Jan 8, 9, 10).
+	t1 := t0.AddDate(0, 0, 3)
+	replicaA := newService(store, t1)
+	replicaB := newService(store, t1)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, svc := range []*scheduleapp.Service{replicaA, replicaB} {
+		svc := svc
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- svc.ExtendHorizons(ctx)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ExtendHorizons (concurrent replica): %v", err)
+		}
+	}
+
+	occs, err := store.OccurrencesForSchedule(ctx, view.Schedule.ID)
+	if err != nil {
+		t.Fatalf("OccurrencesForSchedule: %v", err)
+	}
+	if len(occs) != 10 {
+		t.Fatalf("occurrences after two concurrent ExtendHorizons = %d, want exactly 10 (7 original + 3 new, not duplicated): %+v", len(occs), occs)
+	}
+	seen := make(map[time.Time]bool, len(occs))
+	for _, occ := range occs {
+		if seen[occ.FireTime] {
+			t.Fatalf("duplicate occurrence at fire time %v: %+v", occ.FireTime, occs)
+		}
+		seen[occ.FireTime] = true
 	}
 }
 

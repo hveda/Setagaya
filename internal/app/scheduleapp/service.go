@@ -230,37 +230,47 @@ func (s *Service) ExtendHorizons(ctx context.Context) error {
 // [now, to): starting from just after its latest already-known occurrence
 // (never re-computing or duplicating one that already exists), or from now
 // if it has none yet.
+//
+// Runs under Repo.WithScheduleLock, scoped to sc.ID: without it, two
+// cmd/scheduler replicas both running their horizon loop around the same
+// time (runHorizonLoop runs on every replica, unlike the row-locked
+// fire-due-occurrence claim) could each read the same "existing occurrences"
+// before either commits its own new ones, creating duplicate occurrences --
+// and duplicate reservations -- for the same fire time, later each claimed
+// and fired independently.
 func (s *Service) extendOne(ctx context.Context, sc schedule.Schedule, now, to time.Time) error {
-	existing, err := s.repo.OccurrencesForSchedule(ctx, sc.ID)
-	if err != nil {
-		return err
-	}
-	from := now
-	if n := len(existing); n > 0 {
-		if last := existing[n-1].FireTime; last.After(from) {
-			from = last.Add(time.Nanosecond)
+	return s.repo.WithScheduleLock(ctx, sc.ID, func(ctx context.Context) error {
+		existing, err := s.repo.OccurrencesForSchedule(ctx, sc.ID)
+		if err != nil {
+			return err
 		}
-	}
-	if !to.After(from) {
-		return nil // horizon already covers everything; nothing new to reserve
-	}
+		from := now
+		if n := len(existing); n > 0 {
+			if last := existing[n-1].FireTime; last.After(from) {
+				from = last.Add(time.Nanosecond)
+			}
+		}
+		if !to.After(from) {
+			return nil // horizon already covers everything; nothing new to reserve
+		}
 
-	scenarios, err := s.repo.LoadProfileFor(ctx, sc.ExecutionID)
-	if err != nil {
-		return err
-	}
-	if len(scenarios) == 0 {
-		return loadprofile.ErrNoScenarios
-	}
-	profile := loadprofile.Profile{Tests: scenarios}
-	window := time.Duration(profile.LongestDurationSeconds()) * time.Second
+		scenarios, err := s.repo.LoadProfileFor(ctx, sc.ExecutionID)
+		if err != nil {
+			return err
+		}
+		if len(scenarios) == 0 {
+			return loadprofile.ErrNoScenarios
+		}
+		profile := loadprofile.Profile{Tests: scenarios}
+		window := time.Duration(profile.LongestDurationSeconds()) * time.Second
 
-	fireTimes, err := sc.Occurrences(from, to)
-	if err != nil {
+		fireTimes, err := sc.Occurrences(from, to)
+		if err != nil {
+			return err
+		}
+		_, err = s.reserveOccurrences(ctx, sc, fireTimes, profile, window)
 		return err
-	}
-	_, err = s.reserveOccurrences(ctx, sc, fireTimes, profile, window)
-	return err
+	})
 }
 
 // LastHorizonExtension returns when the horizon-extension pass last

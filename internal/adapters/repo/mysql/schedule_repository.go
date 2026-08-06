@@ -253,3 +253,30 @@ func (r *Repository) LastHorizonExtension(ctx context.Context) (time.Time, bool,
 	}
 	return t, true, nil
 }
+
+// WithScheduleLock serializes occurrence-mutating operations for scheduleID
+// using a MySQL named lock (GET_LOCK/RELEASE_LOCK), the same mechanism and
+// timeout as WithTenantLock -- visible to every connection against this
+// database, so two cmd/scheduler replicas extending the same schedule's
+// horizon at once block here rather than racing.
+func (r *Repository) WithScheduleLock(ctx context.Context, scheduleID int64, fn func(context.Context) error) error {
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("mysql: acquire connection for schedule lock: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	name := fmt.Sprintf("honryu:schedule:%d", scheduleID)
+	var got sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, ?)", name, tenantLockTimeout.Seconds()).Scan(&got); err != nil {
+		return fmt.Errorf("mysql: get schedule lock %q: %w", name, err)
+	}
+	if !got.Valid || got.Int64 != 1 {
+		return fmt.Errorf("mysql: could not acquire schedule lock %q within %s", name, tenantLockTimeout)
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", name)
+	}()
+
+	return fn(ctx)
+}

@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -142,4 +143,11 @@ func (s *Store) LastHorizonExtension(_ context.Context) (time.Time, bool, error)
 		return time.Time{}, false, nil
 	}
 	return *s.horizonRunAt, true, nil
+}
+
+// WithScheduleLock runs fn while holding an exclusive lock scoped to
+// scheduleID, distinct from s.mu (fn calls back into this Store's own
+// methods, which lock s.mu themselves).
+func (s *Store) WithScheduleLock(ctx context.Context, scheduleID int64, fn func(context.Context) error) error {
+	return s.withNamedLock(fmt.Sprintf("schedule:%d", scheduleID), func() error { return fn(ctx) })
 }
