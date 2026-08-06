@@ -4,6 +4,11 @@
 /dist/
 honryu-api
 
+# web/ (React SPA) build output and dependencies
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+
 # Test & coverage artifacts
 cover.out
 *.coverprofile
