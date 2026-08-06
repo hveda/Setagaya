@@ -264,7 +264,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	// (none of which set up tenant context) triggers exactly as before.
 	if coll.TenantID != nil {
 		start := s.now()
-		end := start.Add(time.Duration(reservationWindowSeconds(scenarios)) * time.Second)
+		end := start.Add(time.Duration(ec.LongestDurationSeconds()) * time.Second)
 		if _, err := s.quota.Reserve(ctx, *coll.TenantID, "", ec.TotalEngines(), start, end, executionID); err != nil {
 			return err
 		}
@@ -549,21 +549,6 @@ func engineOf(exe execution.Execution, fallback taurus.Executor) taurus.Executor
 		return exe.Engine
 	}
 	return fallback
-}
-
-// reservationWindowSeconds is how long a triggered run's quota reservation
-// should last: the longest scenario's ramp-up plus hold time, matching how
-// compile.Taurus turns those same fields into a shard's actual run time
-// (RampUp + HoldFor) -- the reservation covers exactly as long as the run can
-// actually occupy engines.
-func reservationWindowSeconds(scenarios []loadprofile.Entry) int {
-	longest := 0
-	for _, ep := range scenarios {
-		if d := ep.Rampup + ep.Duration; d > longest {
-			longest = d
-		}
-	}
-	return longest
 }
 
 // teardown stops metric execution and engines, and clears run/running-scenario

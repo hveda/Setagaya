@@ -88,3 +88,18 @@ func (ec Profile) TotalEngines() int {
 	}
 	return total
 }
+
+// LongestDurationSeconds is the longest scenario's ramp-up plus hold time --
+// how long the profile can actually occupy engines, matching how
+// compile.Taurus turns those same fields into a shard's actual run time
+// (RampUp + HoldFor). A quota reservation for the whole profile should cover
+// exactly this long, not an approximation.
+func (ec Profile) LongestDurationSeconds() int {
+	longest := 0
+	for _, ep := range ec.Tests {
+		if d := ep.Rampup + ep.Duration; d > longest {
+			longest = d
+		}
+	}
+	return longest
+}
