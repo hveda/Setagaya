@@ -51,6 +51,15 @@ export class ApiClient {
   get<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: 'GET' });
   }
+
+  /** Every mutating honryu route takes a form-encoded body (see e.g. campaign_handlers.go's r.ParseForm), not JSON. */
+  post<T>(path: string, form: URLSearchParams): Promise<T> {
+    return this.request<T>(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
+  }
 }
 
 async function extractErrorMessage(res: Response): Promise<string> {

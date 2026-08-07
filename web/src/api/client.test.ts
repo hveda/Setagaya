@@ -92,4 +92,27 @@ describe('ApiClient', () => {
     const got = await client.get('/nothing');
     expect(got).toBeUndefined();
   });
+
+  it('POSTs a form-urlencoded body', async () => {
+    let seenMethod = '';
+    let seenContentType: string | null = null;
+    let seenBody = '';
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenMethod = init?.method ?? '';
+      seenContentType = new Headers(init?.headers).get('Content-Type');
+      seenBody = String(init?.body);
+      return new Response(JSON.stringify({ ok: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new ApiClient({ baseUrl: '/mock-api', getToken: () => null });
+    const form = new URLSearchParams();
+    form.set('name', 'checkout');
+    const got = await client.post<{ ok: boolean }>('/scenarios', form);
+
+    expect(seenMethod).toBe('POST');
+    expect(seenContentType).toBe('application/x-www-form-urlencoded');
+    expect(seenBody).toBe('name=checkout');
+    expect(got).toEqual({ ok: true });
+  });
 });
