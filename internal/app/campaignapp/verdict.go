@@ -2,6 +2,8 @@ package campaignapp
 
 import (
 	"context"
+	"sort"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/report"
@@ -36,6 +38,22 @@ type CampaignVerdict struct {
 	// Go is true only when every service has a report and that report's
 	// outcome is taurus.OutcomePassed.
 	Go bool
+	// OtherLoad names every other execution active in the campaign's tenant
+	// during its window -- the minimum mitigation for the residual risk
+	// that a non-participating execution could distort the campaign's
+	// readiness numbers by contending for shared infrastructure Honryu
+	// cannot see or scope around. Excludes the campaign's own designated
+	// executions.
+	OtherLoad []OtherLoad
+}
+
+// OtherLoad is one reservation or completed launch, other than the
+// campaign's own designated executions, that overlapped its window.
+type OtherLoad struct {
+	ExecutionID int64
+	Start       time.Time
+	End         time.Time
+	EngineCount int
 }
 
 // Verdict computes the campaign's rolled-up verdict from each participating
@@ -59,7 +77,79 @@ func (s *Service) Verdict(ctx context.Context, campaignID int64) (CampaignVerdic
 		}
 		v.Services = append(v.Services, sv)
 	}
+
+	otherLoad, err := s.otherLoad(ctx, c)
+	if err != nil {
+		return CampaignVerdict{}, err
+	}
+	v.OtherLoad = otherLoad
 	return v, nil
+}
+
+// otherLoad reports every reservation or completed launch that overlapped
+// c's window, other than c's own designated executions. Reservations are
+// already scoped to c.TenantID by ReservationsInWindow itself; launch
+// history has no such scoping (it is a global log), so records are matched
+// back to an execution and dropped unless that execution belongs to
+// c.TenantID -- without this, a viewer authorized only via one of c's
+// participating projects would see execution ids from unrelated tenants.
+func (s *Service) otherLoad(ctx context.Context, c campaign.Campaign) ([]OtherLoad, error) {
+	designated := make(map[int64]bool, len(c.Services))
+	for _, svc := range c.Services {
+		designated[svc.ExecutionID] = true
+	}
+
+	byExecution := map[int64]OtherLoad{}
+	merge := func(ol OtherLoad) {
+		existing, ok := byExecution[ol.ExecutionID]
+		if !ok {
+			byExecution[ol.ExecutionID] = ol
+			return
+		}
+		if ol.Start.Before(existing.Start) {
+			existing.Start = ol.Start
+		}
+		if ol.End.After(existing.End) {
+			existing.End = ol.End
+		}
+		if ol.EngineCount > existing.EngineCount {
+			existing.EngineCount = ol.EngineCount
+		}
+		byExecution[ol.ExecutionID] = existing
+	}
+
+	reservations, err := s.repo.ReservationsInWindow(ctx, c.TenantID, "", c.Window.Start, c.Window.End)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range reservations {
+		if designated[r.ExecutionID] {
+			continue
+		}
+		merge(OtherLoad{ExecutionID: r.ExecutionID, Start: r.Start, End: r.End, EngineCount: r.EngineCount})
+	}
+
+	launches, err := s.repo.LaunchHistory(ctx, c.Window.Start, c.Window.End)
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range launches {
+		if designated[l.ExecutionID] || l.EndTime == nil {
+			continue
+		}
+		exe, err := s.repo.GetExecution(ctx, l.ExecutionID)
+		if err != nil || exe.TenantID == nil || *exe.TenantID != c.TenantID {
+			continue // gone, or not this campaign's tenant
+		}
+		merge(OtherLoad{ExecutionID: l.ExecutionID, Start: l.StartedTime, End: *l.EndTime, EngineCount: l.Engines})
+	}
+
+	out := make([]OtherLoad, 0, len(byExecution))
+	for _, ol := range byExecution {
+		out = append(out, ol)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ExecutionID < out[j].ExecutionID })
+	return out, nil
 }
 
 func (s *Service) serviceVerdict(ctx context.Context, svc campaign.Service) (ServiceVerdict, error) {

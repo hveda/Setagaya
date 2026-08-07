@@ -13,6 +13,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -33,6 +34,13 @@ type Repo interface {
 	// CriteriaFor returns an execution's configured Taurus pass/fail
 	// criteria, evaluated against its latest report to name what failed.
 	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
+	// ReservationsInWindow and LaunchHistory feed Verdict's OtherLoad
+	// annotation -- the residual-risk mitigation of recording what else was
+	// active in the campaign's tenant during its window, reusing Phase 5's
+	// existing reservation ledger and usage history rather than adding new
+	// instrumentation.
+	ReservationsInWindow(ctx context.Context, tenantID int64, cluster string, start, end time.Time) ([]reservation.Reservation, error)
+	LaunchHistory(ctx context.Context, from, to time.Time) ([]ports.LaunchRecord, error)
 }
 
 // Scheduler is the subset of ports.Scheduler campaignapp needs: which

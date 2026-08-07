@@ -47,6 +47,9 @@ type repository interface {
 	// execution's latest report -- not otherwise needed by cmd/scheduler's
 	// own fire/drain/horizon loops, but campaignapp.Repo requires it.
 	ports.ReportStore
+	// ports.UsageRepository backs campaignapp.Verdict's OtherLoad
+	// annotation (LaunchHistory) -- likewise not otherwise needed here.
+	ports.UsageRepository
 }
 
 func main() {

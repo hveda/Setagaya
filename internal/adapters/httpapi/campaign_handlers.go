@@ -184,10 +184,23 @@ type serviceVerdictResponse struct {
 	FailingCriteria []failingCriterionResponse `json:"failing_criteria,omitempty"`
 }
 
+type otherLoadResponse struct {
+	ExecutionID int64     `json:"execution_id"`
+	Start       time.Time `json:"start"`
+	End         time.Time `json:"end"`
+	EngineCount int       `json:"engine_count"`
+}
+
 type campaignVerdictResponse struct {
 	CampaignID int64                    `json:"campaign_id"`
 	Services   []serviceVerdictResponse `json:"services"`
 	Go         bool                     `json:"go"`
+	// OtherLoad names every other execution active in the campaign's
+	// tenant during its window -- the minimum mitigation for the residual
+	// risk that a non-participating execution could distort the
+	// campaign's readiness numbers by contending for shared
+	// infrastructure Honryu cannot see or scope around.
+	OtherLoad []otherLoadResponse `json:"other_load,omitempty"`
 }
 
 func toVerdictResponse(v campaignapp.CampaignVerdict) campaignVerdictResponse {
@@ -203,7 +216,13 @@ func toVerdictResponse(v campaignapp.CampaignVerdict) campaignVerdictResponse {
 			FailingCriteria: criteria,
 		}
 	}
-	return campaignVerdictResponse{CampaignID: v.CampaignID, Services: services, Go: v.Go}
+	otherLoad := make([]otherLoadResponse, len(v.OtherLoad))
+	for i, ol := range v.OtherLoad {
+		otherLoad[i] = otherLoadResponse{
+			ExecutionID: ol.ExecutionID, Start: ol.Start, End: ol.End, EngineCount: ol.EngineCount,
+		}
+	}
+	return campaignVerdictResponse{CampaignID: v.CampaignID, Services: services, Go: v.Go, OtherLoad: otherLoad}
 }
 
 // getCampaignVerdict returns the campaign's rolled-up verdict: per-service

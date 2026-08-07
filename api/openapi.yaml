@@ -329,6 +329,14 @@ components:
           type: array
           items: { $ref: '#/components/schemas/FailingCriterion' }
           description: Only populated when outcome is "failed".
+    OtherLoad:
+      type: object
+      description: One reservation or completed launch, other than the campaign's own designated executions, that overlapped its window -- the minimum mitigation for the residual risk that a non-participating execution could distort the campaign's readiness numbers by contending for shared infrastructure Honryu cannot see or scope around.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        engine_count: { type: integer }
     CampaignVerdict:
       type: object
       description: A campaign's rolled-up go/no-go.
@@ -340,6 +348,10 @@ components:
         go:
           type: boolean
           description: True only when every service has a report and that report's outcome is "passed".
+        other_load:
+          type: array
+          items: { $ref: '#/components/schemas/OtherLoad' }
+          description: Every other execution active in the campaign's tenant during its window, excluding its own participating executions.
 
     Report:
       type: object

@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
+	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
@@ -183,5 +186,291 @@ func TestVerdict_MissingCampaignPropagatesNotFound(t *testing.T) {
 	svc := campaignapp.NewService(fake.NewStore(), fake.NewScheduler())
 	if _, err := svc.Verdict(context.Background(), 999); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("Verdict(missing campaign) = %v, want ErrNotFound", err)
+	}
+}
+
+// OtherLoad is the spec's minimum mitigation for the residual freeze-scope
+// risk: even though freeze itself can't see cross-service infrastructure
+// contention, the verdict at least records what else was active.
+
+func TestVerdict_OtherLoad_IncludesOverlappingReservationExcludesDesignated(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	_, execOther := seedProjectAndExecution(t, store, "other")
+	_, execOtherHigher := seedProjectAndExecution(t, store, "other-higher-id")
+
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// The campaign's own designated execution reserving capacity must never
+	// show up as "other" load.
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 7, Cluster: "", EngineCount: 2, Start: at(10), End: at(20), ExecutionID: execA,
+	}); err != nil {
+		t.Fatalf("CreateReservation designated: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 7, Cluster: "", EngineCount: 3, Start: at(10), End: at(50), ExecutionID: execOther,
+	}); err != nil {
+		t.Fatalf("CreateReservation other: %v", err)
+	}
+	// A second, higher-id execution proves OtherLoad is sorted rather than
+	// returned in map-iteration order.
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 7, Cluster: "", EngineCount: 1, Start: at(60), End: at(70), ExecutionID: execOtherHigher,
+	}); err != nil {
+		t.Fatalf("CreateReservation other-higher-id: %v", err)
+	}
+
+	v, err := svc.Verdict(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Verdict: %v", err)
+	}
+	if len(v.OtherLoad) != 2 || v.OtherLoad[0].ExecutionID != execOther || v.OtherLoad[1].ExecutionID != execOtherHigher {
+		t.Fatalf("OtherLoad = %+v, want [execution %d, execution %d] in ascending order", v.OtherLoad, execOther, execOtherHigher)
+	}
+	first := v.OtherLoad[0]
+	if !first.Start.Equal(at(10)) || !first.End.Equal(at(50)) || first.EngineCount != 3 {
+		t.Fatalf("OtherLoad[0] = %+v, want start %v end %v engines 3", first, at(10), at(50))
+	}
+}
+
+func TestVerdict_OtherLoad_IncludesCompletedLaunchExcludesOtherTenant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	tenantSame, tenantOther := int64(7), int64(9)
+	execSame, err := store.CreateExecution(ctx, execution.Execution{Name: "same-tenant", ProjectID: projectA, TenantID: &tenantSame})
+	if err != nil {
+		t.Fatalf("CreateExecution same: %v", err)
+	}
+	execDiff, err := store.CreateExecution(ctx, execution.Execution{Name: "other-tenant", ProjectID: projectA, TenantID: &tenantOther})
+	if err != nil {
+		t.Fatalf("CreateExecution diff: %v", err)
+	}
+
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: tenantSame, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	store.SetNow(func() time.Time { return at(10) })
+	if err := store.StartLaunch(ctx, execSame, "owner", 2, 4); err != nil {
+		t.Fatalf("StartLaunch same: %v", err)
+	}
+	store.SetNow(func() time.Time { return at(30) })
+	if err := store.FinishLaunch(ctx, execSame, 4); err != nil {
+		t.Fatalf("FinishLaunch same: %v", err)
+	}
+
+	store.SetNow(func() time.Time { return at(15) })
+	if err := store.StartLaunch(ctx, execDiff, "owner", 5, 6); err != nil {
+		t.Fatalf("StartLaunch diff: %v", err)
+	}
+	store.SetNow(func() time.Time { return at(40) })
+	if err := store.FinishLaunch(ctx, execDiff, 6); err != nil {
+		t.Fatalf("FinishLaunch diff: %v", err)
+	}
+
+	v, err := svc.Verdict(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Verdict: %v", err)
+	}
+	if len(v.OtherLoad) != 1 {
+		t.Fatalf("OtherLoad = %+v, want exactly one entry (other-tenant launch excluded)", v.OtherLoad)
+	}
+	ol := v.OtherLoad[0]
+	if ol.ExecutionID != execSame || !ol.Start.Equal(at(10)) || !ol.End.Equal(at(30)) || ol.EngineCount != 2 {
+		t.Fatalf("OtherLoad[0] = %+v, want execution %d start %v end %v engines 2", ol, execSame, at(10), at(30))
+	}
+}
+
+func TestVerdict_OtherLoad_MergesReservationAndLaunchForSameExecution(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	tenantID := int64(7)
+	execOther, err := store.CreateExecution(ctx, execution.Execution{Name: "other", ProjectID: projectA, TenantID: &tenantID})
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: tenantID, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Reservation window [30,40) is processed first; the launch below
+	// starts earlier and ends later, so merging must widen both edges --
+	// not just take whichever source happened to be seen first.
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: tenantID, Cluster: "", EngineCount: 2, Start: at(30), End: at(40), ExecutionID: execOther,
+	}); err != nil {
+		t.Fatalf("CreateReservation: %v", err)
+	}
+	store.SetNow(func() time.Time { return at(10) })
+	if err := store.StartLaunch(ctx, execOther, "owner", 5, 6); err != nil {
+		t.Fatalf("StartLaunch: %v", err)
+	}
+	store.SetNow(func() time.Time { return at(60) })
+	if err := store.FinishLaunch(ctx, execOther, 6); err != nil {
+		t.Fatalf("FinishLaunch: %v", err)
+	}
+
+	v, err := svc.Verdict(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Verdict: %v", err)
+	}
+	if len(v.OtherLoad) != 1 {
+		t.Fatalf("OtherLoad = %+v, want one merged entry for execution %d", v.OtherLoad, execOther)
+	}
+	ol := v.OtherLoad[0]
+	if ol.ExecutionID != execOther || !ol.Start.Equal(at(10)) || !ol.End.Equal(at(60)) || ol.EngineCount != 5 {
+		t.Fatalf("OtherLoad[0] = %+v, want merged start %v end %v engines 5", ol, at(10), at(60))
+	}
+}
+
+// erroringRepo wraps a *fake.Store and lets a test force one method to fail,
+// to prove Verdict propagates a failure from any of its data sources rather
+// than swallowing it.
+type erroringRepo struct {
+	*fake.Store
+	reservationsErr  error
+	launchHistoryErr error
+	listReportsErr   error
+	criteriaErr      error
+}
+
+func (r *erroringRepo) ReservationsInWindow(ctx context.Context, tenantID int64, cluster string, start, end time.Time) ([]reservation.Reservation, error) {
+	if r.reservationsErr != nil {
+		return nil, r.reservationsErr
+	}
+	return r.Store.ReservationsInWindow(ctx, tenantID, cluster, start, end)
+}
+
+func (r *erroringRepo) LaunchHistory(ctx context.Context, from, to time.Time) ([]ports.LaunchRecord, error) {
+	if r.launchHistoryErr != nil {
+		return nil, r.launchHistoryErr
+	}
+	return r.Store.LaunchHistory(ctx, from, to)
+}
+
+func (r *erroringRepo) ListReports(ctx context.Context, executionID int64, limit int) ([]report.Report, error) {
+	if r.listReportsErr != nil {
+		return nil, r.listReportsErr
+	}
+	return r.Store.ListReports(ctx, executionID, limit)
+}
+
+func (r *erroringRepo) CriteriaFor(ctx context.Context, executionID int64) ([]string, error) {
+	if r.criteriaErr != nil {
+		return nil, r.criteriaErr
+	}
+	return r.Store.CriteriaFor(ctx, executionID)
+}
+
+func TestVerdict_ServiceReportLookupErrorPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	repo := &erroringRepo{Store: store, listReportsErr: errors.New("boom")}
+	svc := campaignapp.NewService(repo, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := svc.Verdict(ctx, created.ID); err == nil {
+		t.Fatal("Verdict = nil error, want the ListReports failure to propagate")
+	}
+}
+
+func TestVerdict_FailingCriteriaLookupErrorPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	repo := &erroringRepo{Store: store, criteriaErr: errors.New("boom")}
+	svc := campaignapp.NewService(repo, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	mustSaveReport(t, store, execA, 1, taurus.OutcomeFailed, report.Report{ErrorRate: 0.9})
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := svc.Verdict(ctx, created.ID); err == nil {
+		t.Fatal("Verdict = nil error, want the CriteriaFor failure to propagate")
+	}
+}
+
+func TestVerdict_OtherLoad_ReservationsErrorPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	repo := &erroringRepo{Store: store, reservationsErr: errors.New("boom")}
+	svc := campaignapp.NewService(repo, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := svc.Verdict(ctx, created.ID); err == nil {
+		t.Fatal("Verdict = nil error, want the ReservationsInWindow failure to propagate")
+	}
+}
+
+func TestVerdict_OtherLoad_LaunchHistoryErrorPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	repo := &erroringRepo{Store: store, launchHistoryErr: errors.New("boom")}
+	svc := campaignapp.NewService(repo, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := svc.Verdict(ctx, created.ID); err == nil {
+		t.Fatal("Verdict = nil error, want the LaunchHistory failure to propagate")
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
@@ -218,6 +219,7 @@ func TestCampaignHandlers_InvalidID_400(t *testing.T) {
 		{http.MethodPost, "/api/tenants/x/campaigns"},
 		{http.MethodGet, "/api/tenants/x/campaigns"},
 		{http.MethodGet, "/api/campaigns/x"},
+		{http.MethodGet, "/api/campaigns/x/verdict"},
 	}
 	for _, tc := range cases {
 		if rec := do(t, h, tc.method, tc.path); rec.Code != http.StatusBadRequest {
@@ -232,6 +234,10 @@ func TestCampaignHandlers_CampaignsNotConfigured(t *testing.T) {
 	rec := do(t, h, http.MethodGet, "/api/tenants/7/campaigns")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("list campaigns (not configured) = %d, want 404 (%s)", rec.Code, rec.Body.String())
+	}
+	rec = do(t, h, http.MethodGet, "/api/campaigns/1/verdict")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get verdict (not configured) = %d, want 404 (%s)", rec.Code, rec.Body.String())
 	}
 }
 
@@ -333,6 +339,56 @@ func TestGetCampaignVerdict_FailedServiceNamesFailingCriteria(t *testing.T) {
 	}
 	if len(got.Services[0].FailingCriteria) != 1 || got.Services[0].FailingCriteria[0].Criterion != "failures>10%" {
 		t.Fatalf("failing_criteria = %+v, want [failures>10%%]", got.Services[0].FailingCriteria)
+	}
+}
+
+func TestGetCampaignVerdict_ReportsOtherLoadExcludingOwnService(t *testing.T) {
+	t.Parallel()
+	h, store := newCampaignRouter(t)
+	ctx := context.Background()
+	projectID, execID := seedProjectAndExecution(t, h, "service-a")
+	_, otherExecID := seedProjectAndExecution(t, h, "other")
+
+	if err := store.SaveReport(ctx, report.Report{ExecutionID: execID, RunID: 1, Outcome: taurus.OutcomePassed}); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+
+	windowStart := time.Now().Add(-time.Hour).UTC()
+	windowEnd := time.Now().Add(time.Hour).UTC()
+	create := postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"c"}, "window_start": {windowStart.Format(time.RFC3339)}, "window_end": {windowEnd.Format(time.RFC3339)},
+		"service_project_id": {itoa(projectID)}, "service_execution_id": {itoa(execID)},
+	})
+	id := decodeID(t, create)
+
+	// The designated execution's own reservation must not appear as "other"
+	// load; a different execution's overlapping reservation should.
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 7, EngineCount: 1, Start: windowStart, End: windowEnd, ExecutionID: execID,
+	}); err != nil {
+		t.Fatalf("CreateReservation designated: %v", err)
+	}
+	if _, err := store.CreateReservation(ctx, reservation.Reservation{
+		TenantID: 7, EngineCount: 4, Start: windowStart, End: windowEnd, ExecutionID: otherExecID,
+	}); err != nil {
+		t.Fatalf("CreateReservation other: %v", err)
+	}
+
+	rec := do(t, h, http.MethodGet, "/api/campaigns/"+itoa(id)+"/verdict")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get verdict = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		OtherLoad []struct {
+			ExecutionID int64 `json:"execution_id"`
+			EngineCount int   `json:"engine_count"`
+		} `json:"other_load"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if len(got.OtherLoad) != 1 || got.OtherLoad[0].ExecutionID != otherExecID || got.OtherLoad[0].EngineCount != 4 {
+		t.Fatalf("other_load = %+v, want exactly one entry for execution %d with engine_count 4", got.OtherLoad, otherExecID)
 	}
 }
 
