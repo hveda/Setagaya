@@ -43,6 +43,9 @@ type Repo interface {
 	// ErrNotFound means nothing has been uploaded yet.
 	GetScenarioRequests(ctx context.Context, scenarioID int64) ([]byte, error)
 	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
+	// CriteriaFor returns the execution's configured Taurus pass/fail
+	// criteria, compiled into every shard's passfail module.
+	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
 	ports.RunRepository
 }
 
@@ -539,6 +542,11 @@ func (s *Service) compileShards(
 		si.DataPaths = append(si.DataPaths, podScenarioPath+name)
 	}
 
+	criteria, err := s.repo.CriteriaFor(ctx, exe.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	specs := make([]ports.ShardSpec, len(shards))
 	for i, sh := range shards {
 		// Only this shard's slice of the load: the pods together add up to the
@@ -552,6 +560,7 @@ func (s *Service) compileShards(
 			Profile:   loadprofile.Profile{Tests: []loadprofile.Entry{shardEntry}},
 			Engine:    engine,
 			Scenarios: map[int64]compile.ScenarioInput{entry.ScenarioID: si},
+			Criteria:  criteria,
 		})
 		if cErr != nil {
 			return nil, nil, cErr

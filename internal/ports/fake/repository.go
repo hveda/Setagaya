@@ -47,10 +47,11 @@ type Store struct {
 	planData         map[int64]map[string]struct{} // scenarioID -> data filenames
 	scenarioRequests map[int64][]byte              // scenarioID -> raw requests fragment
 
-	collSeq    int64
-	executions map[int64]execution.Execution
-	execData   map[int64]map[string]struct{} // executionID -> data filenames
-	exec       map[int64][]loadprofile.Entry // executionID -> execution scenarios
+	collSeq      int64
+	executions   map[int64]execution.Execution
+	execData     map[int64]map[string]struct{} // executionID -> data filenames
+	exec         map[int64][]loadprofile.Entry // executionID -> execution scenarios
+	execCriteria map[int64][]string            // executionID -> configured Taurus pass/fail criteria
 
 	runSeq     int64
 	currentRun map[int64]int64               // executionID -> active runID
@@ -100,6 +101,7 @@ func NewStore() *Store {
 		executions:       make(map[int64]execution.Execution),
 		execData:         make(map[int64]map[string]struct{}),
 		exec:             make(map[int64][]loadprofile.Entry),
+		execCriteria:     make(map[int64][]string),
 		currentRun:       make(map[int64]int64),
 		runHistory:       make(map[int64]*ports.RunRecord),
 		running:          make(map[int64]map[int64]time.Time),
@@ -488,6 +490,23 @@ func (s *Store) LoadProfileFor(_ context.Context, executionID int64) ([]loadprof
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]loadprofile.Entry(nil), s.exec[executionID]...), nil
+}
+
+// SetExecutionCriteria replaces the execution's configured Taurus pass/fail
+// criteria with criteria, in the given order.
+func (s *Store) SetExecutionCriteria(_ context.Context, executionID int64, criteria []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.execCriteria[executionID] = append([]string(nil), criteria...)
+	return nil
+}
+
+// CriteriaFor returns the execution's currently configured criteria, in the
+// order they were set. Never nil.
+func (s *Store) CriteriaFor(_ context.Context, executionID int64) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string{}, s.execCriteria[executionID]...), nil
 }
 
 // --- helpers ----------------------------------------------------------------

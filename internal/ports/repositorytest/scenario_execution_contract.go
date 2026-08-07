@@ -390,6 +390,85 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("StoreLoadProfile(missing execution) = %v, want ErrNotFound", err)
 		}
 	})
+
+	t.Run("CriteriaForNeverStoredReturnsEmptyNotNil", func(t *testing.T) {
+		repo := newRepo(t)
+		id := mustCreateExecution(t, repo, "peak", 10)
+
+		got, err := repo.CriteriaFor(context.Background(), id)
+		if err != nil {
+			t.Fatalf("CriteriaFor: %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("CriteriaFor(never set) = %v, want empty (never nil)", got)
+		}
+	})
+
+	t.Run("SetExecutionCriteriaRoundTripsInOrder", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		id := mustCreateExecution(t, repo, "peak", 10)
+
+		want := []string{"failures>10%", "p95>500ms", "p99>2s"}
+		if err := repo.SetExecutionCriteria(ctx, id, want); err != nil {
+			t.Fatalf("SetExecutionCriteria: %v", err)
+		}
+		got, err := repo.CriteriaFor(ctx, id)
+		if err != nil {
+			t.Fatalf("CriteriaFor: %v", err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("CriteriaFor = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("CriteriaFor = %v, want %v in this exact order", got, want)
+			}
+		}
+	})
+
+	// A later SetExecutionCriteria call replaces the whole set, not appends
+	// to it -- the same "replace, not accumulate" contract StoreLoadProfile
+	// already guarantees for load profile entries.
+	t.Run("SetExecutionCriteriaReplacesRatherThanAppends", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		id := mustCreateExecution(t, repo, "peak", 10)
+
+		if err := repo.SetExecutionCriteria(ctx, id, []string{"failures>10%", "p95>500ms"}); err != nil {
+			t.Fatalf("SetExecutionCriteria (first): %v", err)
+		}
+		if err := repo.SetExecutionCriteria(ctx, id, []string{"failures>50%"}); err != nil {
+			t.Fatalf("SetExecutionCriteria (second): %v", err)
+		}
+		got, err := repo.CriteriaFor(ctx, id)
+		if err != nil {
+			t.Fatalf("CriteriaFor: %v", err)
+		}
+		if len(got) != 1 || got[0] != "failures>50%" {
+			t.Fatalf("CriteriaFor after replace = %v, want exactly [failures>50%%]", got)
+		}
+	})
+
+	t.Run("SetExecutionCriteriaToEmptyClearsThem", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		id := mustCreateExecution(t, repo, "peak", 10)
+
+		if err := repo.SetExecutionCriteria(ctx, id, []string{"failures>10%"}); err != nil {
+			t.Fatalf("SetExecutionCriteria (set): %v", err)
+		}
+		if err := repo.SetExecutionCriteria(ctx, id, nil); err != nil {
+			t.Fatalf("SetExecutionCriteria (clear): %v", err)
+		}
+		got, err := repo.CriteriaFor(ctx, id)
+		if err != nil {
+			t.Fatalf("CriteriaFor: %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("CriteriaFor after clear = %v, want none", got)
+		}
+	})
 }
 
 func mustCreateScenario(t *testing.T, repo Repository, name string, projectID int64) int64 {

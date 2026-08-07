@@ -181,6 +181,55 @@ func (r *Repository) LoadProfileFor(ctx context.Context, executionID int64) ([]l
 	return out, nil
 }
 
+// SetExecutionCriteria replaces the execution's configured Taurus pass/fail
+// criteria with criteria, atomically, in the given order.
+func (r *Repository) SetExecutionCriteria(ctx context.Context, executionID int64, criteria []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("mysql: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM execution_criteria WHERE execution_id = ?", executionID); err != nil {
+		return fmt.Errorf("mysql: clear execution criteria: %w", err)
+	}
+	for _, c := range criteria {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO execution_criteria (execution_id, criterion) VALUES (?, ?)", executionID, c,
+		); err != nil {
+			return fmt.Errorf("mysql: insert execution criterion: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("mysql: commit: %w", err)
+	}
+	return nil
+}
+
+// CriteriaFor returns the execution's currently configured criteria, in the
+// order they were set.
+func (r *Repository) CriteriaFor(ctx context.Context, executionID int64) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT criterion FROM execution_criteria WHERE execution_id = ? ORDER BY id", executionID)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: execution criteria: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []string{}
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, fmt.Errorf("mysql: scan execution criterion: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterate execution criteria: %w", err)
+	}
+	return out, nil
+}
+
 func scanExecution(s rowScanner) (execution.Execution, error) {
 	var (
 		c         execution.Execution

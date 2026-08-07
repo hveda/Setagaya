@@ -24,4 +24,12 @@ type ExecutionRepository interface {
 	StoreLoadProfile(ctx context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry) error
 	// LoadProfileFor returns the execution's current load profile entries.
 	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+
+	// SetExecutionCriteria replaces the execution's configured Taurus
+	// pass/fail criteria with criteria, atomically, in the given order.
+	// Empty criteria clears them.
+	SetExecutionCriteria(ctx context.Context, executionID int64, criteria []string) error
+	// CriteriaFor returns the execution's currently configured criteria, in
+	// the order they were set. Never nil.
+	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
 }

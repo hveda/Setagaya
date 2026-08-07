@@ -117,6 +117,7 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 		Tests: []loadprofile.Entry{
 			{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60},
 		},
+		Criteria: []string{"failures>10%", "p95>500ms"},
 	}
 	if err := svc.StoreConfig(ctx, c.ID, ec); err != nil {
 		t.Fatalf("StoreConfig: %v", err)
@@ -131,6 +132,38 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	}
 	if len(wrapper.Content.Tests) != 1 || wrapper.Content.Tests[0].ScenarioID != scenarioID || wrapper.Content.Tests[0].Engines != 2 {
 		t.Fatalf("GetConfig tests = %+v", wrapper.Content.Tests)
+	}
+	if len(wrapper.Content.Criteria) != 2 || wrapper.Content.Criteria[0] != "failures>10%" || wrapper.Content.Criteria[1] != "p95>500ms" {
+		t.Fatalf("GetConfig criteria = %+v, want [failures>10%%, p95>500ms] in this order", wrapper.Content.Criteria)
+	}
+}
+
+// A config re-upload with no criteria clears whatever was configured
+// before -- StoreConfig replaces the whole configuration, it does not
+// merge with what was there.
+func TestStoreConfig_ReuploadWithNoCriteriaClearsThem(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newCollService(t)
+	ctx := context.Background()
+	c, _ := svc.Create(ctx, "peak", 10, "")
+	scenarioID := seedScenario(t, store, "smoke", 10)
+	tests := []loadprofile.Entry{{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60}}
+
+	if err := svc.StoreConfig(ctx, c.ID, loadprofile.Profile{
+		ExecutionID: c.ID, Tests: tests, Criteria: []string{"failures>10%"},
+	}); err != nil {
+		t.Fatalf("StoreConfig (with criteria): %v", err)
+	}
+	if err := svc.StoreConfig(ctx, c.ID, loadprofile.Profile{ExecutionID: c.ID, Tests: tests}); err != nil {
+		t.Fatalf("StoreConfig (no criteria): %v", err)
+	}
+
+	wrapper, err := svc.GetConfig(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	if len(wrapper.Content.Criteria) != 0 {
+		t.Fatalf("GetConfig criteria after re-upload with none = %v, want none", wrapper.Content.Criteria)
 	}
 }
 

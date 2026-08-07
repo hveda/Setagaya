@@ -174,6 +174,45 @@ func TestTrigger_SnapshotsEachShardsCompiledConfig(t *testing.T) {
 	}
 }
 
+// An execution's configured Taurus criteria (task 64/65's verdict machinery
+// depends on this) are compiled into every shard's passfail module -- not
+// silently dropped, and not left for a caller to add separately.
+func TestTrigger_CompilesConfiguredCriteriaIntoEveryShard(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2) // one scenario, two shards
+	ctx := context.Background()
+	if err := e.store.SetExecutionCriteria(ctx, e.executionID, []string{"failures>10%", "p95>500ms"}); err != nil {
+		t.Fatalf("SetExecutionCriteria: %v", err)
+	}
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	runID, _, _ := e.store.CurrentRun(ctx, e.executionID)
+
+	for shard := 0; shard < 2; shard++ {
+		key := lifecycleapp.RunShardKey(runID, e.planIDs[0], shard, "yml")
+		raw, err := e.obj.Download(ctx, key)
+		if err != nil {
+			t.Fatalf("Download(%q): %v", key, err)
+		}
+		var cfg taurus.Config
+		if err := yaml.Unmarshal(raw, &cfg); err != nil {
+			t.Fatalf("shard %d: unmarshal config: %v", shard, err)
+		}
+		if len(cfg.Reporting) != 1 || cfg.Reporting[0].Module != "passfail" {
+			t.Fatalf("shard %d reporting = %+v, want one passfail reporter", shard, cfg.Reporting)
+		}
+		got := cfg.Reporting[0].Criteria
+		if len(got) != 2 || got[0] != "failures>10%" || got[1] != "p95>500ms" {
+			t.Fatalf("shard %d criteria = %v, want [failures>10%%, p95>500ms]", shard, got)
+		}
+	}
+}
+
 // A re-deploy changes what is currently staged, but a run that already
 // started must keep showing the config it actually ran -- otherwise
 // diagnosing a failed run would show a config that was never the one at fault.

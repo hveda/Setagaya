@@ -60,6 +60,12 @@ type Profile struct {
 	ExecutionID int64   `yaml:"collectionid" json:"execution_id"`
 	Tests       []Entry `yaml:"tests" json:"tests"`
 	CSVSplit    bool    `yaml:"csv_split" json:"csv_split"`
+	// Criteria are the execution's Taurus pass/fail expressions (e.g.
+	// "failures>10%", "p95>500ms"), applied across the whole execution --
+	// not per scenario. Optional: an execution with none configured simply
+	// has no passfail module compiled in, exactly as before this field
+	// existed.
+	Criteria []string `yaml:"criteria,omitempty" json:"criteria,omitempty"`
 }
 
 // Wrapper is the top-level shape of an uploaded execution config file.

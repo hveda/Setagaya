@@ -37,6 +37,8 @@ type Repo interface {
 	DeleteExecutionFile(ctx context.Context, executionID int64, filename string) error
 	StoreLoadProfile(ctx context.Context, executionID int64, csvSplit bool, scenarios []loadprofile.Entry) error
 	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+	SetExecutionCriteria(ctx context.Context, executionID int64, criteria []string) error
+	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
 	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
 }
 
@@ -183,7 +185,14 @@ func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadpro
 	if total := ec.TotalEngines(); total > s.maxEngines {
 		return fmt.Errorf("%w: requested %d, limit %d", ErrEngineLimit, total, s.maxEngines)
 	}
-	return s.repo.StoreLoadProfile(ctx, executionID, ec.CSVSplit, ec.Tests)
+	if err := s.repo.StoreLoadProfile(ctx, executionID, ec.CSVSplit, ec.Tests); err != nil {
+		return err
+	}
+	// Best effort not required here (unlike e.g. usage recording): a
+	// criteria-store failure must surface, since a config upload silently
+	// missing its own pass/fail criteria would leave a campaign verdict
+	// unable to name any failing criterion for this execution at all.
+	return s.repo.SetExecutionCriteria(ctx, executionID, ec.Criteria)
 }
 
 // GetConfig returns the execution's current execution configuration wrapped
@@ -197,12 +206,17 @@ func (s *Service) GetConfig(ctx context.Context, executionID int64) (loadprofile
 	if err != nil {
 		return loadprofile.Wrapper{}, err
 	}
+	criteria, err := s.repo.CriteriaFor(ctx, executionID)
+	if err != nil {
+		return loadprofile.Wrapper{}, err
+	}
 	return loadprofile.Wrapper{Content: loadprofile.Profile{
 		Name:        coll.Name,
 		ProjectID:   coll.ProjectID,
 		ExecutionID: executionID,
 		Tests:       scenarios,
 		CSVSplit:    coll.CSVSplit,
+		Criteria:    criteria,
 	}}, nil
 }
 
