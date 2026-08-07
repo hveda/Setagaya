@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/ports"
 )
@@ -27,17 +28,51 @@ type Purger interface {
 	Purge(ctx context.Context, executionID int64) error
 }
 
+// CampaignScoper resolves a campaign's kill-switch target set and can close
+// the campaign once aborted. The campaignapp service satisfies it.
+type CampaignScoper interface {
+	Get(ctx context.Context, campaignID int64) (campaign.Campaign, error)
+	// InScopeExecutions returns the campaign's non-compliant deployed
+	// executions -- see campaignapp.Service.InScopeExecutions.
+	InScopeExecutions(ctx context.Context, campaignID int64) ([]int64, error)
+	// Abort marks the campaign closed, lifting freeze immediately.
+	Abort(ctx context.Context, campaignID int64) error
+}
+
+// noopCampaignScoper is the default when no CampaignScoper is wired: every
+// call reports the campaign as not found, matching "unreachable, matches
+// nothing" for a caller not built against a deployment with campaigns.
+type noopCampaignScoper struct{}
+
+func (noopCampaignScoper) Get(context.Context, int64) (campaign.Campaign, error) {
+	return campaign.Campaign{}, ports.ErrNotFound
+}
+func (noopCampaignScoper) InScopeExecutions(context.Context, int64) ([]int64, error) {
+	return nil, ports.ErrNotFound
+}
+func (noopCampaignScoper) Abort(context.Context, int64) error { return ports.ErrNotFound }
+
 // Service implements the admin use-cases.
 type Service struct {
-	repo   Repo
-	sched  ports.Scheduler
-	purger Purger
-	now    func() time.Time
+	repo      Repo
+	sched     ports.Scheduler
+	purger    Purger
+	campaigns CampaignScoper
+	now       func() time.Time
 }
 
 // NewService wires the admin service.
 func NewService(repo Repo, sched ports.Scheduler, purger Purger) *Service {
-	return &Service{repo: repo, sched: sched, purger: purger, now: time.Now}
+	return &Service{repo: repo, sched: sched, purger: purger, campaigns: noopCampaignScoper{}, now: time.Now}
+}
+
+// WithCampaigns attaches the kill-switch's campaign-scope resolver. Returns
+// the receiver for chaining.
+func (s *Service) WithCampaigns(c CampaignScoper) *Service {
+	if c != nil {
+		s.campaigns = c
+	}
+	return s
 }
 
 // RunningExecution describes an execution currently holding engines.
@@ -120,9 +155,11 @@ const (
 	// the cluster ref (empty string is this deployment's own default
 	// cluster, the only one there is until Phase 8).
 	ScopeCluster Scope = "cluster"
-	// ScopeCampaign is a valid scope now so this endpoint doesn't need
-	// touching again once Phase 6 introduces campaigns -- unreachable until
-	// then, so it always matches nothing rather than erroring.
+	// ScopeCampaign matches every currently-deployed execution belonging to
+	// the campaign -- both its non-compliant ones (what the drain sweep
+	// also stops) and, unlike the drain sweep, each participating service's
+	// own designated execution too: an abort is total. value is the
+	// campaign id.
 	ScopeCampaign Scope = "campaign"
 	// ScopeExecutionList matches exactly the given executions. value is a
 	// comma-separated list of execution ids.
@@ -138,6 +175,12 @@ var ErrScopeInvalid = errors.New("adminapp: invalid kill-switch scope or value")
 // bounded time. One execution failing to purge does not stop the rest --
 // the returned ids are exactly the ones actually torn down, so a partial
 // abort is visible rather than silently reported as complete.
+//
+// For ScopeCampaign, the campaign itself is also closed once the purge pass
+// completes, regardless of whether every execution purged cleanly: freeze
+// must lift even from a partial abort, since a still-stuck engine is a
+// separate, already-visible problem from the campaign's window continuing
+// to block other teams' work.
 func (s *Service) Abort(ctx context.Context, scope Scope, value string) ([]int64, error) {
 	targets, err := s.matchingExecutions(ctx, scope, value)
 	if err != nil {
@@ -154,6 +197,16 @@ func (s *Service) Abort(ctx context.Context, scope Scope, value string) ([]int64
 		aborted = append(aborted, executionID)
 	}
 	sort.Slice(aborted, func(i, j int) bool { return aborted[i] < aborted[j] })
+
+	if scope == ScopeCampaign {
+		campaignID, parseErr := parseCampaignID(value)
+		if parseErr != nil {
+			return aborted, parseErr
+		}
+		if err := s.campaigns.Abort(ctx, campaignID); err != nil {
+			return aborted, err
+		}
+	}
 	return aborted, nil
 }
 
@@ -164,7 +217,11 @@ func (s *Service) matchingExecutions(ctx context.Context, scope Scope, value str
 	case ScopeExecutionList:
 		return parseExecutionList(value)
 	case ScopeCampaign:
-		return nil, nil
+		campaignID, err := parseCampaignID(value)
+		if err != nil {
+			return nil, err
+		}
+		return s.campaignExecutionIDs(ctx, campaignID)
 	case ScopeTenant:
 		tenantID, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
@@ -176,6 +233,41 @@ func (s *Service) matchingExecutions(ctx context.Context, scope Scope, value str
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrScopeInvalid, scope)
 	}
+}
+
+func parseCampaignID(value string) (int64, error) {
+	campaignID, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid campaign id %q", ErrScopeInvalid, value)
+	}
+	return campaignID, nil
+}
+
+// campaignExecutionIDs resolves every currently-deployed execution a total
+// campaign abort tears down: InScopeExecutions' non-compliant set, plus
+// (unlike the drain sweep, which leaves them running) each participating
+// service's own designated execution if it is currently deployed.
+func (s *Service) campaignExecutionIDs(ctx context.Context, campaignID int64) ([]int64, error) {
+	c, err := s.campaigns.Get(ctx, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	inScope, err := s.campaigns.InScopeExecutions(ctx, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	deployed, err := s.sched.DeployedExecutions(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	out := append([]int64(nil), inScope...)
+	for _, svc := range c.Services {
+		if _, ok := deployed[svc.ExecutionID]; ok {
+			out = append(out, svc.ExecutionID)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
 }
 
 func (s *Service) deployedExecutionIDs(ctx context.Context, cluster ports.ClusterRef) ([]int64, error) {

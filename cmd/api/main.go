@@ -121,7 +121,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	// can.
 	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(repo, quota)
-	admin := adminapp.NewService(repo, sched, lifecycle)
+	admin := adminapp.NewService(repo, sched, lifecycle).WithCampaigns(campaigns)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 
 	authProvider, err := newAuthProvider(ctx, cfg.Auth)

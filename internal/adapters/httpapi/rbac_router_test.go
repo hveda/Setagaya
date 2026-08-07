@@ -59,14 +59,15 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 	audit := auditmem.New(nil)
 	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
 	quota := quotaapp.NewService(store)
+	campaigns := campaignapp.NewService(store, sched)
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:   projectapp.NewService(store),
 		Scenarios:  scenarioapp.NewService(store, obj),
 		Executions: executionapp.NewService(store, obj, 100),
 		Tenants:    tenantapp.NewService(store, store, store),
-		Admin:      adminapp.NewService(store, sched, lifecycle),
+		Admin:      adminapp.NewService(store, sched, lifecycle).WithCampaigns(campaigns),
 		Schedules:  scheduleapp.NewService(store, quota),
-		Campaigns:  campaignapp.NewService(store, sched),
+		Campaigns:  campaigns,
 		Store:      obj,
 		Auth:       auth,
 		Audit:      audit,

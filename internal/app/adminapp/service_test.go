@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/app/adminapp"
+	"github.com/heridotlife/honryu/internal/app/campaignapp"
+	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
@@ -233,26 +236,91 @@ func TestAbort_Cluster_PurgesDeployedExecutions(t *testing.T) {
 	}
 }
 
-// Campaigns don't exist until Phase 6; the scope value is valid now so this
-// endpoint doesn't need touching again once they land, but it must find
-// nothing to match rather than erroring.
-func TestAbort_Campaign_FindsNothingToAbortNotAnError(t *testing.T) {
+// A campaign abort is total: it tears down both the campaign's in-scope
+// (non-compliant) executions and, unlike the drain sweep, the designated
+// readiness execution too -- and closes the campaign itself, so freeze
+// lifts immediately.
+func TestAbort_Campaign_TearsDownInScopeAndDesignatedExecutionsAndClosesTheCampaign(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	_, sched, purger, svc, executionID := seed(t)
-	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: executionID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
-		t.Fatalf("deploy: %v", err)
+	store, sched, purger, svc, strayID := seed(t)
+	campaigns := campaignapp.NewService(store, sched)
+	svc = svc.WithCampaigns(campaigns)
+
+	de, err := execution.New("readiness", 3)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	designatedID, err := store.CreateExecution(ctx, de)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: strayID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
+		t.Fatalf("deploy stray: %v", err)
+	}
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: designatedID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
+		t.Fatalf("deploy designated: %v", err)
 	}
 
-	aborted, err := svc.Abort(ctx, adminapp.ScopeCampaign, "anything")
+	created, err := campaigns.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: time.Now().Add(-time.Hour), End: time.Now().Add(time.Hour)},
+		Services: []campaign.Service{{ProjectID: 3, ExecutionID: designatedID}},
+	})
+	if err != nil {
+		t.Fatalf("Create campaign: %v", err)
+	}
+
+	aborted, err := svc.Abort(ctx, adminapp.ScopeCampaign, strconv.FormatInt(created.ID, 10))
 	if err != nil {
 		t.Fatalf("Abort(campaign) = %v, want nil", err)
 	}
-	if len(aborted) != 0 {
-		t.Fatalf("aborted = %v, want none", aborted)
+	want := map[int64]bool{strayID: true, designatedID: true}
+	if len(aborted) != len(want) {
+		t.Fatalf("aborted = %v, want exactly %v", aborted, want)
 	}
-	if len(purger.purged) != 0 {
-		t.Fatalf("purger should not have been called")
+	for _, id := range aborted {
+		if !want[id] {
+			t.Errorf("aborted %d, not expected", id)
+		}
+	}
+	if len(purger.purged) != 2 {
+		t.Fatalf("purged = %v, want both executions purged", purger.purged)
+	}
+
+	got, err := campaigns.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get campaign: %v", err)
+	}
+	if got.AbortedAt == nil {
+		t.Fatal("campaign should be marked aborted after a campaign-scoped Abort")
+	}
+}
+
+func TestAbort_Campaign_InvalidValue(t *testing.T) {
+	t.Parallel()
+	_, _, _, svc, _ := seed(t)
+	if _, err := svc.Abort(context.Background(), adminapp.ScopeCampaign, "not-a-number"); !errors.Is(err, adminapp.ErrScopeInvalid) {
+		t.Fatalf("Abort(campaign, invalid value) = %v, want ErrScopeInvalid", err)
+	}
+}
+
+func TestAbort_Campaign_MissingCampaignPropagatesNotFound(t *testing.T) {
+	t.Parallel()
+	store, sched, _, svc, _ := seed(t)
+	svc = svc.WithCampaigns(campaignapp.NewService(store, sched))
+	if _, err := svc.Abort(context.Background(), adminapp.ScopeCampaign, "999"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Abort(campaign, missing) = %v, want ErrNotFound", err)
+	}
+}
+
+// Without WithCampaigns, the noop default reports every campaign as not
+// found -- a caller built against a deployment that never wired campaigns
+// gets a clear error, not a silent no-op.
+func TestAbort_Campaign_NotWiredPropagatesNotFound(t *testing.T) {
+	t.Parallel()
+	_, _, _, svc, _ := seed(t)
+	if _, err := svc.Abort(context.Background(), adminapp.ScopeCampaign, "1"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Abort(campaign, not wired) = %v, want ErrNotFound", err)
 	}
 }
 

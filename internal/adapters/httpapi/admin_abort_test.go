@@ -73,21 +73,25 @@ func TestAbortExecutions_InvalidScope(t *testing.T) {
 	}
 }
 
-func TestAbortExecutions_Campaign_NothingToAbort(t *testing.T) {
+// newAdminRouter's Admin has no CampaignScoper wired (this fixture is
+// purpose-built for the tenant/cluster/execution_list scopes) -- the noop
+// default reports every campaign as not found, matching a deployment that
+// never wired campaigns rather than silently succeeding.
+func TestAbortExecutions_Campaign_NotWiredReturnsNotFound(t *testing.T) {
 	t.Parallel()
 	h, _ := newAdminRouter(t)
-	rec := postForm(t, h, "/api/admin/abort", url.Values{"scope": {"campaign"}, "value": {"anything"}})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("abort (campaign) = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	rec := postForm(t, h, "/api/admin/abort", url.Values{"scope": {"campaign"}, "value": {"1"}})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("abort (campaign, not wired) = %d, want 404 (%s)", rec.Code, rec.Body.String())
 	}
-	var got struct {
-		Aborted []int64 `json:"aborted"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(got.Aborted) != 0 {
-		t.Fatalf("aborted = %v, want none", got.Aborted)
+}
+
+func TestAbortExecutions_Campaign_InvalidValue(t *testing.T) {
+	t.Parallel()
+	h, _ := newAdminRouter(t)
+	rec := postForm(t, h, "/api/admin/abort", url.Values{"scope": {"campaign"}, "value": {"not-a-number"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("abort (campaign, invalid value) = %d, want 400 (%s)", rec.Code, rec.Body.String())
 	}
 }
 
