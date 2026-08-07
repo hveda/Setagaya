@@ -32,4 +32,11 @@ type ExecutionRepository interface {
 	// CriteriaFor returns the execution's currently configured criteria, in
 	// the order they were set. Never nil.
 	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
+
+	// StoreExecutionConfig replaces the execution's load profile and
+	// configured criteria together, in one transaction -- unlike calling
+	// StoreLoadProfile and SetExecutionCriteria separately, a failure here
+	// can never leave the two halves of one config upload out of sync with
+	// each other.
+	StoreExecutionConfig(ctx context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry, criteria []string) error
 }

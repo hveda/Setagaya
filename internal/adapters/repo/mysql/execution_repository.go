@@ -150,6 +150,60 @@ func (r *Repository) StoreLoadProfile(ctx context.Context, executionID int64, cs
 	return nil
 }
 
+// StoreExecutionConfig replaces the execution's load profile and configured
+// criteria together, in one transaction -- executionapp.StoreConfig is the
+// only caller of both, and a transient failure between two separate calls
+// (StoreLoadProfile succeeding, SetExecutionCriteria then failing) would
+// otherwise leave the execution with a new load profile but stale criteria,
+// silently mismatched from what the caller believed they replaced.
+func (r *Repository) StoreExecutionConfig(ctx context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry, criteria []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("mysql: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM execution WHERE id = ?)", executionID).Scan(&exists); err != nil {
+		return fmt.Errorf("mysql: check execution: %w", err)
+	}
+	if !exists {
+		return ports.ErrNotFound
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM execution_scenario WHERE execution_id = ?", executionID); err != nil {
+		return fmt.Errorf("mysql: clear execution scenarios: %w", err)
+	}
+	for _, ep := range entries {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO execution_scenario (execution_id, scenario_id, concurrency, rampup, duration, engines, throughput, csv_split)"+
+				" VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			executionID, ep.ScenarioID, ep.Concurrency, ep.Rampup, ep.Duration, ep.Engines, ep.Throughput, boolToInt(ep.CSVSplit),
+		); err != nil {
+			return fmt.Errorf("mysql: insert execution scenario: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE execution SET csv_split = ? WHERE id = ?", boolToInt(csvSplit), executionID); err != nil {
+		return fmt.Errorf("mysql: update csv_split: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM execution_criteria WHERE execution_id = ?", executionID); err != nil {
+		return fmt.Errorf("mysql: clear execution criteria: %w", err)
+	}
+	for _, c := range criteria {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO execution_criteria (execution_id, criterion) VALUES (?, ?)", executionID, c,
+		); err != nil {
+			return fmt.Errorf("mysql: insert execution criterion: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("mysql: commit: %w", err)
+	}
+	return nil
+}
+
 // LoadProfileFor returns the execution's current execution scenarios. Scenario names
 // are not persisted, so ExecutionScenario.Name is empty.
 func (r *Repository) LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error) {

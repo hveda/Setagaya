@@ -469,6 +469,80 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("CriteriaFor after clear = %v, want none", got)
 		}
 	})
+
+	// StoreExecutionConfig is the combined write executionapp.StoreConfig
+	// actually uses -- one call replaces the load profile and criteria
+	// together, so a caller never observes one half updated without the
+	// other.
+	t.Run("StoreExecutionConfigRoundTripsBothTogether", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		id := mustCreateExecution(t, repo, "peak", 10)
+		scenarioID := mustCreateScenario(t, repo, "smoke", 10)
+
+		entries := []loadprofile.Entry{{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60}}
+		criteria := []string{"failures>10%", "p95>500ms"}
+		if err := repo.StoreExecutionConfig(ctx, id, true, entries, criteria); err != nil {
+			t.Fatalf("StoreExecutionConfig: %v", err)
+		}
+
+		gotEntries, err := repo.LoadProfileFor(ctx, id)
+		if err != nil {
+			t.Fatalf("LoadProfileFor: %v", err)
+		}
+		if len(gotEntries) != 1 || gotEntries[0].ScenarioID != scenarioID || gotEntries[0].Engines != 2 {
+			t.Fatalf("LoadProfileFor = %+v, want the stored entry", gotEntries)
+		}
+		gotCriteria, err := repo.CriteriaFor(ctx, id)
+		if err != nil {
+			t.Fatalf("CriteriaFor: %v", err)
+		}
+		if len(gotCriteria) != 2 || gotCriteria[0] != "failures>10%" || gotCriteria[1] != "p95>500ms" {
+			t.Fatalf("CriteriaFor = %v, want %v", gotCriteria, criteria)
+		}
+	})
+
+	// A later call replaces both halves, not just one -- the same
+	// "replace, not accumulate" contract each half already guarantees on
+	// its own.
+	t.Run("StoreExecutionConfigReplacesBothOnASecondCall", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		id := mustCreateExecution(t, repo, "peak", 10)
+		scenarioID := mustCreateScenario(t, repo, "smoke", 10)
+
+		first := []loadprofile.Entry{{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60}}
+		if err := repo.StoreExecutionConfig(ctx, id, false, first, []string{"failures>10%"}); err != nil {
+			t.Fatalf("StoreExecutionConfig (first): %v", err)
+		}
+		if err := repo.StoreExecutionConfig(ctx, id, false, nil, nil); err != nil {
+			t.Fatalf("StoreExecutionConfig (second, empty): %v", err)
+		}
+
+		gotEntries, err := repo.LoadProfileFor(ctx, id)
+		if err != nil {
+			t.Fatalf("LoadProfileFor: %v", err)
+		}
+		if len(gotEntries) != 0 {
+			t.Fatalf("LoadProfileFor after replace = %+v, want none", gotEntries)
+		}
+		gotCriteria, err := repo.CriteriaFor(ctx, id)
+		if err != nil {
+			t.Fatalf("CriteriaFor: %v", err)
+		}
+		if len(gotCriteria) != 0 {
+			t.Fatalf("CriteriaFor after replace = %v, want none", gotCriteria)
+		}
+	})
+
+	t.Run("StoreExecutionConfigMissingExecutionReturnsNotFound", func(t *testing.T) {
+		repo := newRepo(t)
+		err := repo.StoreExecutionConfig(context.Background(), 987654, false,
+			[]loadprofile.Entry{{ScenarioID: 1, Engines: 1, Concurrency: 1, Duration: 1}}, nil)
+		if !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("StoreExecutionConfig(missing execution) = %v, want ErrNotFound", err)
+		}
+	})
 }
 
 func mustCreateScenario(t *testing.T, repo Repository, name string, projectID int64) int64 {

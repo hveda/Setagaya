@@ -35,10 +35,12 @@ type Repo interface {
 	AddExecutionFile(ctx context.Context, executionID int64, filename string) error
 	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
 	DeleteExecutionFile(ctx context.Context, executionID int64, filename string) error
-	StoreLoadProfile(ctx context.Context, executionID int64, csvSplit bool, scenarios []loadprofile.Entry) error
 	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
-	SetExecutionCriteria(ctx context.Context, executionID int64, criteria []string) error
 	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
+	// StoreExecutionConfig replaces the load profile and criteria together,
+	// atomically -- StoreConfig is one config upload, and a caller must
+	// never see it partially applied.
+	StoreExecutionConfig(ctx context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry, criteria []string) error
 	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
 }
 
@@ -185,14 +187,12 @@ func (s *Service) StoreConfig(ctx context.Context, executionID int64, ec loadpro
 	if total := ec.TotalEngines(); total > s.maxEngines {
 		return fmt.Errorf("%w: requested %d, limit %d", ErrEngineLimit, total, s.maxEngines)
 	}
-	if err := s.repo.StoreLoadProfile(ctx, executionID, ec.CSVSplit, ec.Tests); err != nil {
-		return err
-	}
-	// Best effort not required here (unlike e.g. usage recording): a
-	// criteria-store failure must surface, since a config upload silently
-	// missing its own pass/fail criteria would leave a campaign verdict
-	// unable to name any failing criterion for this execution at all.
-	return s.repo.SetExecutionCriteria(ctx, executionID, ec.Criteria)
+	// One transaction: a config upload replaces the load profile and
+	// criteria together, so a failure partway through can never leave the
+	// execution with a new load profile but stale (or missing) criteria --
+	// which would otherwise leave a campaign verdict unable to name a
+	// failing criterion for this execution at all, silently.
+	return s.repo.StoreExecutionConfig(ctx, executionID, ec.CSVSplit, ec.Tests, ec.Criteria)
 }
 
 // GetConfig returns the execution's current execution configuration wrapped

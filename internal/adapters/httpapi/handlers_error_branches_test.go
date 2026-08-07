@@ -71,11 +71,11 @@ func (f *failStore) ExecutionFilesFor(ctx context.Context, executionID int64) ([
 	return f.Store.ExecutionFilesFor(ctx, executionID)
 }
 
-func (f *failStore) StoreLoadProfile(ctx context.Context, executionID int64, csvSplit bool, plans []loadprofile.Entry) error {
-	if f.fail == "StoreLoadProfile" {
+func (f *failStore) StoreExecutionConfig(ctx context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry, criteria []string) error {
+	if f.fail == "StoreExecutionConfig" {
 		return errBoom
 	}
-	return f.Store.StoreLoadProfile(ctx, executionID, csvSplit, plans)
+	return f.Store.StoreExecutionConfig(ctx, executionID, csvSplit, entries, criteria)
 }
 
 func (f *failStore) ListScenariosByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
@@ -152,7 +152,7 @@ func TestHandlers_ServiceErrors_500(t *testing.T) {
 	})
 	t.Run("uploadExecutionConfig", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "StoreLoadProfile"
+		fs.fail = "StoreExecutionConfig"
 		yamlCfg := "multi-test:\n  collectionid: " + itoa(id.execution) + "\n  tests:\n    - testid: " + itoa(id.scenario) + "\n      concurrency: 1\n      rampup: 1\n      engines: 1\n      duration: 1\n"
 		rec := putMultipart(t, h, "/api/executions/"+itoa(id.execution)+"/config", "c.yaml", yamlCfg)
 		assert500(t, rec.Code)

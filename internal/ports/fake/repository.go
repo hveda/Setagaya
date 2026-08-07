@@ -509,6 +509,30 @@ func (s *Store) CriteriaFor(_ context.Context, executionID int64) ([]string, err
 	return append([]string{}, s.execCriteria[executionID]...), nil
 }
 
+// StoreExecutionConfig replaces the execution's load profile and configured
+// criteria together, under a single lock -- mirrors the mysql adapter's
+// single-transaction guarantee that the two never observably desync.
+func (s *Store) StoreExecutionConfig(_ context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry, criteria []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.executions[executionID]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	// The persisted schema (execution_scenario) does not store the scenario name, so
+	// the fake drops it too to stay behaviourally identical to MySQL.
+	stored := make([]loadprofile.Entry, len(entries))
+	for i, ep := range entries {
+		ep.Name = ""
+		stored[i] = ep
+	}
+	s.exec[executionID] = stored
+	c.CSVSplit = csvSplit
+	s.executions[executionID] = c
+	s.execCriteria[executionID] = append([]string(nil), criteria...)
+	return nil
+}
+
 // --- helpers ----------------------------------------------------------------
 
 func toSet(ss []string) map[string]struct{} {
