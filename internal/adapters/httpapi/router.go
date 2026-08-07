@@ -35,8 +35,8 @@ type Deps struct {
 	// the /api/executions/{execution_id}/schedules endpoints.
 	Schedules *scheduleapp.Service
 	// Campaigns administers PM-owned readiness events. Optional; nil disables
-	// the /api/tenants/{tenant_id}/campaigns and /api/campaigns/{campaign_id}
-	// endpoints.
+	// the /api/tenants/{tenant_id}/campaigns, /api/campaigns/{campaign_id},
+	// and /api/campaigns/{campaign_id}/verdict endpoints.
 	Campaigns *campaignapp.Service
 	Usage     *usageapp.Service
 	// Metrics receives pushed measurements from engine pods.
@@ -159,6 +159,7 @@ var routes = []Route{
 	{"POST", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.createCampaign })},
 	{"GET", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listCampaigns })},
 	{"GET", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaign })},
+	{"GET", "/api/campaigns/{campaign_id}/verdict", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignVerdict })},
 
 	{"GET", "/api/files/{kind}/{id}/{name}", "files", hf(func(h *handlers) http.HandlerFunc { return h.downloadFile })},
 

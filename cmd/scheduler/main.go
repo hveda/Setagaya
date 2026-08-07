@@ -43,6 +43,10 @@ type repository interface {
 	ports.ReservationRepository
 	ports.ScheduleRepository
 	ports.CampaignRepository
+	// ports.ReportStore backs campaignapp.Verdict's read of a designated
+	// execution's latest report -- not otherwise needed by cmd/scheduler's
+	// own fire/drain/horizon loops, but campaignapp.Repo requires it.
+	ports.ReportStore
 }
 
 func main() {

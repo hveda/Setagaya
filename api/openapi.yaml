@@ -307,6 +307,40 @@ components:
           format: date-time
           description: Present only once the campaign has been aborted.
 
+    FailingCriterion:
+      type: object
+      description: One configured Taurus pass/fail criterion that triggered, or whose subject/syntax fell outside the practical grammar subset evaluated.
+      properties:
+        criterion: { type: string, description: "The original configured expression, unmodified (e.g. \"failures>10%\")." }
+        unparsed:
+          type: boolean
+          description: True when the criterion could not be evaluated at all -- its outcome is unknown, not confirmed triggered.
+    ServiceVerdict:
+      type: object
+      description: One participating service's contribution to a campaign's rolled-up verdict, read from its designated execution's latest report.
+      properties:
+        project_id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+        has_report:
+          type: boolean
+          description: False when the designated execution has never produced a report at all -- distinct from a report that already says "passed".
+        outcome: { type: string, enum: [passed, failed, aborted, error] }
+        failing_criteria:
+          type: array
+          items: { $ref: '#/components/schemas/FailingCriterion' }
+          description: Only populated when outcome is "failed".
+    CampaignVerdict:
+      type: object
+      description: A campaign's rolled-up go/no-go.
+      properties:
+        campaign_id: { type: integer, format: int64 }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/ServiceVerdict' }
+        go:
+          type: boolean
+          description: True only when every service has a report and that report's outcome is "passed".
+
     Report:
       type: object
       description: What a run is judged on, kept after its engines and pods are gone.
@@ -1053,6 +1087,31 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Campaign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/campaigns/{campaign_id}/verdict:
+    get:
+      tags: [campaigns]
+      summary: Get a campaign's rolled-up verdict
+      description: |
+        Per-service outcome (and, for a failed service, its named failing
+        criteria, within the supported criteria-expression subset), plus
+        one overall go/no-go. Does not require the campaign to be closed --
+        a caller may check progress mid-window as easily as a final
+        verdict once it ends.
+
+        Unlike creating or listing campaigns, read access here does not
+        require a campaign-manager grant: the caller must be authorized to
+        view at least one of the campaign's participating projects, the
+        same check every other project-scoped read already uses.
+      parameters: [{ $ref: '#/components/parameters/CampaignID' }]
+      responses:
+        '200':
+          description: CampaignVerdict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CampaignVerdict' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -19,12 +20,19 @@ import (
 // not actually belong to the project it was registered under.
 var ErrServiceExecutionMismatch = errors.New("campaignapp: designated execution does not belong to its stated project")
 
-// Repo is the persistence campaignapp needs: the campaign ledger, plus
-// enough of an execution to verify a service's designated execution
-// actually belongs to the project it's registered under.
+// Repo is the persistence campaignapp needs: the campaign ledger, enough of
+// an execution to verify a service's designated execution actually belongs
+// to the project it's registered under, and enough of the report store and
+// execution criteria to compute a campaign's verdict.
 type Repo interface {
 	ports.CampaignRepository
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
+	// ListReports returns an execution's reports, most recent first --
+	// Verdict reads index 0 as "the designated execution's latest report."
+	ListReports(ctx context.Context, executionID int64, limit int) ([]report.Report, error)
+	// CriteriaFor returns an execution's configured Taurus pass/fail
+	// criteria, evaluated against its latest report to name what failed.
+	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
 }
 
 // Scheduler is the subset of ports.Scheduler campaignapp needs: which

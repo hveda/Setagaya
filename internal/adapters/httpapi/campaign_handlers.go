@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/rbac"
 )
@@ -168,6 +169,88 @@ func (h *handlers) getCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toCampaignResponse(c, time.Now()))
+}
+
+type failingCriterionResponse struct {
+	Criterion string `json:"criterion"`
+	Unparsed  bool   `json:"unparsed,omitempty"`
+}
+
+type serviceVerdictResponse struct {
+	ProjectID       int64                      `json:"project_id"`
+	ExecutionID     int64                      `json:"execution_id"`
+	HasReport       bool                       `json:"has_report"`
+	Outcome         string                     `json:"outcome,omitempty"`
+	FailingCriteria []failingCriterionResponse `json:"failing_criteria,omitempty"`
+}
+
+type campaignVerdictResponse struct {
+	CampaignID int64                    `json:"campaign_id"`
+	Services   []serviceVerdictResponse `json:"services"`
+	Go         bool                     `json:"go"`
+}
+
+func toVerdictResponse(v campaignapp.CampaignVerdict) campaignVerdictResponse {
+	services := make([]serviceVerdictResponse, len(v.Services))
+	for i, sv := range v.Services {
+		criteria := make([]failingCriterionResponse, len(sv.FailingCriteria))
+		for j, fc := range sv.FailingCriteria {
+			criteria[j] = failingCriterionResponse{Criterion: fc.Criterion, Unparsed: fc.Unparsed}
+		}
+		services[i] = serviceVerdictResponse{
+			ProjectID: sv.ProjectID, ExecutionID: sv.ExecutionID,
+			HasReport: sv.HasReport, Outcome: string(sv.Outcome),
+			FailingCriteria: criteria,
+		}
+	}
+	return campaignVerdictResponse{CampaignID: v.CampaignID, Services: services, Go: v.Go}
+}
+
+// getCampaignVerdict returns the campaign's rolled-up verdict: per-service
+// outcome (and, for a failed service, its named failing criteria), plus
+// one overall go/no-go.
+//
+// Unlike create/list/get, read access here does not require
+// RoleCampaignManager -- a service owner should be able to see their own
+// campaign's verdict without a PM-level grant. The caller must be
+// authorized to view at least one of the campaign's participating
+// projects (authorizeProject, the same check every other project-scoped
+// read already uses).
+func (h *handlers) getCampaignVerdict(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	id, ok := pathInt(r, "campaign_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid campaign id")
+		return
+	}
+	c, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeAnyParticipatingProject(r.Context(), c); err != nil {
+		respondError(w, err)
+		return
+	}
+	v, err := h.deps.Campaigns.Verdict(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toVerdictResponse(v))
+}
+
+// authorizeAnyParticipatingProject allows the caller through if they are
+// authorized for at least one of the campaign's participating projects.
+func (h *handlers) authorizeAnyParticipatingProject(ctx context.Context, c campaign.Campaign) error {
+	for _, svc := range c.Services {
+		if err := h.authorizeProject(ctx, svc.ProjectID); err == nil {
+			return nil
+		}
+	}
+	return errForbidden
 }
 
 // campaignsConfigured rejects the request with 404 unless campaigns are
