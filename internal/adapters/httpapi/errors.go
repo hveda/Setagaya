@@ -74,6 +74,10 @@ var conflictErrors = []error{
 	// that has ended, is a state conflict rather than a server fault -- and a
 	// pod that outlived its run will do exactly this on every retry.
 	metricsapp.ErrNoActiveRun, metricsapp.ErrStaleRun,
+	// A well-formed Trigger call blocked by an active campaign's freeze is a
+	// state conflict, not a client input error -- the same call would
+	// succeed once the campaign's window closes.
+	lifecycleapp.ErrCampaignFrozen,
 }
 
 // respondError maps an application/domain error onto an HTTP status.

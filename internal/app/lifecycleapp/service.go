@@ -100,6 +100,28 @@ func (noopQuota) Reserve(context.Context, int64, string, int, time.Time, time.Ti
 }
 func (noopQuota) Release(context.Context, int64) error { return nil }
 
+// Freeze is the campaign-freeze hook into Trigger: while an active campaign
+// covers an execution's project and this execution is not that campaign's
+// own designated readiness test, Trigger must reject rather than proceed.
+// Checked before Quota -- a categorical block needs no reservation-capacity
+// read at all -- and before any other Trigger side effect.
+//
+// The campaignapp service implements it; a no-op default is used when none
+// is wired (e.g. in tests that don't exercise campaigns), and never blocks.
+type Freeze interface {
+	IsFrozen(ctx context.Context, projectID, executionID int64) (blocked bool, campaignName string, err error)
+}
+
+// ErrCampaignFrozen is returned when Trigger is blocked by an active
+// campaign's freeze. The error names the blocking campaign.
+var ErrCampaignFrozen = errors.New("lifecycleapp: blocked by an active campaign's freeze")
+
+type noopFreeze struct{}
+
+func (noopFreeze) IsFrozen(context.Context, int64, int64) (bool, string, error) {
+	return false, "", nil
+}
+
 // Service implements the lifecycle use-cases.
 type Service struct {
 	repo  Repo
@@ -111,6 +133,7 @@ type Service struct {
 	metrics       Metrics
 	usage         Usage
 	quota         Quota
+	freeze        Freeze
 	// now is the reservation window's clock, overridable for deterministic tests.
 	now func() time.Time
 }
@@ -136,7 +159,7 @@ func StaticImage(image string) ImageResolver {
 func NewService(repo Repo, sched ports.Scheduler, store ports.ObjectStore, image ImageResolver) *Service {
 	return &Service{
 		repo: repo, sched: sched, store: store, image: image, defaultEngine: taurus.ExecutorJMeter,
-		metrics: noopMetrics{}, usage: noopUsage{}, quota: noopQuota{}, now: time.Now,
+		metrics: noopMetrics{}, usage: noopUsage{}, quota: noopQuota{}, freeze: noopFreeze{}, now: time.Now,
 	}
 }
 
@@ -162,6 +185,15 @@ func (s *Service) WithUsage(u Usage) *Service {
 func (s *Service) WithQuota(q Quota) *Service {
 	if q != nil {
 		s.quota = q
+	}
+	return s
+}
+
+// WithFreeze attaches the campaign-freeze check. Returns the receiver for
+// chaining.
+func (s *Service) WithFreeze(f Freeze) *Service {
+	if f != nil {
+		s.freeze = f
 	}
 	return s
 }
@@ -235,6 +267,14 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	coll, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return err
+	}
+	// Checked first and cheaply -- needs only coll.ProjectID and executionID,
+	// no load profile or scheduler round trip -- so a frozen Trigger is
+	// rejected before any other work, exactly like an over-quota one is.
+	if blocked, campaignName, err := s.freeze.IsFrozen(ctx, coll.ProjectID, executionID); err != nil {
+		return err
+	} else if blocked {
+		return fmt.Errorf("%w: %s", ErrCampaignFrozen, campaignName)
 	}
 	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
