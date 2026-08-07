@@ -19,6 +19,7 @@ import (
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
@@ -65,6 +66,7 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		Tenants:    tenantapp.NewService(store, store, store),
 		Admin:      adminapp.NewService(store, sched, lifecycle),
 		Schedules:  scheduleapp.NewService(store, quota),
+		Campaigns:  campaignapp.NewService(store),
 		Store:      obj,
 		Auth:       auth,
 		Audit:      audit,
@@ -485,5 +487,57 @@ func TestRBAC_CreateScheduleRequiresAuthorizationForTheDeclaredTenant(t *testing
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("alice create schedule for acme = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// createCampaign's tenant_id is a URL path parameter, not a client-declared
+// form field, but authorization must still be checked against it
+// specifically -- and against RoleCampaignManager, not merely
+// RoleTenantEditor (which authorizeExecution/authorizeProject alone would
+// satisfy for managing the underlying project). A tenant editor with no
+// campaign_manager grant must be denied even for their own tenant, since a
+// campaign freezes other teams' work for its window.
+func TestRBAC_CreateCampaignRequiresCampaignManagerForTheDeclaredTenant(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	globex := createTenant(t, f, "globex", "Globex")
+	f.prov.Register("alice-tok", account.Account{Subject: "alice"})
+	assignRole(t, f, acme, "alice", rbac.RoleTenantEditor)
+	f.prov.Register("pm-tok", account.Account{Subject: "pm"})
+	assignRole(t, f, acme, "pm", rbac.RoleCampaignManager)
+
+	projectID := createProjectInTenantReturningID(t, f, "acme-web", "team-a", acme)
+	executionID := decodeID(t, f.req(t, http.MethodPost, "/api/executions", "admin-tok",
+		url.Values{"name": {"readiness"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+
+	start := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	end := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	form := url.Values{
+		"name": {"Supersale"}, "window_start": {start}, "window_end": {end},
+		"service_project_id":   {strconv.FormatInt(projectID, 10)},
+		"service_execution_id": {strconv.FormatInt(executionID, 10)},
+	}
+
+	// Alice (tenant editor, can manage the underlying project) still cannot
+	// create a campaign -- that authority requires campaign_manager.
+	acmePath := "/api/tenants/" + strconv.FormatInt(acme, 10) + "/campaigns"
+	rec := f.req(t, http.MethodPost, acmePath, "alice-tok", form)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("editor create campaign = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// The campaign manager can create one for their own tenant...
+	rec = f.req(t, http.MethodPost, acmePath, "pm-tok", form)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("campaign manager create campaign (own tenant) = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// ...but not for globex, a tenant they hold no grant in.
+	globexPath := "/api/tenants/" + strconv.FormatInt(globex, 10) + "/campaigns"
+	rec = f.req(t, http.MethodPost, globexPath, "pm-tok", form)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("campaign manager create campaign (foreign tenant) = %d, want 403 (%s)", rec.Code, rec.Body.String())
 	}
 }

@@ -36,6 +36,7 @@ import (
 	"github.com/heridotlife/honryu/internal/adapters/storage/nexus"
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
@@ -65,6 +66,7 @@ type repository interface {
 	ports.ReportStore
 	ports.ReservationRepository
 	ports.ScheduleRepository
+	ports.CampaignRepository
 }
 
 func main() {
@@ -118,6 +120,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	// can.
 	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(repo, quota)
+	campaigns := campaignapp.NewService(repo)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 
@@ -139,6 +142,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Executions:    executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
 		Lifecycle:     lifecycle,
 		Schedules:     schedules,
+		Campaigns:     campaigns,
 		Usage:         usage,
 		Metrics:       collector,
 		Reports:       repo,

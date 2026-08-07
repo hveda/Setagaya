@@ -46,6 +46,10 @@ tags:
     description: Operator views
   - name: tenants
     description: Multi-tenancy and role grants
+  - name: campaigns
+    description: >-
+      PM-owned readiness events: a window, participating services each bound
+      to one designated readiness execution, and a rolled-up go/no-go verdict
   - name: files
     description: Artifact download
   - name: ingest
@@ -75,6 +79,11 @@ components:
       schema: { type: integer, format: int64 }
     ScheduleID:
       name: schedule_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    CampaignID:
+      name: campaign_id
       in: path
       required: true
       schema: { type: integer, format: int64 }
@@ -271,6 +280,32 @@ components:
         occurrences:
           type: array
           items: { $ref: '#/components/schemas/Occurrence' }
+
+    CampaignServiceBinding:
+      type: object
+      description: One participating service (project) and its designated readiness execution.
+      properties:
+        project_id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+    Campaign:
+      type: object
+      description: A PM-owned readiness event -- a window, participating services, and (once ended or aborted) a rolled-up verdict.
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        tenant_id: { type: integer, format: int64 }
+        window_start: { type: string, format: date-time }
+        window_end: { type: string, format: date-time }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignServiceBinding' }
+        active:
+          type: boolean
+          description: Derived from the window and aborted_at, not a stored status.
+        aborted_at:
+          type: string
+          format: date-time
+          description: Present only once the campaign has been aborted.
 
     Report:
       type: object
@@ -949,6 +984,76 @@ paths:
                 type: object
                 properties:
                   message: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/tenants/{tenant_id}/campaigns:
+    post:
+      tags: [campaigns]
+      summary: Define a campaign -- a window and its participating services
+      description: |
+        Each service is a (project, designated execution) pair: the
+        execution is that service's readiness test for the campaign,
+        exempt from freeze and the input to its verdict. Requires a role
+        (global or scoped to this tenant) granting campaign
+        create/update/admin -- an ordinary tenant editor or admin cannot
+        create a campaign, since it freezes other teams' work for its
+        window.
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, window_start, window_end, service_project_id, service_execution_id]
+              properties:
+                name: { type: string }
+                window_start: { type: string, format: date-time }
+                window_end: { type: string, format: date-time }
+                service_project_id:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Index-paired with service_execution_id.
+                service_execution_id:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Index-paired with service_project_id.
+      responses:
+        '201':
+          description: Campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      tags: [campaigns]
+      summary: List a tenant's campaigns
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      responses:
+        '200':
+          description: Campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Campaign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/campaigns/{campaign_id}:
+    get:
+      tags: [campaigns]
+      summary: Get one campaign
+      parameters: [{ $ref: '#/components/parameters/CampaignID' }]
+      responses:
+        '200':
+          description: Campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/executions/{execution_id}/reports:

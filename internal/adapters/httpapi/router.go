@@ -13,6 +13,7 @@ import (
 
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
@@ -33,6 +34,10 @@ type Deps struct {
 	// Schedules administers time-triggered executions. Optional; nil disables
 	// the /api/executions/{execution_id}/schedules endpoints.
 	Schedules *scheduleapp.Service
+	// Campaigns administers PM-owned readiness events. Optional; nil disables
+	// the /api/tenants/{tenant_id}/campaigns and /api/campaigns/{campaign_id}
+	// endpoints.
+	Campaigns *campaignapp.Service
 	Usage     *usageapp.Service
 	// Metrics receives pushed measurements from engine pods.
 	Metrics *metricsapp.Service
@@ -150,6 +155,10 @@ var routes = []Route{
 	{"DELETE", "/api/tenants/{tenant_id}/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeTenantRole })},
 	{"POST", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.assignGlobalRole })},
 	{"DELETE", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeGlobalRole })},
+
+	{"POST", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.createCampaign })},
+	{"GET", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listCampaigns })},
+	{"GET", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaign })},
 
 	{"GET", "/api/files/{kind}/{id}/{name}", "files", hf(func(h *handlers) http.HandlerFunc { return h.downloadFile })},
 
