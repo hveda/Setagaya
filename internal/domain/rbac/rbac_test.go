@@ -79,6 +79,35 @@ func TestAuthorize_ViewerCannotWrite(t *testing.T) {
 	}
 }
 
+// A campaign manager freezes other teams' projects for a window, so this
+// authority is deliberately not bundled into RoleTenantEditor -- an editor
+// with no campaign_manager grant must be denied, even though editor already
+// grants ResourceProject/ResourceExecution write access.
+func TestAuthorize_CampaignManager(t *testing.T) {
+	t.Parallel()
+	catalog := rbac.DefaultCatalog()
+	editor := account.Account{Subject: "e", Tenants: map[int64][]string{5: {rbac.RoleTenantEditor}}}
+	if d := rbac.Authorize(editor, catalog, rbac.Request{Resource: rbac.ResourceCampaign, Action: rbac.ActionCreate, TenantID: ptr(5)}); d.Allowed {
+		t.Fatalf("tenant editor should not be able to create a campaign: %+v", d)
+	}
+
+	pm := account.Account{Subject: "pm", Tenants: map[int64][]string{5: {rbac.RoleCampaignManager}}}
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceCampaign, Action: rbac.ActionCreate, TenantID: ptr(5)}); !d.Allowed {
+		t.Fatalf("campaign manager create denied: %+v", d)
+	}
+	// Not in a different tenant.
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceCampaign, Action: rbac.ActionCreate, TenantID: ptr(9)}); d.Allowed {
+		t.Fatalf("campaign manager should be denied in a tenant they hold no grant in: %+v", d)
+	}
+	// Can read projects/executions (to see what they're binding), but not edit them.
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceProject, Action: rbac.ActionRead, TenantID: ptr(5)}); !d.Allowed {
+		t.Fatalf("campaign manager project read denied: %+v", d)
+	}
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceProject, Action: rbac.ActionUpdate, TenantID: ptr(5)}); d.Allowed {
+		t.Fatalf("campaign manager should not be able to edit a project: %+v", d)
+	}
+}
+
 func TestAuthorize_UnknownRoleIgnored(t *testing.T) {
 	t.Parallel()
 	acct := account.Account{Subject: "u", Global: []string{"ghost"}}

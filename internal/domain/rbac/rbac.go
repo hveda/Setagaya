@@ -29,6 +29,11 @@ const (
 	ResourceRun    = "run"
 	ResourceTenant = "tenant"
 	ResourceSystem = "system"
+	// ResourceCampaign guards campaign create/read/update/list/admin --
+	// separate from ResourceProject/ResourceExecution because a campaign
+	// manager can register any project in their tenant into a campaign
+	// without holding edit rights on that project itself.
+	ResourceCampaign = "campaign"
 )
 
 // Wildcard matches any resource or action.
@@ -40,6 +45,13 @@ const (
 	RoleTenantAdmin          = "tenant_admin"
 	RoleTenantEditor         = "tenant_editor"
 	RoleTenantViewer         = "tenant_viewer"
+	// RoleCampaignManager is a PM's role: it can create and manage
+	// campaigns within its tenant, and read (but not edit) any project or
+	// execution there to see what it's binding into one -- deliberately
+	// separate from RoleTenantAdmin/Editor, since a campaign freezes other
+	// teams' work and that authority should not be bundled with ordinary
+	// project edit rights.
+	RoleCampaignManager = "campaign_manager"
 )
 
 // Permission grants a set of actions on a resource. A Resource of "*" matches
@@ -156,6 +168,15 @@ func DefaultCatalog() map[string]Role {
 				{Resource: ResourceExecution, Actions: read},
 				{Resource: ResourceScenario, Actions: read},
 				{Resource: ResourceRun, Actions: read},
+			},
+		},
+		RoleCampaignManager: {
+			Name:         RoleCampaignManager,
+			TenantScoped: true,
+			Permissions: []Permission{
+				{Resource: ResourceCampaign, Actions: all},
+				{Resource: ResourceProject, Actions: read},
+				{Resource: ResourceExecution, Actions: read},
 			},
 		},
 	}
