@@ -21,7 +21,7 @@ func newCampaignRouter(t *testing.T) (http.Handler, *fake.Store) {
 	h := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(store),
 		Executions:    executionapp.NewService(store, obj, 100),
-		Campaigns:     campaignapp.NewService(store),
+		Campaigns:     campaignapp.NewService(store, fake.NewScheduler()),
 		Store:         obj,
 		DefaultOwners: []string{"honryu"},
 	})

@@ -66,7 +66,7 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		Tenants:    tenantapp.NewService(store, store, store),
 		Admin:      adminapp.NewService(store, sched, lifecycle),
 		Schedules:  scheduleapp.NewService(store, quota),
-		Campaigns:  campaignapp.NewService(store),
+		Campaigns:  campaignapp.NewService(store, sched),
 		Store:      obj,
 		Auth:       auth,
 		Audit:      audit,

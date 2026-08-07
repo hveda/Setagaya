@@ -120,7 +120,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	// can.
 	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(repo, quota)
-	campaigns := campaignapp.NewService(repo)
+	campaigns := campaignapp.NewService(repo, sched)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 

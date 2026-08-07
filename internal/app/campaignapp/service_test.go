@@ -44,7 +44,7 @@ func TestCreate_ValidatesAndPersists(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := fake.NewStore()
-	svc := campaignapp.NewService(store)
+	svc := campaignapp.NewService(store, fake.NewScheduler())
 
 	projectA, execA := seedProjectAndExecution(t, store, "service-a")
 	projectB, execB := seedProjectAndExecution(t, store, "service-b")
@@ -80,7 +80,7 @@ func TestCreate_PropagatesDomainValidationError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := fake.NewStore()
-	svc := campaignapp.NewService(store)
+	svc := campaignapp.NewService(store, fake.NewScheduler())
 
 	_, err := svc.Create(ctx, campaign.Campaign{Name: "", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(1)}})
 	if !errors.Is(err, campaign.ErrNameRequired) {
@@ -95,7 +95,7 @@ func TestCreate_RejectsWhenExecutionBelongsToADifferentProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := fake.NewStore()
-	svc := campaignapp.NewService(store)
+	svc := campaignapp.NewService(store, fake.NewScheduler())
 
 	_, execA := seedProjectAndExecution(t, store, "service-a")
 	projectB, _ := seedProjectAndExecution(t, store, "service-b")
@@ -119,7 +119,7 @@ func TestCreate_UnknownExecutionPropagatesNotFound(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := fake.NewStore()
-	svc := campaignapp.NewService(store)
+	svc := campaignapp.NewService(store, fake.NewScheduler())
 
 	c := campaign.Campaign{
 		Name:     "Supersale 11.11",
@@ -136,7 +136,7 @@ func TestCreate_UnknownExecutionPropagatesNotFound(t *testing.T) {
 
 func TestGet_MissingReturnsNotFound(t *testing.T) {
 	t.Parallel()
-	svc := campaignapp.NewService(fake.NewStore())
+	svc := campaignapp.NewService(fake.NewStore(), fake.NewScheduler())
 	if _, err := svc.Get(context.Background(), 999); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("Get(missing) = %v, want ErrNotFound", err)
 	}
@@ -146,7 +146,7 @@ func TestList_ScopesByTenant(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := fake.NewStore()
-	svc := campaignapp.NewService(store)
+	svc := campaignapp.NewService(store, fake.NewScheduler())
 	projectID, execID := seedProjectAndExecution(t, store, "service-a")
 
 	base := campaign.Campaign{
@@ -180,7 +180,7 @@ func TestAbort_SetsAbortedAt(t *testing.T) {
 	ctx := context.Background()
 	store := fake.NewStore()
 	now := at(500)
-	svc := campaignapp.NewService(store).WithNow(func() time.Time { return now })
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return now })
 
 	projectID, execID := seedProjectAndExecution(t, store, "service-a")
 	c := campaign.Campaign{
@@ -204,5 +204,219 @@ func TestAbort_SetsAbortedAt(t *testing.T) {
 	}
 	if got.IsActive(now) {
 		t.Fatal("an aborted campaign must not be active, even inside its own window")
+	}
+}
+
+func deploy(t *testing.T, sched *fake.Scheduler, executionID, scenarioID int64) {
+	t.Helper()
+	if err := sched.DeployScenario(context.Background(), ports.DeploySpec{ExecutionID: executionID, ScenarioID: scenarioID}); err != nil {
+		t.Fatalf("DeployScenario: %v", err)
+	}
+}
+
+// InScopeExecutions is what cmd/scheduler's drain sweep stops: every
+// currently-deployed execution under a participating project, except the
+// project's own designated (exempt) execution, and except anything deployed
+// under an unrelated project entirely.
+func TestInScopeExecutions_ExcludesDesignatedAndUnrelatedProjects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	sched := fake.NewScheduler()
+	svc := campaignapp.NewService(store, sched)
+
+	projectA, designated := seedProjectAndExecution(t, store, "service-a")
+	_, straggler := seedProjectAndExecution(t, store, "service-a-straggler") // different project, same owner in practice but distinct id
+	// Re-point straggler's project to projectA by creating it directly under projectA instead.
+	e, err := execution.New("straggler", projectA)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	strayUnderA, err := store.CreateExecution(ctx, e)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	_, unrelated := seedProjectAndExecution(t, store, "service-b")
+
+	c := campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: designated}},
+	}
+	created, err := svc.Create(ctx, c)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	deploy(t, sched, designated, 1)
+	deploy(t, sched, strayUnderA, 1)
+	deploy(t, sched, unrelated, 1)
+	deploy(t, sched, straggler, 1) // deployed, but under yet another unrelated project
+
+	got, err := svc.InScopeExecutions(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("InScopeExecutions: %v", err)
+	}
+	if len(got) != 1 || got[0] != strayUnderA {
+		t.Fatalf("InScopeExecutions = %v, want exactly [%d] (strayUnderA)", got, strayUnderA)
+	}
+}
+
+func TestInScopeExecutions_MissingCampaignPropagatesNotFound(t *testing.T) {
+	t.Parallel()
+	svc := campaignapp.NewService(fake.NewStore(), fake.NewScheduler())
+	if _, err := svc.InScopeExecutions(context.Background(), 999); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("InScopeExecutions(missing campaign) = %v, want ErrNotFound", err)
+	}
+}
+
+// A deployed execution whose record has since vanished (e.g. deleted) must
+// not abort the whole scan -- it has nothing left to match a project
+// against, so it is simply excluded, the same tolerance
+// adminapp.deployedExecutionsForTenant already applies to its own analogous
+// scan.
+func TestInScopeExecutions_SkipsADeployedExecutionWhoseRecordVanished(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	sched := fake.NewScheduler()
+	svc := campaignapp.NewService(store, sched)
+
+	projectA, designated := seedProjectAndExecution(t, store, "service-a")
+	c := campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: designated}},
+	}
+	created, err := svc.Create(ctx, c)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	deploy(t, sched, designated, 1)
+	deploy(t, sched, 999999, 1) // deployed, but no such execution was ever created
+
+	got, err := svc.InScopeExecutions(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("InScopeExecutions: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("InScopeExecutions = %v, want empty (vanished execution excluded, designated one exempt)", got)
+	}
+}
+
+func TestIsFrozen_ExemptsTheDesignatedExecutionButBlocksOthersUnderTheSameProject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(50) })
+
+	projectA, designated := seedProjectAndExecution(t, store, "service-a")
+	e, err := execution.New("other", projectA)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	other, err := store.CreateExecution(ctx, e)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	_, unrelatedExec := seedProjectAndExecution(t, store, "service-b")
+
+	c := campaign.Campaign{
+		Name: "Supersale", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: designated}},
+	}
+	if _, err := svc.Create(ctx, c); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if blocked, _, err := svc.IsFrozen(ctx, projectA, designated); err != nil || blocked {
+		t.Fatalf("IsFrozen(designated) = %v, %v, want false, nil", blocked, err)
+	}
+	blocked, name, err := svc.IsFrozen(ctx, projectA, other)
+	if err != nil || !blocked || name != "Supersale" {
+		t.Fatalf("IsFrozen(other execution, same project) = %v, %q, %v, want true, \"Supersale\", nil", blocked, name, err)
+	}
+	if blocked, _, err := svc.IsFrozen(ctx, 999999, unrelatedExec); err != nil || blocked {
+		t.Fatalf("IsFrozen(unrelated project) = %v, %v, want false, nil", blocked, err)
+	}
+}
+
+func TestIsFrozen_NotYetActiveCampaignDoesNotFreeze(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(-50) }) // before the window
+
+	projectA, designated := seedProjectAndExecution(t, store, "service-a")
+	e, err := execution.New("other", projectA)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	other, err := store.CreateExecution(ctx, e)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+
+	c := campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: designated}},
+	}
+	if _, err := svc.Create(ctx, c); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if blocked, _, err := svc.IsFrozen(ctx, projectA, other); err != nil || blocked {
+		t.Fatalf("IsFrozen (campaign not yet active) = %v, %v, want false, nil", blocked, err)
+	}
+}
+
+// Two campaigns registering the same project with different designated
+// executions is not prevented by Campaign.Validate (which only checks one
+// campaign's own invariants). Each campaign's own designated execution must
+// stay exempt regardless of the other campaign's presence.
+func TestIsFrozen_ExecutionExemptByEitherOfTwoOverlappingCampaigns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(50) })
+
+	projectA, designated1 := seedProjectAndExecution(t, store, "service-a")
+	e2, err := execution.New("designated2", projectA)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	designated2, err := store.CreateExecution(ctx, e2)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	e3, err := execution.New("neither", projectA)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	neither, err := store.CreateExecution(ctx, e3)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+
+	if _, err := svc.Create(ctx, campaign.Campaign{
+		Name: "campaign-1", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: designated1}},
+	}); err != nil {
+		t.Fatalf("Create (campaign-1): %v", err)
+	}
+	if _, err := svc.Create(ctx, campaign.Campaign{
+		Name: "campaign-2", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: designated2}},
+	}); err != nil {
+		t.Fatalf("Create (campaign-2): %v", err)
+	}
+
+	if blocked, _, err := svc.IsFrozen(ctx, projectA, designated1); err != nil || blocked {
+		t.Fatalf("IsFrozen(designated1) = %v, %v, want false (exempt via campaign-1)", blocked, err)
+	}
+	if blocked, _, err := svc.IsFrozen(ctx, projectA, designated2); err != nil || blocked {
+		t.Fatalf("IsFrozen(designated2) = %v, %v, want false (exempt via campaign-2)", blocked, err)
+	}
+	if blocked, _, err := svc.IsFrozen(ctx, projectA, neither); err != nil || !blocked {
+		t.Fatalf("IsFrozen(neither) = %v, %v, want true (blocked by both campaigns)", blocked, err)
 	}
 }

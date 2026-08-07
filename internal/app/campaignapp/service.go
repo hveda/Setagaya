@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/campaign"
@@ -26,15 +27,23 @@ type Repo interface {
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
 }
 
+// Scheduler is the subset of ports.Scheduler campaignapp needs: which
+// executions are currently deployed, to resolve a campaign's in-scope
+// non-compliant executions (InScopeExecutions).
+type Scheduler interface {
+	DeployedExecutions(ctx context.Context, cluster ports.ClusterRef) (map[int64]time.Time, error)
+}
+
 // Service implements the campaign use-cases.
 type Service struct {
-	repo Repo
-	now  func() time.Time
+	repo  Repo
+	sched Scheduler
+	now   func() time.Time
 }
 
 // NewService wires the campaign service.
-func NewService(repo Repo) *Service {
-	return &Service{repo: repo, now: time.Now}
+func NewService(repo Repo, sched Scheduler) *Service {
+	return &Service{repo: repo, sched: sched, now: time.Now}
 }
 
 // WithNow overrides the clock Abort timestamps with. Returns the receiver
@@ -88,4 +97,83 @@ func (s *Service) List(ctx context.Context, tenantID int64) ([]campaign.Campaign
 // (Campaign.IsActive is derived from AbortedAt, not a separate flag).
 func (s *Service) Abort(ctx context.Context, id int64) error {
 	return s.repo.AbortCampaign(ctx, id, s.now())
+}
+
+// InScopeExecutions returns every currently-deployed execution belonging to
+// one of campaignID's participating projects, excluding each service's own
+// designated execution -- the exact set cmd/scheduler's drain sweep stops.
+// A pure query: it has no opinion on whether campaignID is currently
+// active, since a caller (the drain sweep) already scoped that by only
+// ever asking about campaigns ListActiveCampaigns returned.
+//
+// Shared with adminapp's kill-switch (ScopeCampaign), which additionally
+// includes the designated executions themselves -- an abort tears down
+// everything, including the readiness tests, unlike a drain which is meant
+// to leave them running.
+func (s *Service) InScopeExecutions(ctx context.Context, campaignID int64) ([]int64, error) {
+	c, err := s.repo.GetCampaign(ctx, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	deployed, err := s.sched.DeployedExecutions(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	designated := make(map[int64]bool, len(c.Services))
+	projects := make(map[int64]bool, len(c.Services))
+	for _, svc := range c.Services {
+		designated[svc.ExecutionID] = true
+		projects[svc.ProjectID] = true
+	}
+	var out []int64
+	for executionID := range deployed {
+		if designated[executionID] {
+			continue
+		}
+		exe, err := s.repo.GetExecution(ctx, executionID)
+		if err != nil {
+			continue // a deployed execution whose record vanished has nothing left to match against
+		}
+		if projects[exe.ProjectID] {
+			out = append(out, executionID)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
+}
+
+// IsFrozen reports whether executionID (belonging to projectID) is blocked
+// by campaign freeze right now: blocked unless executionID is the
+// designated execution of every active campaign that includes projectID at
+// all. campaignName names a blocking campaign so lifecycleapp.Trigger can
+// state a reason.
+//
+// Scans every active campaign rather than stopping at the first one that
+// includes projectID: two campaigns could both register the same project
+// (not prevented by Campaign.Validate, which only checks one campaign's own
+// invariants), and an execution that is one campaign's designated readiness
+// test must stay exempt even if a second, unrelated campaign also touches
+// the same project with a different designated execution.
+func (s *Service) IsFrozen(ctx context.Context, projectID, executionID int64) (blocked bool, campaignName string, err error) {
+	active, err := s.repo.ListActiveCampaigns(ctx, s.now())
+	if err != nil {
+		return false, "", err
+	}
+	blockingCampaign := ""
+	for _, c := range active {
+		designated, ok := c.DesignatedExecution(projectID)
+		if !ok {
+			continue // this campaign does not include projectID at all
+		}
+		if designated == executionID {
+			return false, "", nil
+		}
+		if blockingCampaign == "" {
+			blockingCampaign = c.Name
+		}
+	}
+	if blockingCampaign != "" {
+		return true, blockingCampaign, nil
+	}
+	return false, "", nil
 }
