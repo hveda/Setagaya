@@ -1,0 +1,33 @@
+package ports
+
+import (
+	"context"
+	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/campaign"
+)
+
+// CampaignRepository persists campaigns and the services participating in
+// them -- the record that turns "which project is in this readiness event,
+// and which execution speaks for it" into something queryable rather than
+// implicit.
+type CampaignRepository interface {
+	// CreateCampaign persists c, including every entry of c.Services, and
+	// returns its assigned ID.
+	CreateCampaign(ctx context.Context, c campaign.Campaign) (int64, error)
+	// GetCampaign returns the campaign with id, or ErrNotFound.
+	GetCampaign(ctx context.Context, id int64) (campaign.Campaign, error)
+	// ListCampaignsByTenant returns every campaign belonging to tenantID,
+	// ordered by window start.
+	ListCampaignsByTenant(ctx context.Context, tenantID int64) ([]campaign.Campaign, error)
+	// ListActiveCampaigns returns every campaign whose window contains now
+	// and which has not been aborted -- what both lifecycleapp's freeze
+	// check and cmd/scheduler's drain sweep scan.
+	ListActiveCampaigns(ctx context.Context, now time.Time) ([]campaign.Campaign, error)
+	// AbortCampaign records that the campaign with id was aborted at t, or
+	// ErrNotFound. Idempotent in effect (aborting an already-aborted
+	// campaign again just overwrites AbortedAt), since Abort's caller
+	// (adminapp) does not need to distinguish "already closed" from
+	// "closed by this call."
+	AbortCampaign(ctx context.Context, id int64, t time.Time) error
+}

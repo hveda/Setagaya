@@ -57,3 +57,10 @@ func TestFakeStore_ScheduleContract(t *testing.T) {
 		return fake.NewStore()
 	})
 }
+
+func TestFakeStore_CampaignContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunCampaignRepositoryContract(t, func(_ *testing.T) ports.CampaignRepository {
+		return fake.NewStore()
+	})
+}

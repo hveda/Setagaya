@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
@@ -76,6 +77,9 @@ type Store struct {
 	// successfully; nil means it has never run.
 	horizonRunAt *time.Time
 
+	campaignSeq int64
+	campaigns   map[int64]campaign.Campaign
+
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
 	// rest of Store the way scenarios and executions tie to each other.
@@ -106,6 +110,7 @@ func NewStore() *Store {
 		quotaCeilings:    make(map[quotaKey]int),
 		schedules:        make(map[int64]schedule.Schedule),
 		occurrences:      make(map[int64]ports.Occurrence),
+		campaigns:        make(map[int64]campaign.Campaign),
 		ReportProgress:   NewReportProgress(),
 		ReportStore:      NewReportStore(),
 	}
@@ -152,6 +157,7 @@ var (
 	_ ports.ReportProgress           = (*Store)(nil)
 	_ ports.ReportStore              = (*Store)(nil)
 	_ ports.ReservationRepository    = (*Store)(nil)
+	_ ports.CampaignRepository       = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------
