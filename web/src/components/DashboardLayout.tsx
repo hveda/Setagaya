@@ -8,6 +8,7 @@ const navItems = [
   { href: '/reports', label: 'Reports' },
   { href: '/reservations', label: 'Reservations' },
   { href: '/status', label: 'Live Status' },
+  { href: '/campaigns', label: 'Campaigns' },
 ];
 
 function applyTheme(dark: boolean) {
