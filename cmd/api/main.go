@@ -111,8 +111,9 @@ func run(ctx context.Context, getenv func(string) string) error {
 	// simply keeps sending to whichever controller is listening.
 	usage := usageapp.NewService(repo)
 	quota := quotaapp.NewService(repo)
+	campaigns := campaignapp.NewService(repo, sched)
 	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).
-		WithMetrics(collector).WithUsage(usage).WithQuota(quota)
+		WithMetrics(collector).WithUsage(usage).WithQuota(quota).WithFreeze(campaigns)
 	// Retrofitted after lifecycle exists, since lifecycle itself depends on
 	// quota (WithQuota above) -- this is the only order that avoids a
 	// circular construction. Lets a manual Trigger reclaim the same tenant's
@@ -120,7 +121,6 @@ func run(ctx context.Context, getenv func(string) string) error {
 	// can.
 	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(repo, quota)
-	campaigns := campaignapp.NewService(repo, sched)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 
