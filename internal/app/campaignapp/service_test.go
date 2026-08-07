@@ -175,6 +175,36 @@ func TestList_ScopesByTenant(t *testing.T) {
 	}
 }
 
+func TestActiveCampaigns_ExcludesNotYetStartedEndedAndAborted(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(50) })
+
+	projectID, execID := seedProjectAndExecution(t, store, "service-a")
+	active, err := svc.Create(ctx, campaign.Campaign{
+		Name: "active", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: execID}},
+	})
+	if err != nil {
+		t.Fatalf("Create (active): %v", err)
+	}
+	if _, err := svc.Create(ctx, campaign.Campaign{
+		Name: "future", TenantID: 7, Window: campaign.Window{Start: at(200), End: at(300)},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: execID}},
+	}); err != nil {
+		t.Fatalf("Create (future): %v", err)
+	}
+
+	got, err := svc.ActiveCampaigns(ctx)
+	if err != nil {
+		t.Fatalf("ActiveCampaigns: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != active.ID {
+		t.Fatalf("ActiveCampaigns = %+v, want only %+v", got, active)
+	}
+}
+
 func TestAbort_SetsAbortedAt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

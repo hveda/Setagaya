@@ -91,6 +91,13 @@ func (s *Service) List(ctx context.Context, tenantID int64) ([]campaign.Campaign
 	return s.repo.ListCampaignsByTenant(ctx, tenantID)
 }
 
+// ActiveCampaigns returns every campaign currently active (per
+// Campaign.IsActive) across every tenant -- what cmd/scheduler's drain
+// sweep iterates, one InScopeExecutions call per campaign.
+func (s *Service) ActiveCampaigns(ctx context.Context) ([]campaign.Campaign, error) {
+	return s.repo.ListActiveCampaigns(ctx, s.now())
+}
+
 // Abort marks the campaign with id aborted now. Tearing down its in-scope
 // executions' engines is the caller's responsibility (adminapp) -- this
 // only closes the campaign itself, which is what lifts freeze immediately

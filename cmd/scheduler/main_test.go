@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/quotaapp"
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/config"
+	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
@@ -18,6 +20,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
@@ -483,4 +486,159 @@ func TestRunHorizonLoop_TicksMoreThanOnceUntilCancelled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
 	runHorizonLoop(ctx, schedules, 10*time.Millisecond) // must return once ctx is done, without panicking
+}
+
+// drainProject seeds a project with two executions: designated (the
+// campaign's readiness test) and stray (any other execution under the same
+// project). Both are returned undeployed; the caller deploys/runs whichever
+// it needs for its scenario.
+func drainProject(t *testing.T, store *fake.Store) (projectID, designated, stray int64) {
+	t.Helper()
+	ctx := context.Background()
+	p, err := project.New("web", "honryu", "")
+	if err != nil {
+		t.Fatalf("project.New: %v", err)
+	}
+	projectID, err = store.CreateProject(ctx, p)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	de, err := execution.New("readiness", projectID)
+	if err != nil {
+		t.Fatalf("execution.New (designated): %v", err)
+	}
+	designated, err = store.CreateExecution(ctx, de)
+	if err != nil {
+		t.Fatalf("CreateExecution (designated): %v", err)
+	}
+	se, err := execution.New("stray", projectID)
+	if err != nil {
+		t.Fatalf("execution.New (stray): %v", err)
+	}
+	stray, err = store.CreateExecution(ctx, se)
+	if err != nil {
+		t.Fatalf("CreateExecution (stray): %v", err)
+	}
+	return projectID, designated, stray
+}
+
+func deployAndRun(t *testing.T, store *fake.Store, sched *fake.Scheduler, executionID int64) {
+	t.Helper()
+	ctx := context.Background()
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ExecutionID: executionID, ScenarioID: 1}); err != nil {
+		t.Fatalf("DeployScenario: %v", err)
+	}
+	if _, err := store.StartRun(ctx, executionID); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+}
+
+func TestDrainOnce_StopsARunningNonCompliantExecutionUnderAParticipatingProject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	sched := fake.NewScheduler()
+	obj := fake.NewObjectStore()
+	campaigns := campaignapp.NewService(store, sched)
+	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
+
+	projectID, designated, stray := drainProject(t, store)
+	deployAndRun(t, store, sched, stray)
+
+	if _, err := campaigns.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: time.Now().Add(-time.Hour), End: time.Now().Add(time.Hour)},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: designated}},
+	}); err != nil {
+		t.Fatalf("Create campaign: %v", err)
+	}
+
+	drainOnce(ctx, campaigns, lifecycle, store)
+
+	if _, running, _ := store.CurrentRun(ctx, stray); running {
+		t.Fatal("the non-compliant execution should have been stopped by the drain sweep")
+	}
+}
+
+// The whole point of freeze exempting the designated execution: draining
+// must leave it running, not tear down the readiness test it exists to
+// measure.
+func TestDrainOnce_LeavesTheDesignatedExecutionRunning(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	sched := fake.NewScheduler()
+	obj := fake.NewObjectStore()
+	campaigns := campaignapp.NewService(store, sched)
+	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
+
+	projectID, designated, _ := drainProject(t, store)
+	deployAndRun(t, store, sched, designated)
+
+	if _, err := campaigns.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: time.Now().Add(-time.Hour), End: time.Now().Add(time.Hour)},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: designated}},
+	}); err != nil {
+		t.Fatalf("Create campaign: %v", err)
+	}
+
+	drainOnce(ctx, campaigns, lifecycle, store)
+
+	if _, running, _ := store.CurrentRun(ctx, designated); !running {
+		t.Fatal("the designated execution must be left running -- it is exempt from freeze")
+	}
+}
+
+// A deployed-but-idle in-scope execution has nothing to drain -- Stop would
+// reject it as not running, so drainOnce must not even attempt it (which
+// would otherwise show up as a spurious error on every tick).
+func TestDrainOnce_LeavesADeployedButIdleExecutionAlone(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	sched := fake.NewScheduler()
+	obj := fake.NewObjectStore()
+	campaigns := campaignapp.NewService(store, sched)
+	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
+
+	projectID, designated, stray := drainProject(t, store)
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ExecutionID: stray, ScenarioID: 1}); err != nil {
+		t.Fatalf("DeployScenario: %v", err)
+	} // deployed, but never started
+
+	if _, err := campaigns.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: time.Now().Add(-time.Hour), End: time.Now().Add(time.Hour)},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: designated}},
+	}); err != nil {
+		t.Fatalf("Create campaign: %v", err)
+	}
+
+	drainOnce(ctx, campaigns, lifecycle, store) // must not panic or error visibly
+
+	if _, running, _ := store.CurrentRun(ctx, stray); running {
+		t.Fatal("an idle execution cannot have started running on its own")
+	}
+}
+
+func TestDrainOnce_NoActiveCampaignsIsANoOp(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	sched := fake.NewScheduler()
+	obj := fake.NewObjectStore()
+	campaigns := campaignapp.NewService(store, sched)
+	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
+
+	drainOnce(context.Background(), campaigns, lifecycle, store) // must not panic
+}
+
+func TestRunDrainLoop_TicksMoreThanOnceUntilCancelled(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	sched := fake.NewScheduler()
+	obj := fake.NewObjectStore()
+	campaigns := campaignapp.NewService(store, sched)
+	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	runDrainLoop(ctx, campaigns, lifecycle, store, 10*time.Millisecond) // must return once ctx is done, without panicking
 }
