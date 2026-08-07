@@ -12,6 +12,7 @@ import (
 
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -21,13 +22,28 @@ import (
 // not actually belong to the project it was registered under.
 var ErrServiceExecutionMismatch = errors.New("campaignapp: designated execution does not belong to its stated project")
 
+// ErrServiceProjectTenantMismatch means a campaign named a project that does
+// not actually belong to the campaign's own declared tenant. Without this
+// check, a caller authorized to manage campaigns in one tenant could name
+// another tenant's project id and execution id (plain sequential integers,
+// not secrets) and have freeze, the drain sweep, and the kill-switch's
+// ScopeCampaign all act on that project -- none of which re-derive tenant
+// ownership from anywhere else, since they key purely off project id.
+var ErrServiceProjectTenantMismatch = errors.New("campaignapp: project does not belong to the campaign's tenant")
+
 // Repo is the persistence campaignapp needs: the campaign ledger, enough of
-// an execution to verify a service's designated execution actually belongs
-// to the project it's registered under, and enough of the report store and
-// execution criteria to compute a campaign's verdict.
+// a project and execution to verify a service's designated execution
+// actually belongs to the project it's registered under and that project
+// actually belongs to the campaign's own tenant, and enough of the report
+// store and execution criteria to compute a campaign's verdict.
 type Repo interface {
 	ports.CampaignRepository
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
+	// GetProject backs the tenant-ownership check in Create and OtherLoad's
+	// tenant scoping -- execution.TenantID is never populated by any
+	// current execution-creation path, so a project's own TenantID is the
+	// only reliable source for "which tenant does this actually belong to".
+	GetProject(ctx context.Context, id int64) (project.Project, error)
 	// ListReports returns an execution's reports, most recent first --
 	// Verdict reads index 0 as "the designated execution's latest report."
 	ListReports(ctx context.Context, executionID int64, limit int) ([]report.Report, error)
@@ -74,7 +90,9 @@ func (s *Service) WithNow(now func() time.Time) *Service {
 // Create validates c and persists it. Each service's designated execution
 // must actually belong to the project it's registered under -- without this
 // check, a typo'd execution id would let one project's execution silently
-// decide a completely different service's verdict.
+// decide a completely different service's verdict -- and that project must
+// actually belong to c's own declared tenant, or a campaign manager in one
+// tenant could freeze, drain, and kill-switch another tenant's project.
 func (s *Service) Create(ctx context.Context, c campaign.Campaign) (campaign.Campaign, error) {
 	if err := c.Validate(); err != nil {
 		return campaign.Campaign{}, err
@@ -87,6 +105,14 @@ func (s *Service) Create(ctx context.Context, c campaign.Campaign) (campaign.Cam
 		if exe.ProjectID != svc.ProjectID {
 			return campaign.Campaign{}, fmt.Errorf("%w: execution %d belongs to project %d, not %d",
 				ErrServiceExecutionMismatch, svc.ExecutionID, exe.ProjectID, svc.ProjectID)
+		}
+		proj, err := s.repo.GetProject(ctx, svc.ProjectID)
+		if err != nil {
+			return campaign.Campaign{}, err
+		}
+		if proj.TenantID == nil || *proj.TenantID != c.TenantID {
+			return campaign.Campaign{}, fmt.Errorf("%w: project %d does not belong to tenant %d",
+				ErrServiceProjectTenantMismatch, svc.ProjectID, c.TenantID)
 		}
 	}
 	id, err := s.repo.CreateCampaign(ctx, c)

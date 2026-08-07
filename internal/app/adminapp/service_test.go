@@ -12,6 +12,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
@@ -243,11 +244,30 @@ func TestAbort_Cluster_PurgesDeployedExecutions(t *testing.T) {
 func TestAbort_Campaign_TearsDownInScopeAndDesignatedExecutionsAndClosesTheCampaign(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	store, sched, purger, svc, strayID := seed(t)
+	store, sched, purger, svc, _ := seed(t)
 	campaigns := campaignapp.NewService(store, sched)
 	svc = svc.WithCampaigns(campaigns)
 
-	de, err := execution.New("readiness", 3)
+	// seed's own execution references project id 3 as a bare sentinel with
+	// no real project record and isn't reused here -- campaignapp.Create
+	// now requires a real, tenant-owned project (to check the campaign's
+	// own tenant against it), and InScopeExecutions matches purely on each
+	// execution's own stored ProjectID, so "stray" and "designated" both
+	// need to actually belong to the same freshly created project.
+	tenantID := int64(7)
+	projectID, err := store.CreateProject(ctx, project.Project{Name: "acme", Owner: "honryu", TenantID: &tenantID})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	se, err := execution.New("stray", projectID)
+	if err != nil {
+		t.Fatalf("execution.New (stray): %v", err)
+	}
+	strayID, err := store.CreateExecution(ctx, se)
+	if err != nil {
+		t.Fatalf("CreateExecution (stray): %v", err)
+	}
+	de, err := execution.New("readiness", projectID)
 	if err != nil {
 		t.Fatalf("execution.New: %v", err)
 	}
@@ -255,16 +275,16 @@ func TestAbort_Campaign_TearsDownInScopeAndDesignatedExecutionsAndClosesTheCampa
 	if err != nil {
 		t.Fatalf("CreateExecution: %v", err)
 	}
-	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: strayID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: projectID, ExecutionID: strayID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
 		t.Fatalf("deploy stray: %v", err)
 	}
-	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: designatedID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
+	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: projectID, ExecutionID: designatedID, ScenarioID: 1, Shards: deployShards(1)}); err != nil {
 		t.Fatalf("deploy designated: %v", err)
 	}
 
 	created, err := campaigns.Create(ctx, campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: time.Now().Add(-time.Hour), End: time.Now().Add(time.Hour)},
-		Services: []campaign.Service{{ProjectID: 3, ExecutionID: designatedID}},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: designatedID}},
 	})
 	if err != nil {
 		t.Fatalf("Create campaign: %v", err)

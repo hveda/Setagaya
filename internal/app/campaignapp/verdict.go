@@ -138,7 +138,14 @@ func (s *Service) otherLoad(ctx context.Context, c campaign.Campaign) ([]OtherLo
 			continue
 		}
 		exe, err := s.repo.GetExecution(ctx, l.ExecutionID)
-		if err != nil || exe.TenantID == nil || *exe.TenantID != c.TenantID {
+		if err != nil {
+			continue // gone
+		}
+		// execution.TenantID is never populated by any current
+		// execution-creation path -- its own project's TenantID is the
+		// only reliable source for which tenant this launch belongs to.
+		proj, err := s.repo.GetProject(ctx, exe.ProjectID)
+		if err != nil || proj.TenantID == nil || *proj.TenantID != c.TenantID {
 			continue // gone, or not this campaign's tenant
 		}
 		merge(OtherLoad{ExecutionID: l.ExecutionID, Start: l.StartedTime, End: *l.EndTime, EngineCount: l.Engines})

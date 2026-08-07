@@ -32,11 +32,13 @@ func newCampaignRouter(t *testing.T) (http.Handler, *fake.Store) {
 	return h, store
 }
 
-// seedProjectAndExecution creates a project and execution under it via the
-// HTTP API, and returns both ids.
-func seedProjectAndExecution(t *testing.T, h http.Handler, name string) (projectID, executionID int64) {
+// seedProjectAndExecution creates a project (belonging to tenantID --
+// campaignapp.Create now rejects a service whose project belongs to a
+// different tenant than the campaign's own) and an execution under it via
+// the HTTP API, and returns both ids.
+func seedProjectAndExecution(t *testing.T, h http.Handler, name string, tenantID int64) (projectID, executionID int64) {
 	t.Helper()
-	projectID = decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {name}, "owner": {"honryu"}}))
+	projectID = decodeID(t, postForm(t, h, "/api/projects", url.Values{"name": {name}, "owner": {"honryu"}, "tenant_id": {itoa(tenantID)}}))
 	executionID = decodeID(t, postForm(t, h, "/api/executions", url.Values{"name": {"readiness"}, "project_id": {itoa(projectID)}}))
 	return projectID, executionID
 }
@@ -54,8 +56,8 @@ type campaignRow struct {
 func TestCreateCampaign_AdmitsAndReturnsCreated(t *testing.T) {
 	t.Parallel()
 	h, _ := newCampaignRouter(t)
-	projectA, execA := seedProjectAndExecution(t, h, "service-a")
-	projectB, execB := seedProjectAndExecution(t, h, "service-b")
+	projectA, execA := seedProjectAndExecution(t, h, "service-a", 7)
+	projectB, execB := seedProjectAndExecution(t, h, "service-b", 7)
 
 	start := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	end := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
@@ -90,8 +92,8 @@ func TestCreateCampaign_AdmitsAndReturnsCreated(t *testing.T) {
 func TestCreateCampaign_RejectsMismatchedExecutionProject(t *testing.T) {
 	t.Parallel()
 	h, _ := newCampaignRouter(t)
-	_, execA := seedProjectAndExecution(t, h, "service-a")
-	projectB, _ := seedProjectAndExecution(t, h, "service-b")
+	_, execA := seedProjectAndExecution(t, h, "service-a", 7)
+	projectB, _ := seedProjectAndExecution(t, h, "service-b", 7)
 
 	start := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	end := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
@@ -110,7 +112,7 @@ func TestCreateCampaign_RejectsMismatchedExecutionProject(t *testing.T) {
 func TestCreateCampaign_RejectsInvalidWindow(t *testing.T) {
 	t.Parallel()
 	h, _ := newCampaignRouter(t)
-	projectA, execA := seedProjectAndExecution(t, h, "service-a")
+	projectA, execA := seedProjectAndExecution(t, h, "service-a", 7)
 
 	start := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 	end := time.Now().Add(time.Hour).UTC().Format(time.RFC3339) // before start
@@ -129,7 +131,7 @@ func TestCreateCampaign_RejectsInvalidWindow(t *testing.T) {
 func TestCreateCampaign_RejectsMismatchedServicePairCounts(t *testing.T) {
 	t.Parallel()
 	h, _ := newCampaignRouter(t)
-	projectA, execA := seedProjectAndExecution(t, h, "service-a")
+	projectA, execA := seedProjectAndExecution(t, h, "service-a", 7)
 
 	start := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	end := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
@@ -148,18 +150,23 @@ func TestCreateCampaign_RejectsMismatchedServicePairCounts(t *testing.T) {
 func TestListCampaigns_ScopesByTenant(t *testing.T) {
 	t.Parallel()
 	h, _ := newCampaignRouter(t)
-	projectA, execA := seedProjectAndExecution(t, h, "service-a")
+	project7, exec7 := seedProjectAndExecution(t, h, "service-a", 7)
+	project9, exec9 := seedProjectAndExecution(t, h, "service-a-tenant-9", 9)
 
 	start := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	end := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
-	form := url.Values{
+	form7 := url.Values{
 		"name": {"c"}, "window_start": {start}, "window_end": {end},
-		"service_project_id": {itoa(projectA)}, "service_execution_id": {itoa(execA)},
+		"service_project_id": {itoa(project7)}, "service_execution_id": {itoa(exec7)},
 	}
-	if rec := postForm(t, h, "/api/tenants/7/campaigns", form); rec.Code != http.StatusCreated {
+	form9 := url.Values{
+		"name": {"c"}, "window_start": {start}, "window_end": {end},
+		"service_project_id": {itoa(project9)}, "service_execution_id": {itoa(exec9)},
+	}
+	if rec := postForm(t, h, "/api/tenants/7/campaigns", form7); rec.Code != http.StatusCreated {
 		t.Fatalf("create campaign (tenant 7) = %d (%s)", rec.Code, rec.Body.String())
 	}
-	if rec := postForm(t, h, "/api/tenants/9/campaigns", form); rec.Code != http.StatusCreated {
+	if rec := postForm(t, h, "/api/tenants/9/campaigns", form9); rec.Code != http.StatusCreated {
 		t.Fatalf("create campaign (tenant 9) = %d (%s)", rec.Code, rec.Body.String())
 	}
 
@@ -179,7 +186,7 @@ func TestListCampaigns_ScopesByTenant(t *testing.T) {
 func TestGetCampaign_RoundTrips(t *testing.T) {
 	t.Parallel()
 	h, _ := newCampaignRouter(t)
-	projectA, execA := seedProjectAndExecution(t, h, "service-a")
+	projectA, execA := seedProjectAndExecution(t, h, "service-a", 7)
 
 	start := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	end := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
@@ -245,7 +252,7 @@ func TestGetCampaignVerdict_ReturnsPerServiceOutcomeAndOverallGo(t *testing.T) {
 	t.Parallel()
 	h, store := newCampaignRouter(t)
 	ctx := context.Background()
-	projectID, execID := seedProjectAndExecution(t, h, "service-a")
+	projectID, execID := seedProjectAndExecution(t, h, "service-a", 7)
 
 	if err := store.SaveReport(ctx, report.Report{ExecutionID: execID, RunID: 1, Outcome: taurus.OutcomePassed}); err != nil {
 		t.Fatalf("SaveReport: %v", err)
@@ -296,7 +303,7 @@ func TestGetCampaignVerdict_FailedServiceNamesFailingCriteria(t *testing.T) {
 	t.Parallel()
 	h, store := newCampaignRouter(t)
 	ctx := context.Background()
-	projectID, execID := seedProjectAndExecution(t, h, "service-a")
+	projectID, execID := seedProjectAndExecution(t, h, "service-a", 7)
 
 	if err := store.SetExecutionCriteria(ctx, execID, []string{"failures>10%"}); err != nil {
 		t.Fatalf("SetExecutionCriteria: %v", err)
@@ -346,8 +353,8 @@ func TestGetCampaignVerdict_ReportsOtherLoadExcludingOwnService(t *testing.T) {
 	t.Parallel()
 	h, store := newCampaignRouter(t)
 	ctx := context.Background()
-	projectID, execID := seedProjectAndExecution(t, h, "service-a")
-	_, otherExecID := seedProjectAndExecution(t, h, "other")
+	projectID, execID := seedProjectAndExecution(t, h, "service-a", 7)
+	_, otherExecID := seedProjectAndExecution(t, h, "other", 7)
 
 	if err := store.SaveReport(ctx, report.Report{ExecutionID: execID, RunID: 1, Outcome: taurus.OutcomePassed}); err != nil {
 		t.Fatalf("SaveReport: %v", err)

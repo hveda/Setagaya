@@ -60,7 +60,7 @@ var badRequestErrors = []error{
 	adminapp.ErrScopeInvalid,
 	campaign.ErrNameRequired, campaign.ErrWindowInvalid, campaign.ErrServicesRequired,
 	campaign.ErrDuplicateService, campaign.ErrProjectRequired, campaign.ErrServiceExecutionInvalid,
-	campaignapp.ErrServiceExecutionMismatch,
+	campaignapp.ErrServiceExecutionMismatch, campaignapp.ErrServiceProjectTenantMismatch,
 }
 
 // conflictErrors are state conflicts → HTTP 409.

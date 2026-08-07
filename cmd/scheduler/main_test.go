@@ -499,6 +499,11 @@ func drainProject(t *testing.T, store *fake.Store) (projectID, designated, stray
 	if err != nil {
 		t.Fatalf("project.New: %v", err)
 	}
+	// Tenant 7, matching every campaign these drain tests create --
+	// campaignapp.Create now requires a participating project to actually
+	// belong to the campaign's own tenant.
+	tenantID := int64(7)
+	p.TenantID = &tenantID
 	projectID, err = store.CreateProject(ctx, p)
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)

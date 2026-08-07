@@ -74,7 +74,7 @@ func TestPhase6_CampaignFreezeVerdictEndToEnd(t *testing.T) {
 	// execution standing in for "the team's own dedicated test", which the
 	// spec's decision #3 says freeze must reject just as much as anyone
 	// else's.
-	projectA := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"service-a"}, "owner": {"honryu"}})
+	projectA := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"service-a"}, "owner": {"honryu"}, "tenant_id": {"9"}})
 	scenarioA := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"checkout"}, "project_id": {itoa(projectA)}})
 	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioA)+"/files", "scenario.jmx", "<jmx/>")
 
@@ -95,7 +95,7 @@ func TestPhase6_CampaignFreezeVerdictEndToEnd(t *testing.T) {
 
 	// --- service B: a second participating project whose designated
 	// execution is configured to fail its own criteria.
-	projectB := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"service-b"}, "owner": {"honryu"}})
+	projectB := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"service-b"}, "owner": {"honryu"}, "tenant_id": {"9"}})
 	scenarioB := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"checkout"}, "project_id": {itoa(projectB)}})
 	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioB)+"/files", "scenario.jmx", "<jmx/>")
 

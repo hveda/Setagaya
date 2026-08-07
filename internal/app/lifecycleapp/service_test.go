@@ -44,6 +44,11 @@ func setup(t *testing.T, csvSplit bool, engines ...int) *env {
 	store := fake.NewStore()
 
 	p, _ := project.New("web", "honryu", "")
+	// Tenant 7, matching freeze_test.go's campaigns -- campaignapp.Create
+	// now requires a participating project to actually belong to the
+	// campaign's own tenant. No other test in this file reads TenantID.
+	tenantID := int64(7)
+	p.TenantID = &tenantID
 	projectID, _ := store.CreateProject(ctx, p)
 	coll, _ := execution.New("peak", projectID)
 	coll.CSVSplit = csvSplit

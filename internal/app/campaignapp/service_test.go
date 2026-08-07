@@ -14,15 +14,17 @@ import (
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
-// seedProjectAndExecution creates a project and an execution under it,
-// returning both ids.
-func seedProjectAndExecution(t *testing.T, store *fake.Store, name string) (projectID, executionID int64) {
+// seedProjectAndExecution creates a project (belonging to tenantID -- Create
+// now rejects a service whose project belongs to a different tenant than
+// the campaign's own) and an execution under it, returning both ids.
+func seedProjectAndExecution(t *testing.T, store *fake.Store, name string, tenantID int64) (projectID, executionID int64) {
 	t.Helper()
 	ctx := context.Background()
 	p, err := project.New(name, "honryu", "")
 	if err != nil {
 		t.Fatalf("project.New: %v", err)
 	}
+	p.TenantID = &tenantID
 	projectID, err = store.CreateProject(ctx, p)
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
@@ -46,8 +48,8 @@ func TestCreate_ValidatesAndPersists(t *testing.T) {
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
-	projectB, execB := seedProjectAndExecution(t, store, "service-b")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectB, execB := seedProjectAndExecution(t, store, "service-b", 7)
 
 	c := campaign.Campaign{
 		Name:     "Supersale 11.11",
@@ -97,8 +99,8 @@ func TestCreate_RejectsWhenExecutionBelongsToADifferentProject(t *testing.T) {
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	_, execA := seedProjectAndExecution(t, store, "service-a")
-	projectB, _ := seedProjectAndExecution(t, store, "service-b")
+	_, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectB, _ := seedProjectAndExecution(t, store, "service-b", 7)
 
 	c := campaign.Campaign{
 		Name:     "Supersale 11.11",
@@ -147,17 +149,17 @@ func TestList_ScopesByTenant(t *testing.T) {
 	ctx := context.Background()
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
-	projectID, execID := seedProjectAndExecution(t, store, "service-a")
+	project7, exec7 := seedProjectAndExecution(t, store, "service-a", 7)
+	project9, exec9 := seedProjectAndExecution(t, store, "service-a-tenant-9", 9)
 
-	base := campaign.Campaign{
-		Name:     "c",
-		Window:   campaign.Window{Start: at(0), End: at(100)},
-		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: execID}},
+	c7 := campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: project7, ExecutionID: exec7}},
 	}
-	c7 := base
-	c7.TenantID = 7
-	c9 := base
-	c9.TenantID = 9
+	c9 := campaign.Campaign{
+		Name: "c", TenantID: 9, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: project9, ExecutionID: exec9}},
+	}
 
 	if _, err := svc.Create(ctx, c7); err != nil {
 		t.Fatalf("Create (tenant 7): %v", err)
@@ -181,7 +183,7 @@ func TestActiveCampaigns_ExcludesNotYetStartedEndedAndAborted(t *testing.T) {
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(50) })
 
-	projectID, execID := seedProjectAndExecution(t, store, "service-a")
+	projectID, execID := seedProjectAndExecution(t, store, "service-a", 7)
 	active, err := svc.Create(ctx, campaign.Campaign{
 		Name: "active", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
 		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: execID}},
@@ -212,7 +214,7 @@ func TestAbort_SetsAbortedAt(t *testing.T) {
 	now := at(500)
 	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return now })
 
-	projectID, execID := seedProjectAndExecution(t, store, "service-a")
+	projectID, execID := seedProjectAndExecution(t, store, "service-a", 7)
 	c := campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
 		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: execID}},
@@ -255,8 +257,8 @@ func TestInScopeExecutions_ExcludesDesignatedAndUnrelatedProjects(t *testing.T) 
 	sched := fake.NewScheduler()
 	svc := campaignapp.NewService(store, sched)
 
-	projectA, designated := seedProjectAndExecution(t, store, "service-a")
-	_, straggler := seedProjectAndExecution(t, store, "service-a-straggler") // different project, same owner in practice but distinct id
+	projectA, designated := seedProjectAndExecution(t, store, "service-a", 7)
+	_, straggler := seedProjectAndExecution(t, store, "service-a-straggler", 7) // different project, same owner in practice but distinct id
 	// Re-point straggler's project to projectA by creating it directly under projectA instead.
 	e, err := execution.New("straggler", projectA)
 	if err != nil {
@@ -266,7 +268,7 @@ func TestInScopeExecutions_ExcludesDesignatedAndUnrelatedProjects(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CreateExecution: %v", err)
 	}
-	_, unrelated := seedProjectAndExecution(t, store, "service-b")
+	_, unrelated := seedProjectAndExecution(t, store, "service-b", 7)
 
 	c := campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
@@ -311,7 +313,7 @@ func TestInScopeExecutions_SkipsADeployedExecutionWhoseRecordVanished(t *testing
 	sched := fake.NewScheduler()
 	svc := campaignapp.NewService(store, sched)
 
-	projectA, designated := seedProjectAndExecution(t, store, "service-a")
+	projectA, designated := seedProjectAndExecution(t, store, "service-a", 7)
 	c := campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
 		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: designated}},
@@ -339,7 +341,7 @@ func TestIsFrozen_ExemptsTheDesignatedExecutionButBlocksOthersUnderTheSameProjec
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(50) })
 
-	projectA, designated := seedProjectAndExecution(t, store, "service-a")
+	projectA, designated := seedProjectAndExecution(t, store, "service-a", 7)
 	e, err := execution.New("other", projectA)
 	if err != nil {
 		t.Fatalf("execution.New: %v", err)
@@ -348,7 +350,7 @@ func TestIsFrozen_ExemptsTheDesignatedExecutionButBlocksOthersUnderTheSameProjec
 	if err != nil {
 		t.Fatalf("CreateExecution: %v", err)
 	}
-	_, unrelatedExec := seedProjectAndExecution(t, store, "service-b")
+	_, unrelatedExec := seedProjectAndExecution(t, store, "service-b", 7)
 
 	c := campaign.Campaign{
 		Name: "Supersale", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
@@ -376,7 +378,7 @@ func TestIsFrozen_NotYetActiveCampaignDoesNotFreeze(t *testing.T) {
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(-50) }) // before the window
 
-	projectA, designated := seedProjectAndExecution(t, store, "service-a")
+	projectA, designated := seedProjectAndExecution(t, store, "service-a", 7)
 	e, err := execution.New("other", projectA)
 	if err != nil {
 		t.Fatalf("execution.New: %v", err)
@@ -409,7 +411,7 @@ func TestIsFrozen_ExecutionExemptByEitherOfTwoOverlappingCampaigns(t *testing.T)
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return at(50) })
 
-	projectA, designated1 := seedProjectAndExecution(t, store, "service-a")
+	projectA, designated1 := seedProjectAndExecution(t, store, "service-a", 7)
 	e2, err := execution.New("designated2", projectA)
 	if err != nil {
 		t.Fatalf("execution.New: %v", err)

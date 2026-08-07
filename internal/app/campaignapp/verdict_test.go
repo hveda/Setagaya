@@ -32,8 +32,8 @@ func TestVerdict_AllServicesPassed_OverallGo(t *testing.T) {
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
-	projectB, execB := seedProjectAndExecution(t, store, "service-b")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectB, execB := seedProjectAndExecution(t, store, "service-b", 7)
 	mustSaveReport(t, store, execA, 1, taurus.OutcomePassed, report.Report{})
 	mustSaveReport(t, store, execB, 2, taurus.OutcomePassed, report.Report{})
 
@@ -74,8 +74,8 @@ func TestVerdict_OneServiceFailed_NamesFailingCriteriaAndOverallNoGo(t *testing.
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
-	projectB, execB := seedProjectAndExecution(t, store, "service-b")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectB, execB := seedProjectAndExecution(t, store, "service-b", 7)
 	if err := store.SetExecutionCriteria(ctx, execB, []string{"failures>10%"}); err != nil {
 		t.Fatalf("SetExecutionCriteria: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestVerdict_ServiceWithNoReportYet_OverallNoGo(t *testing.T) {
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
 	// No report ever saved for execA.
 
 	created, err := svc.Create(ctx, campaign.Campaign{
@@ -155,7 +155,7 @@ func TestVerdict_AbortedOutcome_NoFailingCriteriaNamed(t *testing.T) {
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
 	if err := store.SetExecutionCriteria(ctx, execA, []string{"failures>10%"}); err != nil {
 		t.Fatalf("SetExecutionCriteria: %v", err)
 	}
@@ -199,9 +199,9 @@ func TestVerdict_OtherLoad_IncludesOverlappingReservationExcludesDesignated(t *t
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
-	_, execOther := seedProjectAndExecution(t, store, "other")
-	_, execOtherHigher := seedProjectAndExecution(t, store, "other-higher-id")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	_, execOther := seedProjectAndExecution(t, store, "other", 7)
+	_, execOtherHigher := seedProjectAndExecution(t, store, "other-higher-id", 7)
 
 	created, err := svc.Create(ctx, campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
@@ -250,19 +250,17 @@ func TestVerdict_OtherLoad_IncludesCompletedLaunchExcludesOtherTenant(t *testing
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
-	tenantSame, tenantOther := int64(7), int64(9)
-	execSame, err := store.CreateExecution(ctx, execution.Execution{Name: "same-tenant", ProjectID: projectA, TenantID: &tenantSame})
-	if err != nil {
-		t.Fatalf("CreateExecution same: %v", err)
-	}
-	execDiff, err := store.CreateExecution(ctx, execution.Execution{Name: "other-tenant", ProjectID: projectA, TenantID: &tenantOther})
-	if err != nil {
-		t.Fatalf("CreateExecution diff: %v", err)
-	}
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	// execSame's project belongs to the campaign's own tenant (7); execDiff's
+	// project belongs to a different tenant (9) entirely -- tenancy is
+	// resolved via the execution's own project, not a TenantID on the
+	// execution itself (execution.TenantID is never populated by any real
+	// creation path, see campaignapp.Service.otherLoad).
+	_, execSame := seedProjectAndExecution(t, store, "same-tenant-project", 7)
+	_, execDiff := seedProjectAndExecution(t, store, "other-tenant-project", 9)
 
 	created, err := svc.Create(ctx, campaign.Campaign{
-		Name: "c", TenantID: tenantSame, Window: campaign.Window{Start: at(0), End: at(100)},
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
 		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
 	})
 	if err != nil {
@@ -306,7 +304,7 @@ func TestVerdict_OtherLoad_MergesReservationAndLaunchForSameExecution(t *testing
 	store := fake.NewStore()
 	svc := campaignapp.NewService(store, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
 	tenantID := int64(7)
 	execOther, err := store.CreateExecution(ctx, execution.Execution{Name: "other", ProjectID: projectA, TenantID: &tenantID})
 	if err != nil {
@@ -397,7 +395,7 @@ func TestVerdict_ServiceReportLookupErrorPropagates(t *testing.T) {
 	repo := &erroringRepo{Store: store, listReportsErr: errors.New("boom")}
 	svc := campaignapp.NewService(repo, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
 	created, err := svc.Create(ctx, campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
 		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
@@ -418,7 +416,7 @@ func TestVerdict_FailingCriteriaLookupErrorPropagates(t *testing.T) {
 	repo := &erroringRepo{Store: store, criteriaErr: errors.New("boom")}
 	svc := campaignapp.NewService(repo, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
 	mustSaveReport(t, store, execA, 1, taurus.OutcomeFailed, report.Report{ErrorRate: 0.9})
 	created, err := svc.Create(ctx, campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
@@ -440,7 +438,7 @@ func TestVerdict_OtherLoad_ReservationsErrorPropagates(t *testing.T) {
 	repo := &erroringRepo{Store: store, reservationsErr: errors.New("boom")}
 	svc := campaignapp.NewService(repo, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
 	created, err := svc.Create(ctx, campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
 		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
@@ -461,7 +459,7 @@ func TestVerdict_OtherLoad_LaunchHistoryErrorPropagates(t *testing.T) {
 	repo := &erroringRepo{Store: store, launchHistoryErr: errors.New("boom")}
 	svc := campaignapp.NewService(repo, fake.NewScheduler())
 
-	projectA, execA := seedProjectAndExecution(t, store, "service-a")
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
 	created, err := svc.Create(ctx, campaign.Campaign{
 		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
 		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
