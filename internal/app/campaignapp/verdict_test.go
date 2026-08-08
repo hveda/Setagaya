@@ -9,6 +9,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
@@ -62,6 +63,74 @@ func TestVerdict_AllServicesPassed_OverallGo(t *testing.T) {
 		if !sv.HasReport || sv.Outcome != taurus.OutcomePassed {
 			t.Errorf("service %d verdict = %+v, want HasReport:true Outcome:passed", sv.ExecutionID, sv)
 		}
+	}
+}
+
+// seedProjectAndCalibrationExecution mirrors seedProjectAndExecution but the
+// execution is Kind CalibrateEngine -- a rig-capacity search, not a
+// readiness signal, and must never be mistaken for one.
+func seedProjectAndCalibrationExecution(t *testing.T, store *fake.Store, name string, tenantID int64) (projectID, executionID int64) {
+	t.Helper()
+	ctx := context.Background()
+	p, err := project.New(name, "honryu", "")
+	if err != nil {
+		t.Fatalf("project.New: %v", err)
+	}
+	p.TenantID = &tenantID
+	projectID, err = store.CreateProject(ctx, p)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	e, err := execution.New("calibration", projectID)
+	if err != nil {
+		t.Fatalf("execution.New: %v", err)
+	}
+	e.Kind = execution.KindCalibrateEngine
+	executionID, err = store.CreateExecution(ctx, e)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	return projectID, executionID
+}
+
+// Phase 6 left a forward-compat note that campaign rollups must exclude
+// CalibrateEngine executions -- this is that note made real. A calibration
+// execution designated onto a campaign (deliberately or by mistake) measures
+// the rig's own capacity, not the target's readiness, so its outcome (or
+// utter lack of one -- no report saved at all here) must neither block Go
+// nor even appear in the per-service breakdown.
+func TestVerdict_SkipsACalibrateEngineDesignatedExecution(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectCal, execCal := seedProjectAndCalibrationExecution(t, store, "calibration-rig", 7)
+	mustSaveReport(t, store, execA, 1, taurus.OutcomePassed, report.Report{})
+	// execCal never gets a report at all -- if it were rolled up like an
+	// ordinary service, HasReport:false would force Go:false on its own.
+
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{
+			{ProjectID: projectA, ExecutionID: execA},
+			{ProjectID: projectCal, ExecutionID: execCal},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	v, err := svc.Verdict(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Verdict: %v", err)
+	}
+	if !v.Go {
+		t.Fatalf("Verdict.Go = false, want true -- the calibration execution must not gate go/no-go: %+v", v)
+	}
+	if len(v.Services) != 1 || v.Services[0].ExecutionID != execA {
+		t.Fatalf("Verdict.Services = %+v, want only service-a -- the calibration execution must be skipped entirely", v.Services)
 	}
 }
 
@@ -358,6 +427,14 @@ type erroringRepo struct {
 	launchHistoryErr error
 	listReportsErr   error
 	criteriaErr      error
+	getExecutionErr  error
+}
+
+func (r *erroringRepo) GetExecution(ctx context.Context, id int64) (execution.Execution, error) {
+	if r.getExecutionErr != nil {
+		return execution.Execution{}, r.getExecutionErr
+	}
+	return r.Store.GetExecution(ctx, id)
 }
 
 func (r *erroringRepo) ReservationsInWindow(ctx context.Context, tenantID int64, cluster string, start, end time.Time) ([]reservation.Reservation, error) {
@@ -406,6 +483,32 @@ func TestVerdict_ServiceReportLookupErrorPropagates(t *testing.T) {
 
 	if _, err := svc.Verdict(ctx, created.ID); err == nil {
 		t.Fatal("Verdict = nil error, want the ListReports failure to propagate")
+	}
+}
+
+// Verdict's own GetExecution call (checking each service's designated
+// execution's Kind, before deciding whether to skip it) must propagate a
+// downstream failure rather than silently treating it as an ordinary
+// service.
+func TestVerdict_KindLookupErrorPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	repo := &erroringRepo{Store: store}
+	svc := campaignapp.NewService(repo, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	repo.getExecutionErr = errors.New("boom")
+	if _, err := svc.Verdict(ctx, created.ID); err == nil {
+		t.Fatal("Verdict = nil error, want the GetExecution failure to propagate")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/campaign"
+	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
@@ -60,6 +61,10 @@ type OtherLoad struct {
 // service's designated execution's latest report. Does not require the
 // campaign to be active or closed -- a caller may check progress mid-window
 // as easily as a final verdict once it ends.
+//
+// A designated execution of Kind CalibrateEngine is skipped entirely: it
+// measures the rig's own capacity, not the target's readiness, so it never
+// belongs in the pass/fail rollup a campaign's go/no-go rests on.
 func (s *Service) Verdict(ctx context.Context, campaignID int64) (CampaignVerdict, error) {
 	c, err := s.repo.GetCampaign(ctx, campaignID)
 	if err != nil {
@@ -68,6 +73,13 @@ func (s *Service) Verdict(ctx context.Context, campaignID int64) (CampaignVerdic
 
 	v := CampaignVerdict{CampaignID: campaignID, Go: true}
 	for _, svc := range c.Services {
+		exe, err := s.repo.GetExecution(ctx, svc.ExecutionID)
+		if err != nil {
+			return CampaignVerdict{}, err
+		}
+		if exe.Kind == execution.KindCalibrateEngine {
+			continue
+		}
 		sv, err := s.serviceVerdict(ctx, svc)
 		if err != nil {
 			return CampaignVerdict{}, err
