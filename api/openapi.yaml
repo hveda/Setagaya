@@ -50,6 +50,12 @@ tags:
     description: >-
       PM-owned readiness events: a window, participating services each bound
       to one designated readiness execution, and a rolled-up go/no-go verdict
+  - name: calibration
+    description: >-
+      Engine-capacity search: a CalibrateEngine execution measures one engine
+      pod's sustainable QPS for a scenario, producing a CapacityProfile the
+      fan-out calculator turns a target aggregate QPS into a required engine
+      count from
   - name: files
     description: Artifact download
   - name: ingest
@@ -87,6 +93,35 @@ components:
       in: path
       required: true
       schema: { type: integer, format: int64 }
+    CalibrationJobID:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    CapacityProfileEngine:
+      name: engine
+      in: query
+      required: true
+      description: Taurus executor the profile was calibrated on (e.g. jmeter, k6).
+      schema: { type: string }
+    CapacityProfileCPU:
+      name: cpu
+      in: query
+      required: true
+      description: The calibrated pod's CPU request, ports.DeploySpec's own string format (e.g. "1", "500m").
+      schema: { type: string }
+    CapacityProfileMemory:
+      name: memory
+      in: query
+      required: true
+      description: The calibrated pod's memory request, ports.DeploySpec's own string format (e.g. "512Mi").
+      schema: { type: string }
+    FanOutTargetQPS:
+      name: target_qps
+      in: query
+      required: true
+      description: The aggregate request rate to size engine capacity for.
+      schema: { type: number, format: double }
     Filename:
       name: filename
       in: query
@@ -352,6 +387,85 @@ components:
           type: array
           items: { $ref: '#/components/schemas/OtherLoad' }
           description: Every other execution active in the campaign's tenant during its window, excluding its own participating executions.
+
+    CalibrationExecution:
+      type: object
+      description: A CalibrateEngine execution -- an ordinary execution pinned to one pod size, with its target-health criterion and search bounds recorded up front.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        name: { type: string }
+        project_id: { type: integer, format: int64 }
+        engine: { type: string }
+        cpu: { type: string, description: 'The pinned pod''s CPU request (e.g. "1", "500m"), fixed for every step of the search.' }
+        memory: { type: string, description: 'The pinned pod''s memory request (e.g. "512Mi").' }
+        criterion: { type: string, description: 'The target-health expression that trips target-saturation (e.g. "failures>5%").' }
+        seed_qps: { type: number, format: double }
+        max_qps: { type: number, format: double, description: The absolute ceiling the search will never issue a step above. }
+        max_steps: { type: integer }
+        hold_seconds: { type: integer, description: How long each step holds steady state before its report is read. }
+    CalibrationStep:
+      type: object
+      description: One real, settled run's classified outcome.
+      properties:
+        requested_qps: { type: number, format: double }
+        achieved_qps: { type: number, format: double }
+        classification: { type: string, enum: [engine_saturated, target_saturated, clean] }
+    CalibrationResult:
+      type: object
+      description: A finished search's terminal outcome.
+      properties:
+        saturated_by:
+          type: string
+          enum: [engine, target, neither]
+          description: Which side gave out first. "engine" means per_pod_qps is confirmed capacity; otherwise it is a lower bound.
+        per_pod_qps: { type: number, format: double }
+    CalibrationJob:
+      type: object
+      description: A calibration search's current state and full step-by-step history.
+      properties:
+        id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+        phase:
+          type: string
+          enum: [pending, bracketing, bisecting, done, failed]
+        step_count: { type: integer }
+        next_requested_qps:
+          type: number
+          format: double
+          description: The QPS the next step must run at. Absent once result is set.
+        result: { $ref: '#/components/schemas/CalibrationResult' }
+        failure_reason:
+          type: string
+          description: Set only when phase is "failed" -- an operational failure (the step's run itself errored), not a search outcome.
+        created_time: { type: string, format: date-time }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/CalibrationStep' }
+    CapacityProfile:
+      type: object
+      description: A calibration's confirmed-or-floor answer for one (scenario, engine, cpu, memory) key.
+      properties:
+        scenario_id: { type: integer, format: int64 }
+        engine: { type: string }
+        cpu: { type: string }
+        memory: { type: string }
+        per_pod_qps: { type: number, format: double }
+        saturated_by: { type: string, enum: [engine, target, neither] }
+        scenario_fingerprint:
+          type: string
+          description: The scenario's content hash at calibration time -- the fan-out calculator treats any mismatch against the scenario's current fingerprint as staleness.
+        calibrated_at: { type: string, format: date-time }
+        job_id: { type: integer, format: int64 }
+    FanOutResult:
+      type: object
+      description: The fan-out calculator's answer -- an engine count only ever accompanies status "ok", so a caller can never read one without its own caveat.
+      properties:
+        status:
+          type: string
+          enum: [ok, target_limited, inconclusive, stale, no_profile]
+        engines:
+          type: integer
+          description: Present only when status is "ok".
 
     Report:
       type: object
@@ -1124,6 +1238,119 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CampaignVerdict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/calibrations:
+    post:
+      tags: [calibration]
+      summary: Configure a new CalibrateEngine execution
+      description: |
+        An ordinary execution pinned to one pod size, with its target-health
+        criterion and search bounds recorded up front. Its scenario is bound
+        afterward the ordinary way (PUT .../config, unchanged by
+        calibration), and its search begins with a separate trigger call.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [project_id, name, engine, criterion, cpu, memory]
+              properties:
+                project_id: { type: integer, format: int64 }
+                name: { type: string }
+                engine: { type: string }
+                criterion: { type: string }
+                cpu: { type: string }
+                memory: { type: string }
+                seed_qps: { type: number, format: double, description: Defaulted when omitted. }
+                max_qps: { type: number, format: double, description: Defaulted when omitted. }
+                max_steps: { type: integer, description: Defaulted when omitted. }
+                hold_seconds: { type: integer, description: Defaulted when omitted. }
+      responses:
+        '201':
+          description: CalibrationExecution
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalibrationExecution' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/calibration/trigger:
+    post:
+      tags: [calibration]
+      summary: Start a fresh calibration search
+      description: >-
+        Creates a Pending job over an already-configured CalibrateEngine
+        execution -- a controller (cmd/calibrator, or cmd/scheduler hosting
+        the same loop) picks it up and advances it one step per tick.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '201':
+          description: CalibrationJob
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalibrationJob' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/calibrations/{job_id}:
+    get:
+      tags: [calibration]
+      summary: Get a calibration job's status and progress
+      parameters: [{ $ref: '#/components/parameters/CalibrationJobID' }]
+      responses:
+        '200':
+          description: CalibrationJob
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalibrationJob' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/scenarios/{scenario_id}/capacity-profile:
+    get:
+      tags: [calibration]
+      summary: Get the stored calibration profile for one exact pod size
+      parameters:
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/CapacityProfileEngine' }
+        - { $ref: '#/components/parameters/CapacityProfileCPU' }
+        - { $ref: '#/components/parameters/CapacityProfileMemory' }
+      responses:
+        '200':
+          description: CapacityProfile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacityProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/scenarios/{scenario_id}/capacity-profile/fanout:
+    get:
+      tags: [calibration]
+      summary: Turn a target aggregate QPS into a required engine count
+      description: >-
+        Returns an engine count only for a fresh, engine-limited profile;
+        otherwise a named reason (target_limited, stale, or no_profile) --
+        never a number a reader could mistake for one.
+      parameters:
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/CapacityProfileEngine' }
+        - { $ref: '#/components/parameters/CapacityProfileCPU' }
+        - { $ref: '#/components/parameters/CapacityProfileMemory' }
+        - { $ref: '#/components/parameters/FanOutTargetQPS' }
+      responses:
+        '200':
+          description: FanOutResult
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FanOutResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 

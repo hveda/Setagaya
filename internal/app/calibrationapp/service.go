@@ -30,6 +30,11 @@ var ErrExecutionNotCalibration = errors.New("calibrationapp: execution is not a 
 // unlike Create/Trigger/Get/List, which need only Repo.
 var ErrNotConfiguredForAdvance = errors.New("calibrationapp: AdvanceOne requires WithRunner and WithFingerprint")
 
+// ErrFingerprintNotConfigured means FanOut was called before a
+// ScenarioFingerprinter was wired via WithFingerprint -- required to detect
+// scenario-content staleness against a stored profile.
+var ErrFingerprintNotConfigured = errors.New("calibrationapp: FanOut requires WithFingerprint")
+
 // Repo is the persistence calibrationapp needs: the calibration job ledger,
 // enough of an execution to create and identify one, its configured
 // Taurus criteria (execution_criteria, Phase 6's mechanism -- the
@@ -378,4 +383,36 @@ func (s *Service) writeProfile(ctx context.Context, job ports.CalibrationJob, do
 		JobID:               job.ID,
 	}
 	return s.repo.UpsertCapacityProfile(ctx, profile)
+}
+
+// ProfileFor returns the stored CapacityProfile for key, or ports.ErrNotFound
+// if none has ever been calibrated for it.
+func (s *Service) ProfileFor(ctx context.Context, key capacityprofile.Key) (capacityprofile.CapacityProfile, error) {
+	return s.repo.GetCapacityProfile(ctx, key)
+}
+
+// FanOut answers "how many engines does key's scenario need for targetQPS",
+// or -- via Result.Status -- why it cannot: no profile was ever calibrated,
+// the profile is stale against the scenario's current content, or the
+// profile found the target (not the engine) to be the limit.
+//
+// Unlike AdvanceOne, a missing profile is not an error here: it is FanOut's
+// own StatusNoProfile answer, exactly the caller-facing distinction the
+// domain function exists to make.
+func (s *Service) FanOut(ctx context.Context, key capacityprofile.Key, targetQPS float64) (capacityprofile.Result, error) {
+	if s.fingerprint == nil {
+		return capacityprofile.Result{}, ErrFingerprintNotConfigured
+	}
+	profile, err := s.repo.GetCapacityProfile(ctx, key)
+	if errors.Is(err, ports.ErrNotFound) {
+		return capacityprofile.FanOut(nil, targetQPS, ""), nil
+	}
+	if err != nil {
+		return capacityprofile.Result{}, err
+	}
+	fingerprint, err := s.fingerprint.ScenarioFingerprint(ctx, key.ScenarioID)
+	if err != nil {
+		return capacityprofile.Result{}, err
+	}
+	return capacityprofile.FanOut(&profile, targetQPS, fingerprint), nil
 }

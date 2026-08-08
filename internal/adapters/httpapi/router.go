@@ -13,6 +13,7 @@ import (
 
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
@@ -38,7 +39,12 @@ type Deps struct {
 	// the /api/tenants/{tenant_id}/campaigns, /api/campaigns/{campaign_id},
 	// and /api/campaigns/{campaign_id}/verdict endpoints.
 	Campaigns *campaignapp.Service
-	Usage     *usageapp.Service
+	// Calibrations administers engine-capacity searches and the fan-out
+	// calculator. Optional; nil disables the /api/calibrations,
+	// /api/executions/{execution_id}/calibration/trigger, and
+	// /api/scenarios/{scenario_id}/capacity-profile[/fanout] endpoints.
+	Calibrations *calibrationapp.Service
+	Usage        *usageapp.Service
 	// Metrics receives pushed measurements from engine pods.
 	Metrics *metricsapp.Service
 	// Reports serves a run's stored report, the durable record of what it
@@ -160,6 +166,12 @@ var routes = []Route{
 	{"GET", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listCampaigns })},
 	{"GET", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaign })},
 	{"GET", "/api/campaigns/{campaign_id}/verdict", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignVerdict })},
+
+	{"POST", "/api/calibrations", "calibration", hf(func(h *handlers) http.HandlerFunc { return h.createCalibration })},
+	{"POST", "/api/executions/{execution_id}/calibration/trigger", "calibration", hf(func(h *handlers) http.HandlerFunc { return h.triggerCalibration })},
+	{"GET", "/api/calibrations/{job_id}", "calibration", hf(func(h *handlers) http.HandlerFunc { return h.getCalibrationJob })},
+	{"GET", "/api/scenarios/{scenario_id}/capacity-profile", "calibration", hf(func(h *handlers) http.HandlerFunc { return h.getCapacityProfile })},
+	{"GET", "/api/scenarios/{scenario_id}/capacity-profile/fanout", "calibration", hf(func(h *handlers) http.HandlerFunc { return h.fanOutCapacity })},
 
 	{"GET", "/api/files/{kind}/{id}/{name}", "files", hf(func(h *handlers) http.HandlerFunc { return h.downloadFile })},
 

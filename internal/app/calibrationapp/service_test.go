@@ -1083,3 +1083,121 @@ func seedTriggeredCalibrationWithRepo(t *testing.T, repo calibrationapp.Repo, sp
 	}
 	return executionID, jobID, scenarioID
 }
+
+func TestProfileFor_ReturnsStoredProfile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	key := capacityprofile.Key{ScenarioID: 1, Engine: taurus.ExecutorJMeter, CPU: "1", Memory: "512Mi"}
+	want := capacityprofile.CapacityProfile{
+		Key: key, PerPodQPS: 42, SaturatedBy: calibration.SaturatedByEngine,
+		ScenarioFingerprint: "fp", JobID: 7,
+	}
+	if err := store.UpsertCapacityProfile(ctx, want); err != nil {
+		t.Fatalf("UpsertCapacityProfile: %v", err)
+	}
+
+	svc := calibrationapp.NewService(store)
+	got, err := svc.ProfileFor(ctx, key)
+	if err != nil {
+		t.Fatalf("ProfileFor: %v", err)
+	}
+	if got.PerPodQPS != 42 || got.SaturatedBy != calibration.SaturatedByEngine || got.JobID != 7 {
+		t.Fatalf("ProfileFor = %+v, want %+v", got, want)
+	}
+}
+
+func TestProfileFor_UnknownKeyPropagatesNotFound(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	svc := calibrationapp.NewService(store)
+	key := capacityprofile.Key{ScenarioID: 999, Engine: taurus.ExecutorJMeter, CPU: "1", Memory: "512Mi"}
+	if _, err := svc.ProfileFor(context.Background(), key); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("ProfileFor(unknown) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestFanOut_NoProfileReturnsStatusNoProfile(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	svc := calibrationapp.NewService(store).WithFingerprint(&stubFingerprinter{value: "fp"})
+	key := capacityprofile.Key{ScenarioID: 1, Engine: taurus.ExecutorJMeter, CPU: "1", Memory: "512Mi"}
+
+	got, err := svc.FanOut(context.Background(), key, 100)
+	if err != nil {
+		t.Fatalf("FanOut: %v", err)
+	}
+	if got.Status != capacityprofile.StatusNoProfile {
+		t.Fatalf("Status = %q, want no_profile", got.Status)
+	}
+}
+
+func TestFanOut_FreshEngineLimitedProfileReturnsOK(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	key := capacityprofile.Key{ScenarioID: 1, Engine: taurus.ExecutorJMeter, CPU: "1", Memory: "512Mi"}
+	if err := store.UpsertCapacityProfile(ctx, capacityprofile.CapacityProfile{
+		Key: key, PerPodQPS: 50, SaturatedBy: calibration.SaturatedByEngine, ScenarioFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("UpsertCapacityProfile: %v", err)
+	}
+	svc := calibrationapp.NewService(store).WithFingerprint(&stubFingerprinter{value: "fp"})
+
+	got, err := svc.FanOut(ctx, key, 120)
+	if err != nil {
+		t.Fatalf("FanOut: %v", err)
+	}
+	if got.Status != capacityprofile.StatusOK || got.Engines != 3 {
+		t.Fatalf("FanOut = %+v, want {ok, 3} (ceil(120/50))", got)
+	}
+}
+
+func TestFanOut_StaleProfileWhenScenarioFingerprintChanged(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	key := capacityprofile.Key{ScenarioID: 1, Engine: taurus.ExecutorJMeter, CPU: "1", Memory: "512Mi"}
+	if err := store.UpsertCapacityProfile(ctx, capacityprofile.CapacityProfile{
+		Key: key, PerPodQPS: 50, SaturatedBy: calibration.SaturatedByEngine, ScenarioFingerprint: "old-fp",
+	}); err != nil {
+		t.Fatalf("UpsertCapacityProfile: %v", err)
+	}
+	svc := calibrationapp.NewService(store).WithFingerprint(&stubFingerprinter{value: "new-fp"})
+
+	got, err := svc.FanOut(ctx, key, 120)
+	if err != nil {
+		t.Fatalf("FanOut: %v", err)
+	}
+	if got.Status != capacityprofile.StatusStale {
+		t.Fatalf("Status = %q, want stale", got.Status)
+	}
+}
+
+func TestFanOut_RequiresFingerprintConfigured(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	svc := calibrationapp.NewService(store)
+	key := capacityprofile.Key{ScenarioID: 1, Engine: taurus.ExecutorJMeter, CPU: "1", Memory: "512Mi"}
+	if _, err := svc.FanOut(context.Background(), key, 100); !errors.Is(err, calibrationapp.ErrFingerprintNotConfigured) {
+		t.Fatalf("error = %v, want ErrFingerprintNotConfigured", err)
+	}
+}
+
+func TestFanOut_PropagatesFingerprintError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	key := capacityprofile.Key{ScenarioID: 1, Engine: taurus.ExecutorJMeter, CPU: "1", Memory: "512Mi"}
+	if err := store.UpsertCapacityProfile(ctx, capacityprofile.CapacityProfile{
+		Key: key, PerPodQPS: 50, SaturatedBy: calibration.SaturatedByEngine, ScenarioFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("UpsertCapacityProfile: %v", err)
+	}
+	sentinel := errors.New("boom")
+	svc := calibrationapp.NewService(store).WithFingerprint(&stubFingerprinter{err: sentinel})
+
+	if _, err := svc.FanOut(ctx, key, 100); !errors.Is(err, sentinel) {
+		t.Fatalf("error = %v, want sentinel", err)
+	}
+}

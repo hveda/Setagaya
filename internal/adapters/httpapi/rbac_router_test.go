@@ -19,6 +19,7 @@ import (
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
@@ -60,17 +61,20 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
 	quota := quotaapp.NewService(store)
 	campaigns := campaignapp.NewService(store, sched)
+	scenarios := scenarioapp.NewService(store, obj)
+	calibrations := calibrationapp.NewService(store).WithFingerprint(scenarios)
 	router := httpapi.NewRouter(httpapi.Deps{
-		Projects:   projectapp.NewService(store),
-		Scenarios:  scenarioapp.NewService(store, obj),
-		Executions: executionapp.NewService(store, obj, 100),
-		Tenants:    tenantapp.NewService(store, store, store),
-		Admin:      adminapp.NewService(store, sched, lifecycle).WithCampaigns(campaigns),
-		Schedules:  scheduleapp.NewService(store, quota),
-		Campaigns:  campaigns,
-		Store:      obj,
-		Auth:       auth,
-		Audit:      audit,
+		Projects:     projectapp.NewService(store),
+		Scenarios:    scenarios,
+		Executions:   executionapp.NewService(store, obj, 100),
+		Tenants:      tenantapp.NewService(store, store, store),
+		Admin:        adminapp.NewService(store, sched, lifecycle).WithCampaigns(campaigns),
+		Schedules:    scheduleapp.NewService(store, quota),
+		Campaigns:    campaigns,
+		Calibrations: calibrations,
+		Store:        obj,
+		Auth:         auth,
+		Audit:        audit,
 	})
 	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit}
 }
@@ -540,5 +544,74 @@ func TestRBAC_CreateCampaignRequiresCampaignManagerForTheDeclaredTenant(t *testi
 	rec = f.req(t, http.MethodPost, globexPath, "pm-tok", form)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("campaign manager create campaign (foreign tenant) = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// Calibration reuses ordinary project/execution authorization
+// (authorizeProject/authorizeExecution) rather than a dedicated resource --
+// this proves that reuse actually gates the new routes, the same way it
+// already gates project/execution/schedule ones, for a caller with no
+// relationship to the owning tenant at all.
+func TestRBAC_CalibrationRoutesRequireProjectAuthorization(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	globex := createTenant(t, f, "globex", "Globex")
+	f.prov.Register("acme-editor-tok", account.Account{Subject: "acme-editor"})
+	assignRole(t, f, acme, "acme-editor", rbac.RoleTenantEditor)
+	f.prov.Register("globex-editor-tok", account.Account{Subject: "globex-editor"})
+	assignRole(t, f, globex, "globex-editor", rbac.RoleTenantEditor)
+
+	acmeProject := createProjectInTenantReturningID(t, f, "acme-web", "team-a", acme)
+	globexProject := createProjectInTenantReturningID(t, f, "globex-web", "team-b", globex)
+
+	// The globex editor cannot create a calibration under an acme project.
+	form := url.Values{
+		"project_id": {strconv.FormatInt(acmeProject, 10)}, "name": {"calib"}, "engine": {"jmeter"},
+		"criterion": {"failures>5%"}, "cpu": {"1"}, "memory": {"512Mi"},
+	}
+	rec := f.req(t, http.MethodPost, "/api/calibrations", "globex-editor-tok", form)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("create calibration under a foreign project = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// The acme editor can, for their own project.
+	rec = f.req(t, http.MethodPost, "/api/calibrations", "acme-editor-tok", form)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create calibration under own project = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ExecutionID int64 `json:"execution_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+
+	// Triggering it is gated the same way (authorizeExecution): the globex
+	// editor cannot trigger an execution under acme's project either.
+	triggerPath := "/api/executions/" + strconv.FormatInt(created.ExecutionID, 10) + "/calibration/trigger"
+	rec = f.req(t, http.MethodPost, triggerPath, "globex-editor-tok", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("trigger by a foreign editor = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+	rec = f.req(t, http.MethodPost, triggerPath, "acme-editor-tok", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("trigger by the owning editor = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// A globex project's calibration route we never used above -- confirm
+	// createCalibration also 403s when globexProject itself is targeted by
+	// someone with no relationship to it at all (belt-and-suspenders: this
+	// is the same assertion as the first one, phrased against the other
+	// tenant's own project to rule out an accidental tenant-ID mixup).
+	f.prov.Register("outsider-tok", account.Account{Subject: "outsider"})
+	form2 := url.Values{
+		"project_id": {strconv.FormatInt(globexProject, 10)}, "name": {"calib"}, "engine": {"jmeter"},
+		"criterion": {"failures>5%"}, "cpu": {"1"}, "memory": {"512Mi"},
+	}
+	rec = f.req(t, http.MethodPost, "/api/calibrations", "outsider-tok", form2)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("create calibration by an outsider = %d, want 403 (%s)", rec.Code, rec.Body.String())
 	}
 }

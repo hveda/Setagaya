@@ -36,6 +36,7 @@ import (
 	"github.com/heridotlife/honryu/internal/adapters/storage/nexus"
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
@@ -59,6 +60,7 @@ type repository interface {
 	scenarioapp.Repo
 	executionapp.Repo
 	lifecycleapp.Repo
+	calibrationapp.Repo
 	ports.UsageRepository
 	ports.TenantRepository
 	ports.RoleAssignmentRepository
@@ -122,6 +124,11 @@ func run(ctx context.Context, getenv func(string) string) error {
 	quota.WithStopper(lifecycle)
 	schedules := scheduleapp.NewService(repo, quota)
 	admin := adminapp.NewService(repo, sched, lifecycle).WithCampaigns(campaigns)
+	scenarios := scenarioapp.NewService(repo, store)
+	// No WithRunner: cmd/api only serves HTTP (create/trigger/get/profile/
+	// fan-out) -- driving a step (AdvanceOne) is cmd/calibrator's and
+	// cmd/scheduler's own job, never a synchronous request here.
+	calibrations := calibrationapp.NewService(repo).WithFingerprint(scenarios)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 
 	authProvider, err := newAuthProvider(ctx, cfg.Auth)
@@ -138,11 +145,12 @@ func run(ctx context.Context, getenv func(string) string) error {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Scenarios:     scenarioapp.NewService(repo, store),
+		Scenarios:     scenarios,
 		Executions:    executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
 		Lifecycle:     lifecycle,
 		Schedules:     schedules,
 		Campaigns:     campaigns,
+		Calibrations:  calibrations,
 		Usage:         usage,
 		Metrics:       collector,
 		Reports:       repo,

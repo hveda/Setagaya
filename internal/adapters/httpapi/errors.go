@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/heridotlife/honryu/internal/app/adminapp"
+	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
@@ -13,6 +14,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/projectapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
+	"github.com/heridotlife/honryu/internal/domain/calibration"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/compile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
@@ -61,6 +63,10 @@ var badRequestErrors = []error{
 	campaign.ErrNameRequired, campaign.ErrWindowInvalid, campaign.ErrServicesRequired,
 	campaign.ErrDuplicateService, campaign.ErrProjectRequired, campaign.ErrServiceExecutionInvalid,
 	campaignapp.ErrServiceExecutionMismatch, campaignapp.ErrServiceProjectTenantMismatch,
+	execution.ErrEngineUnknown,
+	calibration.ErrCriterionRequired, calibration.ErrPodSizeRequired, calibration.ErrSeedQPSInvalid,
+	calibration.ErrMaxQPSInvalid, calibration.ErrMaxStepsInvalid, calibration.ErrHoldInvalid,
+	calibrationapp.ErrExecutionNotCalibration,
 }
 
 // conflictErrors are state conflicts → HTTP 409.
