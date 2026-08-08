@@ -67,7 +67,13 @@ type Execution struct {
 	Engine taurus.Executor
 	// Kind distinguishes an ordinary execution from a CalibrateEngine one.
 	// See Kind's own doc for the empty-means-Normal convention.
-	Kind        Kind
+	Kind Kind
+	// CPU and Memory pin every pod this execution deploys to a specific
+	// resource request/limit (ports.DeploySpec's own string format, e.g.
+	// "1", "512Mi"). Empty means the cluster's default size, exactly as
+	// before these fields existed -- only a CalibrateEngine execution pins
+	// them, since a capacity profile answers "QPS per pod of THIS size".
+	CPU, Memory string
 	CSVSplit    bool
 	TenantID    *int64
 	CreatedBy   string

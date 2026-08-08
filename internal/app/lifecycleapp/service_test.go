@@ -101,6 +101,70 @@ func TestDeploy_HappyPath(t *testing.T) {
 	}
 }
 
+// A Normal execution (setup's own default) deploys at the cluster's default
+// pod size -- Deploy must not invent a CPU/Memory request that was never
+// configured.
+func TestDeploy_LeavesPodSizeEmptyForAnOrdinaryExecution(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	spec, ok := e.sched.LastDeploy(e.executionID, e.planIDs[0])
+	if !ok {
+		t.Fatal("no deploy recorded")
+	}
+	if spec.CPU != "" || spec.Memory != "" {
+		t.Fatalf("DeploySpec CPU/Memory = %q/%q, want both empty for an ordinary execution", spec.CPU, spec.Memory)
+	}
+}
+
+// A CalibrateEngine execution's pinned pod size reaches the DeploySpec Deploy
+// actually hands the scheduler -- calibration's whole premise depends on
+// every step's pod really being the size it claims.
+func TestDeploy_ThreadsPinnedPodSizeToTheDeploySpec(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := execution.New("engine-calibration", projectID)
+	coll.Kind = execution.KindCalibrateEngine
+	coll.CPU, coll.Memory = "2", "1Gi"
+	executionID, _ := store.CreateExecution(ctx, coll)
+
+	pl, _ := scenario.NewNative("scenario", projectID, taurus.ExecutorJMeter)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
+		t.Fatalf("add test file: %v", err)
+	}
+	obj := fake.NewObjectStore()
+	if err := obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("upload test file: %v", err)
+	}
+	tests := []loadprofile.Entry{{Name: "p", ScenarioID: scenarioID, Concurrency: 10, Rampup: 1, Engines: 1, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, tests); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	sched := fake.NewScheduler()
+	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
+	if err := svc.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	spec, ok := sched.LastDeploy(executionID, scenarioID)
+	if !ok {
+		t.Fatal("no deploy recorded")
+	}
+	if spec.CPU != "2" || spec.Memory != "1Gi" {
+		t.Fatalf("DeploySpec CPU/Memory = %q/%q, want 2/1Gi (the execution's pinned size)", spec.CPU, spec.Memory)
+	}
+}
+
 func TestDeploy_NoScenarios(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false) // no scenarios

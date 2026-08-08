@@ -289,6 +289,9 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		if got.ID != id || got.Name != "peak" || got.ProjectID != 10 || got.CSVSplit || got.CreatedTime.IsZero() {
 			t.Fatalf("GetExecution = %+v, want id=%d name=peak project=10 csv_split=false with timestamp", got, id)
 		}
+		if got.Kind != execution.KindNormal || got.CPU != "" || got.Memory != "" {
+			t.Fatalf("GetExecution = %+v, want kind=normal, cpu/memory empty (execution.New's own defaults)", got)
+		}
 
 		mustCreateExecution(t, repo, "other", 99)
 		inProject, err := repo.ListExecutionsByProject(ctx, 10)
@@ -304,6 +307,32 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 		if err := repo.DeleteExecution(ctx, id); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("DeleteExecution(missing) = %v, want ErrNotFound", err)
+		}
+	})
+
+	// A CalibrateEngine execution pins its pod size -- both round-trip
+	// exactly, distinct from a Normal execution's own empty defaults.
+	t.Run("CalibrateEngineKindAndPinnedResourcesRoundTrip", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		c, err := execution.New("engine-calibration", 10)
+		if err != nil {
+			t.Fatalf("execution.New: %v", err)
+		}
+		c.Kind = execution.KindCalibrateEngine
+		c.CPU, c.Memory = "2", "1Gi"
+		id, err := repo.CreateExecution(ctx, c)
+		if err != nil {
+			t.Fatalf("CreateExecution: %v", err)
+		}
+
+		got, err := repo.GetExecution(ctx, id)
+		if err != nil {
+			t.Fatalf("GetExecution: %v", err)
+		}
+		if got.Kind != execution.KindCalibrateEngine || got.CPU != "2" || got.Memory != "1Gi" {
+			t.Fatalf("GetExecution = %+v, want kind=calibrate_engine cpu=2 memory=1Gi", got)
 		}
 	})
 

@@ -249,11 +249,17 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 			// Phase 8 records a cluster on the execution and maps refs to
 			// credentials. The parameter exists now so that change adds a lookup
 			// rather than a signature.
-			Cluster:       "",
-			ProjectID:     coll.ProjectID,
-			ExecutionID:   executionID,
-			ScenarioID:    ep.ScenarioID,
-			Image:         image,
+			Cluster:     "",
+			ProjectID:   coll.ProjectID,
+			ExecutionID: executionID,
+			ScenarioID:  ep.ScenarioID,
+			Image:       image,
+			// Empty (every execution before Phase 7's calibration search
+			// pinned them) is the cluster's own default pod size -- only a
+			// CalibrateEngine execution ever sets these, since a capacity
+			// profile answers "QPS per pod of THIS size".
+			CPU:           coll.CPU,
+			Memory:        coll.Memory,
 			Shards:        specs,
 			ScenarioFiles: files,
 		}
