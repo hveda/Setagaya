@@ -1,17 +1,20 @@
 // Package calibrationapp is the calibration use-case: configuring a
-// CalibrateEngine execution's search and creating/tracking the jobs that
-// run it. It performs no I/O of its own beyond its Repo port, and drives no
-// runs itself -- see step.go (task 78) and AdvanceOne (task 79) for the
-// controller side.
+// CalibrateEngine execution's search, creating/tracking the jobs that run
+// it, and driving the search one step at a time (AdvanceOne, task 79) over
+// the one-step runner (step.go, task 78).
 package calibrationapp
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/calibration"
+	"github.com/heridotlife/honryu/internal/domain/capacityprofile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 )
@@ -21,29 +24,75 @@ import (
 // or have a calibration job triggered against it.
 var ErrExecutionNotCalibration = errors.New("calibrationapp: execution is not a CalibrateEngine execution")
 
+// ErrNotConfiguredForAdvance means AdvanceOne was called before a Runner and
+// a ScenarioFingerprinter were wired via WithRunner/WithFingerprint -- both
+// are required to drive a step and, on terminal, record what it found,
+// unlike Create/Trigger/Get/List, which need only Repo.
+var ErrNotConfiguredForAdvance = errors.New("calibrationapp: AdvanceOne requires WithRunner and WithFingerprint")
+
 // Repo is the persistence calibrationapp needs: the calibration job ledger,
 // enough of an execution to create and identify one, its configured
 // Taurus criteria (execution_criteria, Phase 6's mechanism -- the
-// target-health criterion is reused from it, not duplicated), and its
-// recorded search bounds.
+// target-health criterion is reused from it, not duplicated), its recorded
+// search bounds, its load profile (to identify the scenario a terminal
+// job's CapacityProfile is keyed by), and the capacity profile ledger.
 type Repo interface {
 	ports.CalibrationJobRepository
+	ports.CapacityProfileRepository
 	CreateExecution(ctx context.Context, c execution.Execution) (int64, error)
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
 	SetExecutionCriteria(ctx context.Context, executionID int64, criteria []string) error
 	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
 	SetCalibrationBounds(ctx context.Context, executionID int64, bounds ports.CalibrationBounds) error
 	CalibrationBoundsFor(ctx context.Context, executionID int64) (ports.CalibrationBounds, error)
+	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+}
+
+// Runner drives one calibration step's real run. *StepRunner satisfies this
+// directly; AdvanceOne depends on the interface so a test can substitute a
+// stub without wiring a full StepRunner+Lifecycle+ReportStore.
+type Runner interface {
+	RunStep(ctx context.Context, executionID int64, requestedQPS float64, holdSeconds int) (report.Report, error)
+}
+
+// ScenarioFingerprinter computes a scenario's content fingerprint --
+// *scenarioapp.Service satisfies this directly. A terminal job's
+// CapacityProfile is stamped with the fingerprint at calibration time, so
+// FanOut can later detect scenario-content staleness.
+type ScenarioFingerprinter interface {
+	ScenarioFingerprint(ctx context.Context, scenarioID int64) (string, error)
 }
 
 // Service implements the calibration use-cases.
 type Service struct {
-	repo Repo
+	repo        Repo
+	runner      Runner
+	fingerprint ScenarioFingerprinter
 }
 
-// NewService wires the calibration service.
+// NewService wires the calibration service. Create/SpecFor/Trigger/Get/List
+// need only repo; AdvanceOne additionally needs WithRunner and
+// WithFingerprint.
 func NewService(repo Repo) *Service {
 	return &Service{repo: repo}
+}
+
+// WithRunner attaches the step runner AdvanceOne drives. Returns the
+// receiver for chaining.
+func (s *Service) WithRunner(r Runner) *Service {
+	if r != nil {
+		s.runner = r
+	}
+	return s
+}
+
+// WithFingerprint attaches the scenario fingerprinter AdvanceOne stamps a
+// terminal job's CapacityProfile with. Returns the receiver for chaining.
+func (s *Service) WithFingerprint(f ScenarioFingerprinter) *Service {
+	if f != nil {
+		s.fingerprint = f
+	}
+	return s
 }
 
 // Create validates spec and creates a new CalibrateEngine execution under
@@ -164,4 +213,169 @@ func (s *Service) Get(ctx context.Context, jobID int64) (Job, error) {
 // calls Get.
 func (s *Service) ListByExecution(ctx context.Context, executionID int64) ([]ports.CalibrationJob, error) {
 	return s.repo.ListCalibrationJobsByExecution(ctx, executionID)
+}
+
+// leaseFor is how long a claimed job holds its lease before another
+// controller replica may reclaim it -- long enough to cover a step's real
+// run (deploy, trigger, hold, stop), which normal load-test steps' hold
+// duration bounds; a wedged controller's job self-heals by expiring back to
+// claimable rather than staying stuck forever.
+const leaseFor = 30 * time.Minute
+
+// AdvanceOne claims one due calibration job, runs its next step, classifies
+// the settled report, feeds the search's own decision function
+// (calibration.Next), persists the result, and -- once the search reaches a
+// terminal state -- writes the resulting CapacityProfile.
+//
+// found is false when no job is currently due -- an ordinary outcome of a
+// controller tick against an empty queue, not an error. now is the claim
+// lease's clock and, on a terminal job, the CapacityProfile's CalibratedAt.
+func (s *Service) AdvanceOne(ctx context.Context, now time.Time) (found bool, err error) {
+	if s.runner == nil || s.fingerprint == nil {
+		return false, ErrNotConfiguredForAdvance
+	}
+
+	persisted, found, err := s.repo.ClaimNextStep(ctx, now, leaseFor)
+	if err != nil || !found {
+		return found, err
+	}
+
+	spec, err := s.SpecFor(ctx, persisted.ExecutionID)
+	if err != nil {
+		return true, s.fail(ctx, persisted.ID, err)
+	}
+
+	job, requestedQPS := startOrResume(spec, persisted)
+
+	step, err := s.runClassifiedStep(ctx, persisted.ExecutionID, requestedQPS, spec)
+	if err != nil {
+		return true, s.fail(ctx, persisted.ID, err)
+	}
+	// A single anomalous engine-short is retried once, at the same
+	// requested rate, before being accepted as the ceiling -- only the
+	// retry's own outcome is fed to the search; the discarded first attempt
+	// leaves no trace in the step history.
+	if step.Classification == calibration.ClassificationEngineSaturated {
+		step, err = s.runClassifiedStep(ctx, persisted.ExecutionID, requestedQPS, spec)
+		if err != nil {
+			return true, s.fail(ctx, persisted.ID, err)
+		}
+	}
+
+	updatedJob, action := calibration.Next(job, step)
+	updated := applyDomainJob(persisted, updatedJob, action)
+	if err := s.repo.RecordStep(ctx, persisted.ID, step, updated); err != nil {
+		return true, err
+	}
+
+	if updatedJob.Phase != calibration.PhaseDone {
+		return true, nil
+	}
+	return true, s.writeProfile(ctx, persisted, updatedJob, now)
+}
+
+// fail marks jobID PhaseFailed with runErr's message and returns runErr --
+// an operational failure (the step's run itself errored, never even
+// producing a classification), distinct from any search outcome Next can
+// reach. Best effort: a customer-visible run failure must not be hidden by
+// a second failure recording it, so runErr is always what AdvanceOne
+// returns, even if MarkFailed itself errors (in which case the job's lease
+// simply expires and it is reclaimed).
+func (s *Service) fail(ctx context.Context, jobID int64, runErr error) error {
+	_ = s.repo.MarkFailed(ctx, jobID, runErr.Error())
+	return runErr
+}
+
+// runClassifiedStep runs one real step at requestedQPS and classifies its
+// settled report: engine-saturation (ShortOfRequest or EngineImpaired) is
+// checked before the target-health criterion, since a report's overall
+// ErrorRate -- unlike TargetErrorRate -- counts the engine's own failures
+// too, and an engine-impaired run must never be misread as target distress.
+func (s *Service) runClassifiedStep(ctx context.Context, executionID int64, requestedQPS float64, spec calibration.Spec) (calibration.Step, error) {
+	rpt, err := s.runner.RunStep(ctx, executionID, requestedQPS, spec.HoldSeconds)
+	if err != nil {
+		return calibration.Step{}, err
+	}
+	class := calibration.ClassificationClean
+	switch {
+	case rpt.ShortOfRequest() || rpt.EngineImpaired():
+		class = calibration.ClassificationEngineSaturated
+	case len(rpt.EvaluateCriteria([]string{spec.Criterion})) > 0:
+		class = calibration.ClassificationTargetSaturated
+	}
+	return calibration.Step{RequestedQPS: requestedQPS, AchievedQPS: rpt.Achieved.Throughput, Classification: class}, nil
+}
+
+// startOrResume returns the domain Job and this step's requested QPS for
+// persisted: a PhasePending job (never yet stepped) begins fresh via
+// calibration.Start; any other non-terminal job resumes from its own
+// persisted decision-state and NextRequestedQPS (ClaimNextStep never
+// returns a Done or Failed job).
+func startOrResume(spec calibration.Spec, persisted ports.CalibrationJob) (calibration.Job, float64) {
+	if persisted.Phase == calibration.PhasePending {
+		job, action := calibration.Start(spec)
+		return job, action.NextRequestedQPS
+	}
+	return calibration.Job{
+		Spec:               spec,
+		Phase:              persisted.Phase,
+		StepCount:          persisted.StepCount,
+		BracketLoRequested: persisted.BracketLoRequested,
+		BracketLoAchieved:  persisted.BracketLoAchieved,
+		BracketHiRequested: persisted.BracketHiRequested,
+		Result:             persisted.Result,
+	}, persisted.NextRequestedQPS
+}
+
+// applyDomainJob folds job's updated decision-state and action's next QPS
+// back into persisted's own identity/bookkeeping fields, ready for
+// RecordStep.
+func applyDomainJob(persisted ports.CalibrationJob, job calibration.Job, action calibration.Action) ports.CalibrationJob {
+	persisted.Phase = job.Phase
+	persisted.StepCount = job.StepCount
+	persisted.BracketLoRequested = job.BracketLoRequested
+	persisted.BracketLoAchieved = job.BracketLoAchieved
+	persisted.BracketHiRequested = job.BracketHiRequested
+	persisted.Result = job.Result
+	persisted.NextRequestedQPS = action.NextRequestedQPS
+	return persisted
+}
+
+// writeProfile records a terminal job's outcome as executionID's
+// CapacityProfile, keyed by the scenario its (only) load profile entry
+// names, the execution's pinned engine/pod size, and the scenario's content
+// fingerprint at this moment -- true for every terminal SaturatedBy, not
+// only SaturatedByEngine: a target-limited or inconclusive result is just as
+// much a finding FanOut must be able to read back and explain, not silently
+// dropped.
+func (s *Service) writeProfile(ctx context.Context, job ports.CalibrationJob, done calibration.Job, now time.Time) error {
+	exe, err := s.repo.GetExecution(ctx, job.ExecutionID)
+	if err != nil {
+		return err
+	}
+	entries, err := s.repo.LoadProfileFor(ctx, job.ExecutionID)
+	if err != nil {
+		return err
+	}
+	if len(entries) != 1 {
+		return fmt.Errorf("%w: execution %d has %d scenarios, want exactly 1", ErrScenarioNotConfigured, job.ExecutionID, len(entries))
+	}
+	fingerprint, err := s.fingerprint.ScenarioFingerprint(ctx, entries[0].ScenarioID)
+	if err != nil {
+		return err
+	}
+	profile := capacityprofile.CapacityProfile{
+		Key: capacityprofile.Key{
+			ScenarioID: entries[0].ScenarioID,
+			Engine:     exe.Engine,
+			CPU:        exe.CPU,
+			Memory:     exe.Memory,
+		},
+		PerPodQPS:           done.Result.PerPodQPS,
+		SaturatedBy:         done.Result.SaturatedBy,
+		ScenarioFingerprint: fingerprint,
+		CalibratedAt:        now,
+		JobID:               job.ID,
+	}
+	return s.repo.UpsertCapacityProfile(ctx, profile)
 }
