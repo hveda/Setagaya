@@ -71,3 +71,10 @@ func TestFakeStore_CalibrationJobContract(t *testing.T) {
 		return fake.NewStore()
 	})
 }
+
+func TestFakeStore_CapacityProfileContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunCapacityProfileRepositoryContract(t, func(_ *testing.T) ports.CapacityProfileRepository {
+		return fake.NewStore()
+	})
+}

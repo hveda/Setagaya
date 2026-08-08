@@ -12,6 +12,7 @@ import (
 
 	"github.com/heridotlife/honryu/internal/domain/calibration"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
+	"github.com/heridotlife/honryu/internal/domain/capacityprofile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
@@ -92,6 +93,10 @@ type Store struct {
 	// zero means unclaimed.
 	calibrationClaimedAt map[int64]time.Time
 
+	// capacityProfiles is keyed by capacityprofile.Key directly -- the key
+	// IS the profile's identity, so upsert-by-key is a plain map write.
+	capacityProfiles map[capacityprofile.Key]capacityprofile.CapacityProfile
+
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
 	// rest of Store the way scenarios and executions tie to each other.
@@ -127,6 +132,7 @@ func NewStore() *Store {
 		calibrationJobs:      make(map[int64]ports.CalibrationJob),
 		calibrationSteps:     make(map[int64][]calibration.Step),
 		calibrationClaimedAt: make(map[int64]time.Time),
+		capacityProfiles:     make(map[capacityprofile.Key]capacityprofile.CapacityProfile),
 		ReportProgress:       NewReportProgress(),
 		ReportStore:          NewReportStore(),
 	}
@@ -163,18 +169,19 @@ func (s *Store) SetNow(now func() time.Time) {
 }
 
 var (
-	_ ports.ProjectRepository        = (*Store)(nil)
-	_ ports.ScenarioRepository       = (*Store)(nil)
-	_ ports.ExecutionRepository      = (*Store)(nil)
-	_ ports.RunRepository            = (*Store)(nil)
-	_ ports.UsageRepository          = (*Store)(nil)
-	_ ports.TenantRepository         = (*Store)(nil)
-	_ ports.RoleAssignmentRepository = (*Store)(nil)
-	_ ports.ReportProgress           = (*Store)(nil)
-	_ ports.ReportStore              = (*Store)(nil)
-	_ ports.ReservationRepository    = (*Store)(nil)
-	_ ports.CampaignRepository       = (*Store)(nil)
-	_ ports.CalibrationJobRepository = (*Store)(nil)
+	_ ports.ProjectRepository         = (*Store)(nil)
+	_ ports.ScenarioRepository        = (*Store)(nil)
+	_ ports.ExecutionRepository       = (*Store)(nil)
+	_ ports.RunRepository             = (*Store)(nil)
+	_ ports.UsageRepository           = (*Store)(nil)
+	_ ports.TenantRepository          = (*Store)(nil)
+	_ ports.RoleAssignmentRepository  = (*Store)(nil)
+	_ ports.ReportProgress            = (*Store)(nil)
+	_ ports.ReportStore               = (*Store)(nil)
+	_ ports.ReservationRepository     = (*Store)(nil)
+	_ ports.CampaignRepository        = (*Store)(nil)
+	_ ports.CalibrationJobRepository  = (*Store)(nil)
+	_ ports.CapacityProfileRepository = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------
