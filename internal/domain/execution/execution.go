@@ -21,7 +21,40 @@ var (
 	ErrNameTooLong     = errors.New("execution: name exceeds maximum length")
 	ErrProjectRequired = errors.New("execution: a valid project id is required")
 	ErrEngineUnknown   = errors.New("execution: unknown engine")
+	ErrKindUnknown     = errors.New("execution: unknown kind")
 )
+
+// Kind distinguishes what an execution is for.
+//
+// Empty is treated as KindNormal (the same "empty is the sentinel default"
+// convention Engine already uses): an execution row persisted before Kind
+// existed decodes to the Go zero value and must keep behaving exactly as it
+// always did, with no backfill migration required. New always assigns the
+// canonical KindNormal explicitly, so only pre-existing rows ever carry "".
+type Kind string
+
+const (
+	// KindNormal is an ordinary execution: what every execution was before
+	// Kind existed, and what New assigns by default.
+	KindNormal Kind = "normal"
+	// KindCalibrateEngine is an engine-capacity search (Phase 7): it drives
+	// a sequence of single-pod runs at increasing QPS to find where the
+	// engine or the target saturates, rather than producing a verdict of
+	// its own.
+	KindCalibrateEngine Kind = "calibrate_engine"
+)
+
+// knownKinds records the kinds Honryu recognises, empty excluded -- mirrors
+// taurus.Executor's declarativeSupport map shape.
+var knownKinds = map[Kind]bool{
+	KindNormal:          true,
+	KindCalibrateEngine: true,
+}
+
+// Known reports whether k is a Kind Honryu recognises.
+func (k Kind) Known() bool {
+	return knownKinds[k]
+}
 
 // Execution is a group of scenarios executed together against a Project.
 type Execution struct {
@@ -31,7 +64,10 @@ type Execution struct {
 	// Engine is the load-test engine this execution runs on. Empty means the
 	// deployment's configured default, so an execution created before an
 	// operator offered a choice keeps working.
-	Engine      taurus.Executor
+	Engine taurus.Executor
+	// Kind distinguishes an ordinary execution from a CalibrateEngine one.
+	// See Kind's own doc for the empty-means-Normal convention.
+	Kind        Kind
 	CSVSplit    bool
 	TenantID    *int64
 	CreatedBy   string
@@ -40,9 +76,9 @@ type Execution struct {
 }
 
 // New constructs and validates a Execution. Name is trimmed; ID and
-// CreatedTime are assigned by the repository.
+// CreatedTime are assigned by the repository. Kind defaults to KindNormal.
 func New(name string, projectID int64) (Execution, error) {
-	c := Execution{Name: strings.TrimSpace(name), ProjectID: projectID}
+	c := Execution{Name: strings.TrimSpace(name), ProjectID: projectID, Kind: KindNormal}
 	if err := c.Validate(); err != nil {
 		return Execution{}, err
 	}
@@ -61,6 +97,9 @@ func (c Execution) Validate() error {
 	}
 	if c.Engine != "" && !c.Engine.Known() {
 		return fmt.Errorf("%w: %q", ErrEngineUnknown, c.Engine)
+	}
+	if c.Kind != "" && !c.Kind.Known() {
+		return fmt.Errorf("%w: %q", ErrKindUnknown, c.Kind)
 	}
 	return nil
 }
