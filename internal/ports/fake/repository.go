@@ -97,6 +97,8 @@ type Store struct {
 	// IS the profile's identity, so upsert-by-key is a plain map write.
 	capacityProfiles map[capacityprofile.Key]capacityprofile.CapacityProfile
 
+	calibrationBounds map[int64]ports.CalibrationBounds // executionID -> search bounds
+
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
 	// rest of Store the way scenarios and executions tie to each other.
@@ -133,6 +135,7 @@ func NewStore() *Store {
 		calibrationSteps:     make(map[int64][]calibration.Step),
 		calibrationClaimedAt: make(map[int64]time.Time),
 		capacityProfiles:     make(map[capacityprofile.Key]capacityprofile.CapacityProfile),
+		calibrationBounds:    make(map[int64]ports.CalibrationBounds),
 		ReportProgress:       NewReportProgress(),
 		ReportStore:          NewReportStore(),
 	}

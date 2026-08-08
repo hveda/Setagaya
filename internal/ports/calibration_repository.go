@@ -75,3 +75,15 @@ type CalibrationJobRepository interface {
 	// Clears the claim; a failed job is never claimed again.
 	MarkFailed(ctx context.Context, jobID int64, reason string) error
 }
+
+// CalibrationBounds are the numeric search parameters
+// (calibration.Spec's own SeedQPS/MaxQPS/MaxSteps/HoldSeconds) configured
+// for a CalibrateEngine execution -- the only parts of Spec that don't
+// already have a home on the execution itself (pod size) or in
+// execution_criteria (the target-health criterion).
+type CalibrationBounds struct {
+	SeedQPS     float64
+	MaxQPS      float64
+	MaxSteps    int
+	HoldSeconds int
+}

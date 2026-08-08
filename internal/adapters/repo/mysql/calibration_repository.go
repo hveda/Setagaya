@@ -216,3 +216,33 @@ func scanCalibrationJob(s rowScanner) (ports.CalibrationJob, error) {
 	j.FailureReason = failureReason.String
 	return j, nil
 }
+
+// SetCalibrationBounds replaces whatever search bounds are recorded for
+// executionID.
+func (r *Repository) SetCalibrationBounds(ctx context.Context, executionID int64, bounds ports.CalibrationBounds) error {
+	_, err := r.db.ExecContext(ctx,
+		"INSERT INTO calibration_spec (execution_id, seed_qps, max_qps, max_steps, hold_seconds) VALUES (?, ?, ?, ?, ?)"+
+			" ON DUPLICATE KEY UPDATE seed_qps = VALUES(seed_qps), max_qps = VALUES(max_qps),"+
+			" max_steps = VALUES(max_steps), hold_seconds = VALUES(hold_seconds)",
+		executionID, bounds.SeedQPS, bounds.MaxQPS, bounds.MaxSteps, bounds.HoldSeconds)
+	if err != nil {
+		return fmt.Errorf("mysql: set calibration bounds: %w", err)
+	}
+	return nil
+}
+
+// CalibrationBoundsFor returns the search bounds recorded for executionID,
+// or ports.ErrNotFound if none have been configured.
+func (r *Repository) CalibrationBoundsFor(ctx context.Context, executionID int64) (ports.CalibrationBounds, error) {
+	var b ports.CalibrationBounds
+	err := r.db.QueryRowContext(ctx,
+		"SELECT seed_qps, max_qps, max_steps, hold_seconds FROM calibration_spec WHERE execution_id = ?", executionID,
+	).Scan(&b.SeedQPS, &b.MaxQPS, &b.MaxSteps, &b.HoldSeconds)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ports.CalibrationBounds{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return ports.CalibrationBounds{}, fmt.Errorf("mysql: calibration bounds for execution %d: %w", executionID, err)
+	}
+	return b, nil
+}

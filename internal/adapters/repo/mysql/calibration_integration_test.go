@@ -4,6 +4,7 @@ package mysql_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,41 @@ func TestMySQLCalibrationJobRepository_Contract(t *testing.T) {
 		truncateAll(t, db)
 		return mysqladapter.NewRepository(db)
 	})
+}
+
+func TestMySQLCalibrationBounds_SetAndGetRoundTripAndReplace(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	repo := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	if _, err := repo.CalibrationBoundsFor(ctx, 1); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("CalibrationBoundsFor(unconfigured) = %v, want ErrNotFound", err)
+	}
+
+	first := ports.CalibrationBounds{SeedQPS: 10, MaxQPS: 1000, MaxSteps: 20, HoldSeconds: 30}
+	if err := repo.SetCalibrationBounds(ctx, 1, first); err != nil {
+		t.Fatalf("SetCalibrationBounds: %v", err)
+	}
+	got, err := repo.CalibrationBoundsFor(ctx, 1)
+	if err != nil {
+		t.Fatalf("CalibrationBoundsFor: %v", err)
+	}
+	if got != first {
+		t.Fatalf("CalibrationBoundsFor = %+v, want %+v", got, first)
+	}
+
+	second := ports.CalibrationBounds{SeedQPS: 5, MaxQPS: 500, MaxSteps: 10, HoldSeconds: 15}
+	if err := repo.SetCalibrationBounds(ctx, 1, second); err != nil {
+		t.Fatalf("SetCalibrationBounds (replace): %v", err)
+	}
+	got, err = repo.CalibrationBoundsFor(ctx, 1)
+	if err != nil {
+		t.Fatalf("CalibrationBoundsFor (after replace): %v", err)
+	}
+	if got != second {
+		t.Fatalf("CalibrationBoundsFor (after replace) = %+v, want %+v", got, second)
+	}
 }
 
 // More than one calibration controller replica may run concurrently (a

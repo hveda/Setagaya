@@ -111,3 +111,24 @@ func (s *Store) MarkFailed(_ context.Context, jobID int64, reason string) error 
 	delete(s.calibrationClaimedAt, jobID)
 	return nil
 }
+
+// SetCalibrationBounds replaces whatever search bounds are recorded for
+// executionID.
+func (s *Store) SetCalibrationBounds(_ context.Context, executionID int64, bounds ports.CalibrationBounds) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calibrationBounds[executionID] = bounds
+	return nil
+}
+
+// CalibrationBoundsFor returns the search bounds recorded for executionID,
+// or ports.ErrNotFound if none have been configured.
+func (s *Store) CalibrationBoundsFor(_ context.Context, executionID int64) (ports.CalibrationBounds, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.calibrationBounds[executionID]
+	if !ok {
+		return ports.CalibrationBounds{}, ports.ErrNotFound
+	}
+	return b, nil
+}
