@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/calibration"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
@@ -81,6 +82,16 @@ type Store struct {
 	campaignSeq int64
 	campaigns   map[int64]campaign.Campaign
 
+	calibrationJobSeq int64
+	calibrationJobs   map[int64]ports.CalibrationJob
+	calibrationSteps  map[int64][]calibration.Step // jobID -> steps, in order taken
+	// calibrationClaimedAt is the claim lease ClaimNextStep/RecordStep/
+	// MarkFailed manage -- internal bookkeeping, never part of the returned
+	// ports.CalibrationJob, mirroring the mysql adapter's own claimed_at
+	// column (never selected into the struct it returns either). Absent or
+	// zero means unclaimed.
+	calibrationClaimedAt map[int64]time.Time
+
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
 	// rest of Store the way scenarios and executions tie to each other.
@@ -91,30 +102,33 @@ type Store struct {
 // NewStore returns an empty in-memory Store.
 func NewStore() *Store {
 	return &Store{
-		now:              time.Now,
-		namedLocks:       make(map[string]*sync.Mutex),
-		projects:         make(map[int64]project.Project),
-		scenarios:        make(map[int64]scenario.Scenario),
-		planTest:         make(map[int64]string),
-		planData:         make(map[int64]map[string]struct{}),
-		scenarioRequests: make(map[int64][]byte),
-		executions:       make(map[int64]execution.Execution),
-		execData:         make(map[int64]map[string]struct{}),
-		exec:             make(map[int64][]loadprofile.Entry),
-		execCriteria:     make(map[int64][]string),
-		currentRun:       make(map[int64]int64),
-		runHistory:       make(map[int64]*ports.RunRecord),
-		running:          make(map[int64]map[int64]time.Time),
-		deployContext:    "default",
-		openLaunch:       make(map[int64]*ports.LaunchRecord),
-		tenants:          make(map[int64]tenant.Tenant),
-		reservations:     make(map[int64]reservation.Reservation),
-		quotaCeilings:    make(map[quotaKey]int),
-		schedules:        make(map[int64]schedule.Schedule),
-		occurrences:      make(map[int64]ports.Occurrence),
-		campaigns:        make(map[int64]campaign.Campaign),
-		ReportProgress:   NewReportProgress(),
-		ReportStore:      NewReportStore(),
+		now:                  time.Now,
+		namedLocks:           make(map[string]*sync.Mutex),
+		projects:             make(map[int64]project.Project),
+		scenarios:            make(map[int64]scenario.Scenario),
+		planTest:             make(map[int64]string),
+		planData:             make(map[int64]map[string]struct{}),
+		scenarioRequests:     make(map[int64][]byte),
+		executions:           make(map[int64]execution.Execution),
+		execData:             make(map[int64]map[string]struct{}),
+		exec:                 make(map[int64][]loadprofile.Entry),
+		execCriteria:         make(map[int64][]string),
+		currentRun:           make(map[int64]int64),
+		runHistory:           make(map[int64]*ports.RunRecord),
+		running:              make(map[int64]map[int64]time.Time),
+		deployContext:        "default",
+		openLaunch:           make(map[int64]*ports.LaunchRecord),
+		tenants:              make(map[int64]tenant.Tenant),
+		reservations:         make(map[int64]reservation.Reservation),
+		quotaCeilings:        make(map[quotaKey]int),
+		schedules:            make(map[int64]schedule.Schedule),
+		occurrences:          make(map[int64]ports.Occurrence),
+		campaigns:            make(map[int64]campaign.Campaign),
+		calibrationJobs:      make(map[int64]ports.CalibrationJob),
+		calibrationSteps:     make(map[int64][]calibration.Step),
+		calibrationClaimedAt: make(map[int64]time.Time),
+		ReportProgress:       NewReportProgress(),
+		ReportStore:          NewReportStore(),
 	}
 }
 
@@ -160,6 +174,7 @@ var (
 	_ ports.ReportStore              = (*Store)(nil)
 	_ ports.ReservationRepository    = (*Store)(nil)
 	_ ports.CampaignRepository       = (*Store)(nil)
+	_ ports.CalibrationJobRepository = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------
