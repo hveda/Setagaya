@@ -10,11 +10,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/heridotlife/honryu/internal/domain/compile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
@@ -270,6 +272,65 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 	return nil
 }
 
+// baselineEngineCPU/baselineEngineMemory are the pod size one
+// engine-equivalent quota unit represents. An execution with no pinned pod
+// size (every execution before Phase 7's calibration search, and every
+// ordinary one since) implicitly runs at this size already, so counting one
+// unit per declared engine is exactly right for it; only a pinned pod
+// (execution.CPU/Memory, set only by a CalibrateEngine execution, task 73)
+// can differ from baseline, and its reservation must scale with how much
+// bigger it actually is -- a single oversized calibration pod must not be
+// allowed to reserve, and so occupy, no more than an ordinary "1 engine"
+// would.
+const (
+	baselineEngineCPU    = "500m"
+	baselineEngineMemory = "512Mi"
+)
+
+// engineEquivalents converts podCount pods of the given pinned size (cpu and
+// memory empty meaning "no pin -- the cluster's own default, already 1
+// baseline unit each") into the number of engine-equivalent quota units they
+// actually represent: ceil(pod_resources / baseline_engine_size) per pod,
+// summed across podCount. sizeRatio's own 1.0 floor already guarantees a pod,
+// however small, is never worth less than one whole engine-equivalent.
+func engineEquivalents(cpu, memory string, podCount int) (int, error) {
+	ratio, err := sizeRatio(cpu, memory)
+	if err != nil {
+		return 0, err
+	}
+	return int(math.Ceil(ratio)) * podCount, nil
+}
+
+// sizeRatio is the larger of cpu's and memory's ratio to baseline -- whichever
+// dimension a pinned pod is proportionally biggest in is what determines how
+// many baseline-sized pods worth of capacity it actually occupies. Empty
+// leaves that dimension's ratio at the 1.0 floor, unexamined -- so this never
+// returns below 1.0.
+func sizeRatio(cpu, memory string) (float64, error) {
+	ratio := 1.0
+	if cpu != "" {
+		q, err := resource.ParseQuantity(cpu)
+		if err != nil {
+			return 0, fmt.Errorf("lifecycle: parse pinned cpu %q: %w", cpu, err)
+		}
+		baseline := resource.MustParse(baselineEngineCPU)
+		if r := float64(q.MilliValue()) / float64(baseline.MilliValue()); r > ratio {
+			ratio = r
+		}
+	}
+	if memory != "" {
+		q, err := resource.ParseQuantity(memory)
+		if err != nil {
+			return 0, fmt.Errorf("lifecycle: parse pinned memory %q: %w", memory, err)
+		}
+		baseline := resource.MustParse(baselineEngineMemory)
+		if r := float64(q.Value()) / float64(baseline.Value()); r > ratio {
+			ratio = r
+		}
+	}
+	return ratio, nil
+}
+
 // Trigger starts a run across all deployed, ready engines. Engines must be
 // deployed and reachable; every scenario must have a test file.
 func (s *Service) Trigger(ctx context.Context, executionID int64) error {
@@ -312,9 +373,13 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	// named one has no ceiling to check against, so every existing deployment
 	// (none of which set up tenant context) triggers exactly as before.
 	if coll.TenantID != nil {
+		engineUnits, err := engineEquivalents(coll.CPU, coll.Memory, ec.TotalEngines())
+		if err != nil {
+			return err
+		}
 		start := s.now()
 		end := start.Add(time.Duration(ec.LongestDurationSeconds()) * time.Second)
-		if _, err := s.quota.Reserve(ctx, *coll.TenantID, "", ec.TotalEngines(), start, end, executionID); err != nil {
+		if _, err := s.quota.Reserve(ctx, *coll.TenantID, "", engineUnits, start, end, executionID); err != nil {
 			return err
 		}
 	}
