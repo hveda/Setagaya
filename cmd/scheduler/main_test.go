@@ -142,6 +142,35 @@ func TestRun_TicksUntilContextCancelled(t *testing.T) {
 	}
 }
 
+// HostInScheduler wires and starts a third background loop alongside the
+// horizon and drain loops -- proves that wiring doesn't panic or hang the
+// WaitGroup shutdown, not any particular job getting advanced (run() builds
+// its own fresh in-memory store internally, unreachable from the test).
+func TestRun_HostsCalibratorLoopWhenConfigured(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{
+		"HONRYU_DB_DRIVER":                    "fake",
+		"HONRYU_LOG_FORMAT":                   "text",
+		"HONRYU_SCHEDULER_TICK_INTERVAL":      "10ms",
+		"HONRYU_CALIBRATOR_TICK_INTERVAL":     "10ms",
+		"HONRYU_CALIBRATOR_HOST_IN_SCHEDULER": "true",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, func(k string) string { return env[k] }) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not return within 5s of its context being cancelled")
+	}
+}
+
 // seedDueExecution creates a project, scenario (with a test file), execution,
 // and load profile via the fake store, plus a tenant quota ceiling, and
 // returns the execution id -- everything fireOnce's Deploy+Trigger call

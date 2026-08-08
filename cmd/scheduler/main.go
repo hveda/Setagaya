@@ -27,9 +27,11 @@ import (
 	k8sscheduler "github.com/heridotlife/honryu/internal/adapters/scheduler/k8s"
 	"github.com/heridotlife/honryu/internal/adapters/storage/local"
 	"github.com/heridotlife/honryu/internal/adapters/storage/nexus"
+	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/quotaapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/config"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -50,6 +52,11 @@ type repository interface {
 	// ports.UsageRepository backs campaignapp.Verdict's OtherLoad
 	// annotation (LaunchHistory) -- likewise not otherwise needed here.
 	ports.UsageRepository
+	// scenarioapp.Repo/calibrationapp.Repo/RunnerRepo back the calibration
+	// loop this binary optionally hosts too (config.CalibratorConfig.HostInScheduler).
+	scenarioapp.Repo
+	calibrationapp.Repo
+	calibrationapp.RunnerRepo
 }
 
 func main() {
@@ -113,6 +120,19 @@ func run(parent context.Context, getenv func(string) string) error {
 		// reason for it to lag further behind than that.
 		runDrainLoop(ctx, campaigns, lifecycle, repo, cfg.Scheduler.TickInterval)
 	}()
+	if cfg.Calibrator.HostInScheduler {
+		// Reuses this same lifecycle (quota+freeze already wired) rather than
+		// building a second one -- a calibration step triggered from here is
+		// admission-checked exactly like a scheduled fire is.
+		scenarios := scenarioapp.NewService(repo, store)
+		runner := calibrationapp.NewStepRunner(repo, lifecycle, repo)
+		calibrations := calibrationapp.NewService(repo).WithRunner(runner).WithFingerprint(scenarios)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runCalibratorLoop(ctx, calibrations, cfg.Calibrator.TickInterval)
+		}()
+	}
 
 	runLoop(ctx, schedules, lifecycle, cfg.Scheduler.TickInterval)
 	wg.Wait()
@@ -249,6 +269,39 @@ func drainOnce(ctx context.Context, campaigns *campaignapp.Service, lifecycle *l
 			}
 			log.Info("drained non-campaign execution")
 		}
+	}
+}
+
+// runCalibratorLoop ticks every interval, advancing at most one due
+// calibration job per tick -- mirrors cmd/calibrator's own runCalibratorLoop
+// exactly (the two binaries cannot share code: they are separate `package
+// main`s), so hosting the loop here behaves identically to running
+// cmd/calibrator as its own deployment.
+func runCalibratorLoop(ctx context.Context, calibrations *calibrationapp.Service, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			advanceCalibrationOnce(ctx, calibrations)
+		}
+	}
+}
+
+// advanceCalibrationOnce claims and advances one due calibration job, if
+// any. Best effort: a failure is logged, not retried here -- AdvanceOne
+// already marks the job Failed on an operational error, so the next tick
+// moves on to whatever else is due rather than looping on the same job.
+func advanceCalibrationOnce(ctx context.Context, calibrations *calibrationapp.Service) {
+	found, err := calibrations.AdvanceOne(ctx, time.Now())
+	if err != nil {
+		slog.Error("advance calibration job", "error", err)
+		return
+	}
+	if found {
+		slog.Info("advanced calibration job")
 	}
 }
 

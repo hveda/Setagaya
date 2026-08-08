@@ -63,6 +63,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Scheduler.HorizonInterval != 24*time.Hour {
 		t.Errorf("Scheduler.HorizonInterval = %s, want 24h", cfg.Scheduler.HorizonInterval)
 	}
+	if cfg.Calibrator.TickInterval != 30*time.Second {
+		t.Errorf("Calibrator.TickInterval = %s, want 30s", cfg.Calibrator.TickInterval)
+	}
+	if cfg.Calibrator.HostInScheduler {
+		t.Error("Calibrator.HostInScheduler = true, want false by default")
+	}
 }
 
 func TestLoad_AuthOverrides(t *testing.T) {
@@ -118,19 +124,21 @@ func TestLoad_Overrides(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := Load(envMap(map[string]string{
-		"HONRYU_HTTP_PORT":                  "9090",
-		"HONRYU_HTTP_READ_TIMEOUT":          "5s",
-		"HONRYU_HTTP_WRITE_TIMEOUT":         "7s",
-		"HONRYU_HTTP_IDLE_TIMEOUT":          "2m",
-		"HONRYU_DB_DRIVER":                  "mysql",
-		"HONRYU_DB_DSN":                     "user:pw@tcp(db:3306)/honryu",
-		"HONRYU_LOG_LEVEL":                  "debug",
-		"HONRYU_LOG_FORMAT":                 "text",
-		"HONRYU_STORAGE_ROOT":               "/data/honryu",
-		"HONRYU_STORAGE_BASE_URL":           "https://cdn.example.com",
-		"HONRYU_MAX_ENGINES":                "42",
-		"HONRYU_SCHEDULER_TICK_INTERVAL":    "5s",
-		"HONRYU_SCHEDULER_HORIZON_INTERVAL": "12h",
+		"HONRYU_HTTP_PORT":                    "9090",
+		"HONRYU_HTTP_READ_TIMEOUT":            "5s",
+		"HONRYU_HTTP_WRITE_TIMEOUT":           "7s",
+		"HONRYU_HTTP_IDLE_TIMEOUT":            "2m",
+		"HONRYU_DB_DRIVER":                    "mysql",
+		"HONRYU_DB_DSN":                       "user:pw@tcp(db:3306)/honryu",
+		"HONRYU_LOG_LEVEL":                    "debug",
+		"HONRYU_LOG_FORMAT":                   "text",
+		"HONRYU_STORAGE_ROOT":                 "/data/honryu",
+		"HONRYU_STORAGE_BASE_URL":             "https://cdn.example.com",
+		"HONRYU_MAX_ENGINES":                  "42",
+		"HONRYU_SCHEDULER_TICK_INTERVAL":      "5s",
+		"HONRYU_SCHEDULER_HORIZON_INTERVAL":   "12h",
+		"HONRYU_CALIBRATOR_TICK_INTERVAL":     "15s",
+		"HONRYU_CALIBRATOR_HOST_IN_SCHEDULER": "true",
 	}))
 	if err != nil {
 		t.Fatalf("Load with overrides: unexpected error: %v", err)
@@ -169,6 +177,12 @@ func TestLoad_Overrides(t *testing.T) {
 	if cfg.Scheduler.HorizonInterval != 12*time.Hour {
 		t.Errorf("Scheduler.HorizonInterval = %s, want 12h", cfg.Scheduler.HorizonInterval)
 	}
+	if cfg.Calibrator.TickInterval != 15*time.Second {
+		t.Errorf("Calibrator.TickInterval = %s, want 15s", cfg.Calibrator.TickInterval)
+	}
+	if !cfg.Calibrator.HostInScheduler {
+		t.Error("Calibrator.HostInScheduler = false, want true")
+	}
 }
 
 func TestLoad_ValidationErrors(t *testing.T) {
@@ -193,22 +207,25 @@ func TestLoad_ValidationErrors(t *testing.T) {
 			"HONRYU_DEFAULT_ENGINE": "k6",
 			"HONRYU_ENGINE_IMAGES":  "jmeter=honryu/engine-jmeter:5.6.3",
 		},
-		"untagged engine image": {"HONRYU_ENGINE_IMAGES": "jmeter=honryu/engine-jmeter"},
-		"bad engine port":       {"HONRYU_ENGINE_PORT": "99999"},
-		"non-numeric port":      {"HONRYU_ENGINE_PORT": "eighty"},
-		"bad purge interval":    {"HONRYU_AUTOPURGE_INTERVAL": "soon"},
-		"bad purge idle":        {"HONRYU_AUTOPURGE_IDLE": "forever"},
-		"unknown auth mode":     {"HONRYU_AUTH_MODE": "ldap"},
-		"bad enable rbac":       {"HONRYU_ENABLE_RBAC": "maybe"},
-		"oidc without issuer":   {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_JWKS_URL": "https://x/jwks"},
-		"oidc without jwks":     {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_ISSUER": "https://x"},
-		"unknown storage":       {"HONRYU_STORAGE_DRIVER": "s3"},
-		"nexus without url":     {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_NEXUS_REPO": "raw"},
-		"nexus without repo":    {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_STORAGE_BASE_URL": "https://x"},
-		"bad tick interval":     {"HONRYU_SCHEDULER_TICK_INTERVAL": "never"},
-		"zero tick interval":    {"HONRYU_SCHEDULER_TICK_INTERVAL": "0s"},
-		"bad horizon interval":  {"HONRYU_SCHEDULER_HORIZON_INTERVAL": "never"},
-		"zero horizon interval": {"HONRYU_SCHEDULER_HORIZON_INTERVAL": "0s"},
+		"untagged engine image":         {"HONRYU_ENGINE_IMAGES": "jmeter=honryu/engine-jmeter"},
+		"bad engine port":               {"HONRYU_ENGINE_PORT": "99999"},
+		"non-numeric port":              {"HONRYU_ENGINE_PORT": "eighty"},
+		"bad purge interval":            {"HONRYU_AUTOPURGE_INTERVAL": "soon"},
+		"bad purge idle":                {"HONRYU_AUTOPURGE_IDLE": "forever"},
+		"unknown auth mode":             {"HONRYU_AUTH_MODE": "ldap"},
+		"bad enable rbac":               {"HONRYU_ENABLE_RBAC": "maybe"},
+		"oidc without issuer":           {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_JWKS_URL": "https://x/jwks"},
+		"oidc without jwks":             {"HONRYU_AUTH_MODE": "oidc", "HONRYU_OIDC_ISSUER": "https://x"},
+		"unknown storage":               {"HONRYU_STORAGE_DRIVER": "s3"},
+		"nexus without url":             {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_NEXUS_REPO": "raw"},
+		"nexus without repo":            {"HONRYU_STORAGE_DRIVER": "nexus", "HONRYU_STORAGE_BASE_URL": "https://x"},
+		"bad tick interval":             {"HONRYU_SCHEDULER_TICK_INTERVAL": "never"},
+		"zero tick interval":            {"HONRYU_SCHEDULER_TICK_INTERVAL": "0s"},
+		"bad horizon interval":          {"HONRYU_SCHEDULER_HORIZON_INTERVAL": "never"},
+		"zero horizon interval":         {"HONRYU_SCHEDULER_HORIZON_INTERVAL": "0s"},
+		"bad calibrator tick interval":  {"HONRYU_CALIBRATOR_TICK_INTERVAL": "never"},
+		"zero calibrator tick interval": {"HONRYU_CALIBRATOR_TICK_INTERVAL": "0s"},
+		"bad calibrator host flag":      {"HONRYU_CALIBRATOR_HOST_IN_SCHEDULER": "maybe"},
 	}
 
 	for name, env := range cases {

@@ -17,14 +17,15 @@ import (
 
 // Config is the fully-resolved, validated runtime configuration.
 type Config struct {
-	HTTP      HTTPConfig
-	DB        DBConfig
-	Log       LogConfig
-	Storage   StorageConfig
-	Limits    LimitsConfig
-	Cluster   ClusterConfig
-	Auth      AuthConfig
-	Scheduler SchedulerConfig
+	HTTP       HTTPConfig
+	DB         DBConfig
+	Log        LogConfig
+	Storage    StorageConfig
+	Limits     LimitsConfig
+	Cluster    ClusterConfig
+	Auth       AuthConfig
+	Scheduler  SchedulerConfig
+	Calibrator CalibratorConfig
 }
 
 // SchedulerConfig configures cmd/scheduler's fire-due-occurrences loop.
@@ -37,6 +38,21 @@ type SchedulerConfig struct {
 	// to keep occurrences reserved out to the 7-day horizon, not react to a
 	// fire time arriving.
 	HorizonInterval time.Duration
+}
+
+// CalibratorConfig configures the engine-calibration advancement loop
+// (calibrationapp.Service.AdvanceOne, ticked once per due job). cmd/calibrator
+// always runs it as its own deployment; cmd/scheduler additionally hosts the
+// same loop only when HostInScheduler is set, for installations that would
+// rather not run a third process. Either way, AdvanceOne's own row-locked
+// claim keeps more than one replica from double-driving the same job.
+type CalibratorConfig struct {
+	// TickInterval is how often the loop claims and advances one due
+	// calibration job.
+	TickInterval time.Duration
+	// HostInScheduler is off by default: cmd/calibrator is the only host
+	// unless explicitly opted in.
+	HostInScheduler bool
 }
 
 // AuthConfig selects the authentication provider and toggles RBAC.
@@ -157,8 +173,9 @@ func Load(getenv func(string) string) (Config, error) {
 			Context:       "default",
 			AutoPurgeIdle: time.Hour,
 		},
-		Auth:      AuthConfig{Mode: "none"},
-		Scheduler: SchedulerConfig{TickInterval: 30 * time.Second, HorizonInterval: 24 * time.Hour},
+		Auth:       AuthConfig{Mode: "none"},
+		Scheduler:  SchedulerConfig{TickInterval: 30 * time.Second, HorizonInterval: 24 * time.Hour},
+		Calibrator: CalibratorConfig{TickInterval: 30 * time.Second},
 	}
 
 	var err error
@@ -220,6 +237,12 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.Scheduler.HorizonInterval, err = durEnv(getenv, "SCHEDULER_HORIZON_INTERVAL", cfg.Scheduler.HorizonInterval); err != nil {
+		return Config{}, err
+	}
+	if cfg.Calibrator.TickInterval, err = durEnv(getenv, "CALIBRATOR_TICK_INTERVAL", cfg.Calibrator.TickInterval); err != nil {
+		return Config{}, err
+	}
+	if cfg.Calibrator.HostInScheduler, err = boolEnv(getenv, "CALIBRATOR_HOST_IN_SCHEDULER", cfg.Calibrator.HostInScheduler); err != nil {
 		return Config{}, err
 	}
 
@@ -284,6 +307,9 @@ func (c Config) validate() error {
 	}
 	if c.Scheduler.HorizonInterval <= 0 {
 		return fmt.Errorf("config: %sSCHEDULER_HORIZON_INTERVAL must be positive", envPrefix)
+	}
+	if c.Calibrator.TickInterval <= 0 {
+		return fmt.Errorf("config: %sCALIBRATOR_TICK_INTERVAL must be positive", envPrefix)
 	}
 	return nil
 }
