@@ -394,3 +394,206 @@ func TestImportJMX_Rejections(t *testing.T) {
 		})
 	}
 }
+
+func TestScenarioFingerprint_DeterministicForTheSameContent(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "smoke", 10)
+	if err := svc.UploadFile(ctx, p.ID, "scenario.jmx", strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+
+	first, err := svc.ScenarioFingerprint(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint: %v", err)
+	}
+	if first == "" {
+		t.Fatal("ScenarioFingerprint = empty, want a real hash")
+	}
+	second, err := svc.ScenarioFingerprint(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (again): %v", err)
+	}
+	if first != second {
+		t.Fatalf("ScenarioFingerprint = %q then %q, want identical for unchanged content", first, second)
+	}
+}
+
+// Two entirely different scenarios with byte-identical content must
+// fingerprint identically -- staleness must never trigger on identity, only
+// on an actual content difference.
+func TestScenarioFingerprint_IdenticalContentAcrossScenariosMatches(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Create(ctx, "scenario-a", 10)
+	if err := svc.UploadFile(ctx, a.ID, "scenario.jmx", strings.NewReader("<jmx>same</jmx>")); err != nil {
+		t.Fatalf("UploadFile (a): %v", err)
+	}
+	b, _ := svc.Create(ctx, "scenario-b", 10)
+	if err := svc.UploadFile(ctx, b.ID, "scenario.jmx", strings.NewReader("<jmx>same</jmx>")); err != nil {
+		t.Fatalf("UploadFile (b): %v", err)
+	}
+
+	fpA, err := svc.ScenarioFingerprint(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (a): %v", err)
+	}
+	fpB, err := svc.ScenarioFingerprint(ctx, b.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (b): %v", err)
+	}
+	if fpA != fpB {
+		t.Fatalf("fingerprints = %q, %q, want identical for byte-identical content", fpA, fpB)
+	}
+}
+
+func TestScenarioFingerprint_DifferentFileContentChangesIt(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Create(ctx, "scenario-a", 10)
+	if err := svc.UploadFile(ctx, a.ID, "scenario.jmx", strings.NewReader("<jmx>version-1</jmx>")); err != nil {
+		t.Fatalf("UploadFile (a): %v", err)
+	}
+	b, _ := svc.Create(ctx, "scenario-b", 10)
+	if err := svc.UploadFile(ctx, b.ID, "scenario.jmx", strings.NewReader("<jmx>version-2</jmx>")); err != nil {
+		t.Fatalf("UploadFile (b): %v", err)
+	}
+
+	fpA, err := svc.ScenarioFingerprint(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (a): %v", err)
+	}
+	fpB, err := svc.ScenarioFingerprint(ctx, b.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (b): %v", err)
+	}
+	if fpA == fpB {
+		t.Fatalf("fingerprints both = %q, want different content to fingerprint differently", fpA)
+	}
+}
+
+// Adding a data file (with no change to the test file itself) is a real
+// content change and must not be invisible to the fingerprint.
+func TestScenarioFingerprint_AddingAFileChangesIt(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "smoke", 10)
+	if err := svc.UploadFile(ctx, p.ID, "scenario.jmx", strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	before, err := svc.ScenarioFingerprint(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (before): %v", err)
+	}
+
+	if err := svc.UploadFile(ctx, p.ID, "data.csv", strings.NewReader("id,value\n1,2\n")); err != nil {
+		t.Fatalf("UploadFile (data.csv): %v", err)
+	}
+	after, err := svc.ScenarioFingerprint(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (after): %v", err)
+	}
+	if before == after {
+		t.Fatalf("fingerprint unchanged after adding a file: %q", before)
+	}
+}
+
+// A portable scenario's requests fragment is content too -- editing it must
+// change the fingerprint exactly as editing an uploaded file does.
+func TestScenarioFingerprint_ChangingRequestsChangesIt(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	before, err := svc.ScenarioFingerprint(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (before): %v", err)
+	}
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /checkout\n")
+	if err := svc.SetRequests(ctx, p.ID, raw); err != nil {
+		t.Fatalf("SetRequests: %v", err)
+	}
+	after, err := svc.ScenarioFingerprint(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ScenarioFingerprint (after): %v", err)
+	}
+	if before == after {
+		t.Fatalf("fingerprint unchanged after SetRequests: %q", before)
+	}
+}
+
+func TestScenarioFingerprint_UnknownScenarioPropagatesNotFound(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	if _, err := svc.ScenarioFingerprint(context.Background(), 999); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("ScenarioFingerprint(unknown) = %v, want ErrNotFound", err)
+	}
+}
+
+// errObjectStore wraps *fake.ObjectStore and lets a test force Download to
+// fail, proving ScenarioFingerprint surfaces a downstream failure rather
+// than silently hashing partial content.
+type errObjectStore struct {
+	*fake.ObjectStore
+	downloadErr error
+}
+
+func (o *errObjectStore) Download(ctx context.Context, key string) ([]byte, error) {
+	if o.downloadErr != nil {
+		return nil, o.downloadErr
+	}
+	return o.ObjectStore.Download(ctx, key)
+}
+
+func TestScenarioFingerprint_FileDownloadErrorPropagates(t *testing.T) {
+	t.Parallel()
+	store := fake.NewStore()
+	obj := &errObjectStore{ObjectStore: fake.NewObjectStore()}
+	svc := scenarioapp.NewService(store, obj)
+	ctx := context.Background()
+
+	p, _ := svc.Create(ctx, "smoke", 10)
+	if err := svc.UploadFile(ctx, p.ID, "scenario.jmx", strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+
+	obj.downloadErr = errors.New("boom")
+	if _, err := svc.ScenarioFingerprint(ctx, p.ID); err == nil {
+		t.Fatal("ScenarioFingerprint = nil error, want the Download failure to propagate")
+	}
+}
+
+// errRepo wraps *fake.Store and lets a test force GetScenarioRequests to
+// fail with something other than ErrNotFound, proving that -- unlike the
+// "no requests uploaded yet" case -- a real downstream failure propagates
+// rather than being silently treated as "no requests".
+type errRepo struct {
+	*fake.Store
+	requestsErr error
+}
+
+func (r *errRepo) GetScenarioRequests(ctx context.Context, scenarioID int64) ([]byte, error) {
+	if r.requestsErr != nil {
+		return nil, r.requestsErr
+	}
+	return r.Store.GetScenarioRequests(ctx, scenarioID)
+}
+
+func TestScenarioFingerprint_RequestsLookupErrorPropagates(t *testing.T) {
+	t.Parallel()
+	store := &errRepo{Store: fake.NewStore(), requestsErr: errors.New("boom")}
+	svc := scenarioapp.NewService(store, fake.NewObjectStore())
+	ctx := context.Background()
+
+	p, _ := svc.Create(ctx, "portable", 10)
+	if _, err := svc.ScenarioFingerprint(ctx, p.ID); err == nil {
+		t.Fatal("ScenarioFingerprint = nil error, want the GetScenarioRequests failure to propagate")
+	}
+}

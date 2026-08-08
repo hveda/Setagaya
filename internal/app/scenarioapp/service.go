@@ -6,10 +6,13 @@ package scenarioapp
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	yaml "gopkg.in/yaml.v3"
@@ -40,6 +43,10 @@ type Repo interface {
 	ScenarioInUse(ctx context.Context, scenarioID int64) (bool, error)
 	SetScenarioKind(ctx context.Context, scenarioID int64, kind scenario.Kind, engine taurus.Executor) error
 	SetScenarioRequests(ctx context.Context, scenarioID int64, raw []byte) error
+	// GetScenarioRequests backs ScenarioFingerprint's read of a portable
+	// scenario's declarative workload. ErrNotFound means none was ever
+	// uploaded -- not an error for a fingerprint, just an empty contribution.
+	GetScenarioRequests(ctx context.Context, scenarioID int64) ([]byte, error)
 }
 
 // Service provides scenario use-cases.
@@ -267,6 +274,62 @@ func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte)
 		}
 	}
 	return s.repo.SetScenarioRequests(ctx, scenarioID, raw)
+}
+
+// ScenarioFingerprint returns a deterministic hash over a scenario's actual
+// content: its uploaded files (test file plus data, sorted by filename) and
+// its declarative requests fragment, if any. Identical content -- including
+// a byte-identical re-upload -- hashes identically; any real change (a new,
+// changed, or removed file, or an edited requests fragment) hashes
+// differently.
+//
+// This is what a CapacityProfile's own ScenarioFingerprint is checked
+// against for staleness (capacityprofile.FanOut): a calibration must never
+// be presented as still valid once the scenario it measured has actually
+// changed, and a false staleness (recalibrating unnecessarily) is the only
+// acceptable failure mode, never a false freshness.
+func (s *Service) ScenarioFingerprint(ctx context.Context, scenarioID int64) (string, error) {
+	// ScenarioFilesFor never errors, even for an unknown id -- it just
+	// returns no files. Without this check, a deleted scenario would
+	// silently fingerprint as "empty" rather than erroring, and an empty
+	// fingerprint could accidentally match a profile calibrated against a
+	// scenario that likewise had no files/requests yet -- a false-freshness
+	// bug, the one staleness must never produce.
+	if _, err := s.repo.GetScenario(ctx, scenarioID); err != nil {
+		return "", err
+	}
+	files, err := s.repo.ScenarioFilesFor(ctx, scenarioID)
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(files.Data)+1)
+	if files.TestFile != "" {
+		names = append(names, files.TestFile)
+	}
+	names = append(names, files.Data...)
+	sort.Strings(names)
+
+	h := sha256.New()
+	for _, name := range names {
+		content, err := s.store.Download(ctx, scenarioKey(scenarioID, name))
+		if err != nil {
+			return "", err
+		}
+		// Each segment is length-prefixed so no concatenation of
+		// differently-split file contents can collide with another.
+		// hash.Hash.Write/Fprintf into it never actually errors.
+		_, _ = fmt.Fprintf(h, "file:%s:%d:", name, len(content))
+		h.Write(content)
+	}
+
+	requests, err := s.repo.GetScenarioRequests(ctx, scenarioID)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return "", err
+	}
+	_, _ = fmt.Fprintf(h, "requests:%d:", len(requests))
+	h.Write(requests)
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func scenarioKey(scenarioID int64, filename string) string {
