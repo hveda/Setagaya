@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports/fake"
@@ -37,6 +39,62 @@ func (m *scriptedMetrics) Finalize(ctx context.Context, executionID, runID int64
 	r.RunID = runID
 	return m.reports.SaveReport(ctx, r)
 }
+
+// selfCompletingLifecycle drives a real lifecycleapp.Service but, the moment
+// Trigger succeeds, also finalizes the run's report itself -- standing in
+// for metricsapp's own natural-completion path (Ingest finalizes a run once
+// every shard reports itself finished, independent of and typically well
+// before any explicit Stop), which awaitReport polls for. Without this, the
+// fake environment has no mechanism at all for a run to self-complete: only
+// Stop ever finalizes, so a step run before Stop would never find a report
+// and would poll for its whole stepReportTimeout.
+type selfCompletingLifecycle struct {
+	*lifecycleapp.Service
+	store   *fake.Store
+	metrics *scriptedMetrics
+}
+
+func (l *selfCompletingLifecycle) Trigger(ctx context.Context, executionID int64) error {
+	if err := l.Service.Trigger(ctx, executionID); err != nil {
+		return err
+	}
+	runID, running, err := l.store.CurrentRun(ctx, executionID)
+	if err != nil || !running {
+		return err
+	}
+	return l.metrics.Finalize(ctx, executionID, runID)
+}
+
+// fakeClock is a manually-advanced time source for deterministic tests
+// against RunStep's bounded polling loops. Paired with a sleep hook that
+// calls Advance, a loop whose deadline is measured against Now reaches that
+// deadline after a bounded number of iterations instead of the real timeout
+// duration -- critical since a fake sleep never actually blocks, so a loop
+// measured against the real wall clock would spin as fast as the CPU
+// allows for however many iterations the real timeout takes to elapse.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newFakeClock() *fakeClock { return &fakeClock{now: time.Now()} }
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+// maxTestSleeps bounds how many times a test's sleep hook may fire before
+// failing loudly -- a guard against a future change reopening the spin this
+// fake clock exists to close, so a regression fails fast instead of OOMing.
+const maxTestSleeps = 1000
 
 // stepEnv wires a StepRunner against a real lifecycleapp.Service (itself
 // wired to fakes), so RunStep's Deploy/Trigger/Stop calls exercise the
@@ -113,9 +171,15 @@ func setupStep(t *testing.T, configureScenario bool) *stepEnv {
 	lifecycle.WithMetrics(metrics)
 
 	e := &stepEnv{store: store, sched: sched, obj: obj, reports: reports, executionID: executionID, scenarioID: scenarioID}
-	e.runner = calibrationapp.NewStepRunner(store, lifecycle, reports).WithSleep(func(d time.Duration) {
+	clock := newFakeClock()
+	selfCompleting := &selfCompletingLifecycle{Service: lifecycle, store: store, metrics: metrics}
+	e.runner = calibrationapp.NewStepRunner(store, selfCompleting, reports).WithSleep(func(d time.Duration) {
 		e.slept = append(e.slept, d)
-	})
+		if len(e.slept) > maxTestSleeps {
+			t.Fatalf("RunStep slept %d times, want a bounded handful -- a polling loop is spinning unbounded", len(e.slept))
+		}
+		clock.Advance(d)
+	}).WithClock(clock.Now)
 	return e
 }
 
@@ -167,11 +231,14 @@ func TestRunStep_HappyPath_RewritesProfileDeploysTriggersHoldsStopsAndReturnsRep
 		t.Fatalf("deployed pod size = %q/%q, want 500m/512Mi", spec.CPU, spec.Memory)
 	}
 
-	// The run was held for rampup+hold, then actually stopped (no run left
-	// current).
-	if len(e.slept) != 1 || e.slept[0] != 22*time.Second {
-		t.Fatalf("slept = %v, want [22s]", e.slept)
+	// selfCompletingLifecycle finalizes the report the instant Trigger
+	// succeeds, so awaitReport's first poll already finds it -- no sleep is
+	// needed at all, matching the fake scheduler's own "everything ready
+	// instantly unless a test injects delay" idiom.
+	if len(e.slept) != 0 {
+		t.Fatalf("slept = %v, want none (report available on first poll)", e.slept)
 	}
+	// The run was actually stopped (no run left current).
 	if _, running, _ := e.store.CurrentRun(ctx, e.executionID); running {
 		t.Fatal("run still current after RunStep, want stopped")
 	}
@@ -366,9 +433,21 @@ func TestRunStep_PropagatesLifecycleFailures(t *testing.T) {
 		e := setupStep(t, true)
 		// Deploy and Trigger must genuinely run (so CurrentRun reports
 		// running=true before Stop is reached) -- only Stop itself fails.
+		// No metrics are wired, so the report never settles: awaitReport
+		// must run out its full timeout before Stop is even attempted,
+		// which is why this needs the fake clock too -- otherwise it spins
+		// for the real timeout duration instead of a bounded iteration count.
 		lifecycle := lifecycleapp.NewService(e.store, e.sched, e.obj, lifecycleapp.StaticImage(stepImage))
 		lc := &stopFailsLifecycle{Service: lifecycle, stopErr: sentinel}
-		runner := calibrationapp.NewStepRunner(e.store, lc, e.reports).WithSleep(func(time.Duration) {})
+		clock := newFakeClock()
+		var slept int
+		runner := calibrationapp.NewStepRunner(e.store, lc, e.reports).WithSleep(func(d time.Duration) {
+			slept++
+			if slept > maxTestSleeps {
+				t.Fatalf("RunStep slept %d times, want a bounded handful -- a polling loop is spinning unbounded", slept)
+			}
+			clock.Advance(d)
+		}).WithClock(clock.Now)
 
 		if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, sentinel) {
 			t.Fatalf("error = %v, want sentinel", err)
@@ -389,6 +468,60 @@ type stopFailsLifecycle struct {
 
 func (l *stopFailsLifecycle) Stop(context.Context, int64) error {
 	return l.stopErr
+}
+
+// flakyTriggerLifecycle fails Trigger with run.ErrNotDeployed for its first
+// failCount calls, then succeeds -- standing in for a real cluster's pod
+// still being scheduled, image-pulled, or started, which triggerWhenReady
+// must retry rather than surface as a step failure.
+type flakyTriggerLifecycle struct {
+	failCount, calls int
+	stopped          bool
+}
+
+func (l *flakyTriggerLifecycle) Deploy(context.Context, int64) error { return nil }
+
+func (l *flakyTriggerLifecycle) Trigger(context.Context, int64) error {
+	l.calls++
+	if l.calls <= l.failCount {
+		return run.ErrNotDeployed
+	}
+	return nil
+}
+
+func (l *flakyTriggerLifecycle) Stop(context.Context, int64) error {
+	l.stopped = true
+	return nil
+}
+
+func TestRunStep_TriggerRetriesUntilEnginesAreReady(t *testing.T) {
+	t.Parallel()
+	e := setupStep(t, true)
+	ctx := context.Background()
+	// The stub never actually starts a run, so RunStep fails with
+	// ErrStepRunNotStarted right after Trigger finally succeeds -- what
+	// matters here is that it took retries to get there at all, not how the
+	// step ends.
+	lc := &flakyTriggerLifecycle{failCount: 3}
+	clock := newFakeClock()
+	var slept int
+	runner := calibrationapp.NewStepRunner(e.store, lc, e.reports).WithSleep(func(d time.Duration) {
+		slept++
+		if slept > maxTestSleeps {
+			t.Fatalf("RunStep slept %d times, want a bounded handful -- a polling loop is spinning unbounded", slept)
+		}
+		clock.Advance(d)
+	}).WithClock(clock.Now)
+
+	if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, calibrationapp.ErrStepRunNotStarted) {
+		t.Fatalf("error = %v, want ErrStepRunNotStarted", err)
+	}
+	if lc.calls != 4 {
+		t.Fatalf("Trigger called %d times, want 4 (3 retries + the succeeding call)", lc.calls)
+	}
+	if slept != 3 {
+		t.Fatalf("slept %d times, want 3 (once per failed attempt)", slept)
+	}
 }
 
 func TestRunStep_ErrorsWhenTriggeredRunIsNotReportedRunning(t *testing.T) {

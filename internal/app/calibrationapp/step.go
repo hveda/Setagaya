@@ -9,6 +9,8 @@ import (
 
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/run"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // ErrScenarioNotConfigured means executionID's load profile does not name
@@ -41,6 +43,30 @@ const (
 	// stepRampupSeconds is the warmup a step's run spends ramping to its
 	// full concurrency before the steady-state hold begins.
 	stepRampupSeconds = 5
+	// triggerReadyPollInterval is how often RunStep retries Trigger while
+	// the pod Deploy just created is still starting up -- a real cluster's
+	// pod takes real time to schedule, pull its image, and start (unlike
+	// the fake scheduler, which reports every deploy ready instantly, so
+	// this race never surfaces against it).
+	triggerReadyPollInterval = 2 * time.Second
+	// triggerReadyTimeout bounds how long RunStep waits for a just-deployed
+	// pod to become triggerable before giving up.
+	triggerReadyTimeout = 2 * time.Minute
+	// stepReportPollInterval is how often RunStep checks whether the run's
+	// report has settled while waiting out the hold.
+	stepReportPollInterval = 2 * time.Second
+	// stepReportTimeout bounds how long RunStep waits for a run's report to
+	// settle before giving up and stopping it anyway. A fixed sleep sized to
+	// the compiled ramp-up+hold-for was tried first and repeatedly cut runs
+	// off before their engine ever produced a Final batch -- task 85's live
+	// verification saw the very same step's real pod-schedule-to-first-
+	// sample latency vary from ~9s to ~40s across back-to-back attempts on
+	// one real (sometimes-busy) node, nothing the fake scheduler's
+	// instantly-sampling pods ever surface. Polling for the report itself,
+	// which metricsapp only produces once every shard reports finished,
+	// removes the guesswork; this timeout only bounds a genuinely stuck run
+	// (crashed engine, no Final batch ever sent).
+	stepReportTimeout = 5 * time.Minute
 )
 
 // RunnerRepo is the persistence a step needs beyond driving the run itself:
@@ -77,18 +103,34 @@ type StepRunner struct {
 	lifecycle Lifecycle
 	reports   ReportReader
 	sleep     func(time.Duration)
+	now       func() time.Time
 }
 
-// NewStepRunner wires a step runner. sleep defaults to time.Sleep; override
-// with WithSleep for deterministic tests.
+// NewStepRunner wires a step runner. sleep defaults to time.Sleep and now to
+// time.Now; override both with WithSleep and WithClock for deterministic
+// tests.
 func NewStepRunner(repo RunnerRepo, lifecycle Lifecycle, reports ReportReader) *StepRunner {
-	return &StepRunner{repo: repo, lifecycle: lifecycle, reports: reports, sleep: time.Sleep}
+	return &StepRunner{repo: repo, lifecycle: lifecycle, reports: reports, sleep: time.Sleep, now: time.Now}
 }
 
 // WithSleep overrides the hold mechanism. Returns the receiver for chaining.
 func (r *StepRunner) WithSleep(sleep func(time.Duration)) *StepRunner {
 	if sleep != nil {
 		r.sleep = sleep
+	}
+	return r
+}
+
+// WithClock overrides the clock RunStep's bounded polling loops
+// (triggerWhenReady, awaitReport) measure their deadlines against. A fake
+// sleep that does not actually block must be paired with a fake clock that
+// advances when it fires -- otherwise a deadline measured against the real
+// wall clock still takes the real timeout duration to reach, spinning the
+// loop as fast as the CPU allows for however many iterations that takes.
+// Returns the receiver for chaining.
+func (r *StepRunner) WithClock(now func() time.Time) *StepRunner {
+	if now != nil {
+		r.now = now
 	}
 	return r
 }
@@ -136,7 +178,7 @@ func (r *StepRunner) RunStep(ctx context.Context, executionID int64, requestedQP
 	if err := r.lifecycle.Deploy(ctx, executionID); err != nil {
 		return report.Report{}, err
 	}
-	if err := r.lifecycle.Trigger(ctx, executionID); err != nil {
+	if err := r.triggerWhenReady(ctx, executionID); err != nil {
 		return report.Report{}, err
 	}
 	runID, running, err := r.repo.CurrentRun(ctx, executionID)
@@ -147,12 +189,60 @@ func (r *StepRunner) RunStep(ctx context.Context, executionID int64, requestedQP
 		return report.Report{}, fmt.Errorf("%w: execution %d", ErrStepRunNotStarted, executionID)
 	}
 
-	r.sleep(time.Duration(stepRampupSeconds+holdSeconds) * time.Second)
+	rpt, reportErr := r.awaitReport(ctx, runID)
 
 	if err := r.lifecycle.Stop(ctx, executionID); err != nil {
 		return report.Report{}, err
 	}
-	return r.reports.GetReport(ctx, runID)
+	if reportErr != nil {
+		return report.Report{}, reportErr
+	}
+	return rpt, nil
+}
+
+// awaitReport polls for runID's settled report -- produced by metricsapp
+// automatically once every shard the run's profile called for has reported
+// itself finished, not on any timer RunStep itself controls. Bounded by
+// stepReportTimeout so a run whose engine never finishes still returns an
+// error instead of hanging forever.
+func (r *StepRunner) awaitReport(ctx context.Context, runID int64) (report.Report, error) {
+	deadline := r.now().Add(stepReportTimeout)
+	for {
+		rpt, err := r.reports.GetReport(ctx, runID)
+		if err == nil {
+			return rpt, nil
+		}
+		if !errors.Is(err, ports.ErrNotFound) {
+			return report.Report{}, err
+		}
+		if r.now().After(deadline) {
+			return report.Report{}, fmt.Errorf("calibrationapp: run %d report never settled: %w", runID, err)
+		}
+		r.sleep(stepReportPollInterval)
+	}
+}
+
+// triggerWhenReady retries Trigger while the pod Deploy just created is
+// still starting up (run.ErrNotDeployed while its StatefulSet has not yet
+// reported any pods, run.ErrEnginesNotReady while they exist but are not
+// yet ready) -- Deploy returning success only means the StatefulSet was
+// created, not that its pod is scheduled, image-pulled, and running. Any
+// other error, or the timeout itself, is returned immediately.
+func (r *StepRunner) triggerWhenReady(ctx context.Context, executionID int64) error {
+	deadline := r.now().Add(triggerReadyTimeout)
+	for {
+		err := r.lifecycle.Trigger(ctx, executionID)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, run.ErrNotDeployed) && !errors.Is(err, run.ErrEnginesNotReady) {
+			return err
+		}
+		if r.now().After(deadline) {
+			return fmt.Errorf("calibrationapp: execution %d never became triggerable: %w", executionID, err)
+		}
+		r.sleep(triggerReadyPollInterval)
+	}
 }
 
 // stepConcurrency returns the virtual-user count a step at requestedQPS
