@@ -126,7 +126,7 @@ func (a *Accumulator) Report(m Meta) Report {
 	}
 
 	rep.Achieved.Concurrency = a.peak()
-	rep.Achieved.DurationSeconds = m.achievedSeconds()
+	rep.Achieved.DurationSeconds = a.achievedSeconds(m)
 	rep.Achieved.Throughput = perSecond(rep.Achieved.Samples, rep.Achieved.DurationSeconds)
 	rep.ErrorRate = rate(rep.Achieved.Failed, rep.Achieved.Samples)
 	rep.Latency = overall.Percentiles(reportedPercentiles...)
@@ -159,6 +159,47 @@ func (a *Accumulator) peak() int {
 		}
 	}
 	return peak
+}
+
+// achievedSeconds is how long the run actually produced load -- the span the
+// measurements themselves cover, not the run's wall clock.
+//
+// The wall clock (Meta.StartedAt to Meta.EndedAt) is decoupled from when the
+// engine generates load, in both directions, so it is the wrong denominator
+// for throughput: an engine boots for seconds after StartRun before its first
+// sample (which would inflate the span and understate throughput -- the case
+// that made every calibration step read as engine-saturated), and can even
+// begin before StartRun when a deploy runs it ahead of a separate trigger
+// (which would deflate the span and overstate throughput). The measured
+// seconds are load by definition, so their span -- first measured second to
+// last, inclusive -- is what load was actually held for. Falls back to the
+// wall clock, then the requested duration, only when nothing was measured at
+// all (an empty run, whose throughput is zero regardless).
+func (a *Accumulator) achievedSeconds(m Meta) int {
+	if span, ok := a.measuredSpanSeconds(); ok {
+		return span
+	}
+	return m.achievedSeconds()
+}
+
+// measuredSpanSeconds is the number of seconds from the first measured second
+// to the last, inclusive; ok is false when no second carried a measurement.
+func (a *Accumulator) measuredSpanSeconds() (int, bool) {
+	if len(a.seconds) == 0 {
+		return 0, false
+	}
+	var lo, hi int64
+	first := true
+	for ts := range a.seconds {
+		if first || ts < lo {
+			lo = ts
+		}
+		if first || ts > hi {
+			hi = ts
+		}
+		first = false
+	}
+	return int(hi-lo) + 1, true
 }
 
 // errors is every failure mode, dominant first, with the run's failures split by

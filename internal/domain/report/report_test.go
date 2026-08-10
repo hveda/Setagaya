@@ -51,9 +51,10 @@ func TestBuild_SummarisesARun(t *testing.T) {
 		t.Errorf("achieved = %+v, want 200 samples with 10 failures", rep.Achieved)
 	}
 	// Achieved throughput is what was measured, not what was asked for: 200
-	// samples over 60 seconds.
-	if got := rep.Achieved.Throughput; got < 3.2 || got > 3.4 {
-		t.Errorf("achieved throughput = %v, want about 3.33/s", got)
+	// samples over the two seconds that actually carried them (ts 1000, 1001),
+	// not the requested 500/s and not the 60s wall clock.
+	if got := rep.Achieved.Throughput; got != 100 {
+		t.Errorf("achieved throughput = %v, want 100/s over the 2 measured seconds", got)
 	}
 	if rep.Requested.Concurrency != 50 || rep.Requested.Throughput != 500 {
 		t.Errorf("requested = %+v", rep.Requested)
@@ -312,19 +313,29 @@ func TestBuild_ConcurrencyCountsSecondsWithNoCompletedRequests(t *testing.T) {
 // A run that was aborted did not hold load for the duration it was asked for.
 // Reporting the requested duration would divide its samples by a window it never
 // filled, understating the rate it actually reached -- and then ShortOfRequest
-// would call a run that met its target rate a shortfall.
+// would call a run that met its target rate a shortfall. The duration comes from
+// the seconds the measurements themselves cover, not the wall clock and not the
+// requested duration.
 func TestBuild_AchievedDurationIsMeasuredNotRequested(t *testing.T) {
 	t.Parallel()
 
+	// Ten seconds of load at 100/s, then aborted -- a realistic per-second
+	// stream, one interval per second it actually ran.
+	var intervals []metrics.Interval
+	for ts := int64(1000); ts < 1010; ts++ {
+		intervals = append(intervals, metrics.Interval{
+			Timestamp: ts, Label: "probe", Concurrency: 10, Samples: 100, Succeeded: 100,
+		})
+	}
 	started := time.Unix(1000, 0)
 	rep := report.Build(report.Input{
 		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomeAborted,
+		// A generous wall clock that outlasts the load -- teardown, a late
+		// finalize -- must not dilute the rate.
 		StartedAt: started,
-		EndedAt:   started.Add(10 * time.Second), // aborted early
+		EndedAt:   started.Add(45 * time.Second),
 		Requested: report.Load{Concurrency: 10, Throughput: 100, DurationSeconds: 60},
-		Intervals: []metrics.Interval{
-			{Timestamp: 1000, Label: "probe", Concurrency: 10, Samples: 1000, Succeeded: 1000},
-		},
+		Intervals: intervals,
 	})
 
 	if got := rep.Achieved.DurationSeconds; got != 10 {
@@ -340,23 +351,70 @@ func TestBuild_AchievedDurationIsMeasuredNotRequested(t *testing.T) {
 	}
 }
 
-// With no wall clock the requested duration is all there is to go on.
-func TestBuild_AchievedDurationFallsBackToRequested(t *testing.T) {
+// The measured span is the denominator even with no wall clock to fall back
+// on -- the seconds the samples cover are load, by definition, whatever the
+// requested duration said.
+func TestBuild_AchievedDurationComesFromMeasuredSpan(t *testing.T) {
 	t.Parallel()
 
+	// 20 seconds of load at 10/s, no StartedAt/EndedAt supplied at all.
+	var intervals []metrics.Interval
+	for ts := int64(1); ts <= 20; ts++ {
+		intervals = append(intervals, interval(ts, "probe", 10, 0, metrics.Histogram{0.01: 10}))
+	}
 	rep := report.Build(report.Input{
 		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed,
-		Requested: report.Load{Concurrency: 10, DurationSeconds: 20},
-		Intervals: []metrics.Interval{
-			interval(1, "probe", 200, 0, metrics.Histogram{0.01: 200}),
-		},
+		Requested: report.Load{Concurrency: 10, DurationSeconds: 999}, // deliberately wrong
+		Intervals: intervals,
 	})
 
 	if got := rep.Achieved.DurationSeconds; got != 20 {
-		t.Errorf("achieved duration = %d, want the requested 20", got)
+		t.Errorf("achieved duration = %d, want the 20 measured seconds", got)
 	}
 	if got := rep.Achieved.Throughput; got != 10 {
 		t.Errorf("throughput = %v, want 10/s", got)
+	}
+}
+
+// An engine boots for seconds after the run's clock starts (StartRun stamps
+// StartedAt at trigger; the engine only emits its first sample once it has
+// booted). That boot dead time is in the wall clock but not in the load, so
+// dividing by the wall clock understates the achieved rate -- which is what
+// made every live calibration step read as engine-saturated and drove the
+// search downward. The duration must exclude it: the samples span only the
+// seconds load was actually produced.
+func TestBuild_ThroughputExcludesEngineBootDeadTime(t *testing.T) {
+	t.Parallel()
+
+	// The run's clock starts at ts=1000, but the engine's first sample lands
+	// at ts=1015 (15s of boot) and load then holds for 60s at 1000/s.
+	started := time.Unix(1000, 0)
+	var intervals []metrics.Interval
+	for ts := int64(1015); ts < 1075; ts++ {
+		intervals = append(intervals, metrics.Interval{
+			Timestamp: ts, Label: "get", Concurrency: 200, Samples: 1000, Succeeded: 1000,
+			Latency: metrics.Histogram{0.002: 1000},
+		})
+	}
+	rep := report.Build(report.Input{
+		ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed,
+		StartedAt: started,
+		EndedAt:   started.Add(77 * time.Second), // 15s boot + 60s load + ~2s teardown
+		Requested: report.Load{Concurrency: 200, Throughput: 1000, DurationSeconds: 60},
+		Intervals: intervals,
+	})
+
+	// 60 measured seconds, not the 77s wall clock -- so 1000/s, not ~780/s.
+	if got := rep.Achieved.DurationSeconds; got != 60 {
+		t.Errorf("achieved duration = %ds, want the 60s of actual load", got)
+	}
+	if got := rep.Achieved.Throughput; got != 1000 {
+		t.Errorf("achieved throughput = %v, want 1000/s (boot dead time excluded)", got)
+	}
+	// The whole point: at the true rate this run met its request and must not
+	// be mistaken for a shortfall (which is what flags engine saturation).
+	if rep.ShortOfRequest() {
+		t.Error("a run that met its requested rate is reported as short -- boot dead time leaked into the denominator")
 	}
 }
 
@@ -388,25 +446,24 @@ func TestReport_Validate(t *testing.T) {
 	}
 }
 
-// A run with no declared duration cannot have a rate: dividing by zero would
-// make the achieved throughput infinite or NaN, which then reaches a report a
-// human reads.
-func TestBuild_NoDurationHasNoRate(t *testing.T) {
+// A run that measured nothing has no rate: there is no span to divide by, and
+// dividing by zero would make the achieved throughput infinite or NaN, which
+// then reaches a report a human reads. (A run that measured anything always has
+// a span of at least one second, so this is the only zero-rate case left once
+// the duration is taken from the measurements rather than a declared window.)
+func TestBuild_EmptyRunHasNoRate(t *testing.T) {
 	t.Parallel()
 
 	rep := report.Build(report.Input{
 		ExecutionID: 1, RunID: 1,
-		Requested: report.Load{Concurrency: 10}, // no duration
-		Intervals: []metrics.Interval{
-			interval(1, "probe", 500, 0, metrics.Histogram{0.01: 500}),
-		},
+		Requested: report.Load{Concurrency: 10, DurationSeconds: 60},
+		Intervals: nil, // nothing measured
 	})
 	if rep.Achieved.Throughput != 0 {
-		t.Errorf("throughput = %v, want 0 when no duration was declared", rep.Achieved.Throughput)
+		t.Errorf("throughput = %v, want 0 when nothing was measured", rep.Achieved.Throughput)
 	}
-	// The samples themselves are still counted; only the rate is unknowable.
-	if rep.Achieved.Samples != 500 {
-		t.Errorf("samples = %d, want 500", rep.Achieved.Samples)
+	if rep.Achieved.Samples != 0 {
+		t.Errorf("samples = %d, want 0", rep.Achieved.Samples)
 	}
 }
 
