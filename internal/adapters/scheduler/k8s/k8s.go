@@ -46,10 +46,19 @@ const defaultTerminationGrace = 30 * time.Second
 
 // Paths inside an engine pod.
 const (
-	configMount    = "/honryu/config"
-	kpiMount       = "/honryu/kpi"
-	artifactsMount = "/honryu/artifacts"
-	kpiStream      = kpiMount + "/stream.jsonl"
+	// configSourceMount is the ConfigMap's own mount -- necessarily
+	// read-only (Kubernetes offers no writable ConfigMap volume at all).
+	// configMount is a separate, writable copy of it: bzt's JMeter executor
+	// saves a "modified" JMX beside the original script whenever the
+	// compiled config carries concurrency/throughput overrides (true for
+	// every native scenario), which fails outright against a read-only
+	// mount. engineScript copies configSourceMount into configMount before
+	// ever invoking bzt.
+	configSourceMount = "/honryu/config-src"
+	configMount       = "/honryu/config"
+	kpiMount          = "/honryu/kpi"
+	artifactsMount    = "/honryu/artifacts"
+	kpiStream         = kpiMount + "/stream.jsonl"
 	// kpiExitCode is where the engine container writes bzt's exit code once it
 	// finishes. It is how the sidecar learns the run is over on its own, rather
 	// than only at pod teardown -- see engineScript.
@@ -235,7 +244,10 @@ func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
 		TerminationGracePeriodSeconds: &grace,
 		Volumes: []corev1.Volume{
 			{
-				Name: "config",
+				// Read-only by necessity (Kubernetes has no writable
+				// ConfigMap volume) -- engineScript copies this into the
+				// writable "config" EmptyDir below before running bzt.
+				Name: "config-src",
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						LocalObjectReference: corev1.LocalObjectReference{Name: name},
@@ -243,6 +255,7 @@ func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
 					},
 				},
 			},
+			{Name: "config", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 			// The engine writes its KPI stream here and the sidecar reads it, so
 			// the handover never leaves the pod.
 			{Name: "kpi", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
@@ -258,7 +271,8 @@ func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
 				// results out, so there is nothing to connect to and nothing for
 				// a metrics scraper to discover.
 				VolumeMounts: []corev1.VolumeMount{
-					{Name: "config", MountPath: configMount, ReadOnly: true},
+					{Name: "config-src", MountPath: configSourceMount, ReadOnly: true},
+					{Name: "config", MountPath: configMount},
 					{Name: "kpi", MountPath: kpiMount},
 					{Name: "artifacts", MountPath: artifactsMount},
 				},
@@ -329,6 +343,7 @@ func engineScript() string {
 	argv := taurus.Command(configMount+"/shard-${ORDINAL}.yml", artifactsMount)
 	return `ORDINAL="${HOSTNAME##*-}"
 mkdir -p ` + kpiMount + `
+cp -r ` + configSourceMount + `/. ` + configMount + `
 ` + strings.Join(argv, " ") + `
 code=$?
 echo "$code" > ` + kpiExitCode + `

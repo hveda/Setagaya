@@ -325,6 +325,71 @@ func TestK8sScheduler_EachShardGetsItsOwnConfig(t *testing.T) {
 	}
 }
 
+// bzt's JMeter executor saves a "modified" JMX beside the original script
+// whenever the compiled config carries concurrency/throughput overrides --
+// true for every native scenario -- which fails outright against a
+// ConfigMap volume (Kubernetes offers no writable variant). The engine
+// container must instead get a writable copy of the config to run against,
+// seeded from the read-only ConfigMap mount before bzt ever starts.
+func TestK8sScheduler_EngineConfigIsWritable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{
+		ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine", Shards: deployShards(1),
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	name := engine.ScenarioName(1, 2, 3)
+	set, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	engineC := containerNamed(t, set, "engine")
+
+	var configSrc, config *corev1.VolumeMount
+	for i, m := range engineC.VolumeMounts {
+		switch m.Name {
+		case "config-src":
+			configSrc = &engineC.VolumeMounts[i]
+		case "config":
+			config = &engineC.VolumeMounts[i]
+		}
+	}
+	if configSrc == nil {
+		t.Fatal("engine does not mount the ConfigMap's own read-only volume (config-src)")
+	}
+	if !configSrc.ReadOnly {
+		t.Error("config-src is not read-only -- it is the ConfigMap volume, which Kubernetes never allows to be writable")
+	}
+	if config == nil {
+		t.Fatal("engine does not mount a separate writable config volume")
+	}
+	if config.ReadOnly {
+		t.Error("config is read-only -- bzt's in-place JMX rewrite will fail against it")
+	}
+
+	// The pod's own volume for "config" must actually be an EmptyDir (writable),
+	// not the ConfigMap itself under a second name.
+	var configVol *corev1.Volume
+	for i, v := range set.Spec.Template.Spec.Volumes {
+		if v.Name == "config" {
+			configVol = &set.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	if configVol == nil || configVol.EmptyDir == nil {
+		t.Fatalf("config volume = %+v, want an EmptyDir", configVol)
+	}
+
+	script := strings.Join(engineC.Command, " ")
+	if !strings.Contains(script, "cp -r /honryu/config-src/. /honryu/config") {
+		t.Errorf("engine command does not seed the writable config from config-src before running bzt: %q", script)
+	}
+}
+
 // bzt is run rather than exec'd, and the container keeps running once it
 // finishes -- otherwise its pod, a StatefulSet member and so restartPolicy
 // Always by Kubernetes' own rule, would be restarted the instant bzt exited and
