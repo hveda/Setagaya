@@ -108,6 +108,21 @@ func TestCreate_RejectsAnInvalidExecutionName(t *testing.T) {
 	}
 }
 
+// A capacity profile is keyed by engine and the profile/fan-out API requires
+// one to look it up, so a calibration that names no engine would write a
+// profile nothing could ever query. Create rejects it up front.
+func TestCreate_RejectsAnEmptyEngine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := calibrationapp.NewService(store)
+	projectID := seedProject(t, store)
+
+	if _, err := svc.Create(ctx, "x", projectID, taurus.Executor(""), validSpec()); !errors.Is(err, calibrationapp.ErrEngineRequired) {
+		t.Fatalf("Create (no engine) = %v, want ErrEngineRequired", err)
+	}
+}
+
 func TestSpecFor_ReassemblesFromExecutionCriteriaAndBounds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

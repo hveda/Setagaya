@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/calibration"
@@ -23,6 +24,13 @@ import (
 // CalibrateEngine -- only a calibration execution can carry a search Spec
 // or have a calibration job triggered against it.
 var ErrExecutionNotCalibration = errors.New("calibrationapp: execution is not a CalibrateEngine execution")
+
+// ErrEngineRequired means Create was given no engine. A capacity profile is
+// keyed by engine and is meaningless without it -- a JMeter pod and a k6 pod
+// of the same size have different capacities -- and the profile/fan-out API
+// requires the engine to look one up, so a calibration that defers its engine
+// would produce a profile nothing could ever query.
+var ErrEngineRequired = errors.New("calibrationapp: a calibration execution must name an engine")
 
 // ErrNotConfiguredForAdvance means AdvanceOne was called before a Runner and
 // a ScenarioFingerprinter were wired via WithRunner/WithFingerprint -- both
@@ -112,6 +120,9 @@ func (s *Service) WithFingerprint(f ScenarioFingerprinter) *Service {
 // only ever rewrites the QPS/duration of whatever scenario that upload
 // named, never the scenario itself.
 func (s *Service) Create(ctx context.Context, name string, projectID int64, engine taurus.Executor, spec calibration.Spec) (int64, error) {
+	if strings.TrimSpace(string(engine)) == "" {
+		return 0, ErrEngineRequired
+	}
 	spec = spec.WithDefaults()
 	if err := spec.Validate(); err != nil {
 		return 0, err

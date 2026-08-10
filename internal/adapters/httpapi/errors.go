@@ -66,7 +66,7 @@ var badRequestErrors = []error{
 	execution.ErrEngineUnknown,
 	calibration.ErrCriterionRequired, calibration.ErrPodSizeRequired, calibration.ErrSeedQPSInvalid,
 	calibration.ErrMaxQPSInvalid, calibration.ErrMaxStepsInvalid, calibration.ErrHoldInvalid,
-	calibrationapp.ErrExecutionNotCalibration,
+	calibrationapp.ErrExecutionNotCalibration, calibrationapp.ErrEngineRequired,
 }
 
 // conflictErrors are state conflicts → HTTP 409.
