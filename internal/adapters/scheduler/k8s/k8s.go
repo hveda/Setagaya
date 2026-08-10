@@ -12,12 +12,12 @@ package k8s
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -35,17 +35,24 @@ import (
 const managedByLabel = "managed-by"
 const managedByValue = "honryu"
 
-// configHashAnnotation records a content fingerprint of a deploy's compiled
-// shard configs and scenario files on the pod template. A re-deploy that
-// keeps the same shard count otherwise leaves Kubernetes with no signal that
-// anything changed at all: the ConfigMap it references is a separate object,
-// so updating its data in place does not touch the pod template, and the
-// engine container never re-runs bzt on its own once it finishes (see
-// engineScript). Without this annotation, a StatefulSet re-deploy -- exactly
-// what a calibration search does between steps, each at a new QPS -- would
-// silently reuse an already-finished pod that will never run the new config.
-// Changing the annotation is what makes the ordinary StatefulSet rolling
-// update actually recreate the pods.
+// configHashAnnotation records a redeployNonce on the pod template, changed
+// on every DeployScenario call so a re-deploy always recreates its pods.
+//
+// This has to be unconditional, not a content fingerprint of the compiled
+// config: lifecycleapp.Service.Deploy only ever succeeds when no run is
+// currently active for the execution (run.CanDeploy rejects it otherwise),
+// so a previously-deployed pod is always either idle after finishing or
+// never triggered, never mid-flight -- reusing it is never correct. A
+// calibration search's engine-saturated retry re-deploys at the exact same
+// QPS, byte-identical compiled config included, and still needs a genuinely
+// fresh pod: its predecessor already ran bzt once and deliberately never
+// runs it again on its own (see engineScript), and a fingerprint keyed to
+// content alone would see no change and leave that finished pod in place,
+// producing no samples at all for the run that starts against it.
+//
+// The ConfigMap a re-deploy's new config lands in is a separate object a
+// running pod does not re-read either way, which is what makes some signal
+// on the pod template unconditionally necessary in the first place.
 const configHashAnnotation = "honryu.dev/config-hash"
 
 // engineContainer is the pod container running bzt, as opposed to the sidecar
@@ -218,7 +225,7 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 	template := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      podLabels,
-			Annotations: map[string]string{configHashAnnotation: configHash(spec)},
+			Annotations: map[string]string{configHashAnnotation: redeployNonce()},
 		},
 		Spec: s.podSpec(spec, name),
 	}
@@ -256,28 +263,17 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 	return err
 }
 
-// configHash fingerprints the content a re-deploy might actually change: each
-// shard's compiled config and the scenario's own artifacts. ScenarioFiles is
-// a map, so its keys are sorted first -- a hash must not depend on Go's
-// randomised map iteration order producing a different digest for identical
-// content across two calls.
-func configHash(spec ports.DeploySpec) string {
-	h := sha256.New()
-	for _, sh := range spec.Shards {
-		_, _ = fmt.Fprintf(h, "%d:%d:", sh.Index, len(sh.Config)) // hash.Hash.Write never errors
-		h.Write(sh.Config)
-	}
-	names := make([]string, 0, len(spec.ScenarioFiles))
-	for name := range spec.ScenarioFiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		content := spec.ScenarioFiles[name]
-		_, _ = fmt.Fprintf(h, "%s:%d:", name, len(content)) // hash.Hash.Write never errors
-		h.Write(content)
-	}
-	return hex.EncodeToString(h.Sum(nil))
+// redeployCounter backs redeployNonce. Package-level and monotonic rather
+// than clock-based: two calls close enough in time could otherwise land on
+// the same wall-clock nanosecond (especially against a fake clientset in
+// tests, where calls are back-to-back with no real work between them), and
+// an unchanged annotation would defeat the entire point of setting one.
+var redeployCounter atomic.Uint64
+
+// redeployNonce returns a value guaranteed different from every other call
+// within this process's lifetime, for configHashAnnotation.
+func redeployNonce() string {
+	return strconv.FormatUint(redeployCounter.Add(1), 10)
 }
 
 // podSpec builds one engine pod: bzt running this shard's config, and the

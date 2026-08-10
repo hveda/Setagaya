@@ -538,52 +538,55 @@ func TestK8sScheduler_RedeployReplacesShardConfigs(t *testing.T) {
 	}
 }
 
-// A calibration search re-deploys the very same execution/scenario at a new
-// QPS between steps, with the shard count typically unchanged (still one
-// pinned pod). The ConfigMap's content changes, but the ConfigMap is a
-// separate object the ordinary StatefulSet rolling update has no visibility
-// into -- and the engine container never re-runs bzt on its own once it
-// finishes (see engineScript). Without a pod-template annotation keyed to
-// the config's own content, a same-shard-count re-deploy would leave an
-// already-finished pod idling forever on stale config, silently producing
-// no data for the new step at all.
-func TestK8sScheduler_RedeployWithSameShardCountChangesPodTemplate(t *testing.T) {
+// A calibration search's engine-saturated retry re-deploys the very same
+// execution/scenario at the exact same requested QPS -- a byte-identical
+// compiled shard config, not just the same shard count. The ConfigMap is a
+// separate object a running pod does not re-read, and the engine container
+// never re-runs bzt on its own once it finishes (see engineScript), so
+// every re-deploy needs its pod recreated regardless of whether the config
+// content actually changed -- lifecycleapp.Service.Deploy only ever
+// succeeds when no run is active for the execution (run.CanDeploy), so a
+// previously-deployed pod is always safe to replace. A pod-template
+// annotation keyed to the compiled config's own content would see no
+// change here and never trigger a rolling update, silently leaving an
+// already-finished pod in place to produce no samples at all for the run
+// that starts against it.
+func TestK8sScheduler_RedeployWithIdenticalConfigStillChangesPodTemplate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	client := fake.NewSimpleClientset()
 	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
 	name := engine.ScenarioName(1, 2, 3)
 
-	base := ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine"}
-	first := base
-	first.Shards = []ports.ShardSpec{{Index: 0, Config: []byte("qps-10")}}
-	if err := s.DeployScenario(ctx, first); err != nil {
+	spec := ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine"}
+	spec.Shards = []ports.ShardSpec{{Index: 0, Config: []byte("qps-10")}}
+	if err := s.DeployScenario(ctx, spec); err != nil {
 		t.Fatalf("deploy 1: %v", err)
 	}
 	before, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get statefulset: %v", err)
 	}
-	beforeHash := before.Spec.Template.Annotations[configHashAnnotationKey]
-	if beforeHash == "" {
-		t.Fatal("pod template carries no config-hash annotation")
+	beforeNonce := before.Spec.Template.Annotations[configHashAnnotationKey]
+	if beforeNonce == "" {
+		t.Fatal("pod template carries no redeploy annotation")
 	}
 
-	second := base
-	second.Shards = []ports.ShardSpec{{Index: 0, Config: []byte("qps-40")}}
-	if err := s.DeployScenario(ctx, second); err != nil {
+	// Re-deploy with an identical spec -- same shard count, same config
+	// bytes -- exactly what a same-QPS retry produces.
+	if err := s.DeployScenario(ctx, spec); err != nil {
 		t.Fatalf("deploy 2: %v", err)
 	}
 	after, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get statefulset: %v", err)
 	}
-	afterHash := after.Spec.Template.Annotations[configHashAnnotationKey]
-	if afterHash == "" {
-		t.Fatal("pod template carries no config-hash annotation after re-deploy")
+	afterNonce := after.Spec.Template.Annotations[configHashAnnotationKey]
+	if afterNonce == "" {
+		t.Fatal("pod template carries no redeploy annotation after re-deploy")
 	}
-	if afterHash == beforeHash {
-		t.Error("config-hash annotation unchanged despite different shard config -- a same-shard-count re-deploy would never recreate the pod")
+	if afterNonce == beforeNonce {
+		t.Error("redeploy annotation unchanged despite a second DeployScenario call -- an identical-config retry would never recreate the pod")
 	}
 }
 
