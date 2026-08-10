@@ -20,6 +20,10 @@ import (
 
 const ns = "honryu"
 
+// configHashAnnotationKey mirrors the unexported k8s.configHashAnnotation
+// literal -- an external test package cannot reach the constant itself.
+const configHashAnnotationKey = "honryu.dev/config-hash"
+
 // readyEngines simulates the StatefulSet controller: it creates the ordinal
 // pods a scenario would spawn and marks them Running+Ready so the adapter's
 // readiness queries see them. Project id is recovered from the deployed set.
@@ -531,6 +535,55 @@ func TestK8sScheduler_RedeployReplacesShardConfigs(t *testing.T) {
 	}
 	if _, stale := cm.Data["shard-1.yml"]; stale {
 		t.Error("a shard from the previous plan still has a config")
+	}
+}
+
+// A calibration search re-deploys the very same execution/scenario at a new
+// QPS between steps, with the shard count typically unchanged (still one
+// pinned pod). The ConfigMap's content changes, but the ConfigMap is a
+// separate object the ordinary StatefulSet rolling update has no visibility
+// into -- and the engine container never re-runs bzt on its own once it
+// finishes (see engineScript). Without a pod-template annotation keyed to
+// the config's own content, a same-shard-count re-deploy would leave an
+// already-finished pod idling forever on stale config, silently producing
+// no data for the new step at all.
+func TestK8sScheduler_RedeployWithSameShardCountChangesPodTemplate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
+	name := engine.ScenarioName(1, 2, 3)
+
+	base := ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Image: "engine"}
+	first := base
+	first.Shards = []ports.ShardSpec{{Index: 0, Config: []byte("qps-10")}}
+	if err := s.DeployScenario(ctx, first); err != nil {
+		t.Fatalf("deploy 1: %v", err)
+	}
+	before, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	beforeHash := before.Spec.Template.Annotations[configHashAnnotationKey]
+	if beforeHash == "" {
+		t.Fatal("pod template carries no config-hash annotation")
+	}
+
+	second := base
+	second.Shards = []ports.ShardSpec{{Index: 0, Config: []byte("qps-40")}}
+	if err := s.DeployScenario(ctx, second); err != nil {
+		t.Fatalf("deploy 2: %v", err)
+	}
+	after, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	afterHash := after.Spec.Template.Annotations[configHashAnnotationKey]
+	if afterHash == "" {
+		t.Fatal("pod template carries no config-hash annotation after re-deploy")
+	}
+	if afterHash == beforeHash {
+		t.Error("config-hash annotation unchanged despite different shard config -- a same-shard-count re-deploy would never recreate the pod")
 	}
 }
 

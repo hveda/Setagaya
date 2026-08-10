@@ -12,6 +12,8 @@ package k8s
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"sort"
@@ -32,6 +34,19 @@ import (
 
 const managedByLabel = "managed-by"
 const managedByValue = "honryu"
+
+// configHashAnnotation records a content fingerprint of a deploy's compiled
+// shard configs and scenario files on the pod template. A re-deploy that
+// keeps the same shard count otherwise leaves Kubernetes with no signal that
+// anything changed at all: the ConfigMap it references is a separate object,
+// so updating its data in place does not touch the pod template, and the
+// engine container never re-runs bzt on its own once it finishes (see
+// engineScript). Without this annotation, a StatefulSet re-deploy -- exactly
+// what a calibration search does between steps, each at a new QPS -- would
+// silently reuse an already-finished pod that will never run the new config.
+// Changing the annotation is what makes the ordinary StatefulSet rolling
+// update actually recreate the pods.
+const configHashAnnotation = "honryu.dev/config-hash"
 
 // engineContainer is the pod container running bzt, as opposed to the sidecar
 // beside it. A pod's logs must name it explicitly: the Kubernetes API refuses
@@ -200,6 +215,14 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 	}
 	podLabels["app"] = name
 
+	template := corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      podLabels,
+			Annotations: map[string]string{configHashAnnotation: configHash(spec)},
+		},
+		Spec: s.podSpec(spec, name),
+	}
+
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
@@ -211,10 +234,7 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 			// that was asked for. Kubernetes otherwise brings StatefulSet pods up
 			// one at a time, each waiting for the last to be ready.
 			PodManagementPolicy: appsv1.ParallelPodManagement,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: podLabels},
-				Spec:       s.podSpec(spec, name),
-			},
+			Template:            template,
 		},
 	}
 
@@ -226,10 +246,38 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 			return getErr
 		}
 		existing.Spec.Replicas = &replicas
+		// The template itself, not just the replica count -- see
+		// configHashAnnotation's own doc comment for why this must be a real
+		// replacement, not left as whatever the StatefulSet already had.
+		existing.Spec.Template = template
 		_, updErr := sets.Update(ctx, existing, metav1.UpdateOptions{})
 		return updErr
 	}
 	return err
+}
+
+// configHash fingerprints the content a re-deploy might actually change: each
+// shard's compiled config and the scenario's own artifacts. ScenarioFiles is
+// a map, so its keys are sorted first -- a hash must not depend on Go's
+// randomised map iteration order producing a different digest for identical
+// content across two calls.
+func configHash(spec ports.DeploySpec) string {
+	h := sha256.New()
+	for _, sh := range spec.Shards {
+		_, _ = fmt.Fprintf(h, "%d:%d:", sh.Index, len(sh.Config)) // hash.Hash.Write never errors
+		h.Write(sh.Config)
+	}
+	names := make([]string, 0, len(spec.ScenarioFiles))
+	for name := range spec.ScenarioFiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		content := spec.ScenarioFiles[name]
+		_, _ = fmt.Fprintf(h, "%s:%d:", name, len(content)) // hash.Hash.Write never errors
+		h.Write(content)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // podSpec builds one engine pod: bzt running this shard's config, and the
