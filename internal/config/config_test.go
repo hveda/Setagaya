@@ -120,6 +120,30 @@ func TestLoad_StorageAndEngineOverrides(t *testing.T) {
 	}
 }
 
+// The k8s scheduler adapter builds a sidecar container from these directly
+// (internal/adapters/scheduler/k8s.Config.SidecarImage/IngestURL); an empty
+// value would reach it as an invalid pod spec, so both are required once
+// Scheduler is "k8s" (see TestLoad_ValidationErrors' k8s cases for the
+// rejection side of this).
+func TestLoad_K8sSchedulerRequiresSidecarAndIngestConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(envMap(map[string]string{
+		"HONRYU_SCHEDULER":     "k8s",
+		"HONRYU_SIDECAR_IMAGE": "registry.example/honryu-sidecar:1.0.0",
+		"HONRYU_INGEST_URL":    "http://api.honryu.svc/api/ingest",
+	}))
+	if err != nil {
+		t.Fatalf("Load with sidecar image and ingest url set: %v", err)
+	}
+	if cfg.Cluster.SidecarImage != "registry.example/honryu-sidecar:1.0.0" {
+		t.Errorf("SidecarImage = %q", cfg.Cluster.SidecarImage)
+	}
+	if cfg.Cluster.IngestURL != "http://api.honryu.svc/api/ingest" {
+		t.Errorf("IngestURL = %q", cfg.Cluster.IngestURL)
+	}
+}
+
 func TestLoad_Overrides(t *testing.T) {
 	t.Parallel()
 
@@ -189,19 +213,27 @@ func TestLoad_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]map[string]string{
-		"port not a number":      {"HONRYU_HTTP_PORT": "abc"},
-		"port out of range":      {"HONRYU_HTTP_PORT": "70000"},
-		"port zero":              {"HONRYU_HTTP_PORT": "0"},
-		"bad read timeout":       {"HONRYU_HTTP_READ_TIMEOUT": "soon"},
-		"bad write timeout":      {"HONRYU_HTTP_WRITE_TIMEOUT": "later"},
-		"bad idle timeout":       {"HONRYU_HTTP_IDLE_TIMEOUT": "never"},
-		"unknown log level":      {"HONRYU_LOG_LEVEL": "verbose"},
-		"unknown log format":     {"HONRYU_LOG_FORMAT": "yaml"},
-		"unknown db driver":      {"HONRYU_DB_DRIVER": "postgres"},
-		"mysql without dsn":      {"HONRYU_DB_DRIVER": "mysql"},
-		"bad max engines":        {"HONRYU_MAX_ENGINES": "-3"},
-		"non-numeric engines":    {"HONRYU_MAX_ENGINES": "lots"},
-		"unknown scheduler":      {"HONRYU_SCHEDULER": "nomad"},
+		"port not a number":   {"HONRYU_HTTP_PORT": "abc"},
+		"port out of range":   {"HONRYU_HTTP_PORT": "70000"},
+		"port zero":           {"HONRYU_HTTP_PORT": "0"},
+		"bad read timeout":    {"HONRYU_HTTP_READ_TIMEOUT": "soon"},
+		"bad write timeout":   {"HONRYU_HTTP_WRITE_TIMEOUT": "later"},
+		"bad idle timeout":    {"HONRYU_HTTP_IDLE_TIMEOUT": "never"},
+		"unknown log level":   {"HONRYU_LOG_LEVEL": "verbose"},
+		"unknown log format":  {"HONRYU_LOG_FORMAT": "yaml"},
+		"unknown db driver":   {"HONRYU_DB_DRIVER": "postgres"},
+		"mysql without dsn":   {"HONRYU_DB_DRIVER": "mysql"},
+		"bad max engines":     {"HONRYU_MAX_ENGINES": "-3"},
+		"non-numeric engines": {"HONRYU_MAX_ENGINES": "lots"},
+		"unknown scheduler":   {"HONRYU_SCHEDULER": "nomad"},
+		"k8s scheduler without sidecar image": {
+			"HONRYU_SCHEDULER":  "k8s",
+			"HONRYU_INGEST_URL": "http://api.honryu.svc/api/ingest",
+		},
+		"k8s scheduler without ingest url": {
+			"HONRYU_SCHEDULER":     "k8s",
+			"HONRYU_SIDECAR_IMAGE": "registry.example/honryu-sidecar:1.0.0",
+		},
 		"unknown default engine": {"HONRYU_DEFAULT_ENGINE": "wat"},
 		"default engine without an image": {
 			"HONRYU_DEFAULT_ENGINE": "k6",

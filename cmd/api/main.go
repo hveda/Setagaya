@@ -260,7 +260,10 @@ func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
 		if err != nil {
 			return nil, fmt.Errorf("k8s client: %w", err)
 		}
-		return k8sscheduler.New(client, k8sscheduler.Config{Namespace: cfg.Namespace, EnginePort: cfg.EnginePort}), nil
+		return k8sscheduler.New(client, k8sscheduler.Config{
+			Namespace: cfg.Namespace, EnginePort: cfg.EnginePort,
+			SidecarImage: cfg.SidecarImage, IngestURL: cfg.IngestURL,
+		}), nil
 	default:
 		return nil, fmt.Errorf("scheduler %q not supported", cfg.Scheduler)
 	}

@@ -95,6 +95,14 @@ type ClusterConfig struct {
 	// every push, so a deployment that has not configured one is closed rather
 	// than open.
 	IngestToken string
+	// SidecarImage runs beside each engine pod, forwarding its measurements to
+	// IngestURL. Required when Scheduler is "k8s" -- an empty image would
+	// reach the k8s scheduler adapter as an invalid pod spec.
+	SidecarImage string
+	// IngestURL is where the sidecar pushes batches -- this deployment's own
+	// ingest endpoint, reachable from inside the cluster. Required when
+	// Scheduler is "k8s".
+	IngestURL string
 	// AutoPurgeInterval is how often idle engines are swept; zero disables the
 	// sweeper. AutoPurgeIdle is how long engines may sit idle before a sweep
 	// purges them.
@@ -207,6 +215,8 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Cluster.Scheduler = strEnv(getenv, "SCHEDULER", cfg.Cluster.Scheduler)
 	cfg.Cluster.Namespace = strEnv(getenv, "K8S_NAMESPACE", cfg.Cluster.Namespace)
 	cfg.Cluster.IngestToken = strEnv(getenv, "INGEST_TOKEN", cfg.Cluster.IngestToken)
+	cfg.Cluster.SidecarImage = strEnv(getenv, "SIDECAR_IMAGE", cfg.Cluster.SidecarImage)
+	cfg.Cluster.IngestURL = strEnv(getenv, "INGEST_URL", cfg.Cluster.IngestURL)
 	cfg.Cluster.DefaultEngine = taurus.Executor(
 		strEnv(getenv, "DEFAULT_ENGINE", string(cfg.Cluster.DefaultEngine)))
 	if raw := strEnv(getenv, "ENGINE_IMAGES", ""); raw != "" {
@@ -273,6 +283,14 @@ func (c Config) validate() error {
 	}
 	if !oneOf(c.Cluster.Scheduler, "fake", "k8s") {
 		return fmt.Errorf("config: invalid scheduler %q", c.Cluster.Scheduler)
+	}
+	if c.Cluster.Scheduler == "k8s" {
+		if c.Cluster.SidecarImage == "" {
+			return fmt.Errorf("config: scheduler k8s requires %sSIDECAR_IMAGE", envPrefix)
+		}
+		if c.Cluster.IngestURL == "" {
+			return fmt.Errorf("config: scheduler k8s requires %sINGEST_URL", envPrefix)
+		}
 	}
 	if err := c.Cluster.ValidateEngines(); err != nil {
 		return err
