@@ -278,9 +278,8 @@ func TestRunStep_ConcurrencySizedByMeasuredLatency(t *testing.T) {
 		t.Parallel()
 		e := setupStep(t, true)
 		// 500 QPS at a measured 100ms p95: Little's Law minimum is 50 VUs,
-		// times the headroom (3) ~= 150 -- far below the 1000 the generous
-		// default (2 VUs/QPS) would have provisioned. (A tolerance absorbs the
-		// float rounding of ceil(500 * 0.1 * 3).)
+		// times the headroom (3) ~= 150. (A tolerance absorbs the float
+		// rounding of ceil(500 * 0.1 * 3).)
 		if _, err := e.runner.RunStep(ctx, e.executionID, 500, 5, 0.1); err != nil {
 			t.Fatalf("RunStep: %v", err)
 		}
@@ -289,7 +288,7 @@ func TestRunStep_ConcurrencySizedByMeasuredLatency(t *testing.T) {
 			t.Fatalf("LoadProfileFor: %v", err)
 		}
 		if got := entries[0].Concurrency; got < 150 || got > 151 {
-			t.Fatalf("Concurrency = %d, want ~150 (500 * 0.1 * 3 headroom), not the default's 1000", got)
+			t.Fatalf("Concurrency = %d, want ~150 (500 * 0.1 * 3 headroom)", got)
 		}
 	})
 
@@ -297,7 +296,7 @@ func TestRunStep_ConcurrencySizedByMeasuredLatency(t *testing.T) {
 		t.Parallel()
 		e := setupStep(t, true)
 		// 1000 QPS at a 2ms p95: Little's minimum is 2 VUs, so the floor (20)
-		// wins -- the default would have provisioned 2000 (the live-caught bug).
+		// wins.
 		if _, err := e.runner.RunStep(ctx, e.executionID, 1000, 5, 0.002); err != nil {
 			t.Fatalf("RunStep: %v", err)
 		}
@@ -310,12 +309,13 @@ func TestRunStep_ConcurrencySizedByMeasuredLatency(t *testing.T) {
 		}
 	})
 
-	t.Run("the uninformed default is capped so a high rate cannot OOM the pod", func(t *testing.T) {
+	t.Run("the uninformed first attempt is a light probe at the floor", func(t *testing.T) {
 		t.Parallel()
 		e := setupStep(t, true)
-		// 8000 QPS, no measured latency (hint 0): the generous 2 VUs/QPS would
-		// be 16000 threads; the ceiling holds it to 2000, and the retry re-sizes
-		// from the measured RT.
+		// 8000 QPS, no measured latency (hint 0): the first attempt is a light
+		// probe at the floor, NOT sized to the rate -- so it can never open a
+		// storm of connections or exhaust memory. The retry re-sizes from the
+		// measured RT.
 		if _, err := e.runner.RunStep(ctx, e.executionID, 8000, 5, 0); err != nil {
 			t.Fatalf("RunStep: %v", err)
 		}
@@ -323,17 +323,18 @@ func TestRunStep_ConcurrencySizedByMeasuredLatency(t *testing.T) {
 		if err != nil {
 			t.Fatalf("LoadProfileFor: %v", err)
 		}
-		if got := entries[0].Concurrency; got != 2000 {
-			t.Fatalf("Concurrency = %d, want the ceiling 2000 (not the default's 16000)", got)
+		if got := entries[0].Concurrency; got != 20 {
+			t.Fatalf("Concurrency = %d, want the floor 20 (a light probe, not 8000-scaled)", got)
 		}
 	})
 
-	t.Run("a measured latency may exceed the default ceiling for a slow target", func(t *testing.T) {
+	t.Run("a measured slow target gets all the threads Little's Law calls for", func(t *testing.T) {
 		t.Parallel()
 		e := setupStep(t, true)
 		// 8000 QPS at a genuinely slow 1s p95: Little's Law calls for
-		// 8000 * 1 * 3 = 24000 VUs, and the measured path is not ceiling-capped
-		// -- a slow target really does need that many to sustain the rate.
+		// 8000 * 1 * 3 = 24000 VUs, and the measured (retry) path is not capped
+		// -- a slow target really does need that many to sustain the rate, and
+		// this comes from a real measurement rather than a guess.
 		if _, err := e.runner.RunStep(ctx, e.executionID, 8000, 5, 1.0); err != nil {
 			t.Fatalf("RunStep: %v", err)
 		}
@@ -342,7 +343,7 @@ func TestRunStep_ConcurrencySizedByMeasuredLatency(t *testing.T) {
 			t.Fatalf("LoadProfileFor: %v", err)
 		}
 		if got := entries[0].Concurrency; got != 24000 {
-			t.Fatalf("Concurrency = %d, want 24000 (8000 * 1.0 * 3, uncapped for a measured slow target)", got)
+			t.Fatalf("Concurrency = %d, want 24000 (8000 * 1.0 * 3, from a real measurement)", got)
 		}
 	})
 }

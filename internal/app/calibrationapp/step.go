@@ -33,24 +33,9 @@ var ErrStepRunNotStarted = errors.New("calibrationapp: triggered run is not repo
 const (
 	// stepConcurrencyFloor is the least concurrency ever requested, so even
 	// the search's seed QPS keeps enough virtual users to actually reach it.
+	// It is also what the first attempt of a step runs at (see
+	// stepConcurrency): a light probe, deliberately not sized to the rate.
 	stepConcurrencyFloor = 20
-	// stepConcurrencyPerQPS sizes a step's virtual users when no measured
-	// response time is available yet (the first attempt of a step): a
-	// generous 2 VUs per requested QPS, which assumes up to ~2s worst-case
-	// response time (Little's Law) so a slow target is never starved of
-	// threads. Deliberately generous, not accurate: the RT-informed retry
-	// corrects the count in either direction (down when this over-provisions
-	// and bzt's throughput timer undershoots; up when it under-provisions),
-	// so this only has to be a safe starting point.
-	stepConcurrencyPerQPS = 2.0
-	// stepConcurrencyCeiling caps the first attempt's generous default so a
-	// high requested rate cannot spawn a thread count that exhausts the pod's
-	// memory before the retry ever gets to shrink it -- 2 VUs/QPS is 16000
-	// threads at 8000 QPS, and real engines saturate up there. The cap does
-	// not limit what the retry can size to from a measured response time (a
-	// genuinely slow target still gets the threads Little's Law calls for);
-	// it only bounds the uninformed first guess.
-	stepConcurrencyCeiling = 2000
 	// concurrencyHeadroom multiplies the Little's-Law minimum
 	// (requestedQPS * observedLatency) when a step is re-sized from a
 	// measured response time -- enough slack to absorb latency jitter
@@ -288,24 +273,24 @@ func (r *StepRunner) triggerWhenReady(ctx context.Context, executionID int64) er
 // Either way the result is floored at stepConcurrencyFloor so a low-QPS step
 // still has enough users to reach its rate.
 func stepConcurrency(requestedQPS, latencyHintSec float64) int {
-	if latencyHintSec > 0 {
-		// Measured: Little's Law, sized to what the load needs. No ceiling --
-		// a genuinely slow target legitimately needs many threads.
-		c := int(math.Ceil(requestedQPS * latencyHintSec * concurrencyHeadroom))
-		return clampFloor(c)
+	if latencyHintSec <= 0 {
+		// First attempt: a light probe at the floor, just enough to measure a
+		// representative response time cheaply. Deliberately NOT sized to the
+		// requested rate. Sizing an uninformed first guess to the rate is what
+		// caused two live failures: a high rate opened a storm of connections
+		// that tripped the target's connection limit (2000 VUs at 4000 QPS
+		// made httpbin's proxy close every connection), and at higher rates it
+		// would exhaust the pod's memory -- both before the response time that
+		// would size it correctly was even known. If the probe undershoots the
+		// rate the step is retried, and the retry sizes threads accurately from
+		// the probe's measured latency.
+		return stepConcurrencyFloor
 	}
-	// Uninformed first guess: generous but capped so a high rate cannot OOM
-	// the pod before the retry re-sizes it.
-	c := int(math.Ceil(requestedQPS * stepConcurrencyPerQPS))
-	if c > stepConcurrencyCeiling {
-		c = stepConcurrencyCeiling
-	}
-	return clampFloor(c)
-}
-
-// clampFloor lifts a concurrency to stepConcurrencyFloor so even a low-QPS
-// step keeps enough virtual users to reach its rate.
-func clampFloor(c int) int {
+	// Retry: Little's Law from the measured response time, sized to what the
+	// load actually needs. No ceiling -- a genuinely slow target legitimately
+	// needs many threads, and this is sized from a real measurement, not a
+	// guess.
+	c := int(math.Ceil(requestedQPS * latencyHintSec * concurrencyHeadroom))
 	if c < stepConcurrencyFloor {
 		return stepConcurrencyFloor
 	}
