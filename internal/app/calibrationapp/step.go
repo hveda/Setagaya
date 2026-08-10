@@ -34,12 +34,23 @@ const (
 	// stepConcurrencyFloor is the least concurrency ever requested, so even
 	// the search's seed QPS keeps enough virtual users to actually reach it.
 	stepConcurrencyFloor = 20
-	// stepConcurrencyPerQPS is how many virtual users a step reserves per
-	// unit of requested QPS -- generous (assumes up to ~2s worst-case
-	// response time, Little's Law) so Taurus's own thread ceiling is never
-	// what limits throughput; only the pod's real capacity or the target's
-	// real behaviour is allowed to.
+	// stepConcurrencyPerQPS sizes a step's virtual users when no measured
+	// response time is available yet (the first attempt of a step): a
+	// generous 2 VUs per requested QPS, which assumes up to ~2s worst-case
+	// response time (Little's Law) so a slow target is never starved of
+	// threads. Deliberately generous, not accurate: over-provisioning only
+	// makes bzt's throughput timer undershoot a little, which the RT-informed
+	// retry (see stepConcurrencyForLatency) then corrects, whereas
+	// under-provisioning hard-caps the achievable rate and cannot be
+	// recovered from.
 	stepConcurrencyPerQPS = 2.0
+	// concurrencyHeadroom multiplies the Little's-Law minimum
+	// (requestedQPS * observedLatency) when a step is re-sized from a
+	// measured response time -- enough slack to absorb latency jitter
+	// without the gross over-provisioning that makes bzt's Constant
+	// Throughput Timer undershoot with mostly-idle threads (measured live:
+	// 400 VUs undershot 200 QPS by ~13%, 20 VUs held it within 1%).
+	concurrencyHeadroom = 3.0
 	// stepRampupSeconds is the warmup a step's run spends ramping to its
 	// full concurrency before the steady-state hold begins.
 	stepRampupSeconds = 5
@@ -139,11 +150,16 @@ func (r *StepRunner) WithClock(now func() time.Time) *StepRunner {
 // running at requestedQPS, deploys and triggers it, holds through the
 // steady-state window, stops it, and returns the settled report.
 //
+// latencyHintSec, when positive, is a response time measured for this
+// scenario on an earlier attempt, from which the virtual-user count is sized
+// by Little's Law; zero means none is known yet and a generous default is
+// used instead (see stepConcurrency).
+//
 // executionID's pod size is not RunStep's concern -- it is pinned on the
 // execution itself (execution.CPU/Memory, set once at calibrationapp.Create)
 // and Deploy already reads it from there for every execution, calibration or
 // not.
-func (r *StepRunner) RunStep(ctx context.Context, executionID int64, requestedQPS float64, holdSeconds int) (report.Report, error) {
+func (r *StepRunner) RunStep(ctx context.Context, executionID int64, requestedQPS float64, holdSeconds int, latencyHintSec float64) (report.Report, error) {
 	if requestedQPS <= 0 {
 		return report.Report{}, fmt.Errorf("%w: %g", ErrRequestedQPSInvalid, requestedQPS)
 	}
@@ -161,7 +177,7 @@ func (r *StepRunner) RunStep(ctx context.Context, executionID int64, requestedQP
 		Name:        base.Name,
 		ScenarioID:  base.ScenarioID,
 		Engines:     1,
-		Concurrency: stepConcurrency(requestedQPS),
+		Concurrency: stepConcurrency(requestedQPS, latencyHintSec),
 		Rampup:      stepRampupSeconds,
 		Duration:    holdSeconds,
 		Throughput:  int(math.Ceil(requestedQPS)),
@@ -246,10 +262,30 @@ func (r *StepRunner) triggerWhenReady(ctx context.Context, executionID int64) er
 }
 
 // stepConcurrency returns the virtual-user count a step at requestedQPS
-// should run with -- generous enough that concurrency itself is never the
-// bottleneck a classification mistakes for engine or target saturation.
-func stepConcurrency(requestedQPS float64) int {
-	c := int(math.Ceil(requestedQPS * stepConcurrencyPerQPS))
+// should run with.
+//
+// With a measured response time (latencyHintSec > 0) it sizes by Little's
+// Law -- requestedQPS * latency is the minimum VUs to sustain the rate, times
+// concurrencyHeadroom for jitter -- so the thread count matches what the load
+// actually needs. This matters because bzt's Constant Throughput Timer
+// undershoots the target rate when given far more threads than the load needs
+// (they sit mostly idle and pace poorly): against a 2ms target, sizing 2
+// VUs/QPS put ~1000x too many threads in play and undershot the requested
+// rate by ~13%, enough to misread an un-saturated engine as saturated.
+//
+// Without a measurement yet (latencyHintSec == 0, the first attempt of a
+// step) it falls back to the generous stepConcurrencyPerQPS default -- see
+// that constant for why over-provisioning here is the safe direction, since
+// the RT-informed retry corrects it.
+//
+// Either way the result is floored at stepConcurrencyFloor so a low-QPS step
+// still has enough users to reach its rate.
+func stepConcurrency(requestedQPS, latencyHintSec float64) int {
+	perQPS := stepConcurrencyPerQPS
+	if latencyHintSec > 0 {
+		perQPS = latencyHintSec * concurrencyHeadroom
+	}
+	c := int(math.Ceil(requestedQPS * perQPS))
 	if c < stepConcurrencyFloor {
 		return stepConcurrencyFloor
 	}

@@ -517,9 +517,10 @@ func TestGet_StepsForErrorPropagates(t *testing.T) {
 
 // stubRunnerCall records one RunStep invocation's arguments.
 type stubRunnerCall struct {
-	executionID  int64
-	requestedQPS float64
-	holdSeconds  int
+	executionID    int64
+	requestedQPS   float64
+	holdSeconds    int
+	latencyHintSec float64
 }
 
 // stubRunnerResponse is one scripted RunStep outcome.
@@ -538,8 +539,8 @@ type stubRunner struct {
 	calls     []stubRunnerCall
 }
 
-func (r *stubRunner) RunStep(_ context.Context, executionID int64, requestedQPS float64, holdSeconds int) (report.Report, error) {
-	r.calls = append(r.calls, stubRunnerCall{executionID, requestedQPS, holdSeconds})
+func (r *stubRunner) RunStep(_ context.Context, executionID int64, requestedQPS float64, holdSeconds int, latencyHintSec float64) (report.Report, error) {
+	r.calls = append(r.calls, stubRunnerCall{executionID, requestedQPS, holdSeconds, latencyHintSec})
 	if len(r.responses) == 0 {
 		panic("stubRunner: no more scripted responses")
 	}
@@ -764,6 +765,42 @@ func TestAdvanceOne_RetryDiscardsAnAnomalousEngineShort(t *testing.T) {
 	}
 	if len(job.Steps) != 1 || job.Steps[0].Classification != calibration.ClassificationClean {
 		t.Fatalf("steps = %+v, want a single clean step (the retry's, not the discarded anomaly)", job.Steps)
+	}
+}
+
+// The retry after an engine-short sizes its threads from the first attempt's
+// measured response time (Little's Law), so an engine-short caused merely by
+// over-provisioned, poorly-paced threads resolves cleanly instead of
+// derailing the search. The first attempt itself has no measurement yet, so
+// it runs with the generous default (hint 0).
+func TestAdvanceOne_RetrySizesThreadsFromMeasuredLatency(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	spec := calibration.Spec{Criterion: "failures>5%", CPU: "1", Memory: "512Mi", SeedQPS: 10, MaxQPS: 1000, MaxSteps: 5, HoldSeconds: 1}
+	seedTriggeredCalibration(t, store, spec)
+
+	firstAttempt := engineSaturatedReport(10, 4)
+	firstAttempt.Latency = report.Percentiles{50: 0.05, 95: 0.2} // 200ms p95
+	runner := &stubRunner{responses: []stubRunnerResponse{
+		{report: firstAttempt},        // attempt 1: engine-short, p95 = 0.2s
+		{report: cleanReport(10, 10)}, // retry (now correctly sized): clean
+	}}
+	svc := calibrationapp.NewService(store).WithRunner(runner).WithFingerprint(&stubFingerprinter{value: "fp"})
+
+	if _, err := svc.AdvanceOne(ctx, time.Now()); err != nil {
+		t.Fatalf("AdvanceOne: %v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("runner calls = %d, want 2", len(runner.calls))
+	}
+	// First attempt: no measurement yet, generous default.
+	if runner.calls[0].latencyHintSec != 0 {
+		t.Fatalf("first attempt latency hint = %v, want 0 (bootstrap)", runner.calls[0].latencyHintSec)
+	}
+	// Retry: sized from the first attempt's measured p95.
+	if runner.calls[1].latencyHintSec != 0.2 {
+		t.Fatalf("retry latency hint = %v, want the first attempt's p95 (0.2s)", runner.calls[1].latencyHintSec)
 	}
 }
 

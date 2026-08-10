@@ -188,7 +188,7 @@ func TestRunStep_HappyPath_RewritesProfileDeploysTriggersHoldsStopsAndReturnsRep
 	e := setupStep(t, true)
 	ctx := context.Background()
 
-	rpt, err := e.runner.RunStep(ctx, e.executionID, 123.4, 17)
+	rpt, err := e.runner.RunStep(ctx, e.executionID, 123.4, 17, 0)
 	if err != nil {
 		t.Fatalf("RunStep: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestRunStep_ConcurrencyFloorAppliesForLowQPS(t *testing.T) {
 	e := setupStep(t, true)
 	ctx := context.Background()
 
-	if _, err := e.runner.RunStep(ctx, e.executionID, 1, 5); err != nil {
+	if _, err := e.runner.RunStep(ctx, e.executionID, 1, 5, 0); err != nil {
 		t.Fatalf("RunStep: %v", err)
 	}
 	entries, err := e.store.LoadProfileFor(ctx, e.executionID)
@@ -270,13 +270,54 @@ func TestRunStep_ConcurrencyFloorAppliesForLowQPS(t *testing.T) {
 	}
 }
 
+func TestRunStep_ConcurrencySizedByMeasuredLatency(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("a measured latency drives Little's-Law sizing", func(t *testing.T) {
+		t.Parallel()
+		e := setupStep(t, true)
+		// 500 QPS at a measured 100ms p95: Little's Law minimum is 50 VUs,
+		// times the headroom (3) ~= 150 -- far below the 1000 the generous
+		// default (2 VUs/QPS) would have provisioned. (A tolerance absorbs the
+		// float rounding of ceil(500 * 0.1 * 3).)
+		if _, err := e.runner.RunStep(ctx, e.executionID, 500, 5, 0.1); err != nil {
+			t.Fatalf("RunStep: %v", err)
+		}
+		entries, err := e.store.LoadProfileFor(ctx, e.executionID)
+		if err != nil {
+			t.Fatalf("LoadProfileFor: %v", err)
+		}
+		if got := entries[0].Concurrency; got < 150 || got > 151 {
+			t.Fatalf("Concurrency = %d, want ~150 (500 * 0.1 * 3 headroom), not the default's 1000", got)
+		}
+	})
+
+	t.Run("a fast target collapses to the floor, not thousands of threads", func(t *testing.T) {
+		t.Parallel()
+		e := setupStep(t, true)
+		// 1000 QPS at a 2ms p95: Little's minimum is 2 VUs, so the floor (20)
+		// wins -- the default would have provisioned 2000 (the live-caught bug).
+		if _, err := e.runner.RunStep(ctx, e.executionID, 1000, 5, 0.002); err != nil {
+			t.Fatalf("RunStep: %v", err)
+		}
+		entries, err := e.store.LoadProfileFor(ctx, e.executionID)
+		if err != nil {
+			t.Fatalf("LoadProfileFor: %v", err)
+		}
+		if got := entries[0].Concurrency; got != 20 {
+			t.Fatalf("Concurrency = %d, want the floor 20 (1000 * 0.002 * 3 = 6, below floor)", got)
+		}
+	})
+}
+
 func TestRunStep_RejectsNonPositiveQPS(t *testing.T) {
 	t.Parallel()
 	for _, qps := range []float64{0, -5} {
 		e := setupStep(t, true)
 		ctx := context.Background()
 
-		if _, err := e.runner.RunStep(ctx, e.executionID, qps, 30); !errors.Is(err, calibrationapp.ErrRequestedQPSInvalid) {
+		if _, err := e.runner.RunStep(ctx, e.executionID, qps, 30, 0); !errors.Is(err, calibrationapp.ErrRequestedQPSInvalid) {
 			t.Fatalf("RunStep(%g) error = %v, want ErrRequestedQPSInvalid", qps, err)
 		}
 		if deployed, _ := e.sched.DeployedExecutions(ctx, ""); len(deployed) != 0 {
@@ -292,7 +333,7 @@ func TestRunStep_RequiresExactlyOneConfiguredScenario(t *testing.T) {
 	t.Run("no scenario configured", func(t *testing.T) {
 		t.Parallel()
 		e := setupStep(t, false)
-		if _, err := e.runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, calibrationapp.ErrScenarioNotConfigured) {
+		if _, err := e.runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, calibrationapp.ErrScenarioNotConfigured) {
 			t.Fatalf("error = %v, want ErrScenarioNotConfigured", err)
 		}
 	})
@@ -308,7 +349,7 @@ func TestRunStep_RequiresExactlyOneConfiguredScenario(t *testing.T) {
 		if err := e.store.StoreLoadProfile(ctx, e.executionID, false, entries); err != nil {
 			t.Fatalf("StoreLoadProfile: %v", err)
 		}
-		if _, err := e.runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, calibrationapp.ErrScenarioNotConfigured) {
+		if _, err := e.runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, calibrationapp.ErrScenarioNotConfigured) {
 			t.Fatalf("error = %v, want ErrScenarioNotConfigured", err)
 		}
 	})
@@ -368,7 +409,7 @@ func TestRunStep_PropagatesRepoFailures(t *testing.T) {
 			lifecycle := lifecycleapp.NewService(e.store, e.sched, e.obj, lifecycleapp.StaticImage(stepImage))
 			runner := calibrationapp.NewStepRunner(errRepo, lifecycle, e.reports).WithSleep(func(time.Duration) {})
 
-			if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, sentinel) {
+			if _, err := runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, sentinel) {
 				t.Fatalf("RunStep error = %v, want sentinel", err)
 			}
 		})
@@ -407,7 +448,7 @@ func TestRunStep_PropagatesLifecycleFailures(t *testing.T) {
 		e := setupStep(t, true)
 		lc := &stubLifecycle{deployErr: sentinel}
 		runner := calibrationapp.NewStepRunner(e.store, lc, e.reports).WithSleep(func(time.Duration) {})
-		if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, sentinel) {
+		if _, err := runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, sentinel) {
 			t.Fatalf("error = %v, want sentinel", err)
 		}
 		if lc.triggered {
@@ -420,7 +461,7 @@ func TestRunStep_PropagatesLifecycleFailures(t *testing.T) {
 		e := setupStep(t, true)
 		lc := &stubLifecycle{triggerErr: sentinel}
 		runner := calibrationapp.NewStepRunner(e.store, lc, e.reports).WithSleep(func(time.Duration) {})
-		if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, sentinel) {
+		if _, err := runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, sentinel) {
 			t.Fatalf("error = %v, want sentinel", err)
 		}
 		if lc.stopped {
@@ -449,7 +490,7 @@ func TestRunStep_PropagatesLifecycleFailures(t *testing.T) {
 			clock.Advance(d)
 		}).WithClock(clock.Now)
 
-		if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, sentinel) {
+		if _, err := runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, sentinel) {
 			t.Fatalf("error = %v, want sentinel", err)
 		}
 		if _, running, _ := e.store.CurrentRun(ctx, e.executionID); !running {
@@ -513,7 +554,7 @@ func TestRunStep_TriggerRetriesUntilEnginesAreReady(t *testing.T) {
 		clock.Advance(d)
 	}).WithClock(clock.Now)
 
-	if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, calibrationapp.ErrStepRunNotStarted) {
+	if _, err := runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, calibrationapp.ErrStepRunNotStarted) {
 		t.Fatalf("error = %v, want ErrStepRunNotStarted", err)
 	}
 	if lc.calls != 4 {
@@ -531,7 +572,7 @@ func TestRunStep_ErrorsWhenTriggeredRunIsNotReportedRunning(t *testing.T) {
 	lc := &stubLifecycle{} // Deploy/Trigger succeed but start no real run
 	runner := calibrationapp.NewStepRunner(e.store, lc, e.reports).WithSleep(func(time.Duration) {})
 
-	if _, err := runner.RunStep(ctx, e.executionID, 10, 30); !errors.Is(err, calibrationapp.ErrStepRunNotStarted) {
+	if _, err := runner.RunStep(ctx, e.executionID, 10, 30, 0); !errors.Is(err, calibrationapp.ErrStepRunNotStarted) {
 		t.Fatalf("error = %v, want ErrStepRunNotStarted", err)
 	}
 	if lc.stopped {
@@ -545,7 +586,7 @@ func TestRunStep_PropagatesReportReadFailure(t *testing.T) {
 	ctx := context.Background()
 	e.reports.GetErr = errors.New("boom")
 
-	if _, err := e.runner.RunStep(ctx, e.executionID, 10, 30); err == nil {
+	if _, err := e.runner.RunStep(ctx, e.executionID, 10, 30, 0); err == nil {
 		t.Fatal("RunStep error = nil, want the report store's failure")
 	}
 }

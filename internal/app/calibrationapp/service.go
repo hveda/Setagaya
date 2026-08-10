@@ -57,7 +57,7 @@ type Repo interface {
 // directly; AdvanceOne depends on the interface so a test can substitute a
 // stub without wiring a full StepRunner+Lifecycle+ReportStore.
 type Runner interface {
-	RunStep(ctx context.Context, executionID int64, requestedQPS float64, holdSeconds int) (report.Report, error)
+	RunStep(ctx context.Context, executionID int64, requestedQPS float64, holdSeconds int, latencyHintSec float64) (report.Report, error)
 }
 
 // ScenarioFingerprinter computes a scenario's content fingerprint --
@@ -252,16 +252,22 @@ func (s *Service) AdvanceOne(ctx context.Context, now time.Time) (found bool, er
 
 	job, requestedQPS := startOrResume(spec, persisted)
 
-	step, err := s.runClassifiedStep(ctx, persisted.ExecutionID, requestedQPS, spec)
+	// The first attempt has no measured response time to size threads from,
+	// so it uses the generous default (see stepConcurrency).
+	step, latencySec, err := s.runClassifiedStep(ctx, persisted.ExecutionID, requestedQPS, spec, 0)
 	if err != nil {
 		return true, s.fail(ctx, persisted.ID, err)
 	}
-	// A single anomalous engine-short is retried once, at the same
-	// requested rate, before being accepted as the ceiling -- only the
-	// retry's own outcome is fed to the search; the discarded first attempt
-	// leaves no trace in the step history.
+	// A single anomalous engine-short is retried once, at the same requested
+	// rate, before being accepted as the ceiling -- only the retry's own
+	// outcome is fed to the search; the discarded first attempt leaves no
+	// trace in the step history. The retry is also where thread sizing is
+	// corrected: it uses the first attempt's measured response time to size
+	// virtual users by Little's Law, so an engine-short caused merely by
+	// over-provisioned, poorly-paced threads (not real saturation) resolves
+	// to a clean step instead of derailing the search downward.
 	if step.Classification == calibration.ClassificationEngineSaturated {
-		step, err = s.runClassifiedStep(ctx, persisted.ExecutionID, requestedQPS, spec)
+		step, _, err = s.runClassifiedStep(ctx, persisted.ExecutionID, requestedQPS, spec, latencySec)
 		if err != nil {
 			return true, s.fail(ctx, persisted.ID, err)
 		}
@@ -296,10 +302,14 @@ func (s *Service) fail(ctx context.Context, jobID int64, runErr error) error {
 // checked before the target-health criterion, since a report's overall
 // ErrorRate -- unlike TargetErrorRate -- counts the engine's own failures
 // too, and an engine-impaired run must never be misread as target distress.
-func (s *Service) runClassifiedStep(ctx context.Context, executionID int64, requestedQPS float64, spec calibration.Spec) (calibration.Step, error) {
-	rpt, err := s.runner.RunStep(ctx, executionID, requestedQPS, spec.HoldSeconds)
+//
+// latencyHintSec sizes the run's virtual users (see RunStep). It also returns
+// the response time this run measured, so a caller re-running the step can
+// size the retry's threads from real data rather than the generous default.
+func (s *Service) runClassifiedStep(ctx context.Context, executionID int64, requestedQPS float64, spec calibration.Spec, latencyHintSec float64) (calibration.Step, float64, error) {
+	rpt, err := s.runner.RunStep(ctx, executionID, requestedQPS, spec.HoldSeconds, latencyHintSec)
 	if err != nil {
-		return calibration.Step{}, err
+		return calibration.Step{}, 0, err
 	}
 	class := calibration.ClassificationClean
 	switch {
@@ -308,7 +318,16 @@ func (s *Service) runClassifiedStep(ctx context.Context, executionID int64, requ
 	case len(rpt.EvaluateCriteria([]string{spec.Criterion})) > 0:
 		class = calibration.ClassificationTargetSaturated
 	}
-	return calibration.Step{RequestedQPS: requestedQPS, AchievedQPS: rpt.Achieved.Throughput, Classification: class}, nil
+	step := calibration.Step{RequestedQPS: requestedQPS, AchievedQPS: rpt.Achieved.Throughput, Classification: class}
+	return step, observedLatencySeconds(rpt), nil
+}
+
+// observedLatencySeconds is the response time a step's report is sized from --
+// p95, so a retry provisions for the slow tail rather than the median and is
+// never left short of threads. Zero when the run measured no latency at all
+// (an empty run), which sends the retry back to the generous default.
+func observedLatencySeconds(rpt report.Report) float64 {
+	return rpt.Latency[95]
 }
 
 // startOrResume returns the domain Job and this step's requested QPS for

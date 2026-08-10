@@ -160,7 +160,7 @@ type stubRunner struct {
 	calls     int
 }
 
-func (r *stubRunner) RunStep(context.Context, int64, float64, int) (report.Report, error) {
+func (r *stubRunner) RunStep(context.Context, int64, float64, int, float64) (report.Report, error) {
 	if r.calls >= len(r.responses) {
 		// Ticks after the search's already-scripted steps are a no-op find:
 		// nothing left to advance in this test.

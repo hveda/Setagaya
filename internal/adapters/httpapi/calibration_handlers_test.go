@@ -412,7 +412,7 @@ type stubAdvanceRunner struct {
 	report report.Report
 }
 
-func (r *stubAdvanceRunner) RunStep(context.Context, int64, float64, int) (report.Report, error) {
+func (r *stubAdvanceRunner) RunStep(context.Context, int64, float64, int, float64) (report.Report, error) {
 	return r.report, nil
 }
 
