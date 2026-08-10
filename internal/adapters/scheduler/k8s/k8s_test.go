@@ -42,11 +42,16 @@ func readyEngines(t *testing.T, client *fake.Clientset, executionID, scenarioID 
 		for k, v := range set.Spec.Template.Labels {
 			labels[k] = v
 		}
+		annotations := map[string]string{}
+		for k, v := range set.Spec.Template.Annotations {
+			annotations[k] = v
+		}
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("%s-%d", name, i),
-				Namespace: ns,
-				Labels:    labels,
+				Name:        fmt.Sprintf("%s-%d", name, i),
+				Namespace:   ns,
+				Labels:      labels,
+				Annotations: annotations,
 			},
 			Status: corev1.PodStatus{
 				Phase:      corev1.PodRunning,
@@ -169,6 +174,71 @@ func TestK8sScheduler_StatusCountsOnlyReadyPods(t *testing.T) {
 	}
 	if status.Scenarios[0].EnginesDeployed != 2 || status.Scenarios[0].Reachable {
 		t.Fatalf("readiness = %+v, want deployed=2 not reachable", status.Scenarios[0])
+	}
+}
+
+// A pod being replaced by a re-deploy can stay Running and PodReady for its
+// whole termination grace period after receiving its shutdown signal --
+// Kubernetes does not flip PodReady to false just because a pod is being
+// deleted. Counting it would let a caller's readiness poll (e.g.
+// calibrationapp's triggerWhenReady) succeed against a pod on its way out
+// rather than the fresh one the re-deploy actually created.
+func TestK8sScheduler_ReadinessIgnoresAPodFromAPriorDeploy(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	s := k8sadapter.New(client, k8sadapter.Config{Namespace: ns})
+
+	if err := s.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Shards: deployShards(1), Image: "x"}); err != nil {
+		t.Fatalf("deploy 1: %v", err)
+	}
+	readyEngines(t, client, 2, 3, 1)
+	status, err := s.ExecutionStatus(ctx, "", 2, []ports.ScenarioRef{{ScenarioID: 3, Shards: 1}})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.Scenarios[0].EnginesDeployed != 1 {
+		t.Fatalf("readiness after deploy 1 = %+v, want deployed=1", status.Scenarios[0])
+	}
+
+	// Re-deploy (a calibration step's next QPS, or a same-QPS retry): the
+	// StatefulSet's template changes, but nothing here simulates the real
+	// controller actually replacing the pod -- exactly the state a real
+	// cluster is in for up to defaultTerminationGrace while the old pod
+	// finishes terminating.
+	if err := s.DeployScenario(ctx, ports.DeploySpec{ProjectID: 1, ExecutionID: 2, ScenarioID: 3, Shards: deployShards(1), Image: "x"}); err != nil {
+		t.Fatalf("deploy 2: %v", err)
+	}
+
+	status, err = s.ExecutionStatus(ctx, "", 2, []ports.ScenarioRef{{ScenarioID: 3, Shards: 1}})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.Scenarios[0].EnginesDeployed != 0 {
+		t.Fatalf("readiness after re-deploy = %+v, want deployed=0 -- the only Ready pod is from the prior deploy", status.Scenarios[0])
+	}
+
+	// Once the old pod is actually gone and the new one exists and is
+	// ready, it counts. (The fake clientset runs no controller, so the old
+	// pod from deploy 1 is still sitting there under its own name; a real
+	// cluster would have deleted it once its termination grace elapsed.)
+	sel := fmt.Sprintf("execution=%d,scenario=%d", 2, 3)
+	old, err := client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		t.Fatalf("list old pods: %v", err)
+	}
+	for _, p := range old.Items {
+		if err := client.CoreV1().Pods(ns).Delete(ctx, p.Name, metav1.DeleteOptions{}); err != nil {
+			t.Fatalf("delete old pod: %v", err)
+		}
+	}
+	readyEngines(t, client, 2, 3, 1)
+	status, err = s.ExecutionStatus(ctx, "", 2, []ports.ScenarioRef{{ScenarioID: 3, Shards: 1}})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.Scenarios[0].EnginesDeployed != 1 {
+		t.Fatalf("readiness after fresh pod = %+v, want deployed=1", status.Scenarios[0])
 	}
 }
 

@@ -479,19 +479,64 @@ func (s *Scheduler) ExecutionStatus(ctx context.Context, _ ports.ClusterRef, exe
 	return status, nil
 }
 
+// readyPods counts pods that are both Kubernetes-ready and running the
+// current deploy's own pod template -- not just any pod matching the label
+// selector.
+//
+// A pod being replaced by a re-deploy (see configHashAnnotation) can stay
+// Running and PodReady for its whole termination grace period (up to
+// defaultTerminationGrace, 30s) after receiving its shutdown signal --
+// Kubernetes does not flip PodReady to false just because a pod is being
+// deleted. Counting it would let triggerWhenReady's readiness poll succeed
+// against a pod that is on its way out rather than the fresh one this
+// deploy actually created, stamping the run's StartedAt tens of seconds
+// before any pod running its compiled config even exists -- inflating
+// achievedSeconds by that same margin and understating achieved throughput
+// enough to misclassify a run as engine-saturated when it never was one
+// (task 85's live verification: every step in a real search came back
+// engine-saturated even at trivially low requested rates, traced to
+// exactly this).
 func (s *Scheduler) readyPods(ctx context.Context, executionID, scenarioID int64) (int, error) {
 	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
+	currentNonce, err := s.currentRedeployNonce(ctx, sel)
+	if err != nil {
+		return 0, err
+	}
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return 0, err
 	}
 	ready := 0
 	for i := range pods.Items {
-		if podReady(&pods.Items[i]) {
-			ready++
+		p := &pods.Items[i]
+		if !podReady(p) {
+			continue
 		}
+		if currentNonce != "" && p.Annotations[configHashAnnotation] != currentNonce {
+			continue
+		}
+		ready++
 	}
 	return ready, nil
+}
+
+// currentRedeployNonce returns the current configHashAnnotation value from
+// the StatefulSet a re-deploy would update -- the value every pod created by
+// the *next* reconciliation will carry, and so what readyPods must require a
+// pod already have to count as belonging to the current deploy rather than
+// one being replaced. Empty (not an error) if no StatefulSet exists yet for
+// this selector: readyPods then falls back to its old label-only behaviour,
+// which for a nonexistent StatefulSet is equivalent anyway (there are no
+// pods to find).
+func (s *Scheduler) currentRedeployNonce(ctx context.Context, labelSelector string) (string, error) {
+	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return "", err
+	}
+	if len(sets.Items) == 0 {
+		return "", nil
+	}
+	return sets.Items[0].Spec.Template.Annotations[configHashAnnotation], nil
 }
 
 func podReady(p *corev1.Pod) bool {
