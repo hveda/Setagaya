@@ -1,0 +1,22 @@
+# bzt's own default config, merged into every run automatically (bzt always
+# reads ~/.bzt-rc). Registers the Honryu KPI reporter unconditionally, so
+# the compiled per-execution config Honryu generates never has to know it
+# exists. Pins the JMeter version to match this image's own tag (the
+# Dockerfile provisions exactly this version at build time) rather than
+# trusting bzt's own shifting default.
+modules:
+  jmeter:
+    version: 5.6.3
+    # Every run's modified JMX otherwise costs ~9s invoking
+    # PluginsManagerCMD to detect and install plugins it might reference --
+    # pure waste here, since the Dockerfile already bakes in every plugin
+    # bzt would install. That ~9s is real pod-startup latency a step's
+    # engine has to clear before it can even begin ramping up.
+    detect-plugins: false
+  honryu:
+    class: honryu_kpi.HonryuKPIReporter
+    filename: /honryu/kpi/stream.jsonl
+reporting:
+  - module: honryu
+settings:
+  check-updates: false

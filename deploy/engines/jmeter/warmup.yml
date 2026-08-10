@@ -1,0 +1,13 @@
+# Used only at image build time (see the Dockerfile) to trigger bzt's own
+# JMeter/plugin provisioning into ~/.bzt, baking it into the image so a real
+# pod needs no network to start generating load. The request itself is
+# expected to fail -- nothing is listening on 127.0.0.1:1 -- provisioning
+# happens before that, in bzt's "Preparing" phase.
+execution:
+  - executor: jmeter
+    concurrency: 1
+    ramp-up: 1s
+    hold-for: 1s
+    scenario:
+      requests:
+        - http://127.0.0.1:1/
