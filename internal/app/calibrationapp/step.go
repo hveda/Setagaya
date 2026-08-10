@@ -38,12 +38,19 @@ const (
 	// response time is available yet (the first attempt of a step): a
 	// generous 2 VUs per requested QPS, which assumes up to ~2s worst-case
 	// response time (Little's Law) so a slow target is never starved of
-	// threads. Deliberately generous, not accurate: over-provisioning only
-	// makes bzt's throughput timer undershoot a little, which the RT-informed
-	// retry (see stepConcurrencyForLatency) then corrects, whereas
-	// under-provisioning hard-caps the achievable rate and cannot be
-	// recovered from.
+	// threads. Deliberately generous, not accurate: the RT-informed retry
+	// corrects the count in either direction (down when this over-provisions
+	// and bzt's throughput timer undershoots; up when it under-provisions),
+	// so this only has to be a safe starting point.
 	stepConcurrencyPerQPS = 2.0
+	// stepConcurrencyCeiling caps the first attempt's generous default so a
+	// high requested rate cannot spawn a thread count that exhausts the pod's
+	// memory before the retry ever gets to shrink it -- 2 VUs/QPS is 16000
+	// threads at 8000 QPS, and real engines saturate up there. The cap does
+	// not limit what the retry can size to from a measured response time (a
+	// genuinely slow target still gets the threads Little's Law calls for);
+	// it only bounds the uninformed first guess.
+	stepConcurrencyCeiling = 2000
 	// concurrencyHeadroom multiplies the Little's-Law minimum
 	// (requestedQPS * observedLatency) when a step is re-sized from a
 	// measured response time -- enough slack to absorb latency jitter
@@ -281,11 +288,24 @@ func (r *StepRunner) triggerWhenReady(ctx context.Context, executionID int64) er
 // Either way the result is floored at stepConcurrencyFloor so a low-QPS step
 // still has enough users to reach its rate.
 func stepConcurrency(requestedQPS, latencyHintSec float64) int {
-	perQPS := stepConcurrencyPerQPS
 	if latencyHintSec > 0 {
-		perQPS = latencyHintSec * concurrencyHeadroom
+		// Measured: Little's Law, sized to what the load needs. No ceiling --
+		// a genuinely slow target legitimately needs many threads.
+		c := int(math.Ceil(requestedQPS * latencyHintSec * concurrencyHeadroom))
+		return clampFloor(c)
 	}
-	c := int(math.Ceil(requestedQPS * perQPS))
+	// Uninformed first guess: generous but capped so a high rate cannot OOM
+	// the pod before the retry re-sizes it.
+	c := int(math.Ceil(requestedQPS * stepConcurrencyPerQPS))
+	if c > stepConcurrencyCeiling {
+		c = stepConcurrencyCeiling
+	}
+	return clampFloor(c)
+}
+
+// clampFloor lifts a concurrency to stepConcurrencyFloor so even a low-QPS
+// step keeps enough virtual users to reach its rate.
+func clampFloor(c int) int {
 	if c < stepConcurrencyFloor {
 		return stepConcurrencyFloor
 	}
