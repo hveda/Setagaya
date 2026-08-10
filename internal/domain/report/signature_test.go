@@ -109,6 +109,29 @@ func TestSignaturesStaySeparate(t *testing.T) {
 	}
 }
 
+// An engine facing a connection failure reports no HTTP status, only a
+// placeholder -- and JMeter's placeholder is a whole sentence, not a code.
+// Stored verbatim it overflows the response-code field (a live run against a
+// target that closed connections under load did exactly this, and the
+// overflow failed every ingest of the final batch, so the run never settled).
+// A response code that is not a real HTTP status is dropped to empty; the
+// failure's side is still attributed from the message, kept as an exemplar.
+func TestSignatureDropsNonHTTPResponseCode(t *testing.T) {
+	t.Parallel()
+
+	sig := report.NewSignature("get", metrics.ErrorGroup{
+		Message:      "Non HTTP response message: Connection is closed",
+		ResponseCode: "Non HTTP response code: org.apache.http.NoHttpResponseException",
+	})
+	if sig.ResponseCode != "" {
+		t.Errorf("ResponseCode = %q, want empty (a non-HTTP placeholder is not a status)", sig.ResponseCode)
+	}
+	// Real HTTP statuses are still kept.
+	if got := report.NewSignature("get", metrics.ErrorGroup{Message: "Server Error", ResponseCode: "503"}); got.ResponseCode != "503" {
+		t.Errorf("ResponseCode = %q, want 503 preserved", got.ResponseCode)
+	}
+}
+
 // Errors carry whatever the target echoed back -- a stack trace, an HTML error
 // page. Storing them unbounded would let a misbehaving target dictate the size
 // of every report of it.

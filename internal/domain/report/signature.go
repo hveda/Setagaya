@@ -41,10 +41,22 @@ type Signature struct {
 }
 
 // NewSignature derives the signature of one engine-reported failure.
+//
+// Only a real HTTP status is kept as the response code; anything else is
+// treated as "no response arrived" and dropped to empty. An engine faced with
+// a connection failure does not report a status -- it reports a placeholder,
+// and JMeter's placeholder is a whole sentence ("Non HTTP response code:
+// org.apache.http...") that both overflows the response-code field's bound and
+// is not a code at all. The failure is not lost: its side is still attributed
+// from the message, and the message is preserved verbatim as an exemplar.
 func NewSignature(label string, e metrics.ErrorGroup) Signature {
+	code := strings.TrimSpace(e.ResponseCode)
+	if !isResponseCode(code) {
+		code = ""
+	}
 	return Signature{
 		Label:        label,
-		ResponseCode: strings.TrimSpace(e.ResponseCode),
+		ResponseCode: code,
 		Side:         AttributeError(e),
 	}
 }
