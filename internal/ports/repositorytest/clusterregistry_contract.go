@@ -1,6 +1,7 @@
 package repositorytest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -172,6 +173,47 @@ func RunClusterRegistryContract(t *testing.T, newRepo NewClusterRegistry) {
 		repo := newRepo(t)
 		if _, err := repo.ResolveCluster(context.Background(), ports.ClusterRef("nope")); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("ResolveCluster(unknown) = %v, want ErrNotFound", err)
+		}
+	})
+
+	// The credential is opaque ciphertext, stored and returned verbatim; a
+	// fresh entry has none.
+	t.Run("CredentialRoundTripsVerbatim", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		if err := repo.CreateCluster(ctx, testCluster("prod-eu", clusterregistry.OriginBYOC)); err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+
+		got, err := repo.GetClusterCredential(ctx, "prod-eu")
+		if err != nil {
+			t.Fatalf("GetClusterCredential (fresh): %v", err)
+		}
+		if got != nil {
+			t.Fatalf("GetClusterCredential (fresh) = %v, want nil", got)
+		}
+
+		cipher := []byte{0x00, 0x01, 0xff, 0x7f, 0x80, 'x'}
+		if err := repo.SetClusterCredential(ctx, "prod-eu", cipher); err != nil {
+			t.Fatalf("SetClusterCredential: %v", err)
+		}
+		got, err = repo.GetClusterCredential(ctx, "prod-eu")
+		if err != nil {
+			t.Fatalf("GetClusterCredential: %v", err)
+		}
+		if !bytes.Equal(got, cipher) {
+			t.Fatalf("GetClusterCredential = %v, want %v", got, cipher)
+		}
+	})
+
+	t.Run("CredentialNotFoundForUnknownEntry", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		if err := repo.SetClusterCredential(ctx, "ghost", []byte{1}); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("SetClusterCredential(ghost) = %v, want ErrNotFound", err)
+		}
+		if _, err := repo.GetClusterCredential(ctx, "ghost"); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("GetClusterCredential(ghost) = %v, want ErrNotFound", err)
 		}
 	})
 }

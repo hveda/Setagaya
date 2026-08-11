@@ -102,6 +102,10 @@ type Store struct {
 
 	// clusters is the registered-cluster registry, keyed by name.
 	clusters map[string]clusterregistry.Cluster
+	// clusterCredentials holds each BYOC cluster's opaque credential
+	// ciphertext, keyed by name -- the fake's analogue of the mysql
+	// byoc_credential BLOB, stored verbatim.
+	clusterCredentials map[string][]byte
 
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
@@ -141,6 +145,7 @@ func NewStore() *Store {
 		capacityProfiles:     make(map[capacityprofile.Key]capacityprofile.CapacityProfile),
 		calibrationBounds:    make(map[int64]ports.CalibrationBounds),
 		clusters:             make(map[string]clusterregistry.Cluster),
+		clusterCredentials:   make(map[string][]byte),
 		ReportProgress:       NewReportProgress(),
 		ReportStore:          NewReportStore(),
 	}

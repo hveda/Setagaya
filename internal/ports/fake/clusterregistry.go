@@ -74,3 +74,38 @@ func (s *Store) DeleteCluster(_ context.Context, name string) error {
 func (s *Store) ResolveCluster(ctx context.Context, ref ports.ClusterRef) (clusterregistry.Cluster, error) {
 	return s.GetCluster(ctx, string(ref))
 }
+
+// SetClusterCredential stores name's credential ciphertext verbatim, or
+// ports.ErrNotFound if the entry is absent. nil clears it.
+func (s *Store) SetClusterCredential(_ context.Context, name string, ciphertext []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.clusters[name]; !ok {
+		return ports.ErrNotFound
+	}
+	if ciphertext == nil {
+		delete(s.clusterCredentials, name)
+		return nil
+	}
+	stored := make([]byte, len(ciphertext))
+	copy(stored, ciphertext)
+	s.clusterCredentials[name] = stored
+	return nil
+}
+
+// GetClusterCredential returns name's stored ciphertext, ports.ErrNotFound if
+// the entry is absent, or nil for an entry with no credential.
+func (s *Store) GetClusterCredential(_ context.Context, name string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.clusters[name]; !ok {
+		return nil, ports.ErrNotFound
+	}
+	ct, ok := s.clusterCredentials[name]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]byte, len(ct))
+	copy(out, ct)
+	return out, nil
+}
