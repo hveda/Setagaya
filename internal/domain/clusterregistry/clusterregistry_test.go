@@ -62,6 +62,9 @@ func TestValidate_Errors(t *testing.T) {
 			func(c *clusterregistry.Cluster) { c.SecretRef = "  " },
 			clusterregistry.ErrSecretRefRequired,
 		},
+		{"missing namespace", func(c *clusterregistry.Cluster) { c.Namespace = "" }, clusterregistry.ErrNamespaceRequired},
+		{"missing ingest url", func(c *clusterregistry.Cluster) { c.IngestURL = " " }, clusterregistry.ErrIngestURLRequired},
+		{"missing sidecar image", func(c *clusterregistry.Cluster) { c.SidecarImage = "" }, clusterregistry.ErrSidecarImageRequired},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

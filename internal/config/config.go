@@ -95,13 +95,16 @@ type ClusterConfig struct {
 	// every push, so a deployment that has not configured one is closed rather
 	// than open.
 	IngestToken string
-	// SidecarImage runs beside each engine pod, forwarding its measurements to
-	// IngestURL. Required when Scheduler is "k8s" -- an empty image would
-	// reach the k8s scheduler adapter as an invalid pod spec.
+	// SidecarImage is the metrics sidecar image for the DEFAULT cluster (the
+	// control plane's own, which has no registry row). A registered cluster
+	// carries its own SidecarImage on its registry entry (Phase 8), since a
+	// GKE cluster and an on-prem cluster need not share one image source.
+	// Required when Scheduler is "k8s".
 	SidecarImage string
-	// IngestURL is where the sidecar pushes batches -- this deployment's own
-	// ingest endpoint, reachable from inside the cluster. Required when
-	// Scheduler is "k8s".
+	// IngestURL is where the DEFAULT cluster's sidecars push batches -- this
+	// deployment's own ingest endpoint, reachable from inside that cluster. A
+	// registered cluster carries its own IngestURL on its entry (Phase 8).
+	// Required when Scheduler is "k8s".
 	IngestURL string
 	// AutoPurgeInterval is how often idle engines are swept; zero disables the
 	// sweeper. AutoPurgeIdle is how long engines may sit idle before a sweep

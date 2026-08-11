@@ -350,11 +350,10 @@ func newScheduler(cfg config.ClusterConfig, registry ports.ClusterRegistry) (por
 		if err != nil {
 			return nil, fmt.Errorf("k8s client: %w", err)
 		}
-		factory := k8sscheduler.NewClientFactory(client, cfg.Namespace, registry)
-		return k8sscheduler.NewRouter(factory, k8sscheduler.Config{
-			Namespace: cfg.Namespace, EnginePort: cfg.EnginePort,
-			SidecarImage: cfg.SidecarImage, IngestURL: cfg.IngestURL,
-		}), nil
+		factory := k8sscheduler.NewClientFactory(client, k8sscheduler.DefaultDeploy{
+			Namespace: cfg.Namespace, SidecarImage: cfg.SidecarImage, IngestURL: cfg.IngestURL,
+		}, registry)
+		return k8sscheduler.NewRouter(factory, k8sscheduler.Config{EnginePort: cfg.EnginePort}), nil
 	default:
 		return nil, fmt.Errorf("scheduler %q not supported", cfg.Scheduler)
 	}

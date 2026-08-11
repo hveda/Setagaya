@@ -44,9 +44,12 @@ func IsDefaultName(ref string) bool {
 
 // Validation errors. Callers compare with errors.Is.
 var (
-	ErrNameRequired      = errors.New("clusterregistry: name is required")
-	ErrOriginUnknown     = errors.New("clusterregistry: origin must be operator or byoc")
-	ErrSecretRefRequired = errors.New("clusterregistry: a credential reference (k8s secret) is required")
+	ErrNameRequired         = errors.New("clusterregistry: name is required")
+	ErrOriginUnknown        = errors.New("clusterregistry: origin must be operator or byoc")
+	ErrSecretRefRequired    = errors.New("clusterregistry: a credential reference (k8s secret) is required")
+	ErrNamespaceRequired    = errors.New("clusterregistry: namespace is required")
+	ErrIngestURLRequired    = errors.New("clusterregistry: ingest url is required")
+	ErrSidecarImageRequired = errors.New("clusterregistry: sidecar image is required")
 )
 
 // Cluster is a registered Kubernetes cluster Honryu can deploy engines into.
@@ -100,6 +103,21 @@ func (c Cluster) Validate() error {
 	// to a credential we encrypted and stored ourselves.
 	if strings.TrimSpace(c.SecretRef) == "" {
 		return ErrSecretRefRequired
+	}
+	// A registered cluster carries its own deploy settings -- the namespace it
+	// deploys into, the metrics sidecar image reachable from it, and the ingest
+	// URL its engines push to. These moved off global config (Phase 7) to
+	// per-cluster in Phase 8, since a GKE cluster and an on-prem cluster need
+	// not share one reachable ingest address or image source, so every
+	// registered cluster must set them.
+	if strings.TrimSpace(c.Namespace) == "" {
+		return ErrNamespaceRequired
+	}
+	if strings.TrimSpace(c.IngestURL) == "" {
+		return ErrIngestURLRequired
+	}
+	if strings.TrimSpace(c.SidecarImage) == "" {
+		return ErrSidecarImageRequired
 	}
 	return nil
 }

@@ -16,10 +16,18 @@ import (
 	fakerepo "github.com/heridotlife/honryu/internal/ports/fake"
 )
 
-const factoryNS = "honryu"
+const (
+	// factoryNS is the home/control-plane namespace, where the registry's
+	// credential Secrets live and where the default cluster deploys.
+	factoryNS = "honryu"
+	// targetNS is a registered cluster's own deploy namespace, distinct from
+	// the home namespace, so tests can tell per-cluster namespace routing apart.
+	targetNS = "engines"
+)
 
-// registerCluster materializes a credential Secret in home and stores a
-// registry entry pointing at it, as clusterapp's BYOC flow would.
+// registerCluster materializes a credential Secret in the home namespace and
+// stores a registry entry (deploying into targetNS) pointing at it, as
+// clusterapp's BYOC flow would.
 func registerCluster(t *testing.T, home kubernetes.Interface, registry ports.ClusterRegistry, name, apiURL, token string) {
 	t.Helper()
 	ctx := context.Background()
@@ -29,7 +37,7 @@ func registerCluster(t *testing.T, home kubernetes.Interface, registry ports.Clu
 	}
 	if err := registry.CreateCluster(ctx, clusterregistry.Cluster{
 		Name: name, APIURL: apiURL, CACert: "ca", IngestURL: "http://ingest", SidecarImage: "img",
-		Namespace: factoryNS, SecretRef: secretName, Origin: clusterregistry.OriginOperator,
+		Namespace: targetNS, SecretRef: secretName, Origin: clusterregistry.OriginOperator,
 	}); err != nil {
 		t.Fatalf("CreateCluster: %v", err)
 	}
@@ -38,7 +46,7 @@ func registerCluster(t *testing.T, home kubernetes.Interface, registry ports.Clu
 func TestClientFactory_DefaultRefIsHomeClient(t *testing.T) {
 	t.Parallel()
 	home := fake.NewSimpleClientset()
-	f := NewClientFactory(home, factoryNS, fakerepo.NewStore())
+	f := NewClientFactory(home, DefaultDeploy{Namespace: factoryNS}, fakerepo.NewStore())
 
 	got, err := f.Client(context.Background(), "")
 	if err != nil {
@@ -57,7 +65,7 @@ func TestClientFactory_NonDefaultBuildsFromSecret(t *testing.T) {
 
 	target := fake.NewSimpleClientset()
 	var gotHost, gotToken string
-	f := NewClientFactory(home, factoryNS, registry)
+	f := NewClientFactory(home, DefaultDeploy{Namespace: factoryNS}, registry)
 	f.build = func(cfg *rest.Config) (kubernetes.Interface, error) {
 		gotHost, gotToken = cfg.Host, cfg.BearerToken
 		return target, nil
@@ -76,6 +84,40 @@ func TestClientFactory_NonDefaultBuildsFromSecret(t *testing.T) {
 	}
 }
 
+// A registered cluster's namespace, sidecar image, and ingest URL come from
+// its entry; the default cluster's come from DefaultDeploy.
+func TestClientFactory_ResolveCarriesPerClusterDeploySettings(t *testing.T) {
+	t.Parallel()
+	home := fake.NewSimpleClientset()
+	registry := fakerepo.NewStore()
+	registerCluster(t, home, registry, "prod-eu", "https://prod-eu:6443", "tok")
+
+	// The home namespace (def.Namespace) must be factoryNS so the credential
+	// Secret is found; the default cluster's sidecar/ingest are distinct.
+	f := NewClientFactory(home, DefaultDeploy{
+		Namespace: factoryNS, SidecarImage: "default-sidecar:1", IngestURL: "http://default-ingest",
+	}, registry)
+	f.build = func(*rest.Config) (kubernetes.Interface, error) { return fake.NewSimpleClientset(), nil }
+	ctx := context.Background()
+
+	got, err := f.Resolve(ctx, "prod-eu")
+	if err != nil {
+		t.Fatalf("Resolve(prod-eu): %v", err)
+	}
+	// registerCluster stores namespace targetNS, SidecarImage "img", IngestURL "http://ingest".
+	if got.namespace != targetNS || got.sidecarImage != "img" || got.ingestURL != "http://ingest" {
+		t.Fatalf("resolved settings = %+v, want the entry's (ns=%s img=img ingest=http://ingest)", got, targetNS)
+	}
+
+	def, err := f.Resolve(ctx, "")
+	if err != nil {
+		t.Fatalf("Resolve(default): %v", err)
+	}
+	if def.namespace != factoryNS || def.sidecarImage != "default-sidecar:1" || def.ingestURL != "http://default-ingest" {
+		t.Fatalf("default resolved settings = %+v, want DefaultDeploy", def)
+	}
+}
+
 func TestClientFactory_CachesAndRebuildsOnInvalidate(t *testing.T) {
 	t.Parallel()
 	home := fake.NewSimpleClientset()
@@ -83,7 +125,7 @@ func TestClientFactory_CachesAndRebuildsOnInvalidate(t *testing.T) {
 	registerCluster(t, home, registry, "prod-eu", "https://prod-eu:6443", "tok")
 
 	builds := 0
-	f := NewClientFactory(home, factoryNS, registry)
+	f := NewClientFactory(home, DefaultDeploy{Namespace: factoryNS}, registry)
 	f.build = func(*rest.Config) (kubernetes.Interface, error) {
 		builds++
 		return fake.NewSimpleClientset(), nil
@@ -110,7 +152,7 @@ func TestClientFactory_CachesAndRebuildsOnInvalidate(t *testing.T) {
 
 func TestClientFactory_UnknownRefErrors(t *testing.T) {
 	t.Parallel()
-	f := NewClientFactory(fake.NewSimpleClientset(), factoryNS, fakerepo.NewStore())
+	f := NewClientFactory(fake.NewSimpleClientset(), DefaultDeploy{Namespace: factoryNS}, fakerepo.NewStore())
 	if _, err := f.Client(context.Background(), "ghost"); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("Client(ghost) = %v, want ErrNotFound", err)
 	}
@@ -125,7 +167,7 @@ func TestRouter_DeployScenarioRoutesToClusterClient(t *testing.T) {
 	registerCluster(t, home, registry, "prod-eu", "https://prod-eu:6443", "tok")
 
 	target := fake.NewSimpleClientset()
-	f := NewClientFactory(home, factoryNS, registry)
+	f := NewClientFactory(home, DefaultDeploy{Namespace: factoryNS}, registry)
 	f.build = func(*rest.Config) (kubernetes.Interface, error) { return target, nil }
 	router := NewRouter(f, Config{Namespace: factoryNS})
 
@@ -137,12 +179,13 @@ func TestRouter_DeployScenarioRoutesToClusterClient(t *testing.T) {
 		t.Fatalf("DeployScenario: %v", err)
 	}
 
+	// The deploy lands in the entry's namespace (targetNS) on the target client.
 	name := engine.ScenarioName(1, 2, 3)
-	if _, err := target.AppsV1().StatefulSets(factoryNS).Get(context.Background(), name, metav1.GetOptions{}); err != nil {
-		t.Fatalf("StatefulSet not on the target cluster client: %v", err)
+	if _, err := target.AppsV1().StatefulSets(targetNS).Get(context.Background(), name, metav1.GetOptions{}); err != nil {
+		t.Fatalf("StatefulSet not on the target cluster client in %s: %v", targetNS, err)
 	}
 	// The home client must be untouched by a non-default deploy.
-	sets, err := home.AppsV1().StatefulSets(factoryNS).List(context.Background(), metav1.ListOptions{})
+	sets, err := home.AppsV1().StatefulSets("").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("list home statefulsets: %v", err)
 	}
@@ -155,7 +198,7 @@ func TestRouter_DeployScenarioRoutesToClusterClient(t *testing.T) {
 func TestRouter_DeployScenarioDefaultUsesHomeClient(t *testing.T) {
 	t.Parallel()
 	home := fake.NewSimpleClientset()
-	f := NewClientFactory(home, factoryNS, fakerepo.NewStore())
+	f := NewClientFactory(home, DefaultDeploy{Namespace: factoryNS}, fakerepo.NewStore())
 	router := NewRouter(f, Config{Namespace: factoryNS})
 
 	spec := ports.DeploySpec{

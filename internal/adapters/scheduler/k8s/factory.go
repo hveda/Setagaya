@@ -17,63 +17,100 @@ import (
 // clientBuilder builds a clientset from a rest.Config; injectable for tests.
 type clientBuilder func(*rest.Config) (kubernetes.Interface, error)
 
-// ClientFactory resolves a ClusterRef to a Kubernetes client. The default
-// (empty) ref is the control plane's own cluster -- the home client, built from
-// rest.InClusterConfig(). A registered ref is built once from its home-cluster
-// credential Secret and cached; Invalidate drops the cache entry so the next
-// use rebuilds from the (possibly rotated) Secret.
+// DefaultDeploy is the default (empty-ref) cluster's deploy settings: the
+// control plane's own cluster, which has no registry row and so carries these
+// from config rather than an entry. namespace also names where the registry's
+// credential Secrets live.
+type DefaultDeploy struct {
+	Namespace    string
+	SidecarImage string
+	IngestURL    string
+}
+
+// resolved is a cluster resolved to its API client and per-cluster deploy
+// settings. For a registered cluster these come from its entry; for the default
+// cluster, from DefaultDeploy.
+type resolved struct {
+	client       kubernetes.Interface
+	namespace    string
+	sidecarImage string
+	ingestURL    string
+}
+
+// ClientFactory resolves a ClusterRef to a Kubernetes client and its deploy
+// settings. The default (empty) ref is the control plane's own cluster -- the
+// home client, built from rest.InClusterConfig(), with DefaultDeploy settings.
+// A registered ref is built once from its home-cluster credential Secret --
+// with its namespace/sidecar/ingest taken from the entry, not global config --
+// and cached; Invalidate drops the cache entry so the next use rebuilds from
+// the (possibly rotated) Secret.
 type ClientFactory struct {
-	homeClient    kubernetes.Interface
-	homeNamespace string
-	registry      ports.ClusterRegistry
-	build         clientBuilder
+	registry ports.ClusterRegistry
+	build    clientBuilder
+	def      resolved // the default cluster (home client + DefaultDeploy)
 
 	mu    sync.Mutex
-	cache map[ports.ClusterRef]kubernetes.Interface
+	cache map[ports.ClusterRef]resolved
 }
 
 // NewClientFactory builds a factory. homeClient is the control plane's own
 // client: it both serves the default ref and holds the registry's credential
-// Secrets, which live in homeNamespace.
-func NewClientFactory(homeClient kubernetes.Interface, homeNamespace string, registry ports.ClusterRegistry) *ClientFactory {
+// Secrets, which live in def.Namespace.
+func NewClientFactory(homeClient kubernetes.Interface, def DefaultDeploy, registry ports.ClusterRegistry) *ClientFactory {
 	return &ClientFactory{
-		homeClient:    homeClient,
-		homeNamespace: homeNamespace,
-		registry:      registry,
-		build:         func(cfg *rest.Config) (kubernetes.Interface, error) { return kubernetes.NewForConfig(cfg) },
-		cache:         map[ports.ClusterRef]kubernetes.Interface{},
+		registry: registry,
+		build:    func(cfg *rest.Config) (kubernetes.Interface, error) { return kubernetes.NewForConfig(cfg) },
+		def: resolved{
+			client: homeClient, namespace: def.Namespace,
+			sidecarImage: def.SidecarImage, ingestURL: def.IngestURL,
+		},
+		cache: map[ports.ClusterRef]resolved{},
 	}
 }
 
-// Client returns the Kubernetes client for ref, building and caching it on
-// first use. The default ref resolves to the home client.
-func (f *ClientFactory) Client(ctx context.Context, ref ports.ClusterRef) (kubernetes.Interface, error) {
+// Resolve returns the client and deploy settings for ref, building and caching
+// them on first use. The default ref resolves to the home client + DefaultDeploy.
+func (f *ClientFactory) Resolve(ctx context.Context, ref ports.ClusterRef) (resolved, error) {
 	if clusterregistry.IsDefaultName(string(ref)) {
-		return f.homeClient, nil
+		return f.def, nil
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if c, ok := f.cache[ref]; ok {
-		return c, nil
+	if r, ok := f.cache[ref]; ok {
+		return r, nil
 	}
 	entry, err := f.registry.ResolveCluster(ctx, ref)
 	if err != nil {
-		return nil, fmt.Errorf("k8s: resolve cluster %q: %w", ref, err)
+		return resolved{}, fmt.Errorf("k8s: resolve cluster %q: %w", ref, err)
 	}
-	cfg, err := RestConfigFromSecret(ctx, f.homeClient, f.homeNamespace, entry.SecretRef)
+	// The credential Secrets live in the home cluster's namespace (def.namespace).
+	cfg, err := RestConfigFromSecret(ctx, f.def.client, f.def.namespace, entry.SecretRef)
 	if err != nil {
-		return nil, fmt.Errorf("k8s: credential for cluster %q: %w", ref, err)
+		return resolved{}, fmt.Errorf("k8s: credential for cluster %q: %w", ref, err)
 	}
 	client, err := f.build(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("k8s: build client for cluster %q: %w", ref, err)
+		return resolved{}, fmt.Errorf("k8s: build client for cluster %q: %w", ref, err)
 	}
-	f.cache[ref] = client
-	return client, nil
+	r := resolved{
+		client: client, namespace: entry.Namespace,
+		sidecarImage: entry.SidecarImage, ingestURL: entry.IngestURL,
+	}
+	f.cache[ref] = r
+	return r, nil
 }
 
-// Invalidate drops ref's cached client so the next Client call rebuilds it from
-// the current Secret -- the recovery path after a credential rotation.
+// Client returns just the Kubernetes client for ref.
+func (f *ClientFactory) Client(ctx context.Context, ref ports.ClusterRef) (kubernetes.Interface, error) {
+	r, err := f.Resolve(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return r.client, nil
+}
+
+// Invalidate drops ref's cached client so the next resolve rebuilds it from the
+// current Secret -- the recovery path after a credential rotation.
 func (f *ClientFactory) Invalidate(ref ports.ClusterRef) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -98,11 +135,21 @@ func NewRouter(factory *ClientFactory, cfg Config) *Router {
 var _ ports.Scheduler = (*Router)(nil)
 
 func (r *Router) bound(ctx context.Context, cluster ports.ClusterRef) (*Scheduler, error) {
-	client, err := r.factory.Client(ctx, cluster)
+	res, err := r.factory.Resolve(ctx, cluster)
 	if err != nil {
 		return nil, err
 	}
-	return New(client, r.cfg), nil
+	// Namespace, sidecar image, and ingest URL are per-cluster (from the
+	// resolved entry, or DefaultDeploy for the default); the engine port, pool
+	// label, and termination grace are deployment-wide and come from r.cfg.
+	return New(res.client, Config{
+		Namespace:        res.namespace,
+		SidecarImage:     res.sidecarImage,
+		IngestURL:        res.ingestURL,
+		EnginePort:       r.cfg.EnginePort,
+		PoolLabel:        r.cfg.PoolLabel,
+		TerminationGrace: r.cfg.TerminationGrace,
+	}), nil
 }
 
 // routed resolves the bound scheduler for cluster, runs fn, and -- on an
