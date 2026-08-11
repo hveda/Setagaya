@@ -13,6 +13,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/calibration"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/capacityprofile"
+	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
@@ -99,6 +100,9 @@ type Store struct {
 
 	calibrationBounds map[int64]ports.CalibrationBounds // executionID -> search bounds
 
+	// clusters is the registered-cluster registry, keyed by name.
+	clusters map[string]clusterregistry.Cluster
+
 	// Embedded rather than reimplemented: a run's report and its working state
 	// are keyed by run id alone, with no cross-aggregate rule tying them to the
 	// rest of Store the way scenarios and executions tie to each other.
@@ -136,6 +140,7 @@ func NewStore() *Store {
 		calibrationClaimedAt: make(map[int64]time.Time),
 		capacityProfiles:     make(map[capacityprofile.Key]capacityprofile.CapacityProfile),
 		calibrationBounds:    make(map[int64]ports.CalibrationBounds),
+		clusters:             make(map[string]clusterregistry.Cluster),
 		ReportProgress:       NewReportProgress(),
 		ReportStore:          NewReportStore(),
 	}
@@ -185,6 +190,7 @@ var (
 	_ ports.CampaignRepository        = (*Store)(nil)
 	_ ports.CalibrationJobRepository  = (*Store)(nil)
 	_ ports.CapacityProfileRepository = (*Store)(nil)
+	_ ports.ClusterRegistry           = (*Store)(nil)
 )
 
 // --- Projects ---------------------------------------------------------------

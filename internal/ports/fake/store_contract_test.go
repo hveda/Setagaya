@@ -78,3 +78,10 @@ func TestFakeStore_CapacityProfileContract(t *testing.T) {
 		return fake.NewStore()
 	})
 }
+
+func TestFakeStore_ClusterRegistryContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunClusterRegistryContract(t, func(_ *testing.T) ports.ClusterRegistry {
+		return fake.NewStore()
+	})
+}

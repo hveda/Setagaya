@@ -1,0 +1,177 @@
+package repositorytest
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
+	"github.com/heridotlife/honryu/internal/ports"
+)
+
+// NewClusterRegistry builds a fresh, empty ClusterRegistry for one test.
+type NewClusterRegistry func(t *testing.T) ports.ClusterRegistry
+
+func testCluster(name string, origin clusterregistry.Origin) clusterregistry.Cluster {
+	return clusterregistry.Cluster{
+		Name:         name,
+		APIURL:       "https://" + name + ".example:6443",
+		CACert:       "-----BEGIN CERTIFICATE-----\n" + name + "\n-----END CERTIFICATE-----",
+		IngestURL:    "http://honryu-ingest.honryu.svc:8080",
+		SidecarImage: "registry.example/honryu-sidecar:1",
+		Namespace:    "honryu",
+		SecretRef:    "cluster-" + name + "-creds",
+		Origin:       origin,
+		CreatedBy:    "admin@example.com",
+		CreatedTime:  at(100),
+	}
+}
+
+// RunClusterRegistryContract pins the behaviour every ClusterRegistry must
+// share: CRUD round-trips, list ordering, resolve, and not-found.
+func RunClusterRegistryContract(t *testing.T, newRepo NewClusterRegistry) {
+	t.Helper()
+
+	t.Run("CreateAndGetRoundTrips", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		want := testCluster("prod-eu", clusterregistry.OriginBYOC)
+
+		if err := repo.CreateCluster(ctx, want); err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+		got, err := repo.GetCluster(ctx, "prod-eu")
+		if err != nil {
+			t.Fatalf("GetCluster: %v", err)
+		}
+		if got.Name != want.Name || got.APIURL != want.APIURL || got.CACert != want.CACert ||
+			got.IngestURL != want.IngestURL || got.SidecarImage != want.SidecarImage ||
+			got.Namespace != want.Namespace || got.SecretRef != want.SecretRef ||
+			got.Origin != want.Origin || got.CreatedBy != want.CreatedBy || !got.CreatedTime.Equal(want.CreatedTime) {
+			t.Fatalf("GetCluster = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("CreateDuplicateReturnsExists", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		if err := repo.CreateCluster(ctx, testCluster("dup", clusterregistry.OriginOperator)); err != nil {
+			t.Fatalf("CreateCluster (first): %v", err)
+		}
+		if err := repo.CreateCluster(ctx, testCluster("dup", clusterregistry.OriginOperator)); !errors.Is(err, ports.ErrClusterExists) {
+			t.Fatalf("CreateCluster (dup) = %v, want ErrClusterExists", err)
+		}
+	})
+
+	t.Run("GetMissingReturnsNotFound", func(t *testing.T) {
+		repo := newRepo(t)
+		if _, err := repo.GetCluster(context.Background(), "nope"); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("GetCluster(missing) = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("ListReturnsEveryClusterOrderedByName", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		for _, name := range []string{"prod-us", "prod-eu", "staging"} {
+			if err := repo.CreateCluster(ctx, testCluster(name, clusterregistry.OriginOperator)); err != nil {
+				t.Fatalf("CreateCluster(%s): %v", name, err)
+			}
+		}
+		got, err := repo.ListClusters(ctx)
+		if err != nil {
+			t.Fatalf("ListClusters: %v", err)
+		}
+		want := []string{"prod-eu", "prod-us", "staging"}
+		if len(got) != len(want) {
+			t.Fatalf("ListClusters len = %d, want %d (%+v)", len(got), len(want), got)
+		}
+		for i, c := range got {
+			if c.Name != want[i] {
+				t.Fatalf("ListClusters[%d].Name = %q, want %q (order: %+v)", i, c.Name, want[i], got)
+			}
+		}
+	})
+
+	t.Run("UpdateReplacesMutableFieldsPreservesCreatedMetadata", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		orig := testCluster("prod-eu", clusterregistry.OriginOperator)
+		if err := repo.CreateCluster(ctx, orig); err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+
+		updated := orig
+		updated.IngestURL = "http://new-ingest.honryu.svc:9090"
+		updated.SidecarImage = "registry.example/honryu-sidecar:2"
+		updated.SecretRef = "cluster-prod-eu-rotated"
+		// A caller that forgets to carry created metadata must not erase it.
+		updated.CreatedBy = "someone-else@example.com"
+		updated.CreatedTime = at(999)
+
+		if err := repo.UpdateCluster(ctx, updated); err != nil {
+			t.Fatalf("UpdateCluster: %v", err)
+		}
+		got, err := repo.GetCluster(ctx, "prod-eu")
+		if err != nil {
+			t.Fatalf("GetCluster: %v", err)
+		}
+		if got.IngestURL != updated.IngestURL || got.SidecarImage != updated.SidecarImage || got.SecretRef != updated.SecretRef {
+			t.Fatalf("UpdateCluster did not replace mutable fields: %+v", got)
+		}
+		if got.CreatedBy != orig.CreatedBy || !got.CreatedTime.Equal(orig.CreatedTime) {
+			t.Fatalf("UpdateCluster rewrote created metadata: got by=%q time=%v, want by=%q time=%v",
+				got.CreatedBy, got.CreatedTime, orig.CreatedBy, orig.CreatedTime)
+		}
+	})
+
+	t.Run("UpdateMissingReturnsNotFound", func(t *testing.T) {
+		repo := newRepo(t)
+		if err := repo.UpdateCluster(context.Background(), testCluster("ghost", clusterregistry.OriginOperator)); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("UpdateCluster(missing) = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("DeleteRemoves", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		if err := repo.CreateCluster(ctx, testCluster("gone", clusterregistry.OriginOperator)); err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+		if err := repo.DeleteCluster(ctx, "gone"); err != nil {
+			t.Fatalf("DeleteCluster: %v", err)
+		}
+		if _, err := repo.GetCluster(ctx, "gone"); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("GetCluster after delete = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("DeleteMissingReturnsNotFound", func(t *testing.T) {
+		repo := newRepo(t)
+		if err := repo.DeleteCluster(context.Background(), "ghost"); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("DeleteCluster(missing) = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("ResolveByRef", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		if err := repo.CreateCluster(ctx, testCluster("prod-eu", clusterregistry.OriginOperator)); err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+		got, err := repo.ResolveCluster(ctx, ports.ClusterRef("prod-eu"))
+		if err != nil {
+			t.Fatalf("ResolveCluster: %v", err)
+		}
+		if got.Name != "prod-eu" {
+			t.Fatalf("ResolveCluster.Name = %q, want prod-eu", got.Name)
+		}
+	})
+
+	t.Run("ResolveUnknownReturnsNotFound", func(t *testing.T) {
+		repo := newRepo(t)
+		if _, err := repo.ResolveCluster(context.Background(), ports.ClusterRef("nope")); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("ResolveCluster(unknown) = %v, want ErrNotFound", err)
+		}
+	})
+}
