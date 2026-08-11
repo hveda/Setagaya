@@ -46,6 +46,22 @@ func (f *fakeCredStore) Read(_ context.Context, secretName string) (ports.Cluste
 	return c, nil
 }
 
+func (f *fakeCredStore) Delete(_ context.Context, secretName string) error {
+	delete(f.materialized, secretName)
+	return nil
+}
+
+// failSetCredRegistry is a ports.ClusterRegistry whose SetClusterCredential
+// always fails, to drive the BYOC late-rollback path.
+type failSetCredRegistry struct {
+	*fake.Store
+	err error
+}
+
+func (r *failSetCredRegistry) SetClusterCredential(context.Context, string, []byte) error {
+	return r.err
+}
+
 type harness struct {
 	svc    *clusterapp.Service
 	store  *fake.Store
@@ -205,6 +221,40 @@ func TestRegisterBYOC_MaterializeFailureRollsBack(t *testing.T) {
 	// Rolled back -- no half-registered entry.
 	if _, err := h.store.GetCluster(ctx, "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("entry not rolled back after materialize failure")
+	}
+}
+
+// If storing the encrypted credential fails after the Secret was materialized,
+// both the entry and the orphaned Secret are rolled back.
+func TestRegisterBYOC_CredentialStoreFailureCleansUpSecret(t *testing.T) {
+	t.Parallel()
+	key := make([]byte, secretbox.KeySize)
+	cipher, _ := secretbox.New(key)
+	registry := &failSetCredRegistry{Store: fake.NewStore(), err: errors.New("db write failed")}
+	creds := newCredStore()
+	svc := clusterapp.NewService(clusterapp.Deps{
+		Registry:    registry,
+		Prober:      &fake.ClusterProber{},
+		Credentials: creds,
+		Runs:        registry.Store,
+		Cipher:      cipher,
+		Parse: func([]byte) (ports.ClusterCredential, error) {
+			return ports.ClusterCredential{APIURL: "https://a", CACert: []byte("ca"), Token: "t"}, nil
+		},
+		SecretName: func(name string) string { return "honryu-cluster-" + name },
+	})
+
+	ctx := context.Background()
+	if _, err := svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err == nil {
+		t.Fatalf("RegisterBYOC(store fail) = nil, want error")
+	}
+	// Entry rolled back.
+	if _, err := registry.GetCluster(ctx, "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("entry not rolled back after credential-store failure")
+	}
+	// Materialized Secret cleaned up -- no orphan.
+	if len(creds.materialized) != 0 {
+		t.Fatalf("orphaned Secret left behind: %v", creds.materialized)
 	}
 }
 

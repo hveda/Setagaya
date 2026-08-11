@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -147,6 +148,41 @@ func TestClientFactory_CachesAndRebuildsOnInvalidate(t *testing.T) {
 	}
 	if builds != 2 {
 		t.Fatalf("builds = %d after invalidate, want 2 (rebuilt)", builds)
+	}
+}
+
+// Concurrent resolves of the same ref must all observe the same cached client
+// (the race winner's), never a torn or displaced one, and be data-race clean
+// (run under -race). The build runs without the lock held.
+func TestClientFactory_ConcurrentResolveIsConsistent(t *testing.T) {
+	t.Parallel()
+	home := fake.NewSimpleClientset()
+	registry := fakerepo.NewStore()
+	registerCluster(t, home, registry, "prod-eu", "https://prod-eu:6443", "tok")
+
+	f := NewClientFactory(home, DefaultDeploy{Namespace: factoryNS}, registry)
+	f.build = func(*rest.Config) (kubernetes.Interface, error) { return fake.NewSimpleClientset(), nil }
+
+	const n = 16
+	clients := make([]kubernetes.Interface, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			r, err := f.Resolve(context.Background(), "prod-eu")
+			if err != nil {
+				t.Errorf("Resolve: %v", err)
+				return
+			}
+			clients[idx] = r.client
+		}(i)
+	}
+	wg.Wait()
+	for i := 1; i < n; i++ {
+		if clients[i] != clients[0] {
+			t.Fatalf("racer %d got a different client than racer 0 -- cache is inconsistent", i)
+		}
 	}
 }
 

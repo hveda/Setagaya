@@ -70,15 +70,23 @@ func NewClientFactory(homeClient kubernetes.Interface, def DefaultDeploy, regist
 
 // Resolve returns the client and deploy settings for ref, building and caching
 // them on first use. The default ref resolves to the home client + DefaultDeploy.
+//
+// The build (a registry read, a Secret read, and client construction) runs
+// without the lock held, so a cache miss for one cluster does not block
+// resolves for other clusters. Two goroutines racing on the same miss may both
+// build; the first to store wins and the other reuses its result, so no caller
+// ever gets a client that a concurrent build is about to replace.
 func (f *ClientFactory) Resolve(ctx context.Context, ref ports.ClusterRef) (resolved, error) {
 	if clusterregistry.IsDefaultName(string(ref)) {
 		return f.def, nil
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if r, ok := f.cache[ref]; ok {
+		f.mu.Unlock()
 		return r, nil
 	}
+	f.mu.Unlock()
+
 	entry, err := f.registry.ResolveCluster(ctx, ref)
 	if err != nil {
 		return resolved{}, fmt.Errorf("k8s: resolve cluster %q: %w", ref, err)
@@ -95,6 +103,15 @@ func (f *ClientFactory) Resolve(ctx context.Context, ref ports.ClusterRef) (reso
 	r := resolved{
 		client: client, namespace: entry.Namespace,
 		sidecarImage: entry.SidecarImage, ingestURL: entry.IngestURL,
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// A concurrent miss may have won the race and cached its own client while
+	// this one was building; reuse the stored one so a client already handed to
+	// a caller is never displaced.
+	if existing, ok := f.cache[ref]; ok {
+		return existing, nil
 	}
 	f.cache[ref] = r
 	return r, nil

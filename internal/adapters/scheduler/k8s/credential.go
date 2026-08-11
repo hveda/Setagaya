@@ -151,6 +151,19 @@ func (s *HomeCredentialStore) Materialize(ctx context.Context, secretName string
 	return MaterializeCredential(ctx, s.client, s.namespace, secretName, credFromPorts(cred))
 }
 
+// Delete removes the home-cluster Secret named secretName. A Secret that is
+// already gone is not an error -- Delete is a best-effort cleanup.
+func (s *HomeCredentialStore) Delete(ctx context.Context, secretName string) error {
+	err := s.client.CoreV1().Secrets(s.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("k8s: delete cluster credential secret: %w", err)
+	}
+	return nil
+}
+
 // Read reads the home-cluster Secret named secretName into a neutral credential.
 func (s *HomeCredentialStore) Read(ctx context.Context, secretName string) (ports.ClusterCredential, error) {
 	c, err := ReadCredential(ctx, s.client, s.namespace, secretName)

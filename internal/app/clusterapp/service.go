@@ -45,10 +45,12 @@ type KubeconfigParser func(raw []byte) (ports.ClusterCredential, error)
 
 // CredentialStore reads and writes a cluster's credential as a home-cluster
 // Secret (the k8s materializer/reader). Read backs operator registration
-// (whose Secret is the source of truth); Materialize backs BYOC.
+// (whose Secret is the source of truth); Materialize backs BYOC; Delete cleans
+// up a materialized Secret when a BYOC registration is rolled back.
 type CredentialStore interface {
 	Materialize(ctx context.Context, secretName string, cred ports.ClusterCredential) error
 	Read(ctx context.Context, secretName string) (ports.ClusterCredential, error)
+	Delete(ctx context.Context, secretName string) error
 }
 
 // ActiveRunQuery answers the delete guard.
@@ -139,6 +141,10 @@ func (s *Service) RegisterBYOC(ctx context.Context, entry clusterregistry.Cluste
 		return clusterregistry.Cluster{}, fmt.Errorf("clusterapp: materialize credential secret: %w", err)
 	}
 	if err := s.deps.Registry.SetClusterCredential(ctx, entry.Name, ciphertext); err != nil {
+		// The Secret was already materialized; roll back both so no orphaned
+		// Secret is left behind (both best-effort -- the store error is the one
+		// the caller must see).
+		_ = s.deps.Credentials.Delete(ctx, entry.SecretRef)
 		_ = s.deps.Registry.DeleteCluster(ctx, entry.Name)
 		return clusterregistry.Cluster{}, fmt.Errorf("clusterapp: store encrypted credential: %w", err)
 	}

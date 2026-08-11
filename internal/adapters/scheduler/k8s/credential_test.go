@@ -145,6 +145,17 @@ func TestHomeCredentialStore_RoundTrips(t *testing.T) {
 	if got.APIURL != "https://a" || got.Token != "tok" || !bytes.Equal(got.CACert, []byte("ca")) {
 		t.Fatalf("Read = %+v, want the materialized credential", got)
 	}
+
+	// Delete removes it; deleting an absent Secret is not an error.
+	if err := store.Delete(ctx, CredentialSecretName("prod-eu")); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := store.Read(ctx, CredentialSecretName("prod-eu")); !errors.Is(err, ErrCredentialSecretNotFound) {
+		t.Fatalf("Read after Delete = %v, want ErrCredentialSecretNotFound", err)
+	}
+	if err := store.Delete(ctx, CredentialSecretName("prod-eu")); err != nil {
+		t.Fatalf("Delete (absent) = %v, want nil (best-effort)", err)
+	}
 }
 
 func TestParsePortsKubeconfig(t *testing.T) {
