@@ -8,6 +8,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
+	"github.com/heridotlife/honryu/internal/app/clusterapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
@@ -16,6 +17,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/domain/calibration"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
+	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
 	"github.com/heridotlife/honryu/internal/domain/compile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/jmx"
@@ -67,6 +69,12 @@ var badRequestErrors = []error{
 	calibration.ErrCriterionRequired, calibration.ErrPodSizeRequired, calibration.ErrSeedQPSInvalid,
 	calibration.ErrMaxQPSInvalid, calibration.ErrMaxStepsInvalid, calibration.ErrHoldInvalid,
 	calibrationapp.ErrExecutionNotCalibration, calibrationapp.ErrEngineRequired,
+	// Cluster registration input: a malformed entry or a non-self-contained
+	// BYOC kubeconfig is the caller's, not a server fault.
+	clusterregistry.ErrNameRequired, clusterregistry.ErrOriginUnknown,
+	clusterregistry.ErrSecretRefRequired, clusterregistry.ErrNamespaceRequired,
+	clusterregistry.ErrIngestURLRequired, clusterregistry.ErrSidecarImageRequired,
+	clusterapp.ErrKubeconfigInvalid,
 }
 
 // conflictErrors are state conflicts → HTTP 409.
@@ -84,13 +92,22 @@ var conflictErrors = []error{
 	// state conflict, not a client input error -- the same call would
 	// succeed once the campaign's window closes.
 	lifecycleapp.ErrCampaignFrozen,
+	// Registering a duplicate cluster, or deleting one with an active run, are
+	// state conflicts.
+	ports.ErrClusterExists, clusterapp.ErrClusterInUse,
 }
 
 // respondError maps an application/domain error onto an HTTP status.
 func respondError(w http.ResponseWriter, err error) {
+	var probeErr *ports.ProbeError
 	switch {
 	case errors.Is(err, ports.ErrNotFound), errors.Is(err, ports.ErrObjectNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.As(err, &probeErr):
+		// A cluster that is unreachable / unauthorized / under-privileged at
+		// registration is a well-formed request the server cannot act on --
+		// 422, with the probe's stated reason.
+		writeError(w, http.StatusUnprocessableEntity, probeErr.Error())
 	case errors.Is(err, errForbidden):
 		writeError(w, http.StatusForbidden, "forbidden")
 	case matchesAny(err, conflictErrors):

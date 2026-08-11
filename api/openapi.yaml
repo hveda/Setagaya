@@ -83,6 +83,11 @@ components:
       in: path
       required: true
       schema: { type: integer, format: int64 }
+    ClusterName:
+      name: name
+      in: path
+      required: true
+      schema: { type: string }
     ScheduleID:
       name: schedule_id
       in: path
@@ -152,6 +157,20 @@ components:
       description: The deployment's engine credential, held by every engine pod.
 
   schemas:
+    Cluster:
+      type: object
+      description: A registered cluster Honryu can generate load from. The credential is never surfaced; secret_ref names it.
+      required: [name, ingest_url, sidecar_image, namespace, secret_ref, origin]
+      properties:
+        name: { type: string, description: The ClusterRef; empty on an execution means the default cluster }
+        api_url: { type: string }
+        ingest_url: { type: string }
+        sidecar_image: { type: string }
+        namespace: { type: string }
+        secret_ref: { type: string }
+        origin: { type: string, enum: [operator, byoc] }
+        created_by: { type: string }
+        created_time: { type: string, format: date-time }
     MetricBatch:
       type: object
       description: One engine pod's measurements.
@@ -1720,6 +1739,99 @@ paths:
         '204': { $ref: '#/components/responses/NoContent' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/clusters:
+    get:
+      tags: [clusters]
+      summary: List registered clusters
+      responses:
+        '200':
+          description: Clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Cluster' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [clusters]
+      summary: Register a cluster (operator secret_ref, or BYOC kubeconfig)
+      description: |
+        Platform-admin only. Provide either an operator registration (secret_ref
+        naming an existing home-cluster Secret) or a BYOC registration (a
+        self-contained kubeconfig). Registration probes the target for
+        reachability and least-privilege RBAC before storing the entry.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, ingest_url, sidecar_image, namespace]
+              properties:
+                name: { type: string }
+                ingest_url: { type: string }
+                sidecar_image: { type: string }
+                namespace: { type: string }
+                secret_ref: { type: string, description: Operator registration; existing home-cluster Secret }
+                kubeconfig: { type: string, description: BYOC registration; a self-contained kubeconfig }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cluster' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: The cluster is unreachable, unauthorized, or under-privileged
+
+  /api/clusters/{name}:
+    get:
+      tags: [clusters]
+      summary: Get a registered cluster
+      parameters: [{ $ref: '#/components/parameters/ClusterName' }]
+      responses:
+        '200':
+          description: Cluster
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cluster' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [clusters]
+      summary: Update a cluster's deploy settings
+      parameters: [{ $ref: '#/components/parameters/ClusterName' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                ingest_url: { type: string }
+                sidecar_image: { type: string }
+                namespace: { type: string }
+      responses:
+        '200':
+          description: Cluster
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cluster' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [clusters]
+      summary: Remove a cluster (rejected while it has an active run)
+      parameters: [{ $ref: '#/components/parameters/ClusterName' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /api/ingest:
     post:

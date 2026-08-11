@@ -66,6 +66,9 @@ type Deps struct {
 	// Tenants administers tenants and role grants. Required for the /api/tenants
 	// endpoints; nil disables them.
 	Tenants *tenantapp.Service
+	// Clusters administers the cluster registry (platform-admin gated).
+	// Optional; nil disables the /api/clusters endpoints.
+	Clusters ClusterService
 	// Audit records administrative actions. Optional; nil disables auditing.
 	Audit ports.AuditLog
 	// DefaultOwners is the owner set used when RBAC is disabled (no-auth mode).
@@ -161,6 +164,12 @@ var routes = []Route{
 	{"DELETE", "/api/tenants/{tenant_id}/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeTenantRole })},
 	{"POST", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.assignGlobalRole })},
 	{"DELETE", "/api/roles", "tenants", hf(func(h *handlers) http.HandlerFunc { return h.revokeGlobalRole })},
+
+	{"POST", "/api/clusters", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.createCluster })},
+	{"GET", "/api/clusters", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.listClusters })},
+	{"GET", "/api/clusters/{name}", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.getCluster })},
+	{"PUT", "/api/clusters/{name}", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.updateCluster })},
+	{"DELETE", "/api/clusters/{name}", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.deleteCluster })},
 
 	{"POST", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.createCampaign })},
 	{"GET", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listCampaigns })},

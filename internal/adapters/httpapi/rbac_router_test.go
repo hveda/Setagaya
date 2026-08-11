@@ -29,6 +29,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
 	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
@@ -75,6 +76,9 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		Store:        obj,
 		Auth:         auth,
 		Audit:        audit,
+		// A no-op stub so the platform-admin gate is reached (a nil dep would
+		// 404 before the RBAC check).
+		Clusters: &stubClusterService{list: func() ([]clusterregistry.Cluster, error) { return nil, nil }},
 	})
 	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit}
 }
