@@ -129,6 +129,7 @@ func truncateAll(t *testing.T, db *sql.DB) {
 		"schedule", "schedule_occurrence", "scheduler_horizon_run",
 		"campaign", "campaign_service", "execution_criteria",
 		"calibration_job", "calibration_job_step", "capacity_profile",
+		"cluster_registry",
 	} {
 		if _, err := db.Exec("TRUNCATE TABLE " + table); err != nil {
 			t.Fatalf("truncate %s: %v", table, err)
