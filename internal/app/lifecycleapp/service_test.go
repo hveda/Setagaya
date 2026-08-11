@@ -165,6 +165,65 @@ func TestDeploy_ThreadsPinnedPodSizeToTheDeploySpec(t *testing.T) {
 	}
 }
 
+// An execution's cluster reaches the DeploySpec the scheduler receives, so a
+// run deploys to the load origin the user chose -- not always the default.
+func TestDeploy_ThreadsExecutionClusterToTheDeploySpec(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := execution.New("on-eu", projectID)
+	coll.Cluster = "prod-eu"
+	executionID, _ := store.CreateExecution(ctx, coll)
+
+	pl, _ := scenario.NewNative("scenario", projectID, taurus.ExecutorJMeter)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
+		t.Fatalf("add test file: %v", err)
+	}
+	obj := fake.NewObjectStore()
+	if err := obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("upload test file: %v", err)
+	}
+	tests := []loadprofile.Entry{{Name: "p", ScenarioID: scenarioID, Concurrency: 10, Rampup: 1, Engines: 1, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, tests); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	sched := fake.NewScheduler()
+	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
+	if err := svc.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	spec, ok := sched.LastDeploy(executionID, scenarioID)
+	if !ok {
+		t.Fatal("no deploy recorded")
+	}
+	if spec.Cluster != ports.ClusterRef("prod-eu") {
+		t.Fatalf("DeploySpec.Cluster = %q, want prod-eu", spec.Cluster)
+	}
+}
+
+// An execution with no cluster (the pre-Phase-8 shape) still deploys to the
+// default -- an empty ClusterRef -- exactly as before.
+func TestDeploy_EmptyClusterIsDefault(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+	ctx := context.Background()
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	spec, ok := e.sched.LastDeploy(e.executionID, e.planIDs[0])
+	if !ok {
+		t.Fatal("no deploy recorded")
+	}
+	if spec.Cluster != "" {
+		t.Fatalf("DeploySpec.Cluster = %q, want empty (default)", spec.Cluster)
+	}
+}
+
 func TestDeploy_NoScenarios(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false) // no scenarios

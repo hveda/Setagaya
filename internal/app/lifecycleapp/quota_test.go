@@ -60,6 +60,66 @@ func setupWithTenant(t *testing.T, tenantID int64, engines ...int) *env {
 	return &env{store: store, sched: sched, obj: obj, svc: svc, projectID: projectID, executionID: executionID, planIDs: planIDs}
 }
 
+// Trigger reserves engine-equivalents against the execution's own cluster, so
+// a per-(tenant,cluster) ledger is charged for the cluster the load runs on.
+func TestTrigger_ReservesAgainstExecutionCluster(t *testing.T) {
+	t.Parallel()
+	const tenantID = int64(7)
+	ctx := context.Background()
+	store := fake.NewStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := execution.New("on-eu", projectID)
+	coll.TenantID = ptr(tenantID)
+	coll.Cluster = "prod-eu"
+	executionID, _ := store.CreateExecution(ctx, coll)
+
+	pl, _ := scenario.NewNative("scenario", projectID, taurus.ExecutorJMeter)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
+		t.Fatalf("add test file: %v", err)
+	}
+	obj := fake.NewObjectStore()
+	if err := obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	tests := []loadprofile.Entry{{Name: "p", ScenarioID: scenarioID, Concurrency: 10, Rampup: 1, Engines: 2, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, tests); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	if err := store.SetCeiling(ctx, tenantID, "prod-eu", 5); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+
+	svc := lifecycleapp.NewService(store, fake.NewScheduler(), obj, lifecycleapp.StaticImage(image)).WithQuota(quotaapp.NewService(store))
+	if err := svc.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := svc.Trigger(ctx, executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+
+	window := time.Now().Add(time.Hour)
+	onCluster, err := store.ReservationsInWindow(ctx, tenantID, "prod-eu", time.Now(), window)
+	if err != nil {
+		t.Fatalf("ReservationsInWindow(prod-eu): %v", err)
+	}
+	if len(onCluster) != 1 || onCluster[0].ExecutionID != executionID {
+		t.Fatalf("reservations on prod-eu = %+v, want one for this execution", onCluster)
+	}
+	// Nothing charged to the default cluster's ledger.
+	onDefault, err := store.ReservationsInWindow(ctx, tenantID, "", time.Now(), window)
+	if err != nil {
+		t.Fatalf("ReservationsInWindow(default): %v", err)
+	}
+	if len(onDefault) != 0 {
+		t.Fatalf("reservations on default = %+v, want none", onDefault)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
 func TestTrigger_RejectsWhenOverQuota(t *testing.T) {
 	t.Parallel()
 	const tenantID = int64(7)

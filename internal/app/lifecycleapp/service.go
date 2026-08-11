@@ -247,11 +247,9 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 			return err
 		}
 		spec := ports.DeploySpec{
-			// Empty is this deployment's own cluster, the only one there is until
-			// Phase 8 records a cluster on the execution and maps refs to
-			// credentials. The parameter exists now so that change adds a lookup
-			// rather than a signature.
-			Cluster:     "",
+			// The execution's cluster (empty = this deployment's default), the
+			// load origin the scheduler resolves to a per-cluster client.
+			Cluster:     ports.ClusterRef(coll.Cluster),
 			ProjectID:   coll.ProjectID,
 			ExecutionID: executionID,
 			ScenarioID:  ep.ScenarioID,
@@ -360,7 +358,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	if err != nil {
 		return err
 	}
-	status, err := s.sched.ExecutionStatus(ctx, "", executionID, planRefs(scenarios))
+	status, err := s.sched.ExecutionStatus(ctx, ports.ClusterRef(coll.Cluster), executionID, planRefs(scenarios))
 	if err != nil {
 		return err
 	}
@@ -379,7 +377,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 		}
 		start := s.now()
 		end := start.Add(time.Duration(ec.LongestDurationSeconds()) * time.Second)
-		if _, err := s.quota.Reserve(ctx, *coll.TenantID, "", engineUnits, start, end, executionID); err != nil {
+		if _, err := s.quota.Reserve(ctx, *coll.TenantID, coll.Cluster, engineUnits, start, end, executionID); err != nil {
 			return err
 		}
 	}
@@ -435,8 +433,24 @@ func (s *Service) Stop(ctx context.Context, executionID int64) error {
 	return s.teardown(ctx, executionID)
 }
 
+// clusterFor returns the ClusterRef an execution's engines live on: its
+// configured cluster, empty meaning the deployment default. Status, purge, and
+// log operations resolve it so they target the same cluster the execution was
+// deployed to.
+func (s *Service) clusterFor(ctx context.Context, executionID int64) (ports.ClusterRef, error) {
+	coll, err := s.repo.GetExecution(ctx, executionID)
+	if err != nil {
+		return "", err
+	}
+	return ports.ClusterRef(coll.Cluster), nil
+}
+
 // Purge stops any in-progress run and removes all engines of an execution.
 func (s *Service) Purge(ctx context.Context, executionID int64) error {
+	cluster, err := s.clusterFor(ctx, executionID)
+	if err != nil {
+		return err
+	}
 	runID, running, err := s.repo.CurrentRun(ctx, executionID)
 	if err != nil {
 		return err
@@ -449,7 +463,7 @@ func (s *Service) Purge(ctx context.Context, executionID int64) error {
 		// the last moment engine logs exist anywhere but here.
 		s.captureLogs(ctx, executionID, runID)
 	}
-	if err := s.sched.PurgeExecution(ctx, "", executionID); err != nil {
+	if err := s.sched.PurgeExecution(ctx, cluster, executionID); err != nil {
 		return err
 	}
 	s.metrics.Purge(executionID)
@@ -488,6 +502,10 @@ func runLogKey(runID, scenarioID int64, shard int) string {
 // several scenarios can have dozens of shards, and Purge is a request a
 // customer is waiting on.
 func (s *Service) captureLogs(ctx context.Context, executionID, runID int64) {
+	cluster, err := s.clusterFor(ctx, executionID)
+	if err != nil {
+		return
+	}
 	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return
@@ -498,7 +516,7 @@ func (s *Service) captureLogs(ctx context.Context, executionID, runID int64) {
 			wg.Add(1)
 			go func(scenarioID int64, shard int) {
 				defer wg.Done()
-				log, err := s.sched.PodLog(ctx, "", executionID, scenarioID, shard)
+				log, err := s.sched.PodLog(ctx, cluster, executionID, scenarioID, shard)
 				if err != nil {
 					return
 				}
@@ -724,11 +742,15 @@ type Status struct {
 
 // Status reports the deployment/run status of an execution.
 func (s *Service) Status(ctx context.Context, executionID int64) (Status, error) {
+	cluster, err := s.clusterFor(ctx, executionID)
+	if err != nil {
+		return Status{}, err
+	}
 	scenarios, err := s.repo.LoadProfileFor(ctx, executionID)
 	if err != nil {
 		return Status{}, err
 	}
-	sched, err := s.sched.ExecutionStatus(ctx, "", executionID, planRefs(scenarios))
+	sched, err := s.sched.ExecutionStatus(ctx, cluster, executionID, planRefs(scenarios))
 	if err != nil {
 		return Status{}, err
 	}
@@ -760,12 +782,20 @@ func (s *Service) Status(ctx context.Context, executionID int64) (Status, error)
 
 // EnginesDetail reports the engine pods and ingress of an execution.
 func (s *Service) EnginesDetail(ctx context.Context, projectID, executionID int64) (ports.ExecutionDetail, error) {
-	return s.sched.EngineDetail(ctx, "", projectID, executionID)
+	cluster, err := s.clusterFor(ctx, executionID)
+	if err != nil {
+		return ports.ExecutionDetail{}, err
+	}
+	return s.sched.EngineDetail(ctx, cluster, projectID, executionID)
 }
 
 // PodLog returns the logs of a scenario's engine pod.
 func (s *Service) PodLog(ctx context.Context, executionID, scenarioID int64) (string, error) {
-	return s.sched.PodLog(ctx, "", executionID, scenarioID, 0)
+	cluster, err := s.clusterFor(ctx, executionID)
+	if err != nil {
+		return "", err
+	}
+	return s.sched.PodLog(ctx, cluster, executionID, scenarioID, 0)
 }
 
 // Resume returns the scenarios still marked running in this deployment context, so
