@@ -13,13 +13,13 @@ import (
 
 var _ ports.ScheduleRepository = (*Repository)(nil)
 
-const scheduleColumns = "id, execution_id, tenant_id, cluster, kind, fire_at, recurrence, active"
+const scheduleColumns = "id, execution_id, tenant_id, kind, fire_at, recurrence, active"
 
 // CreateSchedule inserts s and returns its auto-assigned ID.
 func (r *Repository) CreateSchedule(ctx context.Context, s schedule.Schedule) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		"INSERT INTO schedule (execution_id, tenant_id, cluster, kind, fire_at, recurrence, active) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		s.ExecutionID, s.TenantID, s.Cluster, string(s.Kind), nullPtr(s.FireAt), nullString(s.Recurrence), s.Active)
+		"INSERT INTO schedule (execution_id, tenant_id, kind, fire_at, recurrence, active) VALUES (?, ?, ?, ?, ?, ?)",
+		s.ExecutionID, s.TenantID, string(s.Kind), nullPtr(s.FireAt), nullString(s.Recurrence), s.Active)
 	if err != nil {
 		return 0, fmt.Errorf("mysql: create schedule: %w", err)
 	}
@@ -126,7 +126,7 @@ func scanSchedule(s rowScanner) (schedule.Schedule, error) {
 		fireAt     sql.NullTime
 		recurrence sql.NullString
 	)
-	if err := s.Scan(&sc.ID, &sc.ExecutionID, &sc.TenantID, &sc.Cluster, &kind, &fireAt, &recurrence, &sc.Active); err != nil {
+	if err := s.Scan(&sc.ID, &sc.ExecutionID, &sc.TenantID, &kind, &fireAt, &recurrence, &sc.Active); err != nil {
 		return schedule.Schedule{}, err
 	}
 	sc.Kind = schedule.Kind(kind)

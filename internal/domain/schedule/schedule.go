@@ -34,14 +34,17 @@ var (
 )
 
 // Schedule is a request to run an already-configured execution at a future
-// time, once or on a recurrence. Cluster is a plain string, not
-// ports.ClusterRef, for the same reason as reservation.Reservation: domain
-// packages do not import ports.
+// time, once or on a recurrence.
+//
+// A schedule has no cluster of its own: the cluster a scheduled run deploys to
+// -- and reserves quota against -- is the execution's (execution.Execution.Cluster),
+// the single source of truth (Phase 8). This also removed an inconsistency
+// where a schedule stored a cluster for quota but the fire path deployed to the
+// control plane's own cluster regardless.
 type Schedule struct {
 	ID          int64
 	ExecutionID int64
 	TenantID    int64
-	Cluster     string
 	Kind        Kind
 	// FireAt is the single fire time for a KindOneShot schedule; unused (and
 	// typically nil) for KindRecurring.

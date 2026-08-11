@@ -22,7 +22,6 @@ type scheduleResponse struct {
 	ID          int64                `json:"id"`
 	ExecutionID int64                `json:"execution_id"`
 	TenantID    int64                `json:"tenant_id"`
-	Cluster     string               `json:"cluster,omitempty"`
 	Kind        string               `json:"kind"`
 	FireAt      *time.Time           `json:"fire_at,omitempty"`
 	Recurrence  string               `json:"recurrence,omitempty"`
@@ -39,7 +38,6 @@ func toScheduleResponse(v scheduleapp.ScheduleView) scheduleResponse {
 		ID:          v.Schedule.ID,
 		ExecutionID: v.Schedule.ExecutionID,
 		TenantID:    v.Schedule.TenantID,
-		Cluster:     v.Schedule.Cluster,
 		Kind:        string(v.Schedule.Kind),
 		FireAt:      v.Schedule.FireAt,
 		Recurrence:  v.Schedule.Recurrence,
@@ -85,7 +83,6 @@ func (h *handlers) createSchedule(w http.ResponseWriter, r *http.Request) {
 	sc := schedule.Schedule{
 		ExecutionID: executionID,
 		TenantID:    tenantID,
-		Cluster:     r.PostForm.Get("cluster"),
 		Kind:        schedule.Kind(r.PostForm.Get("kind")),
 		Recurrence:  r.PostForm.Get("recurrence"),
 		Active:      true,

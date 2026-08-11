@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/schedule"
@@ -34,6 +35,10 @@ type Repo interface {
 	ports.ScheduleRepository
 	ports.ReservationRepository
 	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+	// GetExecution supplies the schedule's cluster: a scheduled run reserves
+	// quota against its execution's cluster (Phase 8), not one stored on the
+	// schedule.
+	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
 }
 
 // Quota is the shared admission decision -- the same one lifecycleapp's
@@ -120,10 +125,16 @@ func (s *Service) Create(ctx context.Context, sc schedule.Schedule) (ScheduleVie
 // partial success, not all-or-nothing. Shared by Create (a schedule's first
 // horizon) and extendOne (rolling that horizon forward later).
 func (s *Service) reserveOccurrences(ctx context.Context, sc schedule.Schedule, fireTimes []time.Time, profile loadprofile.Profile, window time.Duration) ([]ports.Occurrence, error) {
+	// The cluster a scheduled run reserves against is its execution's -- the
+	// same cluster lifecycleapp.Deploy will target when the occurrence fires.
+	exe, err := s.repo.GetExecution(ctx, sc.ExecutionID)
+	if err != nil {
+		return nil, err
+	}
 	occs := make([]ports.Occurrence, 0, len(fireTimes))
 	for _, fireTime := range fireTimes {
 		occ := ports.Occurrence{ScheduleID: sc.ID, FireTime: fireTime}
-		r, reserveErr := s.quota.Reserve(ctx, sc.TenantID, sc.Cluster, profile.TotalEngines(), fireTime, fireTime.Add(window), sc.ExecutionID)
+		r, reserveErr := s.quota.Reserve(ctx, sc.TenantID, exe.Cluster, profile.TotalEngines(), fireTime, fireTime.Add(window), sc.ExecutionID)
 		if reserveErr != nil {
 			occ.Status = ports.OccurrenceRejected
 		} else {

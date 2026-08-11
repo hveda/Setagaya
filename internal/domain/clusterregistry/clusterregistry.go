@@ -55,9 +55,9 @@ var (
 // Cluster is a registered Kubernetes cluster Honryu can deploy engines into.
 //
 // Name is the ClusterRef, a plain string rather than ports.ClusterRef, for the
-// same reason as schedule.Schedule.Cluster and reservation.Reservation: domain
-// packages do not import ports -- the dependency runs the other way -- and the
-// two are interchangeable representations of the same identifier.
+// same reason as reservation.Reservation.Cluster: domain packages do not import
+// ports -- the dependency runs the other way -- and the two are interchangeable
+// representations of the same identifier.
 type Cluster struct {
 	Name string
 	// APIURL and CACert address and trust the target cluster's API server.

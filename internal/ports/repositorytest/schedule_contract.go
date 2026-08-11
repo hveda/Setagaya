@@ -25,7 +25,7 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 		fireAt := at(100)
 
 		id, err := repo.CreateSchedule(ctx, schedule.Schedule{
-			ExecutionID: 1, TenantID: 7, Cluster: "default",
+			ExecutionID: 1, TenantID: 7,
 			Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
 		})
 		if err != nil {
@@ -39,7 +39,7 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 		if err != nil {
 			t.Fatalf("GetSchedule: %v", err)
 		}
-		if got.ExecutionID != 1 || got.TenantID != 7 || got.Cluster != "default" ||
+		if got.ExecutionID != 1 || got.TenantID != 7 ||
 			got.Kind != schedule.KindOneShot || got.FireAt == nil || !got.FireAt.Equal(fireAt) || !got.Active {
 			t.Fatalf("GetSchedule = %+v, want the schedule just created", got)
 		}
@@ -47,7 +47,7 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 		// A second schedule on a different execution must not show up in the
 		// first execution's list.
 		if _, err := repo.CreateSchedule(ctx, schedule.Schedule{
-			ExecutionID: 2, TenantID: 7, Cluster: "default", Kind: schedule.KindRecurring, Recurrence: "* * * * *",
+			ExecutionID: 2, TenantID: 7, Kind: schedule.KindRecurring, Recurrence: "* * * * *",
 		}); err != nil {
 			t.Fatalf("CreateSchedule (other execution): %v", err)
 		}
@@ -72,7 +72,7 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 		ctx := context.Background()
 
 		id, err := repo.CreateSchedule(ctx, schedule.Schedule{
-			ExecutionID: 1, TenantID: 7, Cluster: "eu-west",
+			ExecutionID: 1, TenantID: 7,
 			Kind: schedule.KindRecurring, Recurrence: "*/5 * * * *", Active: true,
 		})
 		if err != nil {
@@ -95,7 +95,7 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 		ctx := context.Background()
 
 		id, err := repo.CreateSchedule(ctx, schedule.Schedule{
-			ExecutionID: 1, TenantID: 7, Cluster: "default", Kind: schedule.KindRecurring, Recurrence: "* * * * *",
+			ExecutionID: 1, TenantID: 7, Kind: schedule.KindRecurring, Recurrence: "* * * * *",
 		})
 		if err != nil {
 			t.Fatalf("CreateSchedule: %v", err)
@@ -134,7 +134,7 @@ func RunScheduleRepositoryContract(t *testing.T, newRepo NewScheduleRepo) {
 		ctx := context.Background()
 
 		id, err := repo.CreateSchedule(ctx, schedule.Schedule{
-			ExecutionID: 1, TenantID: 7, Cluster: "default", Kind: schedule.KindRecurring, Recurrence: "* * * * *",
+			ExecutionID: 1, TenantID: 7, Kind: schedule.KindRecurring, Recurrence: "* * * * *",
 		})
 		if err != nil {
 			t.Fatalf("CreateSchedule: %v", err)

@@ -43,8 +43,69 @@ func seedExecution(t *testing.T, store *fake.Store, engines, durationSeconds int
 	return executionID
 }
 
+// seedExecutionOnCluster seeds an execution bound to a named cluster, so a test
+// can prove a schedule reserves against the execution's cluster.
+func seedExecutionOnCluster(t *testing.T, store *fake.Store, cluster string, engines, durationSeconds int) int64 {
+	t.Helper()
+	ctx := context.Background()
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	e, _ := execution.New("peak", projectID)
+	e.Cluster = cluster
+	executionID, err := store.CreateExecution(ctx, e)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	entries := []loadprofile.Entry{{ScenarioID: 1, Concurrency: 10, Engines: engines, Duration: durationSeconds}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, entries); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	return executionID
+}
+
 func newService(store *fake.Store, now time.Time) *scheduleapp.Service {
 	return scheduleapp.NewService(store, quotaapp.NewService(store)).WithNow(func() time.Time { return now })
+}
+
+// A schedule reserves quota against its execution's cluster, not a cluster of
+// its own -- the inconsistency Phase 8 removed.
+func TestCreate_ReservesAgainstExecutionCluster(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	const tenantID = int64(7)
+	executionID := seedExecutionOnCluster(t, store, "eu-west", 2, 30)
+	if err := store.SetCeiling(ctx, tenantID, "eu-west", 2); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	fireAt := now.Add(time.Hour)
+	view, err := newService(store, now).Create(ctx, schedule.Schedule{
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if view.Occurrences[0].Status != ports.OccurrenceReserved {
+		t.Fatalf("occurrence status = %q, want reserved (the eu-west ceiling admits it)", view.Occurrences[0].Status)
+	}
+
+	onCluster, err := store.ReservationsInWindow(ctx, tenantID, "eu-west", fireAt, fireAt.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ReservationsInWindow(eu-west): %v", err)
+	}
+	if len(onCluster) != 1 {
+		t.Fatalf("reservations on eu-west = %+v, want one", onCluster)
+	}
+	// Nothing reserved on the default cluster's ledger.
+	onDefault, err := store.ReservationsInWindow(ctx, tenantID, "", fireAt, fireAt.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ReservationsInWindow(default): %v", err)
+	}
+	if len(onDefault) != 0 {
+		t.Fatalf("reservations on default = %+v, want none", onDefault)
+	}
 }
 
 func TestCreate_OneShot_AdmitsAndReserves(t *testing.T) {
@@ -53,7 +114,7 @@ func TestCreate_OneShot_AdmitsAndReserves(t *testing.T) {
 	store := fake.NewStore()
 	const tenantID = int64(7)
 	executionID := seedExecution(t, store, 2, 30) // 2 engines, 30s duration
-	if err := store.SetCeiling(ctx, tenantID, "default", 2); err != nil {
+	if err := store.SetCeiling(ctx, tenantID, "", 2); err != nil {
 		t.Fatalf("SetCeiling: %v", err)
 	}
 
@@ -62,7 +123,7 @@ func TestCreate_OneShot_AdmitsAndReserves(t *testing.T) {
 	svc := newService(store, now)
 
 	view, err := svc.Create(ctx, schedule.Schedule{
-		ExecutionID: executionID, TenantID: tenantID, Cluster: "default",
+		ExecutionID: executionID, TenantID: tenantID,
 		Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
 	})
 	if err != nil {
@@ -79,7 +140,7 @@ func TestCreate_OneShot_AdmitsAndReserves(t *testing.T) {
 		t.Fatalf("occ = %+v, want reserved with a reservation id", occ)
 	}
 
-	got, err := store.ReservationsInWindow(ctx, tenantID, "default", fireAt, fireAt.Add(time.Second))
+	got, err := store.ReservationsInWindow(ctx, tenantID, "", fireAt, fireAt.Add(time.Second))
 	if err != nil {
 		t.Fatalf("ReservationsInWindow: %v", err)
 	}
@@ -420,12 +481,12 @@ func TestClaimDue_ClaimsDueOccurrenceAndReleasesItsReservation(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	svc := newService(store, now)
 	executionID := seedExecution(t, store, 2, 30)
-	if err := store.SetCeiling(ctx, tenantID, "eu-west", 2); err != nil {
+	if err := store.SetCeiling(ctx, tenantID, "", 2); err != nil {
 		t.Fatalf("SetCeiling: %v", err)
 	}
 	fireAt := now.Add(time.Minute)
 	view, err := svc.Create(ctx, schedule.Schedule{
-		ExecutionID: executionID, TenantID: tenantID, Cluster: "eu-west", Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
+		ExecutionID: executionID, TenantID: tenantID, Kind: schedule.KindOneShot, FireAt: &fireAt, Active: true,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -442,7 +503,7 @@ func TestClaimDue_ClaimsDueOccurrenceAndReleasesItsReservation(t *testing.T) {
 	if claim.Occurrence.ID != view.Occurrences[0].ID || claim.Schedule.ID != view.Schedule.ID {
 		t.Fatalf("ClaimDue claim = %+v, want the occurrence/schedule just created", claim)
 	}
-	if claim.Schedule.ExecutionID != executionID || claim.Schedule.TenantID != tenantID || claim.Schedule.Cluster != "eu-west" {
+	if claim.Schedule.ExecutionID != executionID || claim.Schedule.TenantID != tenantID {
 		t.Fatalf("ClaimDue claim.Schedule = %+v, missing the fields cmd/scheduler needs to fire it", claim.Schedule)
 	}
 
