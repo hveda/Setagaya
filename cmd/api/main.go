@@ -69,6 +69,7 @@ type repository interface {
 	ports.ReservationRepository
 	ports.ScheduleRepository
 	ports.CampaignRepository
+	ports.ClusterRegistry
 }
 
 func main() {
@@ -102,7 +103,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		return err
 	}
 
-	sched, err := newScheduler(cfg.Cluster)
+	sched, err := newScheduler(cfg.Cluster, repo)
 	if err != nil {
 		return err
 	}
@@ -245,9 +246,11 @@ func startAutoPurge(ctx context.Context, admin *adminapp.Service, cfg config.Clu
 	}()
 }
 
-// newScheduler selects the Scheduler adapter. "fake" is in-memory; "k8s" uses
-// the in-cluster Kubernetes client.
-func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
+// newScheduler selects the Scheduler adapter. "fake" is in-memory; "k8s" builds
+// a registry-backed Router: the control plane's own (in-cluster) client serves
+// the default cluster and holds the credential Secrets, and any registered
+// cluster is resolved to its own client on demand.
+func newScheduler(cfg config.ClusterConfig, registry ports.ClusterRegistry) (ports.Scheduler, error) {
 	switch cfg.Scheduler {
 	case "fake":
 		return fake.NewScheduler(), nil
@@ -260,7 +263,8 @@ func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
 		if err != nil {
 			return nil, fmt.Errorf("k8s client: %w", err)
 		}
-		return k8sscheduler.New(client, k8sscheduler.Config{
+		factory := k8sscheduler.NewClientFactory(client, cfg.Namespace, registry)
+		return k8sscheduler.NewRouter(factory, k8sscheduler.Config{
 			Namespace: cfg.Namespace, EnginePort: cfg.EnginePort,
 			SidecarImage: cfg.SidecarImage, IngestURL: cfg.IngestURL,
 		}), nil

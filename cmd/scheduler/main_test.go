@@ -54,13 +54,13 @@ func TestNewRepository_MySQL_Unreachable(t *testing.T) {
 
 func TestNewScheduler(t *testing.T) {
 	t.Parallel()
-	if s, err := newScheduler(config.ClusterConfig{Scheduler: "fake"}); err != nil || s == nil {
+	if s, err := newScheduler(config.ClusterConfig{Scheduler: "fake"}, fake.NewStore()); err != nil || s == nil {
 		t.Fatalf("newScheduler(fake) = %v, %v", s, err)
 	}
-	if _, err := newScheduler(config.ClusterConfig{Scheduler: "k8s", Namespace: "default", EnginePort: 8080}); err == nil {
+	if _, err := newScheduler(config.ClusterConfig{Scheduler: "k8s", Namespace: "default", EnginePort: 8080}, fake.NewStore()); err == nil {
 		t.Fatal("newScheduler(k8s) outside cluster: expected error, got nil")
 	}
-	if _, err := newScheduler(config.ClusterConfig{Scheduler: "nope"}); err == nil {
+	if _, err := newScheduler(config.ClusterConfig{Scheduler: "nope"}, fake.NewStore()); err == nil {
 		t.Fatal("newScheduler(nope): expected error, got nil")
 	}
 }
