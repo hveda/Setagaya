@@ -97,8 +97,9 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 
 		// An execution's engine selection must survive too, or a run would
 		// silently fall back to the deployment default and measure a workload
-		// nobody asked for.
-		exe := execution.Execution{Name: "on-k6", ProjectID: 10, Engine: taurus.ExecutorK6}
+		// nobody asked for. Its target cluster must round-trip for the same
+		// reason -- a lost cluster would silently run on the default.
+		exe := execution.Execution{Name: "on-k6", ProjectID: 10, Engine: taurus.ExecutorK6, Cluster: "prod-eu"}
 		exeID, err := repo.CreateExecution(ctx, exe)
 		if err != nil {
 			t.Fatalf("CreateExecution(with engine): %v", err)
@@ -109,6 +110,23 @@ func RunScenarioRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 		if gotExe.Engine != taurus.ExecutorK6 {
 			t.Errorf("execution engine round trip = %q, want k6", gotExe.Engine)
+		}
+		if gotExe.Cluster != "prod-eu" {
+			t.Errorf("execution cluster round trip = %q, want prod-eu", gotExe.Cluster)
+		}
+
+		// An execution with no cluster (the pre-Phase-8 shape) must load back
+		// empty -- the default -- not some placeholder.
+		defExeID, err := repo.CreateExecution(ctx, execution.Execution{Name: "on-default", ProjectID: 10})
+		if err != nil {
+			t.Fatalf("CreateExecution(no cluster): %v", err)
+		}
+		gotDef, err := repo.GetExecution(ctx, defExeID)
+		if err != nil {
+			t.Fatalf("GetExecution(no cluster): %v", err)
+		}
+		if gotDef.Cluster != "" {
+			t.Errorf("execution with no cluster round trip = %q, want empty", gotDef.Cluster)
 		}
 
 		// Listing must carry portability too: engine selection is offered from

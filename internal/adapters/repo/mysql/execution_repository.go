@@ -12,14 +12,14 @@ import (
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
-const executionColumns = "id, name, project_id, engine, kind, cpu, memory, csv_split, tenant_id, created_by, updated_by, created_time"
+const executionColumns = "id, name, project_id, engine, kind, cpu, memory, cluster, csv_split, tenant_id, created_by, updated_by, created_time"
 
 // CreateExecution inserts c and returns its auto-assigned ID.
 func (r *Repository) CreateExecution(ctx context.Context, c execution.Execution) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		"INSERT INTO execution (name, project_id, engine, kind, cpu, memory, csv_split, tenant_id, created_by, updated_by)"+
-			" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		c.Name, c.ProjectID, string(c.Engine), string(c.Kind), c.CPU, c.Memory,
+		"INSERT INTO execution (name, project_id, engine, kind, cpu, memory, cluster, csv_split, tenant_id, created_by, updated_by)"+
+			" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		c.Name, c.ProjectID, string(c.Engine), string(c.Kind), c.CPU, c.Memory, c.Cluster,
 		boolToInt(c.CSVSplit), nullPtr(c.TenantID), nullString(c.CreatedBy), nullString(c.UpdatedBy),
 	)
 	if err != nil {
@@ -295,7 +295,7 @@ func scanExecution(s rowScanner) (execution.Execution, error) {
 		createdBy sql.NullString
 		updatedBy sql.NullString
 	)
-	if err := s.Scan(&c.ID, &c.Name, &c.ProjectID, &engine, &kind, &c.CPU, &c.Memory, &csvSplit,
+	if err := s.Scan(&c.ID, &c.Name, &c.ProjectID, &engine, &kind, &c.CPU, &c.Memory, &c.Cluster, &csvSplit,
 		&tenantID, &createdBy, &updatedBy, &c.CreatedTime); err != nil {
 		return execution.Execution{}, err
 	}

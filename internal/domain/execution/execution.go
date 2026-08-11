@@ -74,6 +74,12 @@ type Execution struct {
 	// before these fields existed -- only a CalibrateEngine execution pins
 	// them, since a capacity profile answers "QPS per pod of THIS size".
 	CPU, Memory string
+	// Cluster names the registered cluster this execution generates load from
+	// (a clusterregistry.Cluster name / ports.ClusterRef). Empty means the
+	// deployment's default cluster -- the same "empty is the default"
+	// convention Engine uses -- so every execution created before multi-cluster
+	// existed resolves to the control plane's own cluster and behaves as before.
+	Cluster     string
 	CSVSplit    bool
 	TenantID    *int64
 	CreatedBy   string

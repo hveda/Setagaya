@@ -63,15 +63,16 @@ type FileRef struct {
 	URL      string `json:"url"`
 }
 
-// Create validates input and persists a new execution.
-func (s *Service) Create(ctx context.Context, name string, projectID int64, engine taurus.Executor) (execution.Execution, error) {
+// Create validates input and persists a new execution. An empty engine or
+// cluster means the caller expressed no preference and takes the deployment's
+// configured default at deploy time.
+func (s *Service) Create(ctx context.Context, name string, projectID int64, engine taurus.Executor, cluster string) (execution.Execution, error) {
 	c, err := execution.New(name, projectID)
 	if err != nil {
 		return execution.Execution{}, err
 	}
-	// An empty engine means the caller expressed no preference and takes the
-	// deployment's configured default at deploy time.
 	c.Engine = engine
+	c.Cluster = strings.TrimSpace(cluster)
 	if err := c.Validate(); err != nil {
 		return execution.Execution{}, err
 	}

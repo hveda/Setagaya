@@ -41,7 +41,7 @@ func TestCreate_Get_List(t *testing.T) {
 	svc, _, _ := newCollService(t)
 	ctx := context.Background()
 
-	c, err := svc.Create(ctx, "peak", 10, "")
+	c, err := svc.Create(ctx, "peak", 10, "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -58,11 +58,44 @@ func TestCreate_Get_List(t *testing.T) {
 	}
 }
 
+func TestCreate_StoresClusterTrimmed(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newCollService(t)
+	ctx := context.Background()
+
+	c, err := svc.Create(ctx, "peak", 10, "", "  prod-eu  ")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if c.Cluster != "prod-eu" {
+		t.Fatalf("Create Cluster = %q, want trimmed prod-eu", c.Cluster)
+	}
+	got, err := svc.Get(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Cluster != "prod-eu" {
+		t.Fatalf("stored Cluster = %q, want prod-eu", got.Cluster)
+	}
+}
+
+func TestCreate_EmptyClusterIsDefault(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newCollService(t)
+	c, err := svc.Create(context.Background(), "peak", 10, "", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if c.Cluster != "" {
+		t.Fatalf("Create Cluster = %q, want empty (default)", c.Cluster)
+	}
+}
+
 func TestFileLifecycle(t *testing.T) {
 	t.Parallel()
 	svc, _, obj := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10, "")
+	c, _ := svc.Create(ctx, "peak", 10, "", "")
 
 	if err := svc.UploadFile(ctx, c.ID, "shared.csv", bytes.NewReader([]byte("x,y"))); err != nil {
 		t.Fatalf("UploadFile: %v", err)
@@ -93,7 +126,7 @@ func TestDelete_RemovesFiles(t *testing.T) {
 	t.Parallel()
 	svc, _, obj := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10, "")
+	c, _ := svc.Create(ctx, "peak", 10, "", "")
 	_ = svc.UploadFile(ctx, c.ID, "shared.csv", bytes.NewReader([]byte("x")))
 
 	if err := svc.Delete(ctx, c.ID); err != nil {
@@ -108,7 +141,7 @@ func TestStoreConfig_And_GetConfig(t *testing.T) {
 	t.Parallel()
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10, "")
+	c, _ := svc.Create(ctx, "peak", 10, "", "")
 	scenarioID := seedScenario(t, store, "smoke", 10)
 
 	ec := loadprofile.Profile{
@@ -145,7 +178,7 @@ func TestStoreConfig_ReuploadWithNoCriteriaClearsThem(t *testing.T) {
 	t.Parallel()
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10, "")
+	c, _ := svc.Create(ctx, "peak", 10, "", "")
 	scenarioID := seedScenario(t, store, "smoke", 10)
 	tests := []loadprofile.Entry{{ScenarioID: scenarioID, Engines: 2, Concurrency: 10, Duration: 60}}
 
@@ -171,7 +204,7 @@ func TestStoreConfig_Errors(t *testing.T) {
 	t.Parallel()
 	svc, store, _ := newCollService(t)
 	ctx := context.Background()
-	c, _ := svc.Create(ctx, "peak", 10, "")
+	c, _ := svc.Create(ctx, "peak", 10, "", "")
 	scenarioID := seedScenario(t, store, "smoke", 10)
 	foreignScenario := seedScenario(t, store, "other", 99)
 

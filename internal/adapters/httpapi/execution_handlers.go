@@ -19,6 +19,7 @@ type executionResponse struct {
 	Name        string                 `json:"name"`
 	ProjectID   int64                  `json:"project_id"`
 	Engine      taurus.Executor        `json:"engine,omitempty"`
+	Cluster     string                 `json:"cluster,omitempty"`
 	CSVSplit    bool                   `json:"csv_split"`
 	CreatedTime time.Time              `json:"created_time"`
 	LoadProfile []loadprofile.Entry    `json:"load_profile"`
@@ -50,6 +51,8 @@ func (h *handlers) getExecution(w http.ResponseWriter, r *http.Request) {
 		ID:          c.ID,
 		Name:        c.Name,
 		ProjectID:   c.ProjectID,
+		Engine:      c.Engine,
+		Cluster:     c.Cluster,
 		CSVSplit:    c.CSVSplit,
 		CreatedTime: c.CreatedTime,
 		LoadProfile: cfg.Content.Tests,
@@ -72,7 +75,7 @@ func (h *handlers) createExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := h.deps.Executions.Create(r.Context(), r.PostForm.Get("name"), projectID,
-		taurus.Executor(r.PostForm.Get("engine")))
+		taurus.Executor(r.PostForm.Get("engine")), r.PostForm.Get("cluster"))
 	if err != nil {
 		respondError(w, err)
 		return
@@ -211,6 +214,7 @@ func (h *handlers) authorizeExecution(r *http.Request, executionID int64) error 
 func toExecutionResponse(c execution.Execution) executionResponse {
 	return executionResponse{
 		Engine:      c.Engine,
+		Cluster:     c.Cluster,
 		ID:          c.ID,
 		Name:        c.Name,
 		ProjectID:   c.ProjectID,
