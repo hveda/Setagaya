@@ -111,6 +111,11 @@ type ClusterConfig struct {
 	// purges them.
 	AutoPurgeInterval time.Duration
 	AutoPurgeIdle     time.Duration
+	// CredentialKey is the hex-encoded (64 hex digits) app-held key that
+	// encrypts BYOC cluster credentials at rest (AES-256-GCM). Empty disables
+	// the cluster-registry management API (/api/clusters) -- a deployment that
+	// does not register clusters need not configure it.
+	CredentialKey string
 }
 
 // StorageConfig configures the object store used for uploaded artifacts.
@@ -220,6 +225,7 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Cluster.IngestToken = strEnv(getenv, "INGEST_TOKEN", cfg.Cluster.IngestToken)
 	cfg.Cluster.SidecarImage = strEnv(getenv, "SIDECAR_IMAGE", cfg.Cluster.SidecarImage)
 	cfg.Cluster.IngestURL = strEnv(getenv, "INGEST_URL", cfg.Cluster.IngestURL)
+	cfg.Cluster.CredentialKey = strEnv(getenv, "CLUSTER_CREDENTIAL_KEY", cfg.Cluster.CredentialKey)
 	cfg.Cluster.DefaultEngine = taurus.Executor(
 		strEnv(getenv, "DEFAULT_ENGINE", string(cfg.Cluster.DefaultEngine)))
 	if raw := strEnv(getenv, "ENGINE_IMAGES", ""); raw != "" {

@@ -8,6 +8,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 func TestCredentialSecretName_Deterministic(t *testing.T) {
@@ -124,6 +126,39 @@ func TestRestConfigFromCredential(t *testing.T) {
 			t.Fatalf("err = %v, want ErrNoCredential", err)
 		}
 	})
+}
+
+func TestHomeCredentialStore_RoundTrips(t *testing.T) {
+	t.Parallel()
+	client := fake.NewSimpleClientset()
+	ctx := context.Background()
+	store := NewHomeCredentialStore(client, "honryu")
+
+	cred := ports.ClusterCredential{APIURL: "https://a", CACert: []byte("ca"), Token: "tok"}
+	if err := store.Materialize(ctx, CredentialSecretName("prod-eu"), cred); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+	got, err := store.Read(ctx, CredentialSecretName("prod-eu"))
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.APIURL != "https://a" || got.Token != "tok" || !bytes.Equal(got.CACert, []byte("ca")) {
+		t.Fatalf("Read = %+v, want the materialized credential", got)
+	}
+}
+
+func TestParsePortsKubeconfig(t *testing.T) {
+	t.Parallel()
+	cred, err := ParsePortsKubeconfig(tokenKubeconfig())
+	if err != nil {
+		t.Fatalf("ParsePortsKubeconfig: %v", err)
+	}
+	if cred.APIURL != "https://api.example:6443" || cred.Token != "sa-token-abc123" {
+		t.Fatalf("cred = %+v, want extracted from the token kubeconfig", cred)
+	}
+	if _, err := ParsePortsKubeconfig(execKubeconfig("aws")); !errors.Is(err, ErrExecAuthUnsupported) {
+		t.Fatalf("ParsePortsKubeconfig(exec) = %v, want ErrExecAuthUnsupported", err)
+	}
 }
 
 func TestRestConfigFromSecret_RoundTrips(t *testing.T) {

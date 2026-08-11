@@ -10,6 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // credentialSecretPrefix namespaces the home-cluster Secrets Honryu writes to
@@ -128,6 +130,53 @@ func RestConfigFromSecret(ctx context.Context, client kubernetes.Interface, name
 		return nil, err
 	}
 	return RestConfigFromCredential(cred)
+}
+
+// HomeCredentialStore reads and writes cluster credentials as Secrets in the
+// home cluster, bound to a home client and namespace. It adapts this package's
+// Materialize/Read functions to the neutral ports.ClusterCredential the app
+// layer (clusterapp) consumes -- satisfying clusterapp.CredentialStore.
+type HomeCredentialStore struct {
+	client    kubernetes.Interface
+	namespace string
+}
+
+// NewHomeCredentialStore binds a credential store to the home client + namespace.
+func NewHomeCredentialStore(client kubernetes.Interface, namespace string) *HomeCredentialStore {
+	return &HomeCredentialStore{client: client, namespace: namespace}
+}
+
+// Materialize writes cred into the home-cluster Secret named secretName.
+func (s *HomeCredentialStore) Materialize(ctx context.Context, secretName string, cred ports.ClusterCredential) error {
+	return MaterializeCredential(ctx, s.client, s.namespace, secretName, credFromPorts(cred))
+}
+
+// Read reads the home-cluster Secret named secretName into a neutral credential.
+func (s *HomeCredentialStore) Read(ctx context.Context, secretName string) (ports.ClusterCredential, error) {
+	c, err := ReadCredential(ctx, s.client, s.namespace, secretName)
+	if err != nil {
+		return ports.ClusterCredential{}, err
+	}
+	return ports.ClusterCredential{
+		APIURL: c.APIURL, CACert: c.CACert, Token: c.Token, ClientCert: c.ClientCert, ClientKey: c.ClientKey,
+	}, nil
+}
+
+// ParsePortsKubeconfig validates a self-contained kubeconfig and returns the
+// neutral credential -- the KubeconfigParser clusterapp injects.
+func ParsePortsKubeconfig(raw []byte) (ports.ClusterCredential, error) {
+	c, err := ParseSelfContainedKubeconfig(raw)
+	if err != nil {
+		return ports.ClusterCredential{}, err
+	}
+	return ports.ClusterCredential{
+		APIURL: c.APIURL, CACert: c.CACert, Token: c.Token, ClientCert: c.ClientCert, ClientKey: c.ClientKey,
+	}, nil
+}
+
+// credFromPorts converts a neutral credential to this package's Credential.
+func credFromPorts(c ports.ClusterCredential) Credential {
+	return Credential{APIURL: c.APIURL, CACert: c.CACert, Token: c.Token, ClientCert: c.ClientCert, ClientKey: c.ClientKey}
 }
 
 func credentialToData(cred Credential) map[string][]byte {

@@ -32,12 +32,14 @@ import (
 	promsink "github.com/heridotlife/honryu/internal/adapters/metrics/prometheus"
 	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
 	k8sscheduler "github.com/heridotlife/honryu/internal/adapters/scheduler/k8s"
+	"github.com/heridotlife/honryu/internal/adapters/secretbox"
 	"github.com/heridotlife/honryu/internal/adapters/storage/local"
 	"github.com/heridotlife/honryu/internal/adapters/storage/nexus"
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
 	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
+	"github.com/heridotlife/honryu/internal/app/clusterapp"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
@@ -70,6 +72,8 @@ type repository interface {
 	ports.ScheduleRepository
 	ports.CampaignRepository
 	ports.ClusterRegistry
+	// clusterapp.ActiveRunQuery backs the cluster-registry delete guard.
+	clusterapp.ActiveRunQuery
 }
 
 func main() {
@@ -104,6 +108,10 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 
 	sched, err := newScheduler(cfg.Cluster, repo)
+	if err != nil {
+		return err
+	}
+	clusterSvc, err := newClusterService(cfg.Cluster, repo)
 	if err != nil {
 		return err
 	}
@@ -162,6 +170,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Store:         store,
 		Auth:          authapp.NewService(authProvider, repo, cfg.Auth.EnableRBAC),
 		Tenants:       tenantapp.NewService(repo, repo, repo),
+		Clusters:      clusterSvc,
 		Audit:         audit,
 		DefaultOwners: []string{"honryu"},
 		StaticAssets:  webAssets,
@@ -270,6 +279,38 @@ func newScheduler(cfg config.ClusterConfig, registry ports.ClusterRegistry) (por
 	default:
 		return nil, fmt.Errorf("scheduler %q not supported", cfg.Scheduler)
 	}
+}
+
+// newClusterService wires the cluster-registry application service backing the
+// /api/clusters management endpoints. It is enabled only for the k8s scheduler
+// with a configured credential-encryption key (needed to encrypt BYOC
+// kubeconfigs at rest); otherwise it returns nil and the endpoints are disabled
+// (a deployment that does not register clusters need not configure a key).
+func newClusterService(cfg config.ClusterConfig, repo repository) (httpapi.ClusterService, error) {
+	if cfg.Scheduler != "k8s" || cfg.CredentialKey == "" {
+		return nil, nil
+	}
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("cluster registry: k8s in-cluster config: %w", err)
+	}
+	client, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("cluster registry: k8s client: %w", err)
+	}
+	cipher, err := secretbox.NewFromHex(cfg.CredentialKey)
+	if err != nil {
+		return nil, fmt.Errorf("cluster registry: credential key: %w", err)
+	}
+	return clusterapp.NewService(clusterapp.Deps{
+		Registry:    repo,
+		Prober:      k8sscheduler.Prober{},
+		Credentials: k8sscheduler.NewHomeCredentialStore(client, cfg.Namespace),
+		Runs:        repo,
+		Cipher:      cipher,
+		Parse:       k8sscheduler.ParsePortsKubeconfig,
+		SecretName:  k8sscheduler.CredentialSecretName,
+	}), nil
 }
 
 // newAuthProvider selects the authentication adapter. "none" authenticates
