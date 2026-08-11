@@ -15,6 +15,12 @@ type ExecutionRepository interface {
 	ListExecutionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
 	DeleteExecution(ctx context.Context, id int64) error
 
+	// ExecutionsWithActiveRunOnCluster returns the ids of executions bound to
+	// cluster (execution.Cluster) that currently have an active run, ordered by
+	// id. It backs the cluster-registry delete guard: a cluster is not
+	// removable while it is generating load. An empty result means none.
+	ExecutionsWithActiveRunOnCluster(ctx context.Context, cluster string) ([]int64, error)
+
 	AddExecutionFile(ctx context.Context, executionID int64, filename string) error
 	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
 	DeleteExecutionFile(ctx context.Context, executionID int64, filename string) error

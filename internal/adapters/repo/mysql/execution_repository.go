@@ -72,6 +72,31 @@ func (r *Repository) DeleteExecution(ctx context.Context, id int64) error {
 	return execDelete(ctx, r.db, "DELETE FROM execution WHERE id = ?", id)
 }
 
+// ExecutionsWithActiveRunOnCluster returns the ids of executions on cluster
+// that currently have an active run (an execution_run row), ordered by id.
+func (r *Repository) ExecutionsWithActiveRunOnCluster(ctx context.Context, cluster string) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT e.id FROM execution e JOIN execution_run r ON r.execution_id = e.id WHERE e.cluster = ? ORDER BY e.id",
+		cluster)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: executions with active run on cluster: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []int64{}
+	for rows.Next() {
+		var id int64
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("mysql: scan execution id: %w", scanErr)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterate active-run executions: %w", err)
+	}
+	return out, nil
+}
+
 // AddExecutionFile records a data file for the execution, or
 // ports.ErrFileExists on duplicate.
 func (r *Repository) AddExecutionFile(ctx context.Context, executionID int64, filename string) error {

@@ -1,0 +1,339 @@
+package clusterapp_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/heridotlife/honryu/internal/adapters/secretbox"
+	"github.com/heridotlife/honryu/internal/app/clusterapp"
+	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+)
+
+// errSecretMissing stands in for the credential store's not-found.
+var errSecretMissing = errors.New("secret not found")
+
+type fakeCredStore struct {
+	materialized   map[string]ports.ClusterCredential
+	secrets        map[string]ports.ClusterCredential // pre-seeded operator secrets
+	materializeErr error
+}
+
+func newCredStore() *fakeCredStore {
+	return &fakeCredStore{
+		materialized: map[string]ports.ClusterCredential{},
+		secrets:      map[string]ports.ClusterCredential{},
+	}
+}
+
+func (f *fakeCredStore) Materialize(_ context.Context, secretName string, cred ports.ClusterCredential) error {
+	if f.materializeErr != nil {
+		return f.materializeErr
+	}
+	f.materialized[secretName] = cred
+	return nil
+}
+
+func (f *fakeCredStore) Read(_ context.Context, secretName string) (ports.ClusterCredential, error) {
+	c, ok := f.secrets[secretName]
+	if !ok {
+		return ports.ClusterCredential{}, errSecretMissing
+	}
+	return c, nil
+}
+
+type harness struct {
+	svc    *clusterapp.Service
+	store  *fake.Store
+	prober *fake.ClusterProber
+	creds  *fakeCredStore
+	cipher *secretbox.Cipher
+	parsed ports.ClusterCredential
+	parerr error
+}
+
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+	key := make([]byte, secretbox.KeySize)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	cipher, err := secretbox.New(key)
+	if err != nil {
+		t.Fatalf("secretbox.New: %v", err)
+	}
+	h := &harness{
+		store:  fake.NewStore(),
+		prober: &fake.ClusterProber{},
+		creds:  newCredStore(),
+		cipher: cipher,
+		parsed: ports.ClusterCredential{APIURL: "https://byoc:6443", CACert: []byte("byoc-ca"), Token: "byoc-token"},
+	}
+	h.svc = clusterapp.NewService(clusterapp.Deps{
+		Registry:    h.store,
+		Prober:      h.prober,
+		Credentials: h.creds,
+		Runs:        h.store,
+		Cipher:      cipher,
+		Parse:       func([]byte) (ports.ClusterCredential, error) { return h.parsed, h.parerr },
+		SecretName:  func(name string) string { return "honryu-cluster-" + name },
+	})
+	return h
+}
+
+func byocEntry() clusterregistry.Cluster {
+	return clusterregistry.Cluster{
+		Name: "prod-eu", IngestURL: "http://ingest", SidecarImage: "img", Namespace: "honryu", CreatedBy: "admin",
+	}
+}
+
+func TestRegisterBYOC_Success(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	kubeconfig := []byte("apiVersion: v1\nkind: Config\n...")
+
+	got, err := h.svc.RegisterBYOC(ctx, byocEntry(), kubeconfig)
+	if err != nil {
+		t.Fatalf("RegisterBYOC: %v", err)
+	}
+	if got.Origin != clusterregistry.OriginBYOC || got.SecretRef != "honryu-cluster-prod-eu" {
+		t.Fatalf("entry = %+v, want byoc origin + derived secret ref", got)
+	}
+	if got.APIURL != "https://byoc:6443" || got.CACert != "byoc-ca" {
+		t.Fatalf("entry api/ca not taken from the kubeconfig: %+v", got)
+	}
+
+	// Persisted.
+	stored, err := h.store.GetCluster(ctx, "prod-eu")
+	if err != nil {
+		t.Fatalf("GetCluster: %v", err)
+	}
+	if stored.SecretRef != "honryu-cluster-prod-eu" {
+		t.Fatalf("stored SecretRef = %q", stored.SecretRef)
+	}
+	// Secret materialized.
+	if _, ok := h.creds.materialized["honryu-cluster-prod-eu"]; !ok {
+		t.Fatalf("credential Secret not materialized")
+	}
+	// Encrypted kubeconfig stored and recoverable.
+	ct, err := h.store.GetClusterCredential(ctx, "prod-eu")
+	if err != nil {
+		t.Fatalf("GetClusterCredential: %v", err)
+	}
+	pt, err := h.cipher.Open(ct)
+	if err != nil {
+		t.Fatalf("decrypt stored credential: %v", err)
+	}
+	if !bytes.Equal(pt, kubeconfig) {
+		t.Fatalf("decrypted credential = %q, want the original kubeconfig", pt)
+	}
+	// Probed with the parsed credential.
+	if len(h.prober.Calls) != 1 || h.prober.Calls[0].Namespace != "honryu" {
+		t.Fatalf("probe calls = %+v", h.prober.Calls)
+	}
+}
+
+func TestRegisterBYOC_InvalidKubeconfig(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.parerr = errors.New("exec auth unsupported")
+	_, err := h.svc.RegisterBYOC(context.Background(), byocEntry(), []byte("bad"))
+	if !errors.Is(err, clusterapp.ErrKubeconfigInvalid) {
+		t.Fatalf("RegisterBYOC(bad kubeconfig) = %v, want ErrKubeconfigInvalid", err)
+	}
+	// Nothing persisted, nothing materialized.
+	if _, err := h.store.GetCluster(context.Background(), "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cluster persisted despite invalid kubeconfig")
+	}
+	if len(h.creds.materialized) != 0 {
+		t.Fatalf("secret materialized despite invalid kubeconfig")
+	}
+}
+
+func TestRegisterBYOC_ProbeFailsIsNotStored(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.prober.Err = &ports.ProbeError{Kind: ports.ProbeUnderPrivileged, Message: "missing configmaps"}
+	_, err := h.svc.RegisterBYOC(context.Background(), byocEntry(), []byte("kc"))
+	var pe *ports.ProbeError
+	if !errors.As(err, &pe) || pe.Kind != ports.ProbeUnderPrivileged {
+		t.Fatalf("RegisterBYOC(probe fail) = %v, want ProbeError under_privileged", err)
+	}
+	if _, err := h.store.GetCluster(context.Background(), "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cluster persisted despite probe failure")
+	}
+	if len(h.creds.materialized) != 0 {
+		t.Fatalf("secret materialized despite probe failure")
+	}
+}
+
+func TestRegisterBYOC_BlankNameRejected(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	entry := byocEntry()
+	entry.Name = "  "
+	if _, err := h.svc.RegisterBYOC(context.Background(), entry, []byte("kc")); !errors.Is(err, clusterregistry.ErrNameRequired) {
+		t.Fatalf("RegisterBYOC(blank name) = %v, want ErrNameRequired", err)
+	}
+}
+
+func TestRegisterBYOC_DuplicateRejected(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err != nil {
+		t.Fatalf("RegisterBYOC (first): %v", err)
+	}
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc2")); !errors.Is(err, ports.ErrClusterExists) {
+		t.Fatalf("RegisterBYOC (dup) = %v, want ErrClusterExists", err)
+	}
+}
+
+func TestRegisterBYOC_MaterializeFailureRollsBack(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.creds.materializeErr = errors.New("secret write denied")
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err == nil {
+		t.Fatalf("RegisterBYOC(materialize fail) = nil, want error")
+	}
+	// Rolled back -- no half-registered entry.
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("entry not rolled back after materialize failure")
+	}
+}
+
+func TestRegisterOperator_Success(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	h.creds.secrets["prod-eu-creds"] = ports.ClusterCredential{APIURL: "https://op:6443", CACert: []byte("op-ca"), Token: "op-token"}
+
+	entry := clusterregistry.Cluster{
+		Name: "prod-eu", IngestURL: "http://ingest", SidecarImage: "img",
+		Namespace: "honryu", SecretRef: "prod-eu-creds", CreatedBy: "admin",
+	}
+	got, err := h.svc.RegisterOperator(ctx, entry)
+	if err != nil {
+		t.Fatalf("RegisterOperator: %v", err)
+	}
+	if got.Origin != clusterregistry.OriginOperator {
+		t.Fatalf("origin = %q, want operator", got.Origin)
+	}
+	if got.APIURL != "https://op:6443" || got.CACert != "op-ca" {
+		t.Fatalf("entry api/ca not taken from the operator secret: %+v", got)
+	}
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); err != nil {
+		t.Fatalf("operator cluster not persisted: %v", err)
+	}
+	// Operator flow never materializes -- the Secret is the source of truth.
+	if len(h.creds.materialized) != 0 {
+		t.Fatalf("operator registration should not materialize a Secret")
+	}
+}
+
+func TestRegisterOperator_SecretMissing(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	entry := clusterregistry.Cluster{
+		Name: "prod-eu", IngestURL: "http://ingest", SidecarImage: "img",
+		Namespace: "honryu", SecretRef: "absent", CreatedBy: "admin",
+	}
+	if _, err := h.svc.RegisterOperator(context.Background(), entry); !errors.Is(err, errSecretMissing) {
+		t.Fatalf("RegisterOperator(missing secret) = %v, want errSecretMissing", err)
+	}
+	if _, err := h.store.GetCluster(context.Background(), "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cluster persisted despite missing secret")
+	}
+}
+
+func TestDelete_GuardBlocksActiveRun(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err != nil {
+		t.Fatalf("RegisterBYOC: %v", err)
+	}
+
+	// An execution on prod-eu with an active run.
+	exeID, err := h.store.CreateExecution(ctx, execution.Execution{Name: "load", ProjectID: 1, Cluster: "prod-eu"})
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	if _, err := h.store.StartRun(ctx, exeID); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	if err := h.svc.Delete(ctx, "prod-eu"); !errors.Is(err, clusterapp.ErrClusterInUse) {
+		t.Fatalf("Delete(in use) = %v, want ErrClusterInUse", err)
+	}
+	// Still present.
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); err != nil {
+		t.Fatalf("cluster removed despite active run: %v", err)
+	}
+
+	// Once the run stops, delete proceeds.
+	if err := h.store.StopRun(ctx, exeID); err != nil {
+		t.Fatalf("StopRun: %v", err)
+	}
+	if err := h.svc.Delete(ctx, "prod-eu"); err != nil {
+		t.Fatalf("Delete(idle) = %v, want nil", err)
+	}
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cluster not removed after delete")
+	}
+}
+
+func TestDelete_NotFound(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	if err := h.svc.Delete(context.Background(), "ghost"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Delete(ghost) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUpdate_ReplacesMutableFields(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err != nil {
+		t.Fatalf("RegisterBYOC: %v", err)
+	}
+	got, err := h.svc.Update(ctx, "prod-eu", "http://new-ingest", "img:2", "honryu2")
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got.IngestURL != "http://new-ingest" || got.SidecarImage != "img:2" || got.Namespace != "honryu2" {
+		t.Fatalf("Update result = %+v", got)
+	}
+	if _, err := h.svc.Update(ctx, "ghost", "a", "b", "c"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Update(ghost) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestGetListResolve(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err != nil {
+		t.Fatalf("RegisterBYOC: %v", err)
+	}
+	if _, err := h.svc.Get(ctx, "prod-eu"); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	list, err := h.svc.List(ctx)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("List = %v (err %v), want 1", list, err)
+	}
+	if _, err := h.svc.Resolve(ctx, ports.ClusterRef("prod-eu")); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if _, err := h.svc.Resolve(ctx, ports.ClusterRef("nope")); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Resolve(nope) = %v, want ErrNotFound", err)
+	}
+}

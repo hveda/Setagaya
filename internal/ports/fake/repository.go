@@ -7,6 +7,7 @@ package fake
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -455,6 +456,24 @@ func (s *Store) ListExecutionsByProject(_ context.Context, projectID int64) ([]e
 			out = append(out, c)
 		}
 	}
+	return out, nil
+}
+
+// ExecutionsWithActiveRunOnCluster returns the ids of executions on cluster
+// that have an active run, ordered by id.
+func (s *Store) ExecutionsWithActiveRunOnCluster(_ context.Context, cluster string) ([]int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []int64
+	for id, exe := range s.executions {
+		if exe.Cluster != cluster {
+			continue
+		}
+		if _, ok := s.currentRun[id]; ok {
+			out = append(out, id)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out, nil
 }
 

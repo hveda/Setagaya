@@ -9,6 +9,7 @@ import (
 
 	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
 	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/ports/repositorytest"
 	"github.com/heridotlife/honryu/test/dbtest"
@@ -20,6 +21,53 @@ func TestMySQLScenarioRepository_Contract(t *testing.T) {
 		truncateAll(t, db)
 		return mysqladapter.NewRepository(db)
 	})
+}
+
+// ExecutionsWithActiveRunOnCluster (the delete guard) must only count
+// executions on the given cluster that actually have an active run.
+func TestMySQLExecutionsWithActiveRunOnCluster(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	repo := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	proj, err := project.New("p", "owner", "1")
+	if err != nil {
+		t.Fatalf("project.New: %v", err)
+	}
+	projectID, err := repo.CreateProject(ctx, proj)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// On prod-eu, with an active run -> counted.
+	running, err := repo.CreateExecution(ctx, execution.Execution{Name: "running", ProjectID: projectID, Cluster: "prod-eu"})
+	if err != nil {
+		t.Fatalf("CreateExecution(running): %v", err)
+	}
+	if _, err := repo.StartRun(ctx, running); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	// On prod-eu, no active run -> not counted.
+	if _, err := repo.CreateExecution(ctx, execution.Execution{Name: "idle", ProjectID: projectID, Cluster: "prod-eu"}); err != nil {
+		t.Fatalf("CreateExecution(idle): %v", err)
+	}
+	// On another cluster, active run -> not counted for prod-eu.
+	other, err := repo.CreateExecution(ctx, execution.Execution{Name: "other", ProjectID: projectID, Cluster: "prod-us"})
+	if err != nil {
+		t.Fatalf("CreateExecution(other): %v", err)
+	}
+	if _, err := repo.StartRun(ctx, other); err != nil {
+		t.Fatalf("StartRun(other): %v", err)
+	}
+
+	got, err := repo.ExecutionsWithActiveRunOnCluster(ctx, "prod-eu")
+	if err != nil {
+		t.Fatalf("ExecutionsWithActiveRunOnCluster: %v", err)
+	}
+	if len(got) != 1 || got[0] != running {
+		t.Fatalf("got %v, want [%d] (only the running prod-eu execution)", got, running)
+	}
 }
 
 func TestMySQLExecutionRepository_Contract(t *testing.T) {
