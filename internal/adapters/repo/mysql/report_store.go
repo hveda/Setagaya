@@ -17,7 +17,7 @@ var _ ports.ReportStore = (*Repository)(nil)
 
 // reportColumns is the summary projection, shared by every read so a column
 // added to one query cannot be forgotten in another.
-const reportColumns = `run_id, execution_id, scenario_id, engine, outcome, started_at, ended_at,
+const reportColumns = `run_id, execution_id, scenario_id, engine, cluster, outcome, started_at, ended_at,
 	requested_concurrency, requested_throughput, requested_duration_seconds,
 	achieved_concurrency, achieved_throughput, achieved_duration_seconds,
 	achieved_samples, achieved_failed, error_rate,
@@ -59,8 +59,8 @@ func (r *Repository) SaveReport(ctx context.Context, rep report.Report) error {
 	defer func() { _ = tx.Rollback() }() // no-op once committed
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO execution_report (`+reportColumns+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		rep.RunID, rep.ExecutionID, rep.ScenarioID, string(rep.Engine), string(rep.Outcome),
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		rep.RunID, rep.ExecutionID, rep.ScenarioID, string(rep.Engine), rep.Cluster, string(rep.Outcome),
 		rep.StartedAt.UTC(), rep.EndedAt.UTC(),
 		rep.Requested.Concurrency, rep.Requested.Throughput, rep.Requested.DurationSeconds,
 		rep.Achieved.Concurrency, rep.Achieved.Throughput, rep.Achieved.DurationSeconds,
@@ -191,7 +191,7 @@ func scanReport(s rowScanner) (report.Report, error) {
 		latency, labels []byte
 	)
 	if err := s.Scan(
-		&rep.RunID, &rep.ExecutionID, &rep.ScenarioID, &engine, &outcome,
+		&rep.RunID, &rep.ExecutionID, &rep.ScenarioID, &engine, &rep.Cluster, &outcome,
 		&rep.StartedAt, &rep.EndedAt,
 		&rep.Requested.Concurrency, &rep.Requested.Throughput, &rep.Requested.DurationSeconds,
 		&rep.Achieved.Concurrency, &rep.Achieved.Throughput, &rep.Achieved.DurationSeconds,

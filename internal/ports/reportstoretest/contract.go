@@ -39,6 +39,9 @@ func Run(t *testing.T, newStore NewStore) {
 		if got.Outcome != want.Outcome || got.Engine != want.Engine {
 			t.Errorf("outcome/engine = %q/%q", got.Outcome, got.Engine)
 		}
+		if got.Cluster != want.Cluster {
+			t.Errorf("cluster = %q, want %q", got.Cluster, want.Cluster)
+		}
 		if got.Achieved.Samples != want.Achieved.Samples || got.ErrorRate != want.ErrorRate {
 			t.Errorf("counters = %+v (error rate %v)", got.Achieved, got.ErrorRate)
 		}
@@ -186,6 +189,7 @@ func sample(executionID, runID int64, at time.Time) report.Report {
 		ScenarioID:  executionID * 10,
 		RunID:       runID,
 		Engine:      taurus.ExecutorJMeter,
+		Cluster:     "prod-eu",
 		StartedAt:   at,
 		EndedAt:     at.Add(time.Minute),
 		Outcome:     taurus.OutcomePassed,

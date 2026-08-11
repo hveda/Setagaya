@@ -103,8 +103,11 @@ type Meta struct {
 	ScenarioID  int64
 	RunID       int64
 	Engine      taurus.Executor
-	StartedAt   time.Time
-	EndedAt     time.Time
+	// Cluster is the load origin: the registered cluster this run generated
+	// load from (empty = the deployment default), sourced from the execution.
+	Cluster   string
+	StartedAt time.Time
+	EndedAt   time.Time
 	// Requested is the load the execution asked for.
 	Requested Load
 	// Outcome is how the run ended.
@@ -136,8 +139,10 @@ type Input struct {
 	ScenarioID  int64
 	RunID       int64
 	Engine      taurus.Executor
-	StartedAt   time.Time
-	EndedAt     time.Time
+	// Cluster is the load origin, sourced from the execution (empty = default).
+	Cluster   string
+	StartedAt time.Time
+	EndedAt   time.Time
 	// Requested is the load the execution asked for.
 	Requested Load
 	// Outcome is how the run ended.
@@ -152,9 +157,11 @@ type Report struct {
 	ScenarioID  int64           `json:"scenario_id"`
 	RunID       int64           `json:"run_id"`
 	Engine      taurus.Executor `json:"engine,omitempty"`
-	StartedAt   time.Time       `json:"started_at"`
-	EndedAt     time.Time       `json:"ended_at"`
-	Outcome     taurus.Outcome  `json:"outcome"`
+	// Cluster is the load origin surfaced to a reader (empty = default).
+	Cluster   string         `json:"cluster,omitempty"`
+	StartedAt time.Time      `json:"started_at"`
+	EndedAt   time.Time      `json:"ended_at"`
+	Outcome   taurus.Outcome `json:"outcome"`
 
 	// Requested and Achieved sit side by side deliberately: latency means little
 	// without knowing whether the load that produced it was the load intended.
@@ -182,6 +189,7 @@ func (in Input) Meta() Meta {
 		ScenarioID:  in.ScenarioID,
 		RunID:       in.RunID,
 		Engine:      in.Engine,
+		Cluster:     in.Cluster,
 		StartedAt:   in.StartedAt,
 		EndedAt:     in.EndedAt,
 		Requested:   in.Requested,

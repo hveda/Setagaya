@@ -99,6 +99,7 @@ func (a *Accumulator) Report(m Meta) Report {
 		ScenarioID:  m.ScenarioID,
 		RunID:       m.RunID,
 		Engine:      m.Engine,
+		Cluster:     m.Cluster,
 		StartedAt:   m.StartedAt,
 		EndedAt:     m.EndedAt,
 		Outcome:     m.Outcome,

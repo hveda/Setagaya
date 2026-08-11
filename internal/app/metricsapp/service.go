@@ -155,7 +155,11 @@ func (s *Service) finalize(ctx context.Context, executionID, runID int64, outcom
 		// resolution happens in lifecycleapp at deploy time and is not
 		// currently threaded through to here, so a defaulted execution's
 		// report still under-reports which engine actually ran.
-		Engine:    exe.Engine,
+		Engine: exe.Engine,
+		// The load origin: the cluster this run generated load from (empty =
+		// the deployment default), recorded on the report so a reader knows
+		// where the numbers came from.
+		Cluster:   exe.Cluster,
 		StartedAt: history.StartedTime,
 		EndedAt:   s.now(),
 		Requested: requestedLoad(profile),

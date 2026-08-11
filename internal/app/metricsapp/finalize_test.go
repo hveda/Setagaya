@@ -17,7 +17,7 @@ import (
 // from the execution's own configured preference; a defaulted execution
 // (empty preference, deployment default applies) is a known, narrower gap
 // than every report having none at all.
-func TestFinalize_PopulatesEngineFromTheExecution(t *testing.T) {
+func TestFinalize_PopulatesEngineAndClusterFromTheExecution(t *testing.T) {
 	t.Parallel()
 	e := setup(t, 1)
 	ctx := context.Background()
@@ -26,13 +26,14 @@ func TestFinalize_PopulatesEngineFromTheExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetExecution: %v", err)
 	}
-	// A fresh execution with its engine set, since setup()'s own execution
-	// leaves it empty (the case the doc comment already covers).
+	// A fresh execution with its engine and cluster set, since setup()'s own
+	// execution leaves both empty (the default case the doc comments cover).
 	withEngine, err := execution.New("k6-run", existing.ProjectID)
 	if err != nil {
 		t.Fatalf("execution.New: %v", err)
 	}
 	withEngine.Engine = taurus.ExecutorK6
+	withEngine.Cluster = "prod-eu"
 	executionID, err := e.store.CreateExecution(ctx, withEngine)
 	if err != nil {
 		t.Fatalf("CreateExecution: %v", err)
@@ -56,6 +57,9 @@ func TestFinalize_PopulatesEngineFromTheExecution(t *testing.T) {
 	}
 	if rep.Engine != taurus.ExecutorK6 {
 		t.Errorf("engine = %q, want %q", rep.Engine, taurus.ExecutorK6)
+	}
+	if rep.Cluster != "prod-eu" {
+		t.Errorf("cluster = %q, want prod-eu (the load origin)", rep.Cluster)
 	}
 }
 
