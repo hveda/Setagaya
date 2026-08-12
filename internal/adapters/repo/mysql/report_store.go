@@ -125,6 +125,41 @@ func (r *Repository) ReportsSince(ctx context.Context, since time.Time, limit in
 		 ORDER BY started_at DESC, run_id DESC`+limitClause(limit), since.UTC())
 }
 
+// ErrorSignatureHistory aggregates every error signature across
+// executionID's runs, joining report_error_signature back to execution_report
+// on run_id to scope by execution (the signature table itself carries no
+// execution id). Dominant-first, matching a single run's own ordering.
+func (r *Repository) ErrorSignatureHistory(ctx context.Context, executionID int64) ([]report.SignatureHistoryRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT es.label, es.response_code, es.side, SUM(es.count), COUNT(DISTINCT es.run_id)
+		FROM report_error_signature es
+		JOIN execution_report er ON er.run_id = es.run_id
+		WHERE er.execution_id = ?
+		GROUP BY es.label, es.response_code, es.side
+		ORDER BY SUM(es.count) DESC, es.side, es.response_code, es.label`, executionID)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: error signature history: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []report.SignatureHistoryRow{}
+	for rows.Next() {
+		var (
+			row  report.SignatureHistoryRow
+			side string
+		)
+		if err := rows.Scan(&row.Label, &row.ResponseCode, &side, &row.TotalCount, &row.RunCount); err != nil {
+			return nil, fmt.Errorf("mysql: scan error signature history: %w", err)
+		}
+		row.Side = report.Side(side)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterate error signature history: %w", err)
+	}
+	return out, nil
+}
+
 func (r *Repository) listReports(ctx context.Context, query string, args ...any) ([]report.Report, error) {
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {

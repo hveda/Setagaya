@@ -39,4 +39,10 @@ type ReportStore interface {
 	// the given time, which is what trend analytics reads. The boundary is
 	// inclusive; limit behaves as it does for ListReports.
 	ReportsSince(ctx context.Context, since time.Time, limit int) ([]report.Report, error)
+	// ErrorSignatureHistory aggregates every error signature across
+	// executionID's runs, grouped by (label, response_code, side): the summed
+	// count across all runs, and how many distinct runs each signature
+	// appeared in. Ordered dominant-first (total count descending), matching
+	// how a single run's own signatures are ordered.
+	ErrorSignatureHistory(ctx context.Context, executionID int64) ([]report.SignatureHistoryRow, error)
 }

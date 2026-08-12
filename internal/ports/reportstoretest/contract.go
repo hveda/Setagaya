@@ -171,6 +171,56 @@ func Run(t *testing.T, newStore NewStore) {
 		}
 	})
 
+	t.Run("ErrorSignatureHistory", func(t *testing.T) {
+		s := newStore(t)
+
+		withError := func(executionID, runID int64, at time.Time, sig report.Signature, count int64) report.Report {
+			r := sample(executionID, runID, at)
+			r.Outcome = taurus.OutcomeFailed
+			r.Errors = []report.ErrorSignature{{Signature: sig, Count: count}}
+			return r
+		}
+		sig500 := report.Signature{Label: "checkout", ResponseCode: "500", Side: report.SideTarget}
+		sig404 := report.Signature{Label: "checkout", ResponseCode: "404", Side: report.SideTarget}
+
+		if err := s.SaveReport(ctx, withError(1, 40, time.Unix(1000, 0), sig500, 3)); err != nil {
+			t.Fatalf("SaveReport(run 40): %v", err)
+		}
+		if err := s.SaveReport(ctx, withError(1, 41, time.Unix(2000, 0), sig500, 5)); err != nil {
+			t.Fatalf("SaveReport(run 41): %v", err)
+		}
+		if err := s.SaveReport(ctx, withError(1, 42, time.Unix(3000, 0), sig404, 1)); err != nil {
+			t.Fatalf("SaveReport(run 42): %v", err)
+		}
+		// A different execution's signature must never appear in execution 1's history.
+		if err := s.SaveReport(ctx, withError(9, 43, time.Unix(4000, 0), sig500, 100)); err != nil {
+			t.Fatalf("SaveReport(other execution): %v", err)
+		}
+
+		got, err := s.ErrorSignatureHistory(ctx, 1)
+		if err != nil {
+			t.Fatalf("ErrorSignatureHistory: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("ErrorSignatureHistory = %+v, want 2 rows", got)
+		}
+		// Dominant first: sig500's total (8, across 2 runs) outranks sig404's (1, 1 run).
+		if got[0].Label != "checkout" || got[0].ResponseCode != "500" || got[0].TotalCount != 8 || got[0].RunCount != 2 {
+			t.Fatalf("ErrorSignatureHistory[0] = %+v, want sig500 totalled 8 across 2 runs", got[0])
+		}
+		if got[1].ResponseCode != "404" || got[1].TotalCount != 1 || got[1].RunCount != 1 {
+			t.Fatalf("ErrorSignatureHistory[1] = %+v, want sig404 totalled 1 across 1 run", got[1])
+		}
+
+		empty, err := s.ErrorSignatureHistory(ctx, 999)
+		if err != nil {
+			t.Fatalf("ErrorSignatureHistory(no reports): %v", err)
+		}
+		if len(empty) != 0 {
+			t.Fatalf("ErrorSignatureHistory(no reports) = %+v, want empty", empty)
+		}
+	})
+
 	t.Run("RejectsInvalidReports", func(t *testing.T) {
 		s := newStore(t)
 		bad := sample(1, 10, time.Unix(1, 0))

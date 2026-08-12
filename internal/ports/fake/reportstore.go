@@ -89,6 +89,55 @@ func (s *ReportStore) ReportsSince(_ context.Context, since time.Time, limit int
 	return trim(out, limit), nil
 }
 
+// ErrorSignatureHistory aggregates every error signature across
+// executionID's runs, grouped by (label, response_code, side).
+func (s *ReportStore) ErrorSignatureHistory(_ context.Context, executionID int64) ([]report.SignatureHistoryRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	type key struct {
+		label, code string
+		side        report.Side
+	}
+	totals := map[key]int64{}
+	runs := map[key]map[int64]struct{}{}
+	for _, r := range s.reports {
+		if r.ExecutionID != executionID {
+			continue
+		}
+		for _, e := range r.Errors {
+			k := key{label: e.Label, code: e.ResponseCode, side: e.Side}
+			totals[k] += e.Count
+			if runs[k] == nil {
+				runs[k] = map[int64]struct{}{}
+			}
+			runs[k][r.RunID] = struct{}{}
+		}
+	}
+
+	out := make([]report.SignatureHistoryRow, 0, len(totals))
+	for k, total := range totals {
+		out = append(out, report.SignatureHistoryRow{
+			Signature:  report.Signature{Label: k.label, ResponseCode: k.code, Side: k.side},
+			TotalCount: total,
+			RunCount:   len(runs[k]),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].TotalCount != out[j].TotalCount {
+			return out[i].TotalCount > out[j].TotalCount
+		}
+		if out[i].Side != out[j].Side {
+			return out[i].Side < out[j].Side
+		}
+		if out[i].ResponseCode != out[j].ResponseCode {
+			return out[i].ResponseCode < out[j].ResponseCode
+		}
+		return out[i].Label < out[j].Label
+	})
+	return out, nil
+}
+
 func trim(in []report.Report, limit int) []report.Report {
 	sort.Slice(in, func(i, j int) bool {
 		if in[i].StartedAt.Equal(in[j].StartedAt) {

@@ -101,6 +101,16 @@ func MergeExemplars(kept, incoming []string) []string {
 	return merged.Exemplars
 }
 
+// SignatureHistoryRow is one failure mode's totals across every run of an
+// execution: how many times it happened in total, and across how many
+// distinct runs it appeared at all -- the two counts a reader needs to tell
+// "happens on every run" from "happened once, a while back".
+type SignatureHistoryRow struct {
+	Signature
+	TotalCount int64
+	RunCount   int
+}
+
 // addExemplar keeps a wording if it is new and there is room, truncating it to
 // the bound. Counts are unaffected: a dropped exemplar loses a sentence, never a
 // failure.
