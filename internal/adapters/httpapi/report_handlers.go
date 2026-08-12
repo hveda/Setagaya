@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/domain/report"
 )
 
 // runReport returns a run's stored report -- the durable record of what it
@@ -37,6 +38,61 @@ func (h *handlers) executionReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, reps)
+}
+
+type trendPointResponse struct {
+	RunID                    int64   `json:"run_id"`
+	Outcome                  string  `json:"outcome"`
+	AchievedThroughput       float64 `json:"achieved_throughput"`
+	RequestedThroughput      float64 `json:"requested_throughput"`
+	ErrorRate                float64 `json:"error_rate"`
+	P50                      float64 `json:"p50"`
+	P90                      float64 `json:"p90"`
+	P95                      float64 `json:"p95"`
+	P99                      float64 `json:"p99"`
+	HitTargetQPS             bool    `json:"hit_target_qps"`
+	HasComparablePredecessor bool    `json:"has_comparable_predecessor"`
+	Regressed                bool    `json:"regressed,omitempty"`
+}
+
+type trendResponse struct {
+	ExecutionID int64                `json:"execution_id"`
+	Points      []trendPointResponse `json:"points"`
+}
+
+func toTrendResponse(t report.Trend) trendResponse {
+	points := make([]trendPointResponse, len(t.Points))
+	for i, p := range t.Points {
+		points[i] = trendPointResponse{
+			RunID: p.RunID, Outcome: string(p.Outcome),
+			AchievedThroughput: p.AchievedThroughput, RequestedThroughput: p.RequestedThroughput,
+			ErrorRate: p.ErrorRate, P50: p.P50, P90: p.P90, P95: p.P95, P99: p.P99,
+			HitTargetQPS: p.HitTargetQPS, HasComparablePredecessor: p.HasComparablePredecessor,
+			Regressed: p.Regressed,
+		}
+	}
+	return trendResponse{ExecutionID: t.ExecutionID, Points: points}
+}
+
+// executionTrend returns an execution's run-over-run trend: achieved QPS,
+// requested QPS, latency percentiles, and error rate as raw advisory series,
+// plus the one flagged signal (a run-over-run hit-target-QPS regression
+// against its nearest comparable predecessor). Reads via ListReports, the
+// same source and ?limit convention executionReports already uses.
+func (h *handlers) executionTrend(w http.ResponseWriter, r *http.Request) {
+	executionID, ok := pathInt(r, "execution_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	reps, err := h.deps.Reports.ListReports(r.Context(), executionID, queryInt(r, "limit"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	trend := report.BuildTrend(reps)
+	trend.ExecutionID = executionID // reps may be empty; the path param is authoritative either way
+	writeJSON(w, http.StatusOK, toTrendResponse(trend))
 }
 
 // runShardLog serves a shard's captured engine output, durable after the pod

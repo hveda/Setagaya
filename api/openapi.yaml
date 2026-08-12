@@ -549,6 +549,36 @@ components:
         labels:
           type: array
           items: { $ref: '#/components/schemas/LabelSummary' }
+    Trend:
+      type: object
+      description: An execution's run-over-run history, most recent first.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/TrendPoint' }
+    TrendPoint:
+      type: object
+      description: One run's contribution to its execution's trend.
+      properties:
+        run_id: { type: integer, format: int64 }
+        outcome: { type: string, enum: [passed, failed, aborted, error] }
+        achieved_throughput: { type: number }
+        requested_throughput: { type: number }
+        error_rate: { type: number }
+        p50: { type: number }
+        p90: { type: number }
+        p95: { type: number }
+        p99: { type: number }
+        hit_target_qps:
+          type: boolean
+          description: True when no target QPS was requested, or the run achieved at least 95% of it.
+        has_comparable_predecessor:
+          type: boolean
+          description: False when no earlier report in the trend shares this run's execution, requested load, engine, and cluster -- "no baseline", never a false regression.
+        regressed:
+          type: boolean
+          description: True only when this run did not hit target QPS while its nearest comparable predecessor did. The reverse transition (an improvement) is visible directly via hit_target_qps and is not separately flagged.
     Load:
       type: object
       description: A rate of work, requested or achieved.
@@ -1453,6 +1483,29 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Report' }
+
+  /api/executions/{execution_id}/trend:
+    get:
+      tags: [reports]
+      summary: An execution's run-over-run trend
+      description: |
+        Achieved QPS, requested QPS, latency percentiles (p50/p90/p95/p99),
+        and error rate as raw advisory series, most recent first -- never
+        auto-flagged. The one flagged signal is `regressed`: true only when a
+        run did not hit its target QPS while its nearest comparable
+        predecessor (same execution, requested load, engine, and cluster)
+        did. A run with no comparable predecessor has
+        `has_comparable_predecessor: false` ("no baseline"), never a false
+        regression.
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Trend
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Trend' }
 
   /api/runs/{run_id}/report:
     get:

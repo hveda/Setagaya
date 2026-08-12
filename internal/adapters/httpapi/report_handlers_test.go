@@ -156,6 +156,118 @@ func TestReportHTTP_MalformedLimitIsIgnored(t *testing.T) {
 	}
 }
 
+func TestExecutionTrendHTTP_EmptyExecution(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newReportEnv(t)
+
+	rec := do(t, h, http.MethodGet, "/api/executions/7/trend")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET trend = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		ExecutionID int64         `json:"execution_id"`
+		Points      []interface{} `json:"points"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ExecutionID != 7 || len(got.Points) != 0 {
+		t.Fatalf("trend = %+v, want execution_id 7 and no points", got)
+	}
+}
+
+// End to end: two comparable runs, the newer one short of its target QPS
+// while the older hit it -- the trend surfaces regressed:true on the newer
+// point, most-recent-first.
+func TestExecutionTrendHTTP_FlagsRegression(t *testing.T) {
+	t.Parallel()
+	h, reports, _ := newReportEnv(t)
+	ctx := context.Background()
+
+	older := report.Report{
+		ExecutionID: 7, RunID: 1, Engine: taurus.ExecutorJMeter,
+		StartedAt: time.Unix(1000, 0).UTC(), Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Concurrency: 10, Throughput: 100, DurationSeconds: 60},
+		Achieved:  report.Load{Throughput: 100},
+	}
+	newer := report.Report{
+		ExecutionID: 7, RunID: 2, Engine: taurus.ExecutorJMeter,
+		StartedAt: time.Unix(2000, 0).UTC(), Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Concurrency: 10, Throughput: 100, DurationSeconds: 60},
+		Achieved:  report.Load{Throughput: 50},
+	}
+	if err := reports.SaveReport(ctx, older); err != nil {
+		t.Fatalf("SaveReport(older): %v", err)
+	}
+	if err := reports.SaveReport(ctx, newer); err != nil {
+		t.Fatalf("SaveReport(newer): %v", err)
+	}
+
+	rec := do(t, h, http.MethodGet, "/api/executions/7/trend")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET trend = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		ExecutionID int64 `json:"execution_id"`
+		Points      []struct {
+			RunID                    int64   `json:"run_id"`
+			AchievedThroughput       float64 `json:"achieved_throughput"`
+			HitTargetQPS             bool    `json:"hit_target_qps"`
+			HasComparablePredecessor bool    `json:"has_comparable_predecessor"`
+			Regressed                bool    `json:"regressed"`
+		} `json:"points"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.ExecutionID != 7 || len(got.Points) != 2 {
+		t.Fatalf("trend = %+v, want execution_id 7 and 2 points", got)
+	}
+	// Most recent first: run 2 (newer, regressed) before run 1 (older, baseline).
+	if got.Points[0].RunID != 2 || got.Points[0].HitTargetQPS || !got.Points[0].HasComparablePredecessor || !got.Points[0].Regressed {
+		t.Fatalf("newer point = %+v, want run 2, missed target, comparable predecessor, regressed", got.Points[0])
+	}
+	if got.Points[1].RunID != 1 || !got.Points[1].HitTargetQPS {
+		t.Fatalf("older point = %+v, want run 1, hit target", got.Points[1])
+	}
+}
+
+func TestExecutionTrendHTTP_LimitIsRespected(t *testing.T) {
+	t.Parallel()
+	h, reports, _ := newReportEnv(t)
+	ctx := context.Background()
+	for i, ts := range []int64{1000, 2000, 3000} {
+		r := report.Report{ExecutionID: 7, RunID: int64(i + 1), StartedAt: time.Unix(ts, 0).UTC(), Outcome: taurus.OutcomePassed}
+		if err := reports.SaveReport(ctx, r); err != nil {
+			t.Fatalf("SaveReport: %v", err)
+		}
+	}
+
+	rec := do(t, h, http.MethodGet, "/api/executions/7/trend?limit=1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET trend = %d", rec.Code)
+	}
+	var got struct {
+		Points []struct {
+			RunID int64 `json:"run_id"`
+		} `json:"points"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Points) != 1 || got.Points[0].RunID != 3 {
+		t.Fatalf("trend points = %+v, want only the most recent (run 3)", got.Points)
+	}
+}
+
+func TestExecutionTrendHTTP_InvalidExecutionIDIsBadRequest(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newReportEnv(t)
+	if rec := do(t, h, http.MethodGet, "/api/executions/not-a-number/trend"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("GET trend (invalid id) = %d, want 400", rec.Code)
+	}
+}
+
 func TestReportHTTP_FetchesACapturedShardLog(t *testing.T) {
 	t.Parallel()
 	h, _, obj := newReportEnv(t)

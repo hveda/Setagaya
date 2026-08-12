@@ -142,6 +142,7 @@ var routes = []Route{
 	{"DELETE", "/api/executions/{execution_id}/schedules/{schedule_id}", "schedules", hf(func(h *handlers) http.HandlerFunc { return h.deleteSchedule })},
 
 	{"GET", "/api/executions/{execution_id}/reports", "reports", hf(func(h *handlers) http.HandlerFunc { return h.executionReports })},
+	{"GET", "/api/executions/{execution_id}/trend", "reports", hf(func(h *handlers) http.HandlerFunc { return h.executionTrend })},
 	{"GET", "/api/runs/{run_id}/report", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runReport })},
 	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardLog })},
 	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardConfig })},
