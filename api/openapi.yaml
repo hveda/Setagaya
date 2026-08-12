@@ -383,6 +383,11 @@ components:
           type: array
           items: { $ref: '#/components/schemas/FailingCriterion' }
           description: Only populated when outcome is "failed".
+        short_of_target_qps:
+          type: boolean
+          description: True when the service requested a target QPS and achieved less than 95% of it -- a criteria pass under a fraction of the intended load is not a real go. Always false when no target QPS was requested.
+        requested_throughput: { type: number, description: "The report's requested throughput (QPS); 0 means unlimited." }
+        achieved_throughput: { type: number, description: The report's achieved throughput (QPS). }
     OtherLoad:
       type: object
       description: One reservation or completed launch, other than the campaign's own designated executions, that overlapped its window -- the minimum mitigation for the residual risk that a non-participating execution could distort the campaign's readiness numbers by contending for shared infrastructure Honryu cannot see or scope around.

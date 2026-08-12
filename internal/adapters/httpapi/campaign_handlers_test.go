@@ -299,6 +299,57 @@ func TestGetCampaignVerdict_ReturnsPerServiceOutcomeAndOverallGo(t *testing.T) {
 	}
 }
 
+// A service that passed its criteria but fell short of its target QPS flips
+// the campaign to no-go, and the API response names the shortfall.
+func TestGetCampaignVerdict_ShortOfTargetQPS_OverallNoGo(t *testing.T) {
+	t.Parallel()
+	h, store := newCampaignRouter(t)
+	ctx := context.Background()
+	projectID, execID := seedProjectAndExecution(t, h, "service-a", 7)
+
+	if err := store.SaveReport(ctx, report.Report{
+		ExecutionID: execID, RunID: 1, Outcome: taurus.OutcomePassed,
+		Requested: report.Load{Throughput: 100}, Achieved: report.Load{Throughput: 60},
+	}); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+
+	start := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	end := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	create := postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"c"}, "window_start": {start}, "window_end": {end},
+		"service_project_id": {itoa(projectID)}, "service_execution_id": {itoa(execID)},
+	})
+	id := decodeID(t, create)
+
+	rec := do(t, h, http.MethodGet, "/api/campaigns/"+itoa(id)+"/verdict")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get verdict = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Go       bool `json:"go"`
+		Services []struct {
+			Outcome             string  `json:"outcome"`
+			ShortOfTargetQPS    bool    `json:"short_of_target_qps"`
+			RequestedThroughput float64 `json:"requested_throughput"`
+			AchievedThroughput  float64 `json:"achieved_throughput"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.Go {
+		t.Fatalf("verdict.go = true, want false (short of target QPS): %+v", got)
+	}
+	if len(got.Services) != 1 || got.Services[0].Outcome != "passed" {
+		t.Fatalf("verdict services = %+v, want the passed outcome preserved", got.Services)
+	}
+	sv := got.Services[0]
+	if !sv.ShortOfTargetQPS || sv.RequestedThroughput != 100 || sv.AchievedThroughput != 60 {
+		t.Fatalf("service verdict = %+v, want short_of_target_qps naming requested 100 / achieved 60", sv)
+	}
+}
+
 func TestGetCampaignVerdict_FailedServiceNamesFailingCriteria(t *testing.T) {
 	t.Parallel()
 	h, store := newCampaignRouter(t)

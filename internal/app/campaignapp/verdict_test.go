@@ -66,6 +66,98 @@ func TestVerdict_AllServicesPassed_OverallGo(t *testing.T) {
 	}
 }
 
+// A service that requested no target QPS (an unlimited/soak run) is never
+// short of it, however small its achieved throughput -- ShortOfRequest's own
+// no-target guard, exercised through the verdict.
+func TestVerdict_NoTargetQPSRequested_UnaffectedByGate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	mustSaveReport(t, store, execA, 1, taurus.OutcomePassed, report.Report{
+		Requested: report.Load{Throughput: 0}, // unlimited: no target to fall short of
+		Achieved:  report.Load{Throughput: 3},
+	})
+
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	v, err := svc.Verdict(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Verdict: %v", err)
+	}
+	if !v.Go {
+		t.Fatalf("Verdict.Go = false, want true (no target QPS requested): %+v", v)
+	}
+	if v.Services[0].ShortOfTargetQPS {
+		t.Fatalf("ShortOfTargetQPS = true, want false when no target was requested")
+	}
+}
+
+// A service that passed its criteria but achieved less than 95% of its
+// requested target QPS is not a real go -- the campaign flips to no-go and
+// the shortfall is named on the service's verdict.
+func TestVerdict_PassedButShortOfTargetQPS_OverallNoGo(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler())
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectB, execB := seedProjectAndExecution(t, store, "service-b", 7)
+	// Passed its own configured criteria, but only reached 60% of its target.
+	mustSaveReport(t, store, execA, 1, taurus.OutcomePassed, report.Report{
+		Requested: report.Load{Throughput: 100},
+		Achieved:  report.Load{Throughput: 60},
+	})
+	// Hits its target comfortably (>=95%): unaffected.
+	mustSaveReport(t, store, execB, 2, taurus.OutcomePassed, report.Report{
+		Requested: report.Load{Throughput: 100},
+		Achieved:  report.Load{Throughput: 96},
+	})
+
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "c", TenantID: 7, Window: campaign.Window{Start: at(0), End: at(100)},
+		Services: []campaign.Service{
+			{ProjectID: projectA, ExecutionID: execA},
+			{ProjectID: projectB, ExecutionID: execB},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	v, err := svc.Verdict(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Verdict: %v", err)
+	}
+	if v.Go {
+		t.Fatalf("Verdict.Go = true, want false (service-a short of target QPS): %+v", v)
+	}
+	var svA, svB campaignapp.ServiceVerdict
+	for _, sv := range v.Services {
+		if sv.ExecutionID == execA {
+			svA = sv
+		}
+		if sv.ExecutionID == execB {
+			svB = sv
+		}
+	}
+	if !svA.ShortOfTargetQPS || svA.RequestedThroughput != 100 || svA.AchievedThroughput != 60 {
+		t.Fatalf("service-a verdict = %+v, want ShortOfTargetQPS with requested 100 / achieved 60", svA)
+	}
+	if svB.ShortOfTargetQPS {
+		t.Fatalf("service-b verdict = %+v, want ShortOfTargetQPS false (96%% of target)", svB)
+	}
+}
+
 // seedProjectAndCalibrationExecution mirrors seedProjectAndExecution but the
 // execution is Kind CalibrateEngine -- a rig-capacity search, not a
 // readiness signal, and must never be mistaken for one.

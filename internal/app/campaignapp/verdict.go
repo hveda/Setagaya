@@ -29,6 +29,18 @@ type ServiceVerdict struct {
 	// errored run's "criteria" are not a meaningful pass/fail signal, and a
 	// passed run has nothing to name.
 	FailingCriteria []report.FailedCriterion
+	// ShortOfTargetQPS is true when the report requested a target QPS
+	// (RequestedThroughput > 0) and achieved less than 95% of it -- see
+	// report.Report.ShortOfRequest. A criteria "pass" measured under a
+	// fraction of the intended load is not a real readiness signal, so this
+	// also gates the campaign's overall Go. A service that requested no
+	// target QPS (an unlimited/soak run) is never short: ShortOfTargetQPS is
+	// always false for it, regardless of outcome.
+	ShortOfTargetQPS bool
+	// RequestedThroughput and AchievedThroughput are the report's own Requested/
+	// Achieved throughput, carried through so a no-go can name the shortfall
+	// ("achieved X of Y"). Both are zero when the service has no report.
+	RequestedThroughput, AchievedThroughput float64
 }
 
 // CampaignVerdict is a campaign's rolled-up go/no-go: one entry per
@@ -36,8 +48,10 @@ type ServiceVerdict struct {
 type CampaignVerdict struct {
 	CampaignID int64
 	Services   []ServiceVerdict
-	// Go is true only when every service has a report and that report's
-	// outcome is taurus.OutcomePassed.
+	// Go is true only when every service has a report, that report's outcome
+	// is taurus.OutcomePassed, and it is not short of its target QPS (see
+	// ServiceVerdict.ShortOfTargetQPS) -- a criteria pass measured under a
+	// fraction of the intended load is not a real go.
 	Go bool
 	// OtherLoad names every other execution active in the campaign's tenant
 	// during its window -- the minimum mitigation for the residual risk
@@ -84,7 +98,7 @@ func (s *Service) Verdict(ctx context.Context, campaignID int64) (CampaignVerdic
 		if err != nil {
 			return CampaignVerdict{}, err
 		}
-		if !sv.HasReport || sv.Outcome != taurus.OutcomePassed {
+		if !sv.HasReport || sv.Outcome != taurus.OutcomePassed || sv.ShortOfTargetQPS {
 			v.Go = false
 		}
 		v.Services = append(v.Services, sv)
@@ -184,6 +198,9 @@ func (s *Service) serviceVerdict(ctx context.Context, svc campaign.Service) (Ser
 	r := reports[0]
 	sv.HasReport = true
 	sv.Outcome = r.Outcome
+	sv.ShortOfTargetQPS = r.ShortOfRequest()
+	sv.RequestedThroughput = r.Requested.Throughput
+	sv.AchievedThroughput = r.Achieved.Throughput
 
 	if r.Outcome == taurus.OutcomeFailed {
 		criteria, err := s.repo.CriteriaFor(ctx, svc.ExecutionID)

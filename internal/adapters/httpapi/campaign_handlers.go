@@ -182,6 +182,12 @@ type serviceVerdictResponse struct {
 	HasReport       bool                       `json:"has_report"`
 	Outcome         string                     `json:"outcome,omitempty"`
 	FailingCriteria []failingCriterionResponse `json:"failing_criteria,omitempty"`
+	// ShortOfTargetQPS names the target-QPS gate: true when the service
+	// requested a target throughput and achieved less than 95% of it -- a
+	// criteria pass under a fraction of the intended load is not a real go.
+	ShortOfTargetQPS    bool    `json:"short_of_target_qps,omitempty"`
+	RequestedThroughput float64 `json:"requested_throughput,omitempty"`
+	AchievedThroughput  float64 `json:"achieved_throughput,omitempty"`
 }
 
 type otherLoadResponse struct {
@@ -213,7 +219,10 @@ func toVerdictResponse(v campaignapp.CampaignVerdict) campaignVerdictResponse {
 		services[i] = serviceVerdictResponse{
 			ProjectID: sv.ProjectID, ExecutionID: sv.ExecutionID,
 			HasReport: sv.HasReport, Outcome: string(sv.Outcome),
-			FailingCriteria: criteria,
+			FailingCriteria:     criteria,
+			ShortOfTargetQPS:    sv.ShortOfTargetQPS,
+			RequestedThroughput: sv.RequestedThroughput,
+			AchievedThroughput:  sv.AchievedThroughput,
 		}
 	}
 	otherLoad := make([]otherLoadResponse, len(v.OtherLoad))
