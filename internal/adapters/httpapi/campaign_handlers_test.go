@@ -350,6 +350,160 @@ func TestGetCampaignVerdict_ShortOfTargetQPS_OverallNoGo(t *testing.T) {
 	}
 }
 
+// The comparison endpoint resolves the tenant's most-recent-prior ended
+// campaign as the default baseline and classifies the shared project.
+func TestGetCampaignComparison_DefaultBaseline(t *testing.T) {
+	t.Parallel()
+	h, store := newCampaignRouter(t)
+	ctx := context.Background()
+	projectA, execOlder := seedProjectAndExecution(t, h, "service-a", 7)
+
+	if err := store.SaveReport(ctx, report.Report{ExecutionID: execOlder, RunID: 1, Outcome: taurus.OutcomeFailed}); err != nil {
+		t.Fatalf("SaveReport (older): %v", err)
+	}
+	olderStart := time.Now().Add(-3 * time.Hour).UTC().Format(time.RFC3339)
+	olderEnd := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+	olderID := decodeID(t, postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"older"}, "window_start": {olderStart}, "window_end": {olderEnd},
+		"service_project_id": {itoa(projectA)}, "service_execution_id": {itoa(execOlder)},
+	}))
+
+	execNewer := decodeID(t, postForm(t, h, "/api/executions", url.Values{"name": {"rerun"}, "project_id": {itoa(projectA)}}))
+	if err := store.SaveReport(ctx, report.Report{ExecutionID: execNewer, RunID: 2, Outcome: taurus.OutcomePassed}); err != nil {
+		t.Fatalf("SaveReport (newer): %v", err)
+	}
+	targetStart := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	targetEnd := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	targetID := decodeID(t, postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"target"}, "window_start": {targetStart}, "window_end": {targetEnd},
+		"service_project_id": {itoa(projectA)}, "service_execution_id": {itoa(execNewer)},
+	}))
+
+	rec := do(t, h, http.MethodGet, "/api/campaigns/"+itoa(targetID)+"/comparison")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get comparison = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		CampaignID         int64 `json:"campaign_id"`
+		HasBaseline        bool  `json:"has_baseline"`
+		BaselineCampaignID int64 `json:"baseline_campaign_id"`
+		Services           []struct {
+			ProjectID int64  `json:"project_id"`
+			Status    string `json:"status"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if !got.HasBaseline || got.BaselineCampaignID != olderID {
+		t.Fatalf("comparison = %+v, want the older campaign (%d) as the default baseline", got, olderID)
+	}
+	if len(got.Services) != 1 || got.Services[0].ProjectID != projectA || got.Services[0].Status != "improved" {
+		t.Fatalf("comparison services = %+v, want project %d classified improved", got.Services, projectA)
+	}
+}
+
+// ?baseline=<id> overrides the default baseline resolution.
+func TestGetCampaignComparison_ExplicitBaselineOverride(t *testing.T) {
+	t.Parallel()
+	h, store := newCampaignRouter(t)
+	ctx := context.Background()
+	projectA, execA := seedProjectAndExecution(t, h, "service-a", 7)
+	if err := store.SaveReport(ctx, report.Report{ExecutionID: execA, RunID: 1, Outcome: taurus.OutcomePassed}); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	start := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	end := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	explicitID := decodeID(t, postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"explicit-baseline"}, "window_start": {start}, "window_end": {end},
+		"service_project_id": {itoa(projectA)}, "service_execution_id": {itoa(execA)},
+	}))
+	targetID := decodeID(t, postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"target"}, "window_start": {start}, "window_end": {end},
+		"service_project_id": {itoa(projectA)}, "service_execution_id": {itoa(execA)},
+	}))
+
+	rec := do(t, h, http.MethodGet, "/api/campaigns/"+itoa(targetID)+"/comparison?baseline="+itoa(explicitID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get comparison = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		BaselineCampaignID int64 `json:"baseline_campaign_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.BaselineCampaignID != explicitID {
+		t.Fatalf("baseline_campaign_id = %d, want the explicit override %d", got.BaselineCampaignID, explicitID)
+	}
+}
+
+// A campaign with no prior campaign in its tenant returns an explanatory
+// empty comparison: has_baseline false, no services, no error.
+func TestGetCampaignComparison_NoPriorCampaign_ReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	h, store := newCampaignRouter(t)
+	ctx := context.Background()
+	projectA, execA := seedProjectAndExecution(t, h, "service-a", 7)
+	if err := store.SaveReport(ctx, report.Report{ExecutionID: execA, RunID: 1, Outcome: taurus.OutcomePassed}); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	start := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	end := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	targetID := decodeID(t, postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"only"}, "window_start": {start}, "window_end": {end},
+		"service_project_id": {itoa(projectA)}, "service_execution_id": {itoa(execA)},
+	}))
+
+	rec := do(t, h, http.MethodGet, "/api/campaigns/"+itoa(targetID)+"/comparison")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get comparison = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		HasBaseline bool          `json:"has_baseline"`
+		Services    []interface{} `json:"services"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.HasBaseline {
+		t.Fatalf("comparison = %+v, want has_baseline false (no prior campaign)", got)
+	}
+	if len(got.Services) != 0 {
+		t.Fatalf("comparison services = %+v, want empty", got.Services)
+	}
+}
+
+func TestGetCampaignComparison_MissingCampaignReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	h, _ := newCampaignRouter(t)
+	rec := do(t, h, http.MethodGet, "/api/campaigns/999/comparison")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get comparison (missing) = %d, want 404 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetCampaignComparison_InvalidBaselineQueryParam(t *testing.T) {
+	t.Parallel()
+	h, store := newCampaignRouter(t)
+	ctx := context.Background()
+	projectA, execA := seedProjectAndExecution(t, h, "service-a", 7)
+	if err := store.SaveReport(ctx, report.Report{ExecutionID: execA, RunID: 1, Outcome: taurus.OutcomePassed}); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	start := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	end := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	targetID := decodeID(t, postForm(t, h, "/api/tenants/7/campaigns", url.Values{
+		"name": {"c"}, "window_start": {start}, "window_end": {end},
+		"service_project_id": {itoa(projectA)}, "service_execution_id": {itoa(execA)},
+	}))
+
+	rec := do(t, h, http.MethodGet, "/api/campaigns/"+itoa(targetID)+"/comparison?baseline=not-a-number")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("get comparison (invalid baseline) = %d, want 400 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestGetCampaignVerdict_FailedServiceNamesFailingCriteria(t *testing.T) {
 	t.Parallel()
 	h, store := newCampaignRouter(t)

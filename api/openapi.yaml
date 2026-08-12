@@ -406,11 +406,37 @@ components:
           items: { $ref: '#/components/schemas/ServiceVerdict' }
         go:
           type: boolean
-          description: True only when every service has a report and that report's outcome is "passed".
+          description: True only when every service has a report, that report's outcome is "passed", and it is not short of its target QPS (see ServiceVerdict.short_of_target_qps).
         other_load:
           type: array
           items: { $ref: '#/components/schemas/OtherLoad' }
           description: Every other execution active in the campaign's tenant during its window, excluding its own participating executions.
+    ServiceComparison:
+      type: object
+      description: One project's classification against a baseline campaign.
+      properties:
+        project_id: { type: integer, format: int64 }
+        status: { type: string, enum: [improved, regressed, newly_at_risk, still_at_risk, steady, new, dropped] }
+        has_current:
+          type: boolean
+          description: False only for "dropped" -- the project does not participate in this campaign.
+        go: { type: boolean, description: This campaign's go/no-go signal for the project; meaningless when has_current is false. }
+        has_baseline:
+          type: boolean
+          description: False for "new" and "newly_at_risk" -- the project did not participate in the baseline campaign.
+        baseline_go: { type: boolean, description: The baseline campaign's go/no-go signal for the project; meaningless when has_baseline is false. }
+    CampaignComparison:
+      type: object
+      description: A campaign's per-service classification against a baseline campaign.
+      properties:
+        campaign_id: { type: integer, format: int64 }
+        has_baseline:
+          type: boolean
+          description: False when no baseline campaign could be resolved (no prior ended campaign in the tenant, and none given explicitly) -- services is empty in that case, not computed against an empty baseline.
+        baseline_campaign_id: { type: integer, format: int64 }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/ServiceComparison' }
 
     CalibrationExecution:
       type: object
@@ -1262,6 +1288,40 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CampaignVerdict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/campaigns/{campaign_id}/comparison:
+    get:
+      tags: [campaigns]
+      summary: Compare a campaign's per-service go/no-go against a baseline campaign
+      description: |
+        Classifies each participating project as improved, regressed,
+        newly_at_risk, still_at_risk, steady, new, or dropped, matched by
+        project id. The baseline defaults to the tenant's most-recent-prior
+        *ended* campaign (aborted, or its window has closed); pass
+        `?baseline=<campaign_id>` to compare against a specific one instead.
+        A campaign with no resolvable baseline (e.g. the tenant's first
+        campaign) returns `has_baseline: false` with no services, not an
+        error.
+
+        Authorization mirrors the verdict endpoint: the caller must be
+        authorized to view at least one of the campaign's participating
+        projects.
+      parameters:
+        - { $ref: '#/components/parameters/CampaignID' }
+        - name: baseline
+          in: query
+          required: false
+          description: Explicit baseline campaign id, overriding the default resolution.
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: CampaignComparison
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CampaignComparison' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 

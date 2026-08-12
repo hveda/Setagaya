@@ -270,6 +270,82 @@ func (h *handlers) getCampaignVerdict(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toVerdictResponse(v))
 }
 
+type serviceComparisonResponse struct {
+	ProjectID   int64  `json:"project_id"`
+	Status      string `json:"status"`
+	HasCurrent  bool   `json:"has_current"`
+	Go          bool   `json:"go,omitempty"`
+	HasBaseline bool   `json:"has_baseline"`
+	BaselineGo  bool   `json:"baseline_go,omitempty"`
+}
+
+type campaignComparisonResponse struct {
+	CampaignID int64 `json:"campaign_id"`
+	// HasBaseline is false when the campaign has no resolvable baseline (no
+	// prior ended campaign in its tenant, and none given explicitly) --
+	// Services is empty in that case, not computed against an empty baseline.
+	HasBaseline        bool                        `json:"has_baseline"`
+	BaselineCampaignID int64                       `json:"baseline_campaign_id,omitempty"`
+	Services           []serviceComparisonResponse `json:"services"`
+}
+
+func toComparisonResponse(c campaignapp.CampaignComparison) campaignComparisonResponse {
+	services := make([]serviceComparisonResponse, len(c.Services))
+	for i, sc := range c.Services {
+		services[i] = serviceComparisonResponse{
+			ProjectID: sc.ProjectID, Status: string(sc.Status),
+			HasCurrent: sc.HasCurrent, Go: sc.Go,
+			HasBaseline: sc.HasBaseline, BaselineGo: sc.BaselineGo,
+		}
+	}
+	return campaignComparisonResponse{
+		CampaignID: c.CampaignID, HasBaseline: c.HasBaseline,
+		BaselineCampaignID: c.BaselineCampaignID, Services: services,
+	}
+}
+
+// getCampaignComparison compares the campaign's per-service go/no-go against
+// a baseline campaign -- an explicit ?baseline=<campaign_id>, or (when
+// absent) the tenant's most-recent-prior ended campaign. A campaign with no
+// resolvable baseline returns HasBaseline:false with no services, not an
+// error.
+//
+// Authorization mirrors getCampaignVerdict: the caller must be authorized to
+// view at least one of the campaign's participating projects.
+func (h *handlers) getCampaignComparison(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	id, ok := pathInt(r, "campaign_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid campaign id")
+		return
+	}
+	c, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeAnyParticipatingProject(r.Context(), c); err != nil {
+		respondError(w, err)
+		return
+	}
+	var baselineID int64
+	if raw := r.URL.Query().Get("baseline"); raw != "" {
+		baselineID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid baseline campaign id")
+			return
+		}
+	}
+	comparison, err := h.deps.Campaigns.Compare(r.Context(), id, baselineID)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toComparisonResponse(comparison))
+}
+
 // authorizeAnyParticipatingProject allows the caller through if they are
 // authorized for at least one of the campaign's participating projects.
 func (h *handlers) authorizeAnyParticipatingProject(ctx context.Context, c campaign.Campaign) error {

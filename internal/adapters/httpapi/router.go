@@ -175,6 +175,7 @@ var routes = []Route{
 	{"GET", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listCampaigns })},
 	{"GET", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaign })},
 	{"GET", "/api/campaigns/{campaign_id}/verdict", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignVerdict })},
+	{"GET", "/api/campaigns/{campaign_id}/comparison", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignComparison })},
 
 	{"POST", "/api/calibrations", "calibration", hf(func(h *handlers) http.HandlerFunc { return h.createCalibration })},
 	{"POST", "/api/executions/{execution_id}/calibration/trigger", "calibration", hf(func(h *handlers) http.HandlerFunc { return h.triggerCalibration })},
