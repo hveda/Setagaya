@@ -95,6 +95,65 @@ func (h *handlers) executionTrend(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toTrendResponse(trend))
 }
 
+type signatureHistoryRowResponse struct {
+	Label        string `json:"label"`
+	ResponseCode string `json:"response_code,omitempty"`
+	Side         string `json:"side"`
+	TotalCount   int64  `json:"total_count"`
+	RunCount     int    `json:"run_count"`
+}
+
+type signatureBreakdownResponse struct {
+	Key        string                        `json:"key"`
+	TotalCount int64                         `json:"total_count"`
+	Rows       []signatureHistoryRowResponse `json:"rows"`
+}
+
+type errorSignatureHistoryResponse struct {
+	ExecutionID int64                        `json:"execution_id"`
+	GroupedBy   string                       `json:"grouped_by"`
+	Groups      []signatureBreakdownResponse `json:"groups"`
+}
+
+func toErrorSignatureHistoryResponse(executionID int64, by report.SignatureGroupBy, groups []report.SignatureBreakdown) errorSignatureHistoryResponse {
+	out := make([]signatureBreakdownResponse, len(groups))
+	for i, g := range groups {
+		rows := make([]signatureHistoryRowResponse, len(g.Rows))
+		for j, r := range g.Rows {
+			rows[j] = signatureHistoryRowResponse{
+				Label: r.Label, ResponseCode: r.ResponseCode, Side: string(r.Side),
+				TotalCount: r.TotalCount, RunCount: r.RunCount,
+			}
+		}
+		out[i] = signatureBreakdownResponse{Key: g.Key, TotalCount: g.TotalCount, Rows: rows}
+	}
+	return errorSignatureHistoryResponse{ExecutionID: executionID, GroupedBy: string(by), Groups: out}
+}
+
+// executionErrorSignatureHistory returns an execution's error signatures
+// aggregated across every run, grouped by label (?by=label, the default) or
+// by response code (?by=code) -- independently, per the Phase 4 annotation
+// that anticipated exactly this. Authorization matches the sibling reports
+// routes.
+func (h *handlers) executionErrorSignatureHistory(w http.ResponseWriter, r *http.Request) {
+	executionID, ok := pathInt(r, "execution_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	by := report.GroupByLabel
+	if r.URL.Query().Get("by") == "code" {
+		by = report.GroupByResponseCode
+	}
+	rows, err := h.deps.Reports.ErrorSignatureHistory(r.Context(), executionID)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	groups := report.GroupSignatureHistory(rows, by)
+	writeJSON(w, http.StatusOK, toErrorSignatureHistoryResponse(executionID, by, groups))
+}
+
 // runShardLog serves a shard's captured engine output, durable after the pod
 // that produced it is deleted.
 func (h *handlers) runShardLog(w http.ResponseWriter, r *http.Request) {

@@ -268,6 +268,116 @@ func TestExecutionTrendHTTP_InvalidExecutionIDIsBadRequest(t *testing.T) {
 	}
 }
 
+func withError(executionID, runID int64, at time.Time, label, code string, side report.Side, count int64) report.Report {
+	return report.Report{
+		ExecutionID: executionID, RunID: runID, StartedAt: at, Outcome: taurus.OutcomeFailed,
+		Errors: []report.ErrorSignature{{Signature: report.Signature{Label: label, ResponseCode: code, Side: side}, Count: count}},
+	}
+}
+
+func TestErrorSignatureHistoryHTTP_DefaultGroupsByLabel(t *testing.T) {
+	t.Parallel()
+	h, reports, _ := newReportEnv(t)
+	ctx := context.Background()
+	if err := reports.SaveReport(ctx, withError(7, 1, time.Unix(1000, 0), "checkout", "500", report.SideTarget, 3)); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	if err := reports.SaveReport(ctx, withError(7, 2, time.Unix(2000, 0), "checkout", "404", report.SideTarget, 1)); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	// A different execution's signature must not appear.
+	if err := reports.SaveReport(ctx, withError(9, 3, time.Unix(3000, 0), "checkout", "500", report.SideTarget, 100)); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+
+	rec := do(t, h, http.MethodGet, "/api/executions/7/error-signatures")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET error-signatures = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		ExecutionID int64  `json:"execution_id"`
+		GroupedBy   string `json:"grouped_by"`
+		Groups      []struct {
+			Key        string `json:"key"`
+			TotalCount int64  `json:"total_count"`
+			Rows       []struct {
+				ResponseCode string `json:"response_code"`
+			} `json:"rows"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.ExecutionID != 7 || got.GroupedBy != "label" {
+		t.Fatalf("response = %+v, want execution_id 7 grouped_by label", got)
+	}
+	if len(got.Groups) != 1 || got.Groups[0].Key != "checkout" || got.Groups[0].TotalCount != 4 {
+		t.Fatalf("groups = %+v, want one checkout group totalled 4 (3+1)", got.Groups)
+	}
+	if len(got.Groups[0].Rows) != 2 {
+		t.Fatalf("groups[0].Rows = %+v, want both response codes broken out", got.Groups[0].Rows)
+	}
+}
+
+func TestErrorSignatureHistoryHTTP_GroupsByResponseCode(t *testing.T) {
+	t.Parallel()
+	h, reports, _ := newReportEnv(t)
+	ctx := context.Background()
+	if err := reports.SaveReport(ctx, withError(7, 1, time.Unix(1000, 0), "checkout", "500", report.SideTarget, 3)); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	if err := reports.SaveReport(ctx, withError(7, 2, time.Unix(2000, 0), "cart", "500", report.SideTarget, 2)); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+
+	rec := do(t, h, http.MethodGet, "/api/executions/7/error-signatures?by=code")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET error-signatures?by=code = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		GroupedBy string `json:"grouped_by"`
+		Groups    []struct {
+			Key        string `json:"key"`
+			TotalCount int64  `json:"total_count"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.GroupedBy != "response_code" {
+		t.Fatalf("grouped_by = %q, want response_code", got.GroupedBy)
+	}
+	if len(got.Groups) != 1 || got.Groups[0].Key != "500" || got.Groups[0].TotalCount != 5 {
+		t.Fatalf("groups = %+v, want one 500 group totalled 5 (3+2)", got.Groups)
+	}
+}
+
+func TestErrorSignatureHistoryHTTP_EmptyExecution(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newReportEnv(t)
+	rec := do(t, h, http.MethodGet, "/api/executions/7/error-signatures")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET error-signatures = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Groups []interface{} `json:"groups"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Groups) != 0 {
+		t.Fatalf("groups = %+v, want empty", got.Groups)
+	}
+}
+
+func TestErrorSignatureHistoryHTTP_InvalidExecutionIDIsBadRequest(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newReportEnv(t)
+	if rec := do(t, h, http.MethodGet, "/api/executions/not-a-number/error-signatures"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("GET error-signatures (invalid id) = %d, want 400", rec.Code)
+	}
+}
+
 func TestReportHTTP_FetchesACapturedShardLog(t *testing.T) {
 	t.Parallel()
 	h, _, obj := newReportEnv(t)

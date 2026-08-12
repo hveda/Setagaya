@@ -579,6 +579,35 @@ components:
         regressed:
           type: boolean
           description: True only when this run did not hit target QPS while its nearest comparable predecessor did. The reverse transition (an improvement) is visible directly via hit_target_qps and is not separately flagged.
+    SignatureHistoryRow:
+      type: object
+      description: One failure mode's totals across every run of an execution.
+      properties:
+        label: { type: string }
+        response_code: { type: string }
+        side: { type: string, enum: [target, engine, unknown] }
+        total_count: { type: integer, format: int64 }
+        run_count:
+          type: integer
+          description: How many distinct runs this exact (label, response_code, side) signature appeared in.
+    SignatureBreakdown:
+      type: object
+      description: One grouped bucket (a label, or a response code) and every finer-grained row that contributed to it.
+      properties:
+        key: { type: string, description: "The grouped-on value -- a label or a response code, depending on the request's ?by=." }
+        total_count: { type: integer, format: int64, description: "A safe re-sum of the contributing rows' counts." }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/SignatureHistoryRow' }
+    ErrorSignatureHistory:
+      type: object
+      description: An execution's error signatures aggregated across every run, grouped by one axis.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        grouped_by: { type: string, enum: [label, response_code] }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/SignatureBreakdown' }
     Load:
       type: object
       description: A rate of work, requested or achieved.
@@ -1506,6 +1535,35 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Trend' }
+
+  /api/executions/{execution_id}/error-signatures:
+    get:
+      tags: [reports]
+      summary: An execution's error signatures aggregated across every run
+      description: |
+        Each failure mode (label, response code, side) totalled across the
+        execution's whole run history, grouped by label (`?by=label`, the
+        default) or by response code (`?by=code`) -- independently, so a
+        reader can ask either "which requests fail most" or "which response
+        codes dominate", not just one fixed axis.
+
+        A group's total_count is a safe re-sum of its contributing rows; run
+        coverage (run_count) is only meaningful per leaf row, not rolled up
+        to the group -- a run producing two response codes under one label
+        would otherwise be double counted.
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - name: by
+          in: query
+          required: false
+          description: 'Grouping axis: "label" (default) or "code".'
+          schema: { type: string, enum: [label, code], default: label }
+      responses:
+        '200':
+          description: ErrorSignatureHistory
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorSignatureHistory' }
 
   /api/runs/{run_id}/report:
     get:
