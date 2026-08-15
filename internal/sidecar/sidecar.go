@@ -22,6 +22,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/metrics"
@@ -68,8 +69,11 @@ type Config struct {
 
 // Sidecar tails an engine's KPI stream and pushes it to the control plane.
 type Sidecar struct {
-	cfg     Config
-	client  *http.Client
+	cfg    Config
+	client *http.Client
+	// mu guards pending and sent: the run loop owns them, but the Sent and
+	// Pending accessors are read from other goroutines (tests, logging).
+	mu      sync.Mutex
 	pending []metrics.Interval
 	// carry holds a partially-read trailing line between drains.
 	carry []byte
@@ -278,13 +282,17 @@ func (s *Sidecar) consume(line []byte) {
 	// contract with the control plane, not bzt's.
 	s.seq++
 	in.Seq = s.seq
+	s.mu.Lock()
 	s.pending = append(s.pending, in)
+	s.mu.Unlock()
 }
 
 // flush sends the pending intervals. It clears them only on success, so a failed
 // push is retried rather than dropped.
 func (s *Sidecar) flush(ctx context.Context, final bool) error {
+	s.mu.Lock()
 	if len(s.pending) == 0 && !final {
+		s.mu.Unlock()
 		return nil
 	}
 	// A nil slice marshals as null, not [], and a final batch after a clean
@@ -294,6 +302,7 @@ func (s *Sidecar) flush(ctx context.Context, final bool) error {
 	if intervals == nil {
 		intervals = []metrics.Interval{}
 	}
+	s.mu.Unlock()
 	batch := metrics.Batch{
 		ExecutionID: s.cfg.Identity.ExecutionID,
 		ScenarioID:  s.cfg.Identity.ScenarioID,
@@ -329,13 +338,30 @@ func (s *Sidecar) flush(ctx context.Context, final bool) error {
 		return fmt.Errorf("sidecar: ingest returned %s", resp.Status)
 	}
 
-	s.pending = nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Drop exactly what was sent: consume only ever appends, so anything added
+	// while the push was in flight sits after the snapshotted prefix and must
+	// survive for the next flush.
+	if len(s.pending) >= len(intervals) {
+		s.pending = s.pending[len(intervals):]
+	} else {
+		s.pending = nil
+	}
 	s.sent++
 	return nil
 }
 
 // Sent reports how many batches were pushed.
-func (s *Sidecar) Sent() int { return s.sent }
+func (s *Sidecar) Sent() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sent
+}
 
 // Pending reports how many intervals are waiting to be pushed.
-func (s *Sidecar) Pending() int { return len(s.pending) }
+func (s *Sidecar) Pending() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pending)
+}
