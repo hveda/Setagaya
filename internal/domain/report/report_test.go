@@ -3,6 +3,7 @@ package report_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,40 @@ func TestBuild_SummarisesARun(t *testing.T) {
 	}
 	if rep.ErrorRate < 0.049 || rep.ErrorRate > 0.051 {
 		t.Errorf("error rate = %v, want 0.05", rep.ErrorRate)
+	}
+}
+
+// The correlation id is the run's identity in a customer's APM: it rides on the
+// report beside the run's time window, so a reader jumps straight from "this
+// run looked bad" into their own telemetry for exactly that run.
+func TestBuild_CarriesTheRunsCorrelationID(t *testing.T) {
+	t.Parallel()
+
+	in := report.Input{
+		ExecutionID: 7, ScenarioID: 11, RunID: 3,
+		CorrelationID: "4bf92f3577b34da6a3ce929d0e0e4736",
+		Outcome:       taurus.OutcomePassed,
+	}
+	rep := report.Build(in)
+	if rep.CorrelationID != in.CorrelationID {
+		t.Fatalf("report correlation = %q, want %q", rep.CorrelationID, in.CorrelationID)
+	}
+
+	// On the wire it is correlation_id, omitted when empty -- a run from
+	// before the field existed reports nothing, not a null.
+	raw, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"correlation_id":"4bf92f3577b34da6a3ce929d0e0e4736"`) {
+		t.Errorf("json %s does not carry correlation_id", raw)
+	}
+	empty, err := json.Marshal(report.Report{ExecutionID: 1, RunID: 1, Outcome: taurus.OutcomePassed})
+	if err != nil {
+		t.Fatalf("marshal empty: %v", err)
+	}
+	if strings.Contains(string(empty), "correlation_id") {
+		t.Errorf("json %s carries correlation_id for an empty value; want it omitted", empty)
 	}
 }
 

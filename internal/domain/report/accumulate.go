@@ -95,15 +95,16 @@ func (a *Accumulator) second(ts int64) *secondState {
 // Report turns what has been accumulated into the run's report.
 func (a *Accumulator) Report(m Meta) Report {
 	rep := Report{
-		ExecutionID: m.ExecutionID,
-		ScenarioID:  m.ScenarioID,
-		RunID:       m.RunID,
-		Engine:      m.Engine,
-		Cluster:     m.Cluster,
-		StartedAt:   m.StartedAt,
-		EndedAt:     m.EndedAt,
-		Outcome:     m.Outcome,
-		Requested:   m.Requested,
+		ExecutionID:   m.ExecutionID,
+		ScenarioID:    m.ScenarioID,
+		RunID:         m.RunID,
+		Engine:        m.Engine,
+		Cluster:       m.Cluster,
+		CorrelationID: m.CorrelationID,
+		StartedAt:     m.StartedAt,
+		EndedAt:       m.EndedAt,
+		Outcome:       m.Outcome,
+		Requested:     m.Requested,
 	}
 
 	overall := metrics.Histogram{}
