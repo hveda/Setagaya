@@ -590,6 +590,63 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 			t.Fatalf("StoreExecutionConfig(missing execution) = %v, want ErrNotFound", err)
 		}
 	})
+
+	// The pending correlation id is the trace id a Deploy minted, held until
+	// the next Trigger stamps it onto the run it precedes. An execution
+	// deployed before Phase 10 has none: empty, never an error.
+	t.Run("PendingCorrelationIDNeverStoredIsEmpty", func(t *testing.T) {
+		repo := newRepo(t)
+		id := mustCreateExecution(t, repo, "peak", 10)
+
+		got, err := repo.PendingCorrelationID(context.Background(), id)
+		if err != nil {
+			t.Fatalf("PendingCorrelationID(never set): %v", err)
+		}
+		if got != "" {
+			t.Fatalf("PendingCorrelationID(never set) = %q, want empty", got)
+		}
+	})
+
+	t.Run("SetPendingCorrelationIDRoundTrips", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		id := mustCreateExecution(t, repo, "peak", 10)
+
+		want := "4bf92f3577b34da6a3ce929d0e0e4736"
+		if err := repo.SetPendingCorrelationID(ctx, id, want); err != nil {
+			t.Fatalf("SetPendingCorrelationID: %v", err)
+		}
+		got, err := repo.PendingCorrelationID(ctx, id)
+		if err != nil {
+			t.Fatalf("PendingCorrelationID: %v", err)
+		}
+		if got != want {
+			t.Fatalf("PendingCorrelationID = %q, want %q", got, want)
+		}
+	})
+
+	// Last deploy wins, by design: the next Trigger runs against whichever
+	// pods the latest Deploy created, so the id it should stamp is the latest
+	// one -- an earlier deploy's pods are already gone or about to be replaced.
+	t.Run("SetPendingCorrelationIDSecondDeployOverwrites", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		id := mustCreateExecution(t, repo, "peak", 10)
+
+		if err := repo.SetPendingCorrelationID(ctx, id, "11111111111111111111111111111111"); err != nil {
+			t.Fatalf("SetPendingCorrelationID (first): %v", err)
+		}
+		if err := repo.SetPendingCorrelationID(ctx, id, "22222222222222222222222222222222"); err != nil {
+			t.Fatalf("SetPendingCorrelationID (second): %v", err)
+		}
+		got, err := repo.PendingCorrelationID(ctx, id)
+		if err != nil {
+			t.Fatalf("PendingCorrelationID: %v", err)
+		}
+		if got != "22222222222222222222222222222222" {
+			t.Fatalf("PendingCorrelationID after second set = %q, want the second id", got)
+		}
+	})
 }
 
 func mustCreateScenario(t *testing.T, repo Repository, name string, projectID int64) int64 {

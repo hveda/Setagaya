@@ -39,6 +39,15 @@ type ExecutionRepository interface {
 	// the order they were set. Never nil.
 	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
 
+	// SetPendingCorrelationID records the trace id a Deploy minted for the run
+	// it precedes, overwriting any earlier one (last deploy wins). It is
+	// pending state, not part of the Execution aggregate: Trigger consumes it
+	// when StartRun stamps it onto the run.
+	SetPendingCorrelationID(ctx context.Context, executionID int64, correlationID string) error
+	// PendingCorrelationID returns the id the latest Deploy minted. Empty when
+	// no deploy has happened since the phase that introduced it.
+	PendingCorrelationID(ctx context.Context, executionID int64) (string, error)
+
 	// StoreExecutionConfig replaces the execution's load profile and
 	// configured criteria together, in one transaction -- unlike calling
 	// StoreLoadProfile and SetExecutionCriteria separately, a failure here

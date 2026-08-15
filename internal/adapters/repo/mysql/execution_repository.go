@@ -310,6 +310,38 @@ func (r *Repository) CriteriaFor(ctx context.Context, executionID int64) ([]stri
 	return out, nil
 }
 
+// SetPendingCorrelationID records the trace id a Deploy minted for the run it
+// precedes, overwriting any earlier one (last deploy wins).
+func (r *Repository) SetPendingCorrelationID(ctx context.Context, executionID int64, correlationID string) error {
+	res, err := r.db.ExecContext(ctx,
+		"UPDATE execution SET pending_correlation_id = ? WHERE id = ?", correlationID, executionID)
+	if err != nil {
+		return fmt.Errorf("mysql: set pending correlation id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mysql: set pending correlation id: %w", err)
+	}
+	if n == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+// PendingCorrelationID returns the id the latest Deploy minted (” when none).
+func (r *Repository) PendingCorrelationID(ctx context.Context, executionID int64) (string, error) {
+	var id string
+	err := r.db.QueryRowContext(ctx,
+		"SELECT pending_correlation_id FROM execution WHERE id = ?", executionID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ports.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("mysql: pending correlation id: %w", err)
+	}
+	return id, nil
+}
+
 func scanExecution(s rowScanner) (execution.Execution, error) {
 	var (
 		c         execution.Execution

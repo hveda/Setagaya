@@ -56,6 +56,9 @@ type Store struct {
 	execData     map[int64]map[string]struct{} // executionID -> data filenames
 	exec         map[int64][]loadprofile.Entry // executionID -> execution scenarios
 	execCriteria map[int64][]string            // executionID -> configured Taurus pass/fail criteria
+	// pendingCorrelation is the trace id the latest Deploy minted, waiting for
+	// the next Trigger to stamp it onto a run.
+	pendingCorrelation map[int64]string
 
 	runSeq     int64
 	currentRun map[int64]int64               // executionID -> active runID
@@ -129,6 +132,7 @@ func NewStore() *Store {
 		execData:             make(map[int64]map[string]struct{}),
 		exec:                 make(map[int64][]loadprofile.Entry),
 		execCriteria:         make(map[int64][]string),
+		pendingCorrelation:   make(map[int64]string),
 		currentRun:           make(map[int64]int64),
 		runHistory:           make(map[int64]*ports.RunRecord),
 		running:              make(map[int64]map[int64]time.Time),
@@ -562,6 +566,28 @@ func (s *Store) CriteriaFor(_ context.Context, executionID int64) ([]string, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string{}, s.execCriteria[executionID]...), nil
+}
+
+// SetPendingCorrelationID records the trace id a Deploy minted for the run it
+// precedes, overwriting any earlier one (last deploy wins).
+func (s *Store) SetPendingCorrelationID(_ context.Context, executionID int64, correlationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.executions[executionID]; !ok {
+		return ports.ErrNotFound
+	}
+	s.pendingCorrelation[executionID] = correlationID
+	return nil
+}
+
+// PendingCorrelationID returns the id the latest Deploy minted (” when none).
+func (s *Store) PendingCorrelationID(_ context.Context, executionID int64) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.executions[executionID]; !ok {
+		return "", ports.ErrNotFound
+	}
+	return s.pendingCorrelation[executionID], nil
 }
 
 // StoreExecutionConfig replaces the execution's load profile and configured

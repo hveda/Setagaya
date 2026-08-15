@@ -1038,6 +1038,11 @@ func TestDeploy_InjectsTraceContextHeaders(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("trace context generated %d times in one Deploy, want exactly once", calls)
 	}
+	// The minted id is parked on the execution for the next Trigger to stamp
+	// onto the run it creates.
+	if pending, err := e.store.PendingCorrelationID(ctx, e.executionID); err != nil || pending != first.TraceID {
+		t.Fatalf("pending correlation id after Deploy = %q (err %v), want the minted %q", pending, err, first.TraceID)
+	}
 
 	// setup()'s execution carries no tenant (only its project does), so the
 	// baggage renders without a honryu.tenant entry; the tenant-carrying shape
@@ -1072,6 +1077,11 @@ func TestDeploy_InjectsTraceContextHeaders(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("trace context generated %d times across two Deploys, want 2", calls)
+	}
+	// Last deploy wins: the pending id now points at the second deploy, since
+	// the next Trigger runs against the pods the latest Deploy created.
+	if pending, err := e.store.PendingCorrelationID(ctx, e.executionID); err != nil || pending != second.TraceID {
+		t.Fatalf("pending correlation id after second Deploy = %q (err %v), want the second minted %q", pending, err, second.TraceID)
 	}
 	spec, ok := e.sched.LastDeploy(e.executionID, e.planIDs[0])
 	if !ok {

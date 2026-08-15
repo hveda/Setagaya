@@ -51,6 +51,9 @@ type Repo interface {
 	// CriteriaFor returns the execution's configured Taurus pass/fail
 	// criteria, compiled into every shard's passfail module.
 	CriteriaFor(ctx context.Context, executionID int64) ([]string, error)
+	// SetPendingCorrelationID parks the trace id a Deploy minted on the
+	// execution, for the next Trigger to stamp onto the run it creates.
+	SetPendingCorrelationID(ctx context.Context, executionID int64, correlationID string) error
 	ports.RunRepository
 }
 
@@ -277,6 +280,15 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 	// minted here and threaded forward rather than derived backwards.
 	tc, err := s.traceContext()
 	if err != nil {
+		return err
+	}
+	// Park the minted id on the execution before any pod exists: the run it
+	// belongs to is only created later (StartRun, in Trigger), and Trigger
+	// needs this exact id to stamp onto that run. Persisting before the
+	// scenario loop means a persistence failure fails the deploy with nothing
+	// half-created, rather than leaving pods whose traffic nothing can ever be
+	// correlated back to.
+	if err := s.repo.SetPendingCorrelationID(ctx, executionID, tc.TraceID); err != nil {
 		return err
 	}
 	headers := telemetry.Headers(tc, telemetry.Identity{
