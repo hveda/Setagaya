@@ -53,6 +53,11 @@ type Input struct {
 	Engine taurus.Executor
 	// Scenarios is keyed by scenario id, matching the profile's entries.
 	Scenarios map[int64]ScenarioInput
+	// Headers are applied scenario-wide by the engine on every request of the
+	// run. It is how a deploy's trace-context headers (telemetry.Headers)
+	// reach the generated load, with zero per-engine code; nil compiles to no
+	// headers at all.
+	Headers map[string]string
 	// Criteria are Taurus pass/fail expressions. When present they become the
 	// passfail module, whose outcome bzt reports through exit code 3 -- the
 	// signal Honryu turns into an execution's verdict.
@@ -85,7 +90,7 @@ func Taurus(in Input) (taurus.Config, error) {
 		}
 
 		key := scenarioKey(si.Scenario)
-		ts, err := compileScenario(si)
+		ts, err := compileScenario(si, in.Headers)
 		if err != nil {
 			return taurus.Config{}, err
 		}
@@ -114,13 +119,14 @@ func Taurus(in Input) (taurus.Config, error) {
 	return cfg, nil
 }
 
-func compileScenario(si ScenarioInput) (taurus.Scenario, error) {
+func compileScenario(si ScenarioInput, headers map[string]string) (taurus.Scenario, error) {
 	if si.Scenario.Kind == scenario.KindNative {
 		if si.ScriptPath == "" {
 			return taurus.Scenario{}, fmt.Errorf("%w: scenario %q", ErrScriptRequired, si.Scenario.Name)
 		}
 		return taurus.Scenario{
 			Script:      si.ScriptPath,
+			Headers:     headers,
 			DataSources: dataSources(si.DataPaths),
 		}, nil
 	}
@@ -141,6 +147,7 @@ func compileScenario(si ScenarioInput) (taurus.Scenario, error) {
 	}
 	return taurus.Scenario{
 		DefaultAddress: si.DefaultAddress,
+		Headers:        headers,
 		Requests:       reqs,
 		DataSources:    dataSources(si.DataPaths),
 	}, nil

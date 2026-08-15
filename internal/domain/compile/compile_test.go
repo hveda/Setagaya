@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -357,4 +358,62 @@ func TestTaurus_CarriesThroughput(t *testing.T) {
 	if got := cfg.Execution[0].Throughput; got != 0 {
 		t.Errorf("unlimited throughput became %d", got)
 	}
+}
+
+// Headers handed to the compiler land on the compiled scenario itself, for
+// native and portable alike: this is the seam a deploy's trace-context headers
+// are injected through, with zero per-engine code. A nil map must compile to
+// no headers at all -- the golden fixtures rely on it.
+func TestTaurus_CarriesHeaders(t *testing.T) {
+	t.Parallel()
+
+	headers := map[string]string{
+		"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+		"baggage":     "honryu.service=3,honryu.execution=7,honryu.run=4bf92f3577b34da6a3ce929d0e0e4736",
+	}
+
+	t.Run("portable", func(t *testing.T) {
+		t.Parallel()
+
+		in := portableInput()
+		in.Headers = headers
+		cfg, err := compile.Taurus(in)
+		if err != nil {
+			t.Fatalf("Taurus: %v", err)
+		}
+		if got := cfg.Scenarios["checkout-11"].Headers; !reflect.DeepEqual(got, headers) {
+			t.Errorf("scenario headers = %v, want %v", got, headers)
+		}
+	})
+
+	t.Run("native", func(t *testing.T) {
+		t.Parallel()
+
+		in := portableInput()
+		in.Engine = taurus.ExecutorK6
+		in.Scenarios[11] = compile.ScenarioInput{
+			Scenario:   mustNativeScenario("checkout", taurus.ExecutorK6),
+			ScriptPath: "/honryu/scenario/11/checkout.js",
+		}
+		in.Headers = headers
+		cfg, err := compile.Taurus(in)
+		if err != nil {
+			t.Fatalf("Taurus: %v", err)
+		}
+		if got := cfg.Scenarios["checkout-11"].Headers; !reflect.DeepEqual(got, headers) {
+			t.Errorf("scenario headers = %v, want %v", got, headers)
+		}
+	})
+
+	t.Run("nil headers compile to none", func(t *testing.T) {
+		t.Parallel()
+
+		cfg, err := compile.Taurus(portableInput())
+		if err != nil {
+			t.Fatalf("Taurus: %v", err)
+		}
+		if got := cfg.Scenarios["checkout-11"].Headers; got != nil {
+			t.Errorf("scenario headers = %v, want nil", got)
+		}
+	})
 }
