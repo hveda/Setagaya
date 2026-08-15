@@ -43,7 +43,7 @@ func TestFinalize_PopulatesEngineAndClusterFromTheExecution(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StoreLoadProfile: %v", err)
 	}
-	runID, err := e.store.StartRun(ctx, executionID)
+	runID, err := e.store.StartRun(ctx, executionID, "")
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}

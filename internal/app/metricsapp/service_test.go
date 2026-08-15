@@ -43,7 +43,7 @@ func setup(t *testing.T, engines ...int) *env {
 		tests = append(tests, loadprofile.Entry{ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: n, Duration: 1})
 	}
 	_ = store.StoreLoadProfile(ctx, executionID, false, tests)
-	runID, _ := store.StartRun(ctx, executionID)
+	runID, _ := store.StartRun(ctx, executionID, "")
 
 	sink := fake.NewMetricsSink()
 	bus := membus.New()

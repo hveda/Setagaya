@@ -315,7 +315,7 @@ func TestDelete_GuardBlocksActiveRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateExecution: %v", err)
 	}
-	if _, err := h.store.StartRun(ctx, exeID); err != nil {
+	if _, err := h.store.StartRun(ctx, exeID, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 

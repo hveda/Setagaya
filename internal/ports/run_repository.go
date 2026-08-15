@@ -19,6 +19,10 @@ type RunRecord struct {
 	ExecutionID int64
 	StartedTime time.Time
 	EndTime     *time.Time
+	// CorrelationID is the trace id the run's load carried in its
+	// traceparent/baggage headers: the id Deploy minted and StartRun stamped
+	// here. Empty for runs started before that existed.
+	CorrelationID string
 }
 
 // RunningScenario marks a scenario currently executing within an execution.
@@ -33,8 +37,11 @@ type RunningScenario struct {
 // the execution_run, execution_run_history, and running_scenario tables.
 type RunRepository interface {
 	// StartRun creates the active run for an execution and opens a history row,
-	// returning the new run id. Returns ErrRunActive if one already exists.
-	StartRun(ctx context.Context, executionID int64) (int64, error)
+	// returning the new run id. correlationID is the trace id the deploy that
+	// preceded this trigger minted (empty when it had none), stamped onto the
+	// history row so the run keeps its own id even after the execution is
+	// re-deployed. Returns ErrRunActive if a run already exists.
+	StartRun(ctx context.Context, executionID int64, correlationID string) (int64, error)
 	// CurrentRun returns the active run id for an execution; ok is false when
 	// there is none.
 	CurrentRun(ctx context.Context, executionID int64) (runID int64, ok bool, err error)

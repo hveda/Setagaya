@@ -45,7 +45,7 @@ func TestMySQLExecutionsWithActiveRunOnCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateExecution(running): %v", err)
 	}
-	if _, err := repo.StartRun(ctx, running); err != nil {
+	if _, err := repo.StartRun(ctx, running, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 	// On prod-eu, no active run -> not counted.
@@ -57,7 +57,7 @@ func TestMySQLExecutionsWithActiveRunOnCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateExecution(other): %v", err)
 	}
-	if _, err := repo.StartRun(ctx, other); err != nil {
+	if _, err := repo.StartRun(ctx, other, ""); err != nil {
 		t.Fatalf("StartRun(other): %v", err)
 	}
 

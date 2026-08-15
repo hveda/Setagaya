@@ -54,6 +54,9 @@ type Repo interface {
 	// SetPendingCorrelationID parks the trace id a Deploy minted on the
 	// execution, for the next Trigger to stamp onto the run it creates.
 	SetPendingCorrelationID(ctx context.Context, executionID int64, correlationID string) error
+	// PendingCorrelationID returns the id the latest Deploy minted, which
+	// Trigger stamps onto the run it starts.
+	PendingCorrelationID(ctx context.Context, executionID int64) (string, error)
 	ports.RunRepository
 }
 
@@ -444,7 +447,14 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 
 	// StartRun's id identified the run to the engine agents; with the agent
 	// protocol gone, the run is identified in metrics by the ingest path (task 21).
-	runID, err := s.repo.StartRun(ctx, executionID)
+	// The correlation id is the one the deploy that created these pods minted:
+	// parked on the execution at Deploy time, consumed here, so the run keeps
+	// it even after a later deploy overwrites the pending value.
+	correlationID, err := s.repo.PendingCorrelationID(ctx, executionID)
+	if err != nil {
+		return err
+	}
+	runID, err := s.repo.StartRun(ctx, executionID, correlationID)
 	if err != nil {
 		return err
 	}

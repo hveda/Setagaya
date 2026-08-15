@@ -19,7 +19,7 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 
 	t.Run("start reports active and rejects a second start", func(t *testing.T) {
 		repo := newRepo(t)
-		runID, err := repo.StartRun(ctx, execution)
+		runID, err := repo.StartRun(ctx, execution, "")
 		if err != nil {
 			t.Fatalf("StartRun: %v", err)
 		}
@@ -30,14 +30,14 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 		if err != nil || !ok || got != runID {
 			t.Fatalf("CurrentRun = %d,%v,%v; want %d,true,nil", got, ok, err, runID)
 		}
-		if _, err := repo.StartRun(ctx, execution); err == nil {
+		if _, err := repo.StartRun(ctx, execution, ""); err == nil {
 			t.Fatal("second StartRun: want ErrRunActive, got nil")
 		}
 	})
 
 	t.Run("stop clears the active run and allows a new one", func(t *testing.T) {
 		repo := newRepo(t)
-		first, err := repo.StartRun(ctx, execution)
+		first, err := repo.StartRun(ctx, execution, "")
 		if err != nil {
 			t.Fatalf("StartRun: %v", err)
 		}
@@ -51,7 +51,7 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 		if err := repo.StopRun(ctx, execution); err != nil {
 			t.Fatalf("StopRun (no active): %v", err)
 		}
-		second, err := repo.StartRun(ctx, execution)
+		second, err := repo.StartRun(ctx, execution, "")
 		if err != nil {
 			t.Fatalf("re-StartRun: %v", err)
 		}
@@ -64,7 +64,7 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 	// once the run has been superseded or stopped.
 	t.Run("run history records the start and, once stopped, the end", func(t *testing.T) {
 		repo := newRepo(t)
-		runID, err := repo.StartRun(ctx, execution)
+		runID, err := repo.StartRun(ctx, execution, "")
 		if err != nil {
 			t.Fatalf("StartRun: %v", err)
 		}
@@ -96,6 +96,49 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 
 		if _, err := repo.RunHistory(ctx, 999999); !errors.Is(err, ports.ErrNotFound) {
 			t.Errorf("RunHistory(unknown) = %v, want ErrNotFound", err)
+		}
+	})
+
+	// The correlation id a run was started with is the one its report will
+	// surface, and the history row is where it lives on: reading the
+	// execution's pending value instead would show a later deploy's id.
+	t.Run("run history keeps the correlation id it was started with", func(t *testing.T) {
+		repo := newRepo(t)
+		const want = "4bf92f3577b34da6a3ce929d0e0e4736"
+		runID, err := repo.StartRun(ctx, execution, want)
+		if err != nil {
+			t.Fatalf("StartRun: %v", err)
+		}
+		rec, err := repo.RunHistory(ctx, runID)
+		if err != nil {
+			t.Fatalf("RunHistory: %v", err)
+		}
+		if rec.CorrelationID != want {
+			t.Fatalf("RunHistory correlation = %q, want %q", rec.CorrelationID, want)
+		}
+
+		// An empty start (a deploy that minted nothing) stays empty, and a
+		// stop does not rewrite it.
+		if err := repo.StopRun(ctx, execution); err != nil {
+			t.Fatalf("StopRun: %v", err)
+		}
+		rec, err = repo.RunHistory(ctx, runID)
+		if err != nil {
+			t.Fatalf("RunHistory after stop: %v", err)
+		}
+		if rec.CorrelationID != want {
+			t.Fatalf("RunHistory correlation after stop = %q, want %q", rec.CorrelationID, want)
+		}
+		empty, err := repo.StartRun(ctx, execution, "")
+		if err != nil {
+			t.Fatalf("StartRun(empty): %v", err)
+		}
+		rec, err = repo.RunHistory(ctx, empty)
+		if err != nil {
+			t.Fatalf("RunHistory(empty): %v", err)
+		}
+		if rec.CorrelationID != "" {
+			t.Fatalf("RunHistory correlation for an empty start = %q, want empty", rec.CorrelationID)
 		}
 	})
 

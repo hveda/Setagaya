@@ -111,7 +111,7 @@ func TestAutoPurgeStale_SkipsFreshAndRunning(t *testing.T) {
 	if err := sched.DeployScenario(ctx, ports.DeploySpec{ProjectID: 3, ExecutionID: c2ID, ScenarioID: 2, Shards: deployShards(1)}); err != nil {
 		t.Fatalf("deploy c2: %v", err)
 	}
-	if _, err := store.StartRun(ctx, c2ID); err != nil {
+	if _, err := store.StartRun(ctx, c2ID, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 	if purged, _ := svc.AutoPurgeStale(ctx, time.Hour); len(purged) != 0 {

@@ -8,8 +8,9 @@ import (
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
-// StartRun creates the active run for an execution, opening a history row.
-func (s *Store) StartRun(_ context.Context, executionID int64) (int64, error) {
+// StartRun creates the active run for an execution, opening a history row that
+// carries the deploy's correlation id.
+func (s *Store) StartRun(_ context.Context, executionID int64, correlationID string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.currentRun[executionID]; ok {
@@ -18,7 +19,9 @@ func (s *Store) StartRun(_ context.Context, executionID int64) (int64, error) {
 	s.runSeq++
 	runID := s.runSeq
 	s.currentRun[executionID] = runID
-	s.runHistory[runID] = &ports.RunRecord{RunID: runID, ExecutionID: executionID, StartedTime: s.now()}
+	s.runHistory[runID] = &ports.RunRecord{
+		RunID: runID, ExecutionID: executionID, StartedTime: s.now(), CorrelationID: correlationID,
+	}
 	return runID, nil
 }
 

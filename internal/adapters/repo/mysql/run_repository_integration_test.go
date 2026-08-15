@@ -56,7 +56,7 @@ func TestMySQLRun_ErrorsWhenDBClosed(t *testing.T) {
 	}
 
 	ops := map[string]func() error{
-		"StartRun":                    func() error { _, e := repo.StartRun(ctx, 1); return e },
+		"StartRun":                    func() error { _, e := repo.StartRun(ctx, 1, ""); return e },
 		"CurrentRun":                  func() error { _, _, e := repo.CurrentRun(ctx, 1); return e },
 		"StopRun":                     func() error { return repo.StopRun(ctx, 1) },
 		"MarkScenarioRunning":         func() error { return repo.MarkScenarioRunning(ctx, 1, 2) },

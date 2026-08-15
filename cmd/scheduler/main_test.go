@@ -353,7 +353,7 @@ func TestFireOnce_ReclaimsOverrunCapacityFromTheSameTenantToFireADueOccurrence(t
 	}); err != nil {
 		t.Fatalf("CreateReservation (overrun): %v", err)
 	}
-	if _, err := store.StartRun(ctx, overrunExecutionID); err != nil {
+	if _, err := store.StartRun(ctx, overrunExecutionID, ""); err != nil {
 		t.Fatalf("StartRun (overrun): %v", err)
 	}
 
@@ -562,7 +562,7 @@ func deployAndRun(t *testing.T, store *fake.Store, sched *fake.Scheduler, execut
 	if err := sched.DeployScenario(ctx, ports.DeploySpec{ExecutionID: executionID, ScenarioID: 1}); err != nil {
 		t.Fatalf("DeployScenario: %v", err)
 	}
-	if _, err := store.StartRun(ctx, executionID); err != nil {
+	if _, err := store.StartRun(ctx, executionID, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 }

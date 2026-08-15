@@ -238,7 +238,7 @@ func TestDeploy_RejectedWhileRunning(t *testing.T) {
 	t.Parallel()
 	e := setup(t, false, 2)
 	ctx := context.Background()
-	if _, err := e.store.StartRun(ctx, e.executionID); err != nil {
+	if _, err := e.store.StartRun(ctx, e.executionID, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 	if err := e.svc.Deploy(ctx, e.executionID); !errors.Is(err, run.ErrAlreadyRunning) {
@@ -267,12 +267,29 @@ func TestTrigger_HappyPathStartsRunAndMarksScenariosRunning(t *testing.T) {
 	// Under Taurus there is no engine call on trigger: a pod generates load from
 	// the moment it starts. Trigger records that the run is under way.
 	// A run is active and both scenarios are marked running.
-	if _, ok, _ := e.store.CurrentRun(ctx, e.executionID); !ok {
+	runID, ok, _ := e.store.CurrentRun(ctx, e.executionID)
+	if !ok {
 		t.Fatal("no active run after trigger")
 	}
 	rps, _ := e.store.RunningScenariosByExecution(ctx, e.executionID)
 	if len(rps) != 2 {
 		t.Fatalf("running scenarios = %d, want 2", len(rps))
+	}
+	// The run carries the correlation id its deploy minted: the pending id
+	// Deploy parked is what Trigger stamps onto the run.
+	pending, err := e.store.PendingCorrelationID(ctx, e.executionID)
+	if err != nil {
+		t.Fatalf("PendingCorrelationID: %v", err)
+	}
+	if pending == "" {
+		t.Fatal("Deploy parked no correlation id")
+	}
+	history, err := e.store.RunHistory(ctx, runID)
+	if err != nil {
+		t.Fatalf("RunHistory: %v", err)
+	}
+	if history.CorrelationID != pending {
+		t.Fatalf("run history correlation = %q, want the deploy's pending %q", history.CorrelationID, pending)
 	}
 }
 
@@ -434,7 +451,7 @@ func TestTrigger_AlreadyRunning(t *testing.T) {
 	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	if _, err := e.store.StartRun(ctx, e.executionID); err != nil {
+	if _, err := e.store.StartRun(ctx, e.executionID, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 	if err := e.svc.Trigger(ctx, e.executionID); !errors.Is(err, run.ErrAlreadyRunning) {

@@ -41,7 +41,7 @@ func newIngestEnv(t *testing.T, deps func(*httpapi.Deps)) ingestEnv {
 	_ = store.StoreLoadProfile(ctx, executionID, false, []loadprofile.Entry{
 		{ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: 1, Duration: 10},
 	})
-	runID, _ := store.StartRun(ctx, executionID)
+	runID, _ := store.StartRun(ctx, executionID, "")
 
 	sink := fake.NewMetricsSink()
 	d := httpapi.Deps{

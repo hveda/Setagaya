@@ -8,8 +8,9 @@ import (
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
-// StartRun opens the active run for a execution and its history row.
-func (r *Repository) StartRun(ctx context.Context, executionID int64) (int64, error) {
+// StartRun opens the active run for a execution and its history row, stamping
+// the deploy's correlation id onto it.
+func (r *Repository) StartRun(ctx context.Context, executionID int64, correlationID string) (int64, error) {
 	res, err := r.db.ExecContext(ctx, "INSERT INTO execution_run (execution_id) VALUES (?)", executionID)
 	if err != nil {
 		if isDuplicateKey(err) {
@@ -22,7 +23,8 @@ func (r *Repository) StartRun(ctx context.Context, executionID int64) (int64, er
 		return 0, err
 	}
 	if _, err := r.db.ExecContext(ctx,
-		"INSERT INTO execution_run_history (run_id, execution_id) VALUES (?, ?)", runID, executionID); err != nil {
+		"INSERT INTO execution_run_history (run_id, execution_id, correlation_id) VALUES (?, ?, ?)",
+		runID, executionID, correlationID); err != nil {
 		return 0, err
 	}
 	return runID, nil
@@ -63,8 +65,8 @@ func (r *Repository) RunHistory(ctx context.Context, runID int64) (ports.RunReco
 	var rec ports.RunRecord
 	var end sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		"SELECT run_id, execution_id, started_time, end_time FROM execution_run_history WHERE run_id=?",
-		runID).Scan(&rec.RunID, &rec.ExecutionID, &rec.StartedTime, &end)
+		"SELECT run_id, execution_id, started_time, end_time, correlation_id FROM execution_run_history WHERE run_id=?",
+		runID).Scan(&rec.RunID, &rec.ExecutionID, &rec.StartedTime, &end, &rec.CorrelationID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.RunRecord{}, ports.ErrNotFound
 	}

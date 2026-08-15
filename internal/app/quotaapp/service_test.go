@@ -148,7 +148,7 @@ func TestReserve_ReclaimsOverrunReservationWhenCapacityIsNeeded(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateReservation (overrun): %v", err)
 	}
-	if _, err := store.StartRun(ctx, 100); err != nil {
+	if _, err := store.StartRun(ctx, 100, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestReserve_LeavesOverrunReservationAloneWhenCapacityAllows(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateReservation (overrun): %v", err)
 	}
-	if _, err := store.StartRun(ctx, 100); err != nil {
+	if _, err := store.StartRun(ctx, 100, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 
@@ -225,7 +225,7 @@ func TestReserve_DoesNotReclaimForAFutureBooking(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateReservation (overrun): %v", err)
 	}
-	if _, err := store.StartRun(ctx, 100); err != nil {
+	if _, err := store.StartRun(ctx, 100, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 
@@ -280,7 +280,7 @@ func TestReserve_NoStopperWiredFallsThroughToOrdinaryRejection(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateReservation (overrun): %v", err)
 	}
-	if _, err := store.StartRun(ctx, 100); err != nil {
+	if _, err := store.StartRun(ctx, 100, ""); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 
@@ -317,7 +317,7 @@ func TestReserve_ReclaimStopsAsSoonAsEnoughCapacityIsFreed(t *testing.T) {
 		t.Fatalf("CreateReservation (101): %v", err)
 	}
 	for _, id := range []int64{100, 101} {
-		if _, err := store.StartRun(ctx, id); err != nil {
+		if _, err := store.StartRun(ctx, id, ""); err != nil {
 			t.Fatalf("StartRun(%d): %v", id, err)
 		}
 	}
