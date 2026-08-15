@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	membus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
@@ -25,7 +27,6 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 	"github.com/heridotlife/honryu/test/dbtest"
-	"gopkg.in/yaml.v3"
 )
 
 type phase10Env struct {
