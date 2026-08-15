@@ -421,3 +421,44 @@ func TestFinalize_UsesTheInjectedClock(t *testing.T) {
 		t.Errorf("EndedAt = %v, want %v", rep.EndedAt, fixed)
 	}
 }
+
+// The report's correlation id is the run's own, read from its history row --
+// NOT the execution's pending value, which by finalize time can already point
+// at a later deploy. Engine and Cluster already accept that imprecision; for
+// the correlation id it would be load-bearing: a report showing a later
+// deploy's id deep-links a reader into the wrong run's traffic.
+func TestFinalize_CorrelationIDComesFromTheRunNotTheExecution(t *testing.T) {
+	t.Parallel()
+	e := setup(t, 1)
+	ctx := context.Background()
+
+	const (
+		thisRunsID      = "11111111111111111111111111111111" // the deploy that started this run minted
+		aLaterDeploysID = "22222222222222222222222222222222" // a redeploy between run and finalize
+	)
+
+	// Replace setup()'s blank run with one started under a real correlation id.
+	if err := e.store.StopRun(ctx, e.executionID); err != nil {
+		t.Fatalf("StopRun(setup's run): %v", err)
+	}
+	runID, err := e.store.StartRun(ctx, e.executionID, thisRunsID)
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	// Between this run starting and its report finalizing, the execution is
+	// re-deployed: the pending id moves on to the new deploy's.
+	if err := e.store.SetPendingCorrelationID(ctx, e.executionID, aLaterDeploysID); err != nil {
+		t.Fatalf("SetPendingCorrelationID: %v", err)
+	}
+
+	if err := e.svc.Finalize(ctx, e.executionID, runID); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	rep, err := e.reports.GetReport(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetReport: %v", err)
+	}
+	if rep.CorrelationID != thisRunsID {
+		t.Fatalf("report correlation = %q, want this run's own %q (not the pending %q)", rep.CorrelationID, thisRunsID, aLaterDeploysID)
+	}
+}

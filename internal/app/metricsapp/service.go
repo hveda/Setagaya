@@ -159,11 +159,17 @@ func (s *Service) finalize(ctx context.Context, executionID, runID int64, outcom
 		// The load origin: the cluster this run generated load from (empty =
 		// the deployment default), recorded on the report so a reader knows
 		// where the numbers came from.
-		Cluster:   exe.Cluster,
-		StartedAt: history.StartedTime,
-		EndedAt:   s.now(),
-		Requested: requestedLoad(profile),
-		Outcome:   outcome,
+		Cluster: exe.Cluster,
+		// The run's own correlation id, from its history row -- NOT the
+		// execution's pending value, which by finalize time can already point at
+		// a later deploy. Engine and Cluster above accept that imprecision; a
+		// wrong correlation id would be load-bearing, deep-linking a reader into
+		// the wrong run's traffic.
+		CorrelationID: history.CorrelationID,
+		StartedAt:     history.StartedTime,
+		EndedAt:       s.now(),
+		Requested:     requestedLoad(profile),
+		Outcome:       outcome,
 	}
 	// An execution can bundle several scenarios under one run; ScenarioID is
 	// informational and only unambiguous when there is exactly one. The label
