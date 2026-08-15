@@ -42,6 +42,9 @@ func Run(t *testing.T, newStore NewStore) {
 		if got.Cluster != want.Cluster {
 			t.Errorf("cluster = %q, want %q", got.Cluster, want.Cluster)
 		}
+		if got.CorrelationID != want.CorrelationID {
+			t.Errorf("correlation id = %q, want %q", got.CorrelationID, want.CorrelationID)
+		}
 		if got.Achieved.Samples != want.Achieved.Samples || got.ErrorRate != want.ErrorRate {
 			t.Errorf("counters = %+v (error rate %v)", got.Achieved, got.ErrorRate)
 		}
@@ -65,6 +68,25 @@ func Run(t *testing.T, newStore NewStore) {
 		s := newStore(t)
 		if _, err := s.GetReport(ctx, 999); !errors.Is(err, ports.ErrNotFound) {
 			t.Errorf("GetReport(missing) = %v, want ErrNotFound", err)
+		}
+	})
+
+	// A report with no correlation id is the shape every report saved before
+	// the id existed still has on a real database: it has to read back empty,
+	// never as an error and never as a zero-looking placeholder.
+	t.Run("EmptyCorrelationIDStaysEmpty", func(t *testing.T) {
+		s := newStore(t)
+		want := sample(1, 11, time.Unix(2000, 0))
+		want.CorrelationID = ""
+		if err := s.SaveReport(ctx, want); err != nil {
+			t.Fatalf("SaveReport: %v", err)
+		}
+		got, err := s.GetReport(ctx, 11)
+		if err != nil {
+			t.Fatalf("GetReport: %v", err)
+		}
+		if got.CorrelationID != "" {
+			t.Errorf("correlation id = %q, want empty", got.CorrelationID)
 		}
 	})
 
@@ -235,15 +257,16 @@ func Run(t *testing.T, newStore NewStore) {
 // caught rather than passing on the identity alone.
 func sample(executionID, runID int64, at time.Time) report.Report {
 	return report.Build(report.Input{
-		ExecutionID: executionID,
-		ScenarioID:  executionID * 10,
-		RunID:       runID,
-		Engine:      taurus.ExecutorJMeter,
-		Cluster:     "prod-eu",
-		StartedAt:   at,
-		EndedAt:     at.Add(time.Minute),
-		Outcome:     taurus.OutcomePassed,
-		Requested:   report.Load{Concurrency: 50, Throughput: 100, DurationSeconds: 60},
+		ExecutionID:   executionID,
+		ScenarioID:    executionID * 10,
+		RunID:         runID,
+		Engine:        taurus.ExecutorJMeter,
+		Cluster:       "prod-eu",
+		CorrelationID: "4bf92f3577b34da6a3ce929d0e0e4736",
+		StartedAt:     at,
+		EndedAt:       at.Add(time.Minute),
+		Outcome:       taurus.OutcomePassed,
+		Requested:     report.Load{Concurrency: 50, Throughput: 100, DurationSeconds: 60},
 		Intervals: []metrics.Interval{
 			{
 				Timestamp: at.Unix(), Label: "checkout-cart", Concurrency: 50,

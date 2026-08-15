@@ -25,6 +25,39 @@ func TestMySQLReportStore_Contract(t *testing.T) {
 	})
 }
 
+// A report row written before 0046 added the column reads back with an empty
+// correlation id -- the migration's DEFAULT ” is what those rows carry, and a
+// read must never turn that into an error or a placeholder.
+func TestMySQLReportStore_PreCorrelationRowReadsEmpty(t *testing.T) {
+	db := dbtest.StartMySQL(t)
+	truncateAll(t, db)
+	store := mysqladapter.NewRepository(db)
+	ctx := context.Background()
+
+	// Insert the way a pre-0046 writer would have: no correlation_id column,
+	// so the row takes the migration's default.
+	if _, err := db.Exec(`INSERT INTO execution_report
+		(run_id, execution_id, scenario_id, engine, outcome, started_at, ended_at)
+		VALUES (90, 1, 10, 'jmeter', 'passed', '2026-01-01 00:00:00', '2026-01-01 00:01:00')`); err != nil {
+		t.Fatalf("insert pre-correlation row: %v", err)
+	}
+
+	got, err := store.GetReport(ctx, 90)
+	if err != nil {
+		t.Fatalf("GetReport(pre-correlation row): %v", err)
+	}
+	if got.CorrelationID != "" {
+		t.Errorf("correlation id = %q, want empty", got.CorrelationID)
+	}
+	list, err := store.ListReports(ctx, 1, 0)
+	if err != nil {
+		t.Fatalf("ListReports: %v", err)
+	}
+	if len(list) != 1 || list[0].CorrelationID != "" {
+		t.Errorf("ListReports = %+v, want the old row with an empty correlation id", list)
+	}
+}
+
 // The conformance suite pins the summary. Error signatures live in their own
 // table, so their round trip is asserted here: a stored report has to read back
 // as the same evidence, or it is not worth keeping.
