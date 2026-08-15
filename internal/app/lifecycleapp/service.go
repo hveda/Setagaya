@@ -8,6 +8,8 @@ package lifecycleapp
 import (
 	"bytes"
 	"context"
+	crand "crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -27,6 +29,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/shard"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/domain/telemetry"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -141,6 +144,9 @@ type Service struct {
 	freeze        Freeze
 	// now is the reservation window's clock, overridable for deterministic tests.
 	now func() time.Time
+	// traceContext mints the trace identity a deploy's load carries, once per
+	// Deploy call. Overridable for deterministic tests, like now.
+	traceContext func() (telemetry.TraceContext, error)
 }
 
 // ImageResolver returns the container image for an engine. An empty engine
@@ -165,6 +171,7 @@ func NewService(repo Repo, sched ports.Scheduler, store ports.ObjectStore, image
 	return &Service{
 		repo: repo, sched: sched, store: store, image: image, defaultEngine: taurus.ExecutorJMeter,
 		metrics: noopMetrics{}, usage: noopUsage{}, quota: noopQuota{}, freeze: noopFreeze{}, now: time.Now,
+		traceContext: randomTraceContext,
 	}
 }
 
@@ -212,6 +219,30 @@ func (s *Service) WithNow(now func() time.Time) *Service {
 	return s
 }
 
+// WithTraceContext overrides the per-deploy trace-context generator, for
+// deterministic tests. Returns the receiver for chaining.
+func (s *Service) WithTraceContext(gen func() (telemetry.TraceContext, error)) *Service {
+	if gen != nil {
+		s.traceContext = gen
+	}
+	return s
+}
+
+// randomTraceContext mints a fresh trace identity: a random W3C trace id (16
+// bytes) and parent id (8 bytes), never derived from stable identifiers --
+// deriving it would make every run of a recurring execution share one id
+// forever, and would also pad internal ids into a third-party system.
+func randomTraceContext() (telemetry.TraceContext, error) {
+	var b [16 + 8]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		return telemetry.TraceContext{}, fmt.Errorf("lifecycle: mint trace context: %w", err)
+	}
+	return telemetry.TraceContext{
+		TraceID:  hex.EncodeToString(b[:16]),
+		ParentID: hex.EncodeToString(b[16:]),
+	}, nil
+}
+
 // Deploy provisions the engines for every scenario of an execution. It is rejected
 // while a run is in progress and is otherwise idempotent.
 func (s *Service) Deploy(ctx context.Context, executionID int64) error {
@@ -237,12 +268,29 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 	if err != nil {
 		return err
 	}
+	// One fresh trace identity for the whole deploy, minted before any pod
+	// exists. Every scenario and shard compiled below carries the same
+	// traceparent/baggage pair, so all of a run's traffic is findable in a
+	// target's APM under one correlation id -- and no earlier or later deploy
+	// shares it. The run id itself does not exist yet (StartRun happens in
+	// Trigger, after pods may already be loading), which is why the identity is
+	// minted here and threaded forward rather than derived backwards.
+	tc, err := s.traceContext()
+	if err != nil {
+		return err
+	}
+	headers := telemetry.Headers(tc, telemetry.Identity{
+		TenantID:         coll.TenantID,
+		ProjectID:        coll.ProjectID,
+		ExecutionID:      executionID,
+		RunCorrelationID: tc.TraceID,
+	})
 	for _, ep := range scenarios {
 		shards, err := shard.Plan(ep, ep.Engines)
 		if err != nil {
 			return err
 		}
-		specs, files, err := s.compileShards(ctx, coll, ep, shards, engineOf(coll, s.defaultEngine))
+		specs, files, err := s.compileShards(ctx, coll, ep, shards, engineOf(coll, s.defaultEngine), headers)
 		if err != nil {
 			return err
 		}
@@ -564,13 +612,15 @@ func scenarioKey(scenarioID int64, filename string) string {
 // Each shard gets its own config carrying only its fraction of the users, which
 // is what makes the pods together produce the profile that was asked for. The
 // scenario's own artefacts travel with them, since a native scenario's config
-// points at a script the pod must be able to open.
+// points at a script the pod must be able to open. headers is the deploy-wide
+// trace-context pair, identical on every shard and scenario of one Deploy.
 func (s *Service) compileShards(
 	ctx context.Context,
 	exe execution.Execution,
 	entry loadprofile.Entry,
 	shards []shard.Shard,
 	engine taurus.Executor,
+	headers map[string]string,
 ) ([]ports.ShardSpec, map[string][]byte, error) {
 	sc, err := s.repo.GetScenario(ctx, entry.ScenarioID)
 	if err != nil {
@@ -649,6 +699,7 @@ func (s *Service) compileShards(
 			Profile:   loadprofile.Profile{Tests: []loadprofile.Entry{shardEntry}},
 			Engine:    engine,
 			Scenarios: map[int64]compile.ScenarioInput{entry.ScenarioID: si},
+			Headers:   headers,
 			Criteria:  criteria,
 		})
 		if cErr != nil {

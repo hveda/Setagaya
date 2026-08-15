@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/domain/telemetry"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
@@ -1006,6 +1008,132 @@ func TestDeploy_PortableScenarioCompilesUploadedRequests(t *testing.T) {
 		}
 		if len(ts.Requests) != 1 || ts.Requests[0].URL != "/checkout" {
 			t.Errorf("requests = %+v, want one request to /checkout", ts.Requests)
+		}
+	}
+}
+
+// One Deploy call is one run in practice, so every scenario and shard it
+// compiles must carry the same freshly-minted trace-context headers -- and two
+// deploys must never share one, or an APM query for one run's id would return
+// another run's traffic alongside it.
+func TestDeploy_InjectsTraceContextHeaders(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2, 2) // two scenarios, two shards each
+	ctx := context.Background()
+
+	first := telemetry.TraceContext{TraceID: strings.Repeat("a", 32), ParentID: strings.Repeat("b", 16)}
+	second := telemetry.TraceContext{TraceID: strings.Repeat("c", 32), ParentID: strings.Repeat("d", 16)}
+	calls := 0
+	e.svc.WithTraceContext(func() (telemetry.TraceContext, error) {
+		calls++
+		if calls == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("trace context generated %d times in one Deploy, want exactly once", calls)
+	}
+
+	// setup()'s execution carries no tenant (only its project does), so the
+	// baggage renders without a honryu.tenant entry; the tenant-carrying shape
+	// is asserted in TestDeploy_BaggageCarriesTheExecutionsTenant below.
+	want := map[string]string{
+		"traceparent": "00-" + first.TraceID + "-" + first.ParentID + "-00",
+		"baggage": fmt.Sprintf("honryu.service=%d,honryu.execution=%d,honryu.run=%s",
+			e.projectID, e.executionID, first.TraceID),
+	}
+	for _, sid := range e.planIDs {
+		spec, ok := e.sched.LastDeploy(e.executionID, sid)
+		if !ok {
+			t.Fatalf("scenario %d not deployed", sid)
+		}
+		for _, sh := range spec.Shards {
+			var cfg taurus.Config
+			if err := yaml.Unmarshal(sh.Config, &cfg); err != nil {
+				t.Fatalf("shard %d config is not valid YAML: %v", sh.Index, err)
+			}
+			for key, ts := range cfg.Scenarios {
+				if !reflect.DeepEqual(ts.Headers, want) {
+					t.Errorf("scenario %q shard %d headers = %v, want %v", key, sh.Index, ts.Headers, want)
+				}
+			}
+		}
+	}
+
+	// A second deploy is a second future run: it must carry a fresh identity,
+	// not the first one's.
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("second Deploy: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("trace context generated %d times across two Deploys, want 2", calls)
+	}
+	spec, ok := e.sched.LastDeploy(e.executionID, e.planIDs[0])
+	if !ok {
+		t.Fatal("nothing re-deployed")
+	}
+	var cfg taurus.Config
+	if err := yaml.Unmarshal(spec.Shards[0].Config, &cfg); err != nil {
+		t.Fatalf("re-deployed shard config is not valid YAML: %v", err)
+	}
+	wantSecond := "00-" + second.TraceID + "-" + second.ParentID + "-00"
+	for key, ts := range cfg.Scenarios {
+		if got := ts.Headers["traceparent"]; got != wantSecond {
+			t.Errorf("scenario %q re-deploy traceparent = %q, want the fresh %q", key, got, wantSecond)
+		}
+	}
+}
+
+// An execution that carries a tenant must have it in the baggage, so a
+// multi-tenant target's APM can attribute generated load to the right tenant.
+func TestDeploy_BaggageCarriesTheExecutionsTenant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := execution.New("peak", projectID)
+	tenantID := int64(7)
+	coll.TenantID = &tenantID
+	executionID, _ := store.CreateExecution(ctx, coll)
+
+	pl, _ := scenario.NewNative("scenario", projectID, taurus.ExecutorJMeter)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
+		t.Fatalf("add test file: %v", err)
+	}
+	if err := obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("upload test file: %v", err)
+	}
+	tests := []loadprofile.Entry{{Name: "p", ScenarioID: scenarioID, Concurrency: 2, Rampup: 1, Engines: 1, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, tests); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	sched := fake.NewScheduler()
+	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
+	if err := svc.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	spec, ok := sched.LastDeploy(executionID, scenarioID)
+	if !ok {
+		t.Fatal("nothing was deployed")
+	}
+	var cfg taurus.Config
+	if err := yaml.Unmarshal(spec.Shards[0].Config, &cfg); err != nil {
+		t.Fatalf("shard config is not valid YAML: %v", err)
+	}
+	for _, ts := range cfg.Scenarios {
+		if !strings.HasPrefix(ts.Headers["baggage"], "honryu.tenant=7,") {
+			t.Errorf("baggage = %q, want it to lead with honryu.tenant=7,", ts.Headers["baggage"])
 		}
 	}
 }
