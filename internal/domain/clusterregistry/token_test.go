@@ -37,7 +37,7 @@ func TestToken_EncodeAndHash(t *testing.T) {
 	if HashToken(tok) != h {
 		t.Fatal("HashToken is not deterministic")
 	}
-	if HashToken(tok + "x") == h {
+	if HashToken(tok+"x") == h {
 		t.Fatal("a different token hashed to the same value")
 	}
 }
