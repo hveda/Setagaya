@@ -57,6 +57,7 @@ type Repo interface {
 	// PendingCorrelationID returns the id the latest Deploy minted, which
 	// Trigger stamps onto the run it starts.
 	PendingCorrelationID(ctx context.Context, executionID int64) (string, error)
+	ports.OrphanRepository
 	ports.RunRepository
 }
 
@@ -294,6 +295,12 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 	if err := s.repo.SetPendingCorrelationID(ctx, executionID, tc.TraceID); err != nil {
 		return err
 	}
+	// A new deploy is genuinely new engines: whatever orphaned Finals the
+	// previous generation left are stale evidence, cleared before any pod of
+	// this generation can run, so Trigger's stranded-run guard starts clean.
+	if err := s.repo.ClearOrphanCompletions(ctx, executionID); err != nil {
+		return err
+	}
 	headers := telemetry.Headers(tc, telemetry.Identity{
 		TenantID:         coll.TenantID,
 		ProjectID:        coll.ProjectID,
@@ -428,6 +435,19 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	phase := run.DerivePhase(status.PoolSize, running)
 	if err := run.CanTrigger(phase, ec, status.PoolSize); err != nil {
 		return err
+	}
+
+	// Engines that already ran and finished cannot be triggered again: a
+	// pod's bzt never reruns (task 23c's exit-code-then-sleep fix), so a run
+	// opened against them is a corpse -- nothing will ever send its Final
+	// (task 121 hit this live: StartRun minutes after deploy, engine already
+	// done, run stranded open with no report). The orphaned Finals those
+	// engines pushed are the only reliable signal; pods stay Ready forever,
+	// so readiness alone cannot tell finished from starting.
+	if orphans, err := s.repo.OrphanCompletions(ctx, executionID); err != nil {
+		return err
+	} else if len(orphans) > 0 {
+		return fmt.Errorf("%w: %d orphaned shard completion(s)", run.ErrEnginesFinished, len(orphans))
 	}
 
 	// Quota is opt-in with the tenant it scopes to: an execution that never

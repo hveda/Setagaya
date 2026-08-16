@@ -38,6 +38,10 @@ type Repo interface {
 	// RunHistory supplies a report's StartedAt: nothing else keeps when a run
 	// began once it is no longer the active one.
 	RunHistory(ctx context.Context, runID int64) (ports.RunRecord, error)
+	// OrphanCompletions' recording side: a shard Final that arrives with no
+	// open run is evidence the engines already finished, and Trigger refuses
+	// to open a corpse-run against it until the next Deploy clears it.
+	RecordOrphanCompletion(ctx context.Context, oc ports.OrphanCompletion) error
 }
 
 // Service absorbs pushed measurements and finalises runs.

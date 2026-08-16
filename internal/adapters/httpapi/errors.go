@@ -88,6 +88,10 @@ var conflictErrors = []error{
 	scenarioapp.ErrScenarioInUse, scenarioapp.ErrScenarioNotPortable,
 	projectapp.ErrProjectHasScenarios, projectapp.ErrProjectHasExecutions,
 	run.ErrNotDeployed, run.ErrEnginesNotReady, run.ErrAlreadyRunning, run.ErrNotRunning,
+	// Triggering engines that already finished: re-deploying is the fix, and
+	// the trigger's bounded readiness wait must not retry it away either
+	// (it is not a readiness error).
+	run.ErrEnginesFinished,
 	ports.ErrEnginesUnreachable, ports.ErrRunActive,
 	// A pod pushing to an execution that is not running, or pushing for a run
 	// that has ended, is a state conflict rather than a server fault -- and a

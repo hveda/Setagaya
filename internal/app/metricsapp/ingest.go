@@ -76,6 +76,21 @@ func (s *Service) Ingest(ctx context.Context, batch metrics.Batch) error {
 		return err
 	}
 	if !running {
+		// A Final with no open run is not just noise to reject: it is the
+		// control plane's only reliable "these engines already finished"
+		// signal (pods stay Ready forever after bzt exits, so the scheduler
+		// cannot see it). Record it for Trigger's stranded-run guard, then
+		// reject the push exactly as before -- the sidecar retries, and the
+		// overwrite-keyed record keeps that harmless (one event).
+		if batch.Final {
+			oc := ports.OrphanCompletion{
+				ExecutionID: batch.ExecutionID, ScenarioID: batch.ScenarioID,
+				ShardIndex: batch.ShardIndex, ExitCode: batch.ExitCode, FinishedAt: s.now(),
+			}
+			if err := s.repo.RecordOrphanCompletion(ctx, oc); err != nil {
+				return err
+			}
+		}
 		return fmt.Errorf("%w: execution %d", ErrNoActiveRun, batch.ExecutionID)
 	}
 	// A pod from an earlier run must not pollute the current one. This is the

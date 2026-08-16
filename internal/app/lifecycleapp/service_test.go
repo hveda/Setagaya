@@ -254,6 +254,52 @@ func TestDeploy_MissingExecution(t *testing.T) {
 	}
 }
 
+// Trigger refuses to open a run for engines whose Finals already arrived
+// orphaned (they ran and finished while nobody triggered — task 121's live
+// stranding), and a fresh Deploy clears the evidence because it is genuinely
+// new engines.
+func TestTrigger_RefusesFinishedEnginesUntilRedeploy(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	// The engines ran out their hold before Trigger was called: their Final
+	// arrived with no run open and was recorded as an orphan completion.
+	code := 0
+	if err := e.store.RecordOrphanCompletion(ctx, ports.OrphanCompletion{
+		ExecutionID: e.executionID, ScenarioID: e.planIDs[0], ShardIndex: 0,
+		ExitCode: &code, FinishedAt: time.Unix(1000, 0),
+	}); err != nil {
+		t.Fatalf("RecordOrphanCompletion: %v", err)
+	}
+
+	err := e.svc.Trigger(ctx, e.executionID)
+	if !errors.Is(err, run.ErrEnginesFinished) {
+		t.Fatalf("Trigger over finished engines = %v, want ErrEnginesFinished", err)
+	}
+	if _, running, _ := e.store.CurrentRun(ctx, e.executionID); running {
+		t.Fatal("Trigger opened a run for engines that already finished")
+	}
+
+	// A redeploy is the fix: it clears the orphans, and Trigger proceeds.
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("re-Deploy: %v", err)
+	}
+	orphans, err := e.store.OrphanCompletions(ctx, e.executionID)
+	if err != nil {
+		t.Fatalf("OrphanCompletions: %v", err)
+	}
+	if len(orphans) != 0 {
+		t.Fatalf("re-Deploy left %d orphans", len(orphans))
+	}
+	if err := e.svc.Trigger(ctx, e.executionID); err != nil {
+		t.Fatalf("Trigger after redeploy: %v", err)
+	}
+}
+
 func TestTrigger_HappyPathStartsRunAndMarksScenariosRunning(t *testing.T) {
 	t.Parallel()
 	e := setup(t, true, 2, 3) // 5 engines total, execution CSV split on

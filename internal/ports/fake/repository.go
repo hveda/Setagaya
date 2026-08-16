@@ -64,6 +64,9 @@ type Store struct {
 	currentRun map[int64]int64               // executionID -> active runID
 	runHistory map[int64]*ports.RunRecord    // runID -> history row
 	running    map[int64]map[int64]time.Time // executionID -> scenarioID -> startedTime
+	// orphans holds orphaned shard completions (Finals with no open run),
+	// the evidence Trigger refuses to open a corpse-run against.
+	orphans map[int64]map[orphanKey]ports.OrphanCompletion
 
 	deployContext string
 	openLaunch    map[int64]*ports.LaunchRecord // executionID -> open launch
