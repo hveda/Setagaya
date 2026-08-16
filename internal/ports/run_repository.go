@@ -32,6 +32,14 @@ type RunningScenario struct {
 	StartedTime time.Time
 }
 
+// OpenRun is one execution's currently-active run, as a reconciliation pass
+// sees it: the run row exists (StartRun happened, no StopRun/teardown has).
+type OpenRun struct {
+	ExecutionID int64
+	RunID       int64
+	StartedTime time.Time
+}
+
 // RunRepository persists the lifecycle state of runs: the single active run per
 // execution, its history, and which scenarios are currently executing. It reuses
 // the execution_run, execution_run_history, and running_scenario tables.
@@ -45,6 +53,10 @@ type RunRepository interface {
 	// CurrentRun returns the active run id for an execution; ok is false when
 	// there is none.
 	CurrentRun(ctx context.Context, executionID int64) (runID int64, ok bool, err error)
+	// OpenRuns lists every execution's active run across this deployment
+	// context, with the run's start time. Reconciliation scans it for runs
+	// whose engines are already gone; normal operation never needs it.
+	OpenRuns(ctx context.Context) ([]OpenRun, error)
 	// StopRun clears the active run and stamps end_time on its history row.
 	// Stopping an execution with no active run is not an error.
 	StopRun(ctx context.Context, executionID int64) error

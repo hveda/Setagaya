@@ -33,6 +33,28 @@ func (s *Store) CurrentRun(_ context.Context, executionID int64) (int64, bool, e
 	return runID, ok, nil
 }
 
+// OpenRuns lists every execution's active run with its start time, oldest
+// first, mirroring the mysql adapter's history join.
+func (s *Store) OpenRuns(_ context.Context) ([]ports.OpenRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]ports.OpenRun, 0, len(s.currentRun))
+	for executionID, runID := range s.currentRun {
+		or := ports.OpenRun{ExecutionID: executionID, RunID: runID}
+		if rec := s.runHistory[runID]; rec != nil {
+			or.StartedTime = rec.StartedTime
+		}
+		out = append(out, or)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].StartedTime.Equal(out[j].StartedTime) {
+			return out[i].StartedTime.Before(out[j].StartedTime)
+		}
+		return out[i].RunID < out[j].RunID
+	})
+	return out, nil
+}
+
 // StopRun clears the active run and stamps its history end time.
 func (s *Store) StopRun(_ context.Context, executionID int64) error {
 	s.mu.Lock()

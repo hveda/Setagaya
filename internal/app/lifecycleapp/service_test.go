@@ -803,6 +803,10 @@ type recordingMetrics struct {
 
 func (m *recordingMetrics) Purge(id int64) { m.purged = append(m.purged, id) }
 
+func (m *recordingMetrics) FinalizeOrphaned(ctx context.Context, executionID, runID int64, _ []ports.OrphanCompletion) error {
+	return m.Finalize(ctx, executionID, runID)
+}
+
 func (m *recordingMetrics) Finalize(_ context.Context, _, runID int64) error {
 	m.finalized = append(m.finalized, runID)
 	return m.FinalizeErr

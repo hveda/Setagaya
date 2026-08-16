@@ -182,4 +182,35 @@ func RunRunRepositoryContract(t *testing.T, newRepo NewRunRepo) {
 			t.Fatalf("ClearScenarioRunning (missing): %v", err)
 		}
 	})
+
+	// OpenRuns is the reconciliation scan: every execution's active run with
+	// its start time, gone once the run is stopped.
+	t.Run("open runs list active runs until stopped", func(t *testing.T) {
+		repo := newRepo(t)
+		runID, err := repo.StartRun(ctx, execution, "")
+		if err != nil {
+			t.Fatalf("StartRun: %v", err)
+		}
+		got, err := repo.OpenRuns(ctx)
+		if err != nil {
+			t.Fatalf("OpenRuns: %v", err)
+		}
+		if len(got) != 1 || got[0].ExecutionID != execution || got[0].RunID != runID {
+			t.Fatalf("OpenRuns = %+v, want execution %d run %d", got, execution, runID)
+		}
+		if got[0].StartedTime.IsZero() {
+			t.Fatalf("OpenRuns missing the run's start time: %+v", got[0])
+		}
+
+		if err := repo.StopRun(ctx, execution); err != nil {
+			t.Fatalf("StopRun: %v", err)
+		}
+		after, err := repo.OpenRuns(ctx)
+		if err != nil {
+			t.Fatalf("OpenRuns after stop: %v", err)
+		}
+		if len(after) != 0 {
+			t.Fatalf("OpenRuns after stop = %+v, want none", after)
+		}
+	})
 }

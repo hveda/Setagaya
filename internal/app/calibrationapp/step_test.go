@@ -17,6 +17,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
@@ -32,6 +33,10 @@ type scriptedMetrics struct {
 }
 
 func (m *scriptedMetrics) Purge(int64) {}
+
+func (m *scriptedMetrics) FinalizeOrphaned(ctx context.Context, executionID, runID int64, _ []ports.OrphanCompletion) error {
+	return m.Finalize(ctx, executionID, runID)
+}
 
 func (m *scriptedMetrics) Finalize(ctx context.Context, executionID, runID int64) error {
 	r := m.template

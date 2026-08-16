@@ -100,6 +100,24 @@ func (s *Service) Finalize(ctx context.Context, executionID, runID int64) error 
 	return s.finalize(ctx, executionID, runID, outcome)
 }
 
+// FinalizeOrphaned writes the report for a run whose engines finished while it
+// was open -- the stranded-run case a reconciliation pass closes. The outcome
+// mirrors stopOutcome's severity logic but sources its evidence from the
+// orphaned Finals themselves (the run's own progress never absorbed them,
+// which is what stranded it): an abort is the baseline, and any shard's real
+// exit-code evidence that is more severe wins.
+func (s *Service) FinalizeOrphaned(ctx context.Context, executionID, runID int64, orphans []ports.OrphanCompletion) error {
+	outcomes := []taurus.Outcome{taurus.OutcomeAborted}
+	for _, oc := range orphans {
+		if oc.ExitCode == nil {
+			outcomes = append(outcomes, taurus.OutcomeFromExitCode(-1))
+			continue
+		}
+		outcomes = append(outcomes, taurus.OutcomeFromExitCode(*oc.ExitCode))
+	}
+	return s.finalize(ctx, executionID, runID, taurus.WorstOutcome(outcomes))
+}
+
 // stopOutcome is the outcome for a run Honryu is deliberately ending.
 //
 // Not derived from shard exit codes the way finalizeCompleted's is:

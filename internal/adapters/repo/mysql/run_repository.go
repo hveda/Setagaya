@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/heridotlife/honryu/internal/ports"
 )
@@ -41,6 +42,31 @@ func (r *Repository) CurrentRun(ctx context.Context, executionID int64) (int64, 
 		return 0, false, err
 	}
 	return runID, true, nil
+}
+
+// OpenRuns lists every execution's active run with its start time, oldest
+// first. The history join is what supplies the start time: the active-run
+// table itself is just an execution->run pointer.
+func (r *Repository) OpenRuns(ctx context.Context) ([]ports.OpenRun, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT r.execution_id, r.id, h.started_time
+		FROM execution_run r
+		JOIN execution_run_history h ON h.run_id = r.id
+		ORDER BY h.started_time, r.id`)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: open runs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []ports.OpenRun
+	for rows.Next() {
+		var or ports.OpenRun
+		if err := rows.Scan(&or.ExecutionID, &or.RunID, &or.StartedTime); err != nil {
+			return nil, fmt.Errorf("mysql: scan open run: %w", err)
+		}
+		out = append(out, or)
+	}
+	return out, rows.Err()
 }
 
 // StopRun clears the active run and stamps its history end time.

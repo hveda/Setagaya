@@ -111,6 +111,11 @@ type ClusterConfig struct {
 	// purges them.
 	AutoPurgeInterval time.Duration
 	AutoPurgeIdle     time.Duration
+	// ReconcileInterval is how often the stranded-run reconciliation pass
+	// runs; zero disables it. A pass finalizes open runs whose engines
+	// already finished (their Finals arrived orphaned) -- evidence-based
+	// reports, never invented passes.
+	ReconcileInterval time.Duration
 	// CredentialKey is the hex-encoded (64 hex digits) app-held key that
 	// encrypts BYOC cluster credentials at rest (AES-256-GCM). Empty disables
 	// the cluster-registry management API (/api/clusters) -- a deployment that
@@ -200,6 +205,10 @@ func Load(getenv func(string) string) (Config, error) {
 			EnginePort:    8080,
 			Context:       "default",
 			AutoPurgeIdle: time.Hour,
+			// The stranded-run sweep: frequent enough that a corpse run is
+			// closed within minutes, quiet enough to be idle in the common
+			// case (the pass is one query when nothing is stranded).
+			ReconcileInterval: time.Minute,
 		},
 		Auth:       AuthConfig{Mode: "none"},
 		Scheduler:  SchedulerConfig{TickInterval: 30 * time.Second, HorizonInterval: 24 * time.Hour},
@@ -258,6 +267,9 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.Cluster.AutoPurgeInterval, err = durEnv(getenv, "AUTOPURGE_INTERVAL", cfg.Cluster.AutoPurgeInterval); err != nil {
+		return Config{}, err
+	}
+	if cfg.Cluster.ReconcileInterval, err = durEnv(getenv, "RECONCILE_INTERVAL", cfg.Cluster.ReconcileInterval); err != nil {
 		return Config{}, err
 	}
 	if cfg.Cluster.AutoPurgeIdle, err = durEnv(getenv, "AUTOPURGE_IDLE", cfg.Cluster.AutoPurgeIdle); err != nil {
