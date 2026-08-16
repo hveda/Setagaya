@@ -64,11 +64,16 @@ class HonryuKPIReporter(Reporter, AggregatorListener, Singletone):
             # bzt uses "" for the aggregate across all labels; name it so the
             # control plane never has to guess what an empty label meant.
             "label": label or "__total__",
-            "concurrency": kpi[KPISet.CONCURRENCY],
-            "samples": kpi[KPISet.SAMPLE_COUNT],
-            "succeeded": kpi[KPISet.SUCCESSES],
-            "failed": kpi[KPISet.FAILURES],
-            "bytes": kpi[KPISet.BYTE_COUNT],
+            # Counters are coerced to int on the wire: an engine whose bzt
+            # module reports them as floats (k6's cumulative bytes arrive as
+            # 2669215744.0) would otherwise emit a JSON float, which the
+            # sidecar's int64 fields refuse line-by-line -- silently dropping
+            # the whole run's measurements. Found live, Phase 11 task 128.
+            "concurrency": int(kpi[KPISet.CONCURRENCY] or 0),
+            "samples": int(kpi[KPISet.SAMPLE_COUNT] or 0),
+            "succeeded": int(kpi[KPISet.SUCCESSES] or 0),
+            "failed": int(kpi[KPISet.FAILURES] or 0),
+            "bytes": int(kpi[KPISet.BYTE_COUNT] or 0),
             # Buckets, not percentiles: {response_time_seconds: count}.
             "latency": latency.__json__() if latency else {},
             "response_codes": dict(kpi[KPISet.RESP_CODES]),
