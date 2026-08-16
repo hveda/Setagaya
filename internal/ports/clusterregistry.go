@@ -40,6 +40,15 @@ type ClusterRegistry interface {
 	// only ciphertext is ever persisted -- the store and the plaintext never
 	// meet. Passing nil clears the stored credential.
 	SetClusterCredential(ctx context.Context, name string, ciphertext []byte) error
+	// SetClusterIngestTokenHash stores SHA-256 of a cluster's ingest token
+	// against an existing entry, or ErrNotFound. Overwriting is rotation: the
+	// previous token dies with the write. An empty hash clears it. The hash
+	// is derived data (see clusterregistry.HashToken), never a credential.
+	SetClusterIngestTokenHash(ctx context.Context, name string, hash string) error
+	// ClusterByIngestTokenHash resolves an ingest token's hash to its cluster,
+	// or ErrNotFound when no entry carries it. The ingest endpoint
+	// authenticates a presented token by hashing it and calling this.
+	ClusterByIngestTokenHash(ctx context.Context, hash string) (clusterregistry.Cluster, error)
 	// GetClusterCredential returns the stored ciphertext for name, ErrNotFound
 	// if the entry is absent, or nil for an entry with no credential (an
 	// operator-managed cluster).

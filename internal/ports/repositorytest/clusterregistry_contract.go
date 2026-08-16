@@ -216,4 +216,63 @@ func RunClusterRegistryContract(t *testing.T, newRepo NewClusterRegistry) {
 			t.Fatalf("GetClusterCredential(ghost) = %v, want ErrNotFound", err)
 		}
 	})
+
+	// Ingest tokens: mint stores only the hash, lookup resolves it back, and
+	// rotation overwrites -- the previous token dies with the write.
+	t.Run("IngestTokenHashSetResolveRotate", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+		a := testCluster("byoc-a", clusterregistry.OriginBYOC)
+		b := testCluster("byoc-b", clusterregistry.OriginBYOC)
+		if err := repo.CreateCluster(ctx, a); err != nil {
+			t.Fatalf("CreateCluster(a): %v", err)
+		}
+		if err := repo.CreateCluster(ctx, b); err != nil {
+			t.Fatalf("CreateCluster(b): %v", err)
+		}
+
+		hashA := clusterregistry.HashToken("token-a")
+		if err := repo.SetClusterIngestTokenHash(ctx, "byoc-a", hashA); err != nil {
+			t.Fatalf("SetClusterIngestTokenHash: %v", err)
+		}
+		got, err := repo.ClusterByIngestTokenHash(ctx, hashA)
+		if err != nil {
+			t.Fatalf("ClusterByIngestTokenHash: %v", err)
+		}
+		if got.Name != "byoc-a" {
+			t.Fatalf("hash resolved to %q, want byoc-a", got.Name)
+		}
+
+		// Rotation: the old hash no longer resolves, the new one does.
+		hashA2 := clusterregistry.HashToken("token-a-rotated")
+		if err := repo.SetClusterIngestTokenHash(ctx, "byoc-a", hashA2); err != nil {
+			t.Fatalf("rotate: %v", err)
+		}
+		if _, err := repo.ClusterByIngestTokenHash(ctx, hashA); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("old hash after rotation = %v, want ErrNotFound", err)
+		}
+		if got, err := repo.ClusterByIngestTokenHash(ctx, hashA2); err != nil || got.Name != "byoc-a" {
+			t.Fatalf("new hash after rotation = %v, %v; want byoc-a", got, err)
+		}
+
+		// An entry with no token never resolves; an unknown hash is NotFound;
+		// a missing entry cannot gain one.
+		if _, err := repo.ClusterByIngestTokenHash(ctx, clusterregistry.HashToken("token-b")); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("byoc-b has no token but resolved: %v", err)
+		}
+		if _, err := repo.ClusterByIngestTokenHash(ctx, clusterregistry.HashToken("garbage")); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("unknown hash = %v, want ErrNotFound", err)
+		}
+		if err := repo.SetClusterIngestTokenHash(ctx, "ghost", hashA2); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("SetClusterIngestTokenHash(ghost) = %v, want ErrNotFound", err)
+		}
+
+		// Clearing: an empty hash makes the token dead and the entry mute.
+		if err := repo.SetClusterIngestTokenHash(ctx, "byoc-a", ""); err != nil {
+			t.Fatalf("clear: %v", err)
+		}
+		if _, err := repo.ClusterByIngestTokenHash(ctx, hashA2); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("cleared hash still resolves: %v", err)
+		}
+	})
 }
