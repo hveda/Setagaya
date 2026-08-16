@@ -29,6 +29,11 @@ var (
 	ErrEnginesNotReady = errors.New("run: not all engines are ready")
 	ErrAlreadyRunning  = errors.New("run: a run is already in progress")
 	ErrNotRunning      = errors.New("run: no run is in progress")
+	// ErrEnginesFinished means the deployed engines already ran and finished
+	// (their orphaned Finals arrived with no run open) -- a pod's bzt never
+	// reruns on its own, so Trigger refuses to open a run nothing can feed;
+	// the caller must Deploy fresh engines first.
+	ErrEnginesFinished = errors.New("run: engines already finished, redeploy before triggering")
 )
 
 // Run is an in-progress or completed test run of an execution.
