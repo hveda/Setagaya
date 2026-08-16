@@ -154,27 +154,32 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 
 	router := httpapi.NewRouter(httpapi.Deps{
-		Projects:      projectapp.NewService(repo),
-		Scenarios:     scenarios,
-		Executions:    executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
-		Lifecycle:     lifecycle,
-		Schedules:     schedules,
-		Campaigns:     campaigns,
-		Calibrations:  calibrations,
-		Usage:         usage,
-		Metrics:       collector,
-		Reports:       repo,
-		Reservations:  repo,
-		IngestToken:   cfg.Cluster.IngestToken,
-		Admin:         admin,
-		Events:        bus,
-		Store:         store,
-		Auth:          authapp.NewService(authProvider, repo, cfg.Auth.EnableRBAC),
-		Tenants:       tenantapp.NewService(repo, repo, repo),
-		Clusters:      clusterSvc,
-		Audit:         audit,
-		DefaultOwners: []string{"honryu"},
-		StaticAssets:  webAssets,
+		Projects:     projectapp.NewService(repo),
+		Scenarios:    scenarios,
+		Executions:   executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
+		Lifecycle:    lifecycle,
+		Schedules:    schedules,
+		Campaigns:    campaigns,
+		Calibrations: calibrations,
+		Usage:        usage,
+		Metrics:      collector,
+		Reports:      repo,
+		Reservations: repo,
+		IngestToken:  cfg.Cluster.IngestToken,
+		// Per-cluster ingest credentials (BYOC): the repository resolves a
+		// presented token's hash to its cluster and names an execution's
+		// cluster, letting the ingest handler scope cluster tokens.
+		IngestTokens:     repo,
+		ExecutionCluster: repo,
+		Admin:            admin,
+		Events:           bus,
+		Store:            store,
+		Auth:             authapp.NewService(authProvider, repo, cfg.Auth.EnableRBAC),
+		Tenants:          tenantapp.NewService(repo, repo, repo),
+		Clusters:         clusterSvc,
+		Audit:            audit,
+		DefaultOwners:    []string{"honryu"},
+		StaticAssets:     webAssets,
 		// The trigger endpoint's bounded readiness wait (Phase 11): a
 		// client may fire deploy->trigger back-to-back without owning the
 		// retry itself.

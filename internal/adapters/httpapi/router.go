@@ -5,6 +5,7 @@
 package httpapi
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -24,6 +25,8 @@ import (
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/app/usageapp"
+	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
+	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
@@ -57,10 +60,20 @@ type Deps struct {
 	Reservations ports.ReservationRepository
 	// IngestToken authenticates engine pods. Empty rejects every push, so a
 	// deployment that has not configured one is closed rather than open.
+	// This is the operator's plane-wide credential; registered clusters
+	// (BYOC) instead authenticate per cluster below.
 	IngestToken string
-	Admin       *adminapp.Service
-	Events      ports.EventBus
-	Store       ports.ObjectStore
+	// IngestTokens resolves a presented cluster ingest token's hash to its
+	// cluster (nil disables the per-cluster path: only the global token
+	// authenticates, exactly as before Phase 12). The mysql repository
+	// implements it via ClusterByIngestTokenHash.
+	IngestTokens IngestTokenResolver
+	// ExecutionCluster loads an execution's cluster name for ingest scoping
+	// (nil behaves like IngestTokens nil: the per-cluster path is off).
+	ExecutionCluster ExecutionClusterLoader
+	Admin            *adminapp.Service
+	Events           ports.EventBus
+	Store            ports.ObjectStore
 	// Auth authenticates requests and authorizes actions. When nil or disabled,
 	// the legacy no-auth owner path applies (DefaultOwners).
 	Auth *authapp.Service
@@ -256,6 +269,18 @@ func (h *handlers) authenticate(next http.Handler) http.Handler {
 type handlers struct {
 	deps  Deps
 	sleep func(time.Duration)
+}
+
+// IngestTokenResolver is the per-cluster ingest-token lookup: SHA-256 of the
+// presented token to the cluster whose fleet holds it.
+type IngestTokenResolver interface {
+	ClusterByIngestTokenHash(ctx context.Context, hash string) (clusterregistry.Cluster, error)
+}
+
+// ExecutionClusterLoader names the cluster an execution is routed to -- the
+// one field ingest scoping needs from the execution.
+type ExecutionClusterLoader interface {
+	GetExecution(ctx context.Context, executionID int64) (execution.Execution, error)
 }
 
 // defaultTriggerReadyPoll and defaultTriggerReadyTimeout mirror
