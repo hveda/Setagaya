@@ -65,14 +65,13 @@ func setupPhase11(t *testing.T) *phase11Env {
 }
 
 // postRaw posts and returns the response without asserting, for the cases
-// whose status/body the test itself inspects.
+// whose status/body the test itself inspects. The caller owns the body.
 func postRaw(t *testing.T, e *phase11Env, path string) *http.Response {
 	t.Helper()
 	resp, err := e.client.Post(e.url+path, "", nil)
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}
-	t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
 }
 
@@ -139,6 +138,7 @@ func TestPhase11_PortableOnScriptOnlyEngineFailsFast(t *testing.T) {
 	_, _, executionID := seedPhase11(t, e, "portable-k6", "k6", false)
 
 	rec := postRaw(t, e, "/api/executions/"+itoa(executionID)+"/deploy")
+	defer func() { _ = rec.Body.Close() }()
 	if rec.StatusCode != http.StatusBadRequest {
 		t.Fatalf("deploy portable-on-k6 = %d, want 400", rec.StatusCode)
 	}
@@ -170,6 +170,7 @@ func TestPhase11_TriggerRefusesFinishedEngines(t *testing.T) {
 	}
 
 	resp := postRaw(t, e, "/api/executions/"+itoa(executionID)+"/trigger")
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("trigger over finished engines = %d, want 409", resp.StatusCode)
 	}
