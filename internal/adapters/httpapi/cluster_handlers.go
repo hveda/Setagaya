@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/app/clusterapp"
 	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
 	"github.com/heridotlife/honryu/internal/domain/rbac"
 )
@@ -15,7 +16,8 @@ import (
 // self-contained kubeconfig).
 type ClusterService interface {
 	RegisterOperator(ctx context.Context, entry clusterregistry.Cluster) (clusterregistry.Cluster, error)
-	RegisterBYOC(ctx context.Context, entry clusterregistry.Cluster, kubeconfig []byte) (clusterregistry.Cluster, error)
+	RegisterBYOC(ctx context.Context, entry clusterregistry.Cluster, kubeconfig []byte) (clusterapp.RegisterResult, error)
+	RotateIngestToken(ctx context.Context, name string) (string, error)
 	Get(ctx context.Context, name string) (clusterregistry.Cluster, error)
 	List(ctx context.Context) ([]clusterregistry.Cluster, error)
 	Update(ctx context.Context, name, ingestURL, sidecarImage, namespace string) (clusterregistry.Cluster, error)
@@ -91,11 +93,14 @@ func (h *handlers) createCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		out clusterregistry.Cluster
-		err error
+		out      clusterregistry.Cluster
+		token    string
+		err      error
+		byocPath bool
 	)
 	if kubeconfig := r.PostForm.Get("kubeconfig"); kubeconfig != "" {
-		out, err = h.deps.Clusters.RegisterBYOC(r.Context(), entry, []byte(kubeconfig))
+		res, rErr := h.deps.Clusters.RegisterBYOC(r.Context(), entry, []byte(kubeconfig))
+		out, token, err, byocPath = res.Cluster, res.IngestToken, rErr, true
 	} else {
 		entry.SecretRef = r.PostForm.Get("secret_ref")
 		out, err = h.deps.Clusters.RegisterOperator(r.Context(), entry)
@@ -105,7 +110,46 @@ func (h *handlers) createCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.audit(r.Context(), "cluster.register", out.Name, string(out.Origin))
-	writeJSON(w, http.StatusCreated, toClusterResponse(out))
+	body := toClusterResponse(out)
+	if byocPath {
+		// The one and only time the token is ever shown. Response is a
+		// wrapper rather than a field on clusterResponse so no other handler
+		// can accidentally surface it.
+		writeJSON(w, http.StatusCreated, registerClusterResponse{clusterResponse: body, IngestToken: token})
+		return
+	}
+	writeJSON(w, http.StatusCreated, body)
+}
+
+// registerClusterResponse is a BYOC registration's reply: the entry, plus the
+// minted ingest token shown exactly once. It embeds clusterResponse so the
+// ordinary shape stays byte-identical beneath the added field.
+type registerClusterResponse struct {
+	clusterResponse
+	// IngestToken authenticates this cluster's engine fleet to /api/ingest.
+	// Store it in the cluster's honryu-ingest Secret (key "token"); the plane
+	// keeps only its hash and cannot show it again.
+	IngestToken string `json:"ingest_token"`
+}
+
+// rotateIngestToken replaces a cluster's ingest token, returning the new one
+// exactly once. The old token stops working the moment this returns.
+func (h *handlers) rotateIngestToken(w http.ResponseWriter, r *http.Request) {
+	if !h.clusterAdminGate(w, r) {
+		return
+	}
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "invalid cluster name")
+		return
+	}
+	token, err := h.deps.Clusters.RotateIngestToken(r.Context(), name)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	h.audit(r.Context(), "cluster.rotate_ingest_token", name, "")
+	writeJSON(w, http.StatusOK, map[string]string{"ingest_token": token})
 }
 
 // listClusters returns every registered cluster.

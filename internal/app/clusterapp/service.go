@@ -10,6 +10,7 @@ package clusterapp
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
@@ -62,6 +63,20 @@ type ActiveRunQuery interface {
 // cluster (the k8s adapter's CredentialSecretName).
 type SecretNamer func(clusterName string) string
 
+// TokenSource mints the raw bytes of a cluster's ingest token. Injectable for
+// tests; the default draws 32 bytes from crypto/rand. Following phase 10's
+// telemetry seam: randomness lives here in the app layer, the pure
+// encode/hash helpers live in the domain package.
+type TokenSource func() ([]byte, error)
+
+// RegisterResult is what a successful registration returns: the stored entry
+// (never carrying credential material) and, for BYOC, the ingest token shown
+// to the registrant exactly once -- only its hash is stored.
+type RegisterResult struct {
+	Cluster     clusterregistry.Cluster
+	IngestToken string
+}
+
 // Deps are the injected collaborators.
 type Deps struct {
 	Registry    ports.ClusterRegistry
@@ -71,6 +86,9 @@ type Deps struct {
 	Cipher      Encryptor
 	Parse       KubeconfigParser
 	SecretName  SecretNamer
+	// MintToken overrides the ingest-token source (tests); nil uses
+	// crypto/rand.
+	MintToken TokenSource
 }
 
 // Service provides cluster-registry use cases.
@@ -111,34 +129,49 @@ func (s *Service) RegisterOperator(ctx context.Context, entry clusterregistry.Cl
 // pass -- encrypt the kubeconfig at rest, materialize a home-cluster Secret,
 // and store the entry. A failure after the entry is created rolls it back so a
 // half-registered cluster is not left behind.
-func (s *Service) RegisterBYOC(ctx context.Context, entry clusterregistry.Cluster, kubeconfig []byte) (clusterregistry.Cluster, error) {
+//
+// The registration also mints the cluster's ingest token: shown once in the
+// result, only its hash stored. The token is minted only after the probe
+// passes -- a cluster that cannot be reached yields no credential.
+func (s *Service) RegisterBYOC(ctx context.Context, entry clusterregistry.Cluster, kubeconfig []byte) (RegisterResult, error) {
 	entry = normalize(entry)
 	entry.Origin = clusterregistry.OriginBYOC
 
 	cred, err := s.deps.Parse(kubeconfig)
 	if err != nil {
-		return clusterregistry.Cluster{}, fmt.Errorf("%w: %v", ErrKubeconfigInvalid, err)
+		return RegisterResult{}, fmt.Errorf("%w: %v", ErrKubeconfigInvalid, err)
 	}
 	entry.APIURL = cred.APIURL
 	entry.CACert = string(cred.CACert)
 	entry.SecretRef = s.deps.SecretName(entry.Name)
 	if err := entry.Validate(); err != nil {
-		return clusterregistry.Cluster{}, err
+		return RegisterResult{}, err
 	}
 	if err := s.deps.Prober.Probe(ctx, cred, entry.Namespace); err != nil {
-		return clusterregistry.Cluster{}, err
+		return RegisterResult{}, err
 	}
 	ciphertext, err := s.deps.Cipher.Seal(kubeconfig)
 	if err != nil {
-		return clusterregistry.Cluster{}, fmt.Errorf("clusterapp: encrypt kubeconfig: %w", err)
+		return RegisterResult{}, fmt.Errorf("clusterapp: encrypt kubeconfig: %w", err)
+	}
+
+	token, err := s.mintToken()
+	if err != nil {
+		return RegisterResult{}, fmt.Errorf("clusterapp: mint ingest token: %w", err)
 	}
 
 	if err := s.deps.Registry.CreateCluster(ctx, entry); err != nil {
-		return clusterregistry.Cluster{}, err
+		return RegisterResult{}, err
+	}
+	// The hash rides the entry's own column via the setter; a failure here is
+	// a failed registration, rolled back exactly like any other half-step.
+	if err := s.deps.Registry.SetClusterIngestTokenHash(ctx, entry.Name, clusterregistry.HashToken(token)); err != nil {
+		_ = s.deps.Registry.DeleteCluster(ctx, entry.Name)
+		return RegisterResult{}, fmt.Errorf("clusterapp: store ingest token hash: %w", err)
 	}
 	if err := s.deps.Credentials.Materialize(ctx, entry.SecretRef, cred); err != nil {
 		_ = s.deps.Registry.DeleteCluster(ctx, entry.Name)
-		return clusterregistry.Cluster{}, fmt.Errorf("clusterapp: materialize credential secret: %w", err)
+		return RegisterResult{}, fmt.Errorf("clusterapp: materialize credential secret: %w", err)
 	}
 	if err := s.deps.Registry.SetClusterCredential(ctx, entry.Name, ciphertext); err != nil {
 		// The Secret was already materialized; roll back both so no orphaned
@@ -146,9 +179,46 @@ func (s *Service) RegisterBYOC(ctx context.Context, entry clusterregistry.Cluste
 		// the caller must see).
 		_ = s.deps.Credentials.Delete(ctx, entry.SecretRef)
 		_ = s.deps.Registry.DeleteCluster(ctx, entry.Name)
-		return clusterregistry.Cluster{}, fmt.Errorf("clusterapp: store encrypted credential: %w", err)
+		return RegisterResult{}, fmt.Errorf("clusterapp: store encrypted credential: %w", err)
 	}
-	return entry, nil
+	return RegisterResult{Cluster: entry, IngestToken: token}, nil
+}
+
+// RotateIngestToken replaces a cluster's ingest token: the new one is returned
+// exactly once, and the previous token dies with the hash overwrite -- a fleet
+// still presenting the old token starts receiving 401s until the customer
+// updates their cluster's honryu-ingest Secret.
+func (s *Service) RotateIngestToken(ctx context.Context, name string) (string, error) {
+	if _, err := s.deps.Registry.GetCluster(ctx, name); err != nil {
+		return "", err
+	}
+	token, err := s.mintToken()
+	if err != nil {
+		return "", fmt.Errorf("clusterapp: mint ingest token: %w", err)
+	}
+	if err := s.deps.Registry.SetClusterIngestTokenHash(ctx, name, clusterregistry.HashToken(token)); err != nil {
+		return "", fmt.Errorf("clusterapp: store ingest token hash: %w", err)
+	}
+	return token, nil
+}
+
+// mintToken draws the raw bytes for a new ingest token (default crypto/rand).
+func (s *Service) mintToken() (string, error) {
+	mint := s.deps.MintToken
+	if mint == nil {
+		mint = func() ([]byte, error) {
+			raw := make([]byte, 32)
+			if _, err := rand.Read(raw); err != nil {
+				return nil, err
+			}
+			return raw, nil
+		}
+	}
+	raw, err := mint()
+	if err != nil {
+		return "", err
+	}
+	return clusterregistry.EncodeToken(raw), nil
 }
 
 // Get returns the cluster named name, or ports.ErrNotFound.

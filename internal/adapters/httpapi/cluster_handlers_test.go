@@ -18,19 +18,23 @@ import (
 // stubClusterService is a configurable httpapi.ClusterService for driving each
 // handler path and error mapping without the full clusterapp wiring.
 type stubClusterService struct {
-	registerOperator func(clusterregistry.Cluster) (clusterregistry.Cluster, error)
-	registerBYOC     func(clusterregistry.Cluster, []byte) (clusterregistry.Cluster, error)
-	get              func(string) (clusterregistry.Cluster, error)
-	list             func() ([]clusterregistry.Cluster, error)
-	update           func(name, ingest, sidecar, ns string) (clusterregistry.Cluster, error)
-	del              func(string) error
+	registerOperator  func(clusterregistry.Cluster) (clusterregistry.Cluster, error)
+	registerBYOC      func(clusterregistry.Cluster, []byte) (clusterapp.RegisterResult, error)
+	rotateIngestToken func(string) (string, error)
+	get               func(string) (clusterregistry.Cluster, error)
+	list              func() ([]clusterregistry.Cluster, error)
+	update            func(name, ingest, sidecar, ns string) (clusterregistry.Cluster, error)
+	del               func(string) error
 }
 
 func (s *stubClusterService) RegisterOperator(_ context.Context, e clusterregistry.Cluster) (clusterregistry.Cluster, error) {
 	return s.registerOperator(e)
 }
-func (s *stubClusterService) RegisterBYOC(_ context.Context, e clusterregistry.Cluster, kc []byte) (clusterregistry.Cluster, error) {
+func (s *stubClusterService) RegisterBYOC(_ context.Context, e clusterregistry.Cluster, kc []byte) (clusterapp.RegisterResult, error) {
 	return s.registerBYOC(e, kc)
+}
+func (s *stubClusterService) RotateIngestToken(_ context.Context, name string) (string, error) {
+	return s.rotateIngestToken(name)
 }
 func (s *stubClusterService) Get(_ context.Context, name string) (clusterregistry.Cluster, error) {
 	return s.get(name)
@@ -69,12 +73,12 @@ func TestCreateCluster_BYOC_HappyPath(t *testing.T) {
 	t.Parallel()
 	var gotKubeconfig []byte
 	svc := &stubClusterService{
-		registerBYOC: func(e clusterregistry.Cluster, kc []byte) (clusterregistry.Cluster, error) {
+		registerBYOC: func(e clusterregistry.Cluster, kc []byte) (clusterapp.RegisterResult, error) {
 			gotKubeconfig = kc
 			e.Origin = clusterregistry.OriginBYOC
 			e.APIURL = "https://byoc:6443"
 			e.SecretRef = "honryu-cluster-" + e.Name
-			return e, nil
+			return clusterapp.RegisterResult{Cluster: e, IngestToken: "tok-once"}, nil
 		},
 	}
 	h := newClusterRouter(svc)
@@ -91,6 +95,40 @@ func TestCreateCluster_BYOC_HappyPath(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"origin":"byoc"`) {
 		t.Fatalf("response missing byoc origin: %s", rec.Body.String())
+	}
+	// The minted token rides the registration response exactly once.
+	if !strings.Contains(rec.Body.String(), `"ingest_token":"tok-once"`) {
+		t.Fatalf("response missing the one-time ingest token: %s", rec.Body.String())
+	}
+}
+
+// Rotation is the token's lifecycle: a new one is returned once, the old one
+// is dead server-side. Not-found maps to the usual 404.
+func TestRotateIngestToken(t *testing.T) {
+	t.Parallel()
+	svc := &stubClusterService{
+		rotateIngestToken: func(name string) (string, error) {
+			if name != "prod-eu" {
+				t.Errorf("rotate name = %q, want prod-eu", name)
+			}
+			return "tok-fresh", nil
+		},
+	}
+	h := newClusterRouter(svc)
+
+	rec := do(t, h, http.MethodPost, "/api/clusters/prod-eu/rotate-ingest-token")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"ingest_token":"tok-fresh"`) {
+		t.Fatalf("rotate response = %s, want the fresh token", rec.Body.String())
+	}
+
+	svc.rotateIngestToken = func(string) (string, error) {
+		return "", ports.ErrNotFound
+	}
+	if rec := do(t, h, http.MethodPost, "/api/clusters/ghost/rotate-ingest-token"); rec.Code != http.StatusNotFound {
+		t.Fatalf("rotate missing = %d, want 404", rec.Code)
 	}
 }
 
@@ -134,8 +172,8 @@ func TestCreateCluster_ErrorMapping(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			svc := &stubClusterService{
-				registerBYOC: func(clusterregistry.Cluster, []byte) (clusterregistry.Cluster, error) {
-					return clusterregistry.Cluster{}, tc.err
+				registerBYOC: func(clusterregistry.Cluster, []byte) (clusterapp.RegisterResult, error) {
+					return clusterapp.RegisterResult{}, tc.err
 				},
 			}
 			h := newClusterRouter(svc)

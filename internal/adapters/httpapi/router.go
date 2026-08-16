@@ -178,6 +178,7 @@ var routes = []Route{
 
 	{"POST", "/api/clusters", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.createCluster })},
 	{"GET", "/api/clusters", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.listClusters })},
+	{"POST", "/api/clusters/{name}/rotate-ingest-token", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.rotateIngestToken })},
 	{"GET", "/api/clusters/{name}", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.getCluster })},
 	{"PUT", "/api/clusters/{name}", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.updateCluster })},
 	{"DELETE", "/api/clusters/{name}", "clusters", hf(func(h *handlers) http.HandlerFunc { return h.deleteCluster })},
