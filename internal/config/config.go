@@ -142,6 +142,13 @@ type HTTPConfig struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+	// TriggerReadyPoll is how often POST /api/executions/{id}/trigger
+	// retries while just-deployed engine pods are still starting. The
+	// default matches calibrationapp's own readiness loop.
+	TriggerReadyPoll time.Duration
+	// TriggerReadyTimeout bounds that wait; expiring surfaces the same
+	// conflict error the immediate check used to.
+	TriggerReadyTimeout time.Duration
 }
 
 // Addr returns the listen address in ":port" form.
@@ -174,7 +181,12 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		HTTP:    HTTPConfig{Port: 8080, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second},
+		HTTP: HTTPConfig{
+			Port: 8080, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
+			// The 2s/2m readiness bounds calibrationapp has used since
+			// Phase 7, now also bounding the HTTP trigger boundary.
+			TriggerReadyPoll: 2 * time.Second, TriggerReadyTimeout: 2 * time.Minute,
+		},
 		DB:      DBConfig{Driver: "fake"},
 		Log:     LogConfig{Level: "info", Format: "json"},
 		Storage: StorageConfig{Driver: "local", Root: "storage-data"},
@@ -205,7 +217,13 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.HTTP.IdleTimeout, err = durEnv(getenv, "HTTP_IDLE_TIMEOUT", cfg.HTTP.IdleTimeout); err != nil {
-		return Config{}, err
+		return cfg, err
+	}
+	if cfg.HTTP.TriggerReadyPoll, err = durEnv(getenv, "HTTP_TRIGGER_READY_POLL", cfg.HTTP.TriggerReadyPoll); err != nil {
+		return cfg, err
+	}
+	if cfg.HTTP.TriggerReadyTimeout, err = durEnv(getenv, "HTTP_TRIGGER_READY_TIMEOUT", cfg.HTTP.TriggerReadyTimeout); err != nil {
+		return cfg, err
 	}
 	cfg.DB.Driver = strEnv(getenv, "DB_DRIVER", cfg.DB.Driver)
 	cfg.DB.DSN = strEnv(getenv, "DB_DSN", cfg.DB.DSN)

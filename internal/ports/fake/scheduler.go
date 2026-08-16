@@ -19,6 +19,10 @@ type Scheduler struct {
 
 	// Unreachable, when true, makes engines appear deployed but not routable.
 	Unreachable bool
+	// NotReadyCalls makes the next N ExecutionStatus calls report no engines
+	// deployed, then report normally -- a just-deployed pod's startup, as a
+	// real cluster shows it. Lets callers exercise readiness-retry paths.
+	NotReadyCalls int
 	// PodLogText is returned by PodLog for deployed scenarios.
 	PodLogText string
 	// PodLogErr, when set, is returned by PodLog instead of a log.
@@ -100,6 +104,12 @@ func (s *Scheduler) ExecutionStatus(_ context.Context, _ ports.ClusterRef, execu
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status := ports.ExecutionStatus{}
+	// A withheld status reads as "pods not there yet", which is exactly what
+	// a real cluster reports between Deploy and pod readiness.
+	if s.NotReadyCalls > 0 {
+		s.NotReadyCalls--
+		return status, nil
+	}
 	for _, ref := range scenarios {
 		pr := ports.ScenarioReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Shards}
 		if d, ok := s.deployments[executionID][ref.ScenarioID]; ok {

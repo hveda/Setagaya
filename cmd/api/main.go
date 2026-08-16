@@ -174,6 +174,11 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Audit:         audit,
 		DefaultOwners: []string{"honryu"},
 		StaticAssets:  webAssets,
+		// The trigger endpoint's bounded readiness wait (Phase 11): a
+		// client may fire deploy->trigger back-to-back without owning the
+		// retry itself.
+		TriggerReadyPoll:    cfg.HTTP.TriggerReadyPoll,
+		TriggerReadyTimeout: cfg.HTTP.TriggerReadyTimeout,
 	})
 
 	srv := &http.Server{
