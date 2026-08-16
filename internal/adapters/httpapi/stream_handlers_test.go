@@ -9,21 +9,21 @@ import (
 	"testing"
 	"time"
 
-	membus "github.com/heridotlife/Setagaya/internal/adapters/eventbus/memory"
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
+	membus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/domain/engine"
 )
 
-func TestStreamCollection_DeliversSSE(t *testing.T) {
+func TestStreamExecution_DeliversSSE(t *testing.T) {
 	t.Parallel()
 	bus := membus.New()
-	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"setagaya"}})
+	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"honryu"}})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/collections/5/stream", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/executions/5/stream", nil)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatalf("GET stream: %v", err)
@@ -54,11 +54,11 @@ func TestStreamCollection_DeliversSSE(t *testing.T) {
 	}
 }
 
-func TestStreamCollection_InvalidID(t *testing.T) {
+func TestStreamExecution_InvalidID(t *testing.T) {
 	t.Parallel()
 	bus := membus.New()
-	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"setagaya"}})
-	rec := do(t, router, http.MethodGet, "/api/collections/x/stream")
+	router := httpapi.NewRouter(httpapi.Deps{Events: bus, DefaultOwners: []string{"honryu"}})
+	rec := do(t, router, http.MethodGet, "/api/executions/x/stream")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid id = %d, want 400", rec.Code)
 	}

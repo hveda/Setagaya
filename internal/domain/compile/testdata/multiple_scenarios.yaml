@@ -1,0 +1,27 @@
+execution:
+    - executor: jmeter
+      concurrency: 50
+      ramp-up: 30s
+      hold-for: 10m
+      scenario: checkout-11
+    - executor: jmeter
+      concurrency: 10
+      ramp-up: 5s
+      hold-for: 1m
+      scenario: search-12
+scenarios:
+    checkout-11:
+        default-address: http://checkout.svc
+        requests:
+            - url: /cart
+              label: checkout-cart
+              method: GET
+            - url: /checkout
+              label: checkout-checkout
+              method: POST
+    search-12:
+        default-address: http://search.svc
+        requests:
+            - url: /q
+              label: search-q
+              method: GET

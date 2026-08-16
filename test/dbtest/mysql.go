@@ -15,7 +15,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
 )
 
 // StartMySQLDSN launches a MySQL container and returns a ready connection
@@ -26,8 +26,8 @@ func StartMySQLDSN(t *testing.T) string {
 	ctx := context.Background()
 
 	ctr, err := tcmysql.Run(ctx, "mysql:8.4",
-		tcmysql.WithDatabase("setagaya"),
-		tcmysql.WithUsername("setagaya"),
+		tcmysql.WithDatabase("honryu"),
+		tcmysql.WithUsername("honryu"),
 		tcmysql.WithPassword("secret"),
 	)
 	if err != nil {

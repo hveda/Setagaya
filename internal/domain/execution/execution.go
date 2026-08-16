@@ -1,81 +1,117 @@
-// Package execution holds the execution configuration for a Collection: which
-// plans run, with how many engines, and at what concurrency. These types carry
-// yaml tags for the uploaded collection config ("multi-test" wrapper) but the
-// package itself performs no I/O and imports no serializer.
+// Package execution holds the Execution aggregate: the runnable unit that
+// groups scenarios to run together against a Project. It is the Taurus
+// "execution" concept. Pure domain, no I/O.
 package execution
 
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
+
+// MaxNameLen mirrors the persisted schema (execution.name VARCHAR(100)).
+const MaxNameLen = 100
 
 // Validation errors. Callers compare with errors.Is.
 var (
-	ErrPlanRequired       = errors.New("execution: a valid plan id is required")
-	ErrEnginesInvalid     = errors.New("execution: engines must be greater than zero")
-	ErrConcurrencyInvalid = errors.New("execution: concurrency must be greater than zero")
-	ErrDurationInvalid    = errors.New("execution: duration must be greater than zero")
-	ErrNoPlans            = errors.New("execution: at least one plan is required")
+	ErrNameRequired    = errors.New("execution: name is required")
+	ErrNameTooLong     = errors.New("execution: name exceeds maximum length")
+	ErrProjectRequired = errors.New("execution: a valid project id is required")
+	ErrEngineUnknown   = errors.New("execution: unknown engine")
+	ErrKindUnknown     = errors.New("execution: unknown kind")
 )
 
-// ExecutionPlan is one plan's run configuration within a collection.
-type ExecutionPlan struct {
-	Name        string `yaml:"name" json:"name"`
-	PlanID      int64  `yaml:"testid" json:"plan_id"`
-	Concurrency int    `yaml:"concurrency" json:"concurrency"`
-	Rampup      int    `yaml:"rampup" json:"rampup"`
-	Engines     int    `yaml:"engines" json:"engines"`
-	Duration    int    `yaml:"duration" json:"duration"`
-	CSVSplit    bool   `yaml:"csv_split" json:"csv_split"`
+// Kind distinguishes what an execution is for.
+//
+// Empty is treated as KindNormal (the same "empty is the sentinel default"
+// convention Engine already uses): an execution row persisted before Kind
+// existed decodes to the Go zero value and must keep behaving exactly as it
+// always did, with no backfill migration required. New always assigns the
+// canonical KindNormal explicitly, so only pre-existing rows ever carry "".
+type Kind string
+
+const (
+	// KindNormal is an ordinary execution: what every execution was before
+	// Kind existed, and what New assigns by default.
+	KindNormal Kind = "normal"
+	// KindCalibrateEngine is an engine-capacity search (Phase 7): it drives
+	// a sequence of single-pod runs at increasing QPS to find where the
+	// engine or the target saturates, rather than producing a verdict of
+	// its own.
+	KindCalibrateEngine Kind = "calibrate_engine"
+)
+
+// knownKinds records the kinds Honryu recognises, empty excluded -- mirrors
+// taurus.Executor's declarativeSupport map shape.
+var knownKinds = map[Kind]bool{
+	KindNormal:          true,
+	KindCalibrateEngine: true,
 }
 
-// Validate checks a single execution plan's invariants.
-func (ep ExecutionPlan) Validate() error {
+// Known reports whether k is a Kind Honryu recognises.
+func (k Kind) Known() bool {
+	return knownKinds[k]
+}
+
+// Execution is a group of scenarios executed together against a Project.
+type Execution struct {
+	ID        int64
+	Name      string
+	ProjectID int64
+	// Engine is the load-test engine this execution runs on. Empty means the
+	// deployment's configured default, so an execution created before an
+	// operator offered a choice keeps working.
+	Engine taurus.Executor
+	// Kind distinguishes an ordinary execution from a CalibrateEngine one.
+	// See Kind's own doc for the empty-means-Normal convention.
+	Kind Kind
+	// CPU and Memory pin every pod this execution deploys to a specific
+	// resource request/limit (ports.DeploySpec's own string format, e.g.
+	// "1", "512Mi"). Empty means the cluster's default size, exactly as
+	// before these fields existed -- only a CalibrateEngine execution pins
+	// them, since a capacity profile answers "QPS per pod of THIS size".
+	CPU, Memory string
+	// Cluster names the registered cluster this execution generates load from
+	// (a clusterregistry.Cluster name / ports.ClusterRef). Empty means the
+	// deployment's default cluster -- the same "empty is the default"
+	// convention Engine uses -- so every execution created before multi-cluster
+	// existed resolves to the control plane's own cluster and behaves as before.
+	Cluster     string
+	CSVSplit    bool
+	TenantID    *int64
+	CreatedBy   string
+	UpdatedBy   string
+	CreatedTime time.Time
+}
+
+// New constructs and validates a Execution. Name is trimmed; ID and
+// CreatedTime are assigned by the repository. Kind defaults to KindNormal.
+func New(name string, projectID int64) (Execution, error) {
+	c := Execution{Name: strings.TrimSpace(name), ProjectID: projectID, Kind: KindNormal}
+	if err := c.Validate(); err != nil {
+		return Execution{}, err
+	}
+	return c, nil
+}
+
+// Validate checks the Execution's invariants.
+func (c Execution) Validate() error {
 	switch {
-	case ep.PlanID <= 0:
-		return ErrPlanRequired
-	case ep.Engines <= 0:
-		return ErrEnginesInvalid
-	case ep.Concurrency <= 0:
-		return ErrConcurrencyInvalid
-	case ep.Duration <= 0:
-		return ErrDurationInvalid
+	case c.Name == "":
+		return ErrNameRequired
+	case len(c.Name) > MaxNameLen:
+		return ErrNameTooLong
+	case c.ProjectID <= 0:
+		return ErrProjectRequired
+	}
+	if c.Engine != "" && !c.Engine.Known() {
+		return fmt.Errorf("%w: %q", ErrEngineUnknown, c.Engine)
+	}
+	if c.Kind != "" && !c.Kind.Known() {
+		return fmt.Errorf("%w: %q", ErrKindUnknown, c.Kind)
 	}
 	return nil
-}
-
-// ExecutionCollection is the full set of plans to run for a collection.
-type ExecutionCollection struct {
-	Name         string          `yaml:"name" json:"name"`
-	ProjectID    int64           `yaml:"projectid" json:"project_id"`
-	CollectionID int64           `yaml:"collectionid" json:"collection_id"`
-	Tests        []ExecutionPlan `yaml:"tests" json:"tests"`
-	CSVSplit     bool            `yaml:"csv_split" json:"csv_split"`
-}
-
-// Wrapper is the top-level shape of an uploaded collection config file.
-type Wrapper struct {
-	Content ExecutionCollection `yaml:"multi-test" json:"multi-test"`
-}
-
-// Validate ensures there is at least one plan and every plan is valid.
-func (ec ExecutionCollection) Validate() error {
-	if len(ec.Tests) == 0 {
-		return ErrNoPlans
-	}
-	for i, ep := range ec.Tests {
-		if err := ep.Validate(); err != nil {
-			return fmt.Errorf("plan %d (id %d): %w", i, ep.PlanID, err)
-		}
-	}
-	return nil
-}
-
-// TotalEngines is the sum of engines across all plans.
-func (ec ExecutionCollection) TotalEngines() int {
-	total := 0
-	for _, ep := range ec.Tests {
-		total += ep.Engines
-	}
-	return total
 }

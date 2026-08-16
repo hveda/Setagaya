@@ -1,4 +1,4 @@
-// Package run holds the pure lifecycle domain of a collection's test run: the
+// Package run holds the pure lifecycle domain of a execution's test run: the
 // deployment phase, run identity, the legal state transitions between them, and
 // the virtual-user usage calculation. No I/O.
 package run
@@ -7,10 +7,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 )
 
-// Phase is the lifecycle phase of a collection's engines.
+// Phase is the lifecycle phase of a execution's engines.
 type Phase string
 
 const (
@@ -24,19 +24,19 @@ const (
 
 // Lifecycle transition errors. Callers compare with errors.Is.
 var (
-	ErrNoPlans         = errors.New("run: collection has no execution plans")
+	ErrNoScenarios     = errors.New("run: execution has no load profile entries")
 	ErrNotDeployed     = errors.New("run: engines are not deployed")
 	ErrEnginesNotReady = errors.New("run: not all engines are ready")
 	ErrAlreadyRunning  = errors.New("run: a run is already in progress")
 	ErrNotRunning      = errors.New("run: no run is in progress")
 )
 
-// Run is an in-progress or completed test run of a collection.
+// Run is an in-progress or completed test run of an execution.
 type Run struct {
-	ID           int64
-	CollectionID int64
-	StartedAt    time.Time
-	EndedAt      *time.Time
+	ID          int64
+	ExecutionID int64
+	StartedAt   time.Time
+	EndedAt     *time.Time
 }
 
 // Finished reports whether the run has ended.
@@ -72,11 +72,11 @@ func CanDeploy(phase Phase) error {
 	return nil
 }
 
-// CanTrigger validates a trigger request: at least one plan must exist, engines
+// CanTrigger validates a trigger request: at least one scenario must exist, engines
 // must be deployed and fully ready, and no run may already be in progress.
-func CanTrigger(phase Phase, ec execution.ExecutionCollection, enginesReady int) error {
+func CanTrigger(phase Phase, ec loadprofile.Profile, enginesReady int) error {
 	if len(ec.Tests) == 0 {
-		return ErrNoPlans
+		return ErrNoScenarios
 	}
 	switch phase {
 	case PhaseIdle:
@@ -98,9 +98,9 @@ func CanStop(phase Phase) error {
 	return nil
 }
 
-// VirtualUsers is the total concurrent virtual users a collection drives: the
-// sum over plans of engines * concurrency. Used for usage accounting.
-func VirtualUsers(ec execution.ExecutionCollection) int {
+// VirtualUsers is the total concurrent virtual users an execution drives: the
+// sum over scenarios of engines * concurrency. Used for usage accounting.
+func VirtualUsers(ec loadprofile.Profile) int {
 	vu := 0
 	for _, ep := range ec.Tests {
 		vu += ep.Engines * ep.Concurrency

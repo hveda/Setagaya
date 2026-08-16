@@ -1,4 +1,4 @@
-// Command api is the Setagaya v3 REST API server.
+// Command api is the Honryu REST API server.
 //
 // It wires configuration and adapters into the application services and serves
 // HTTP. Wiring lives in run() so it can be unit-tested and so main stays a thin
@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -23,42 +24,56 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	auditmem "github.com/heridotlife/Setagaya/internal/adapters/audit/memory"
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/noauth"
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/oidc"
-	eventbus "github.com/heridotlife/Setagaya/internal/adapters/eventbus/memory"
-	"github.com/heridotlife/Setagaya/internal/adapters/executor/jmeter"
-	"github.com/heridotlife/Setagaya/internal/adapters/executor/k6"
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	promsink "github.com/heridotlife/Setagaya/internal/adapters/metrics/prometheus"
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	k8sscheduler "github.com/heridotlife/Setagaya/internal/adapters/scheduler/k8s"
-	"github.com/heridotlife/Setagaya/internal/adapters/storage/local"
-	"github.com/heridotlife/Setagaya/internal/adapters/storage/nexus"
-	"github.com/heridotlife/Setagaya/internal/app/adminapp"
-	"github.com/heridotlife/Setagaya/internal/app/authapp"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/metricsapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
-	"github.com/heridotlife/Setagaya/internal/app/usageapp"
-	"github.com/heridotlife/Setagaya/internal/config"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	auditmem "github.com/heridotlife/honryu/internal/adapters/audit/memory"
+	"github.com/heridotlife/honryu/internal/adapters/auth/noauth"
+	"github.com/heridotlife/honryu/internal/adapters/auth/oidc"
+	eventbus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	promsink "github.com/heridotlife/honryu/internal/adapters/metrics/prometheus"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	k8sscheduler "github.com/heridotlife/honryu/internal/adapters/scheduler/k8s"
+	"github.com/heridotlife/honryu/internal/adapters/secretbox"
+	"github.com/heridotlife/honryu/internal/adapters/storage/local"
+	"github.com/heridotlife/honryu/internal/adapters/storage/nexus"
+	"github.com/heridotlife/honryu/internal/app/adminapp"
+	"github.com/heridotlife/honryu/internal/app/authapp"
+	"github.com/heridotlife/honryu/internal/app/calibrationapp"
+	"github.com/heridotlife/honryu/internal/app/campaignapp"
+	"github.com/heridotlife/honryu/internal/app/clusterapp"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/metricsapp"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/quotaapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/app/scheduleapp"
+	"github.com/heridotlife/honryu/internal/app/tenantapp"
+	"github.com/heridotlife/honryu/internal/app/usageapp"
+	"github.com/heridotlife/honryu/internal/config"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+	"github.com/heridotlife/honryu/web"
 )
 
 // repository is the full repository surface the API wires into its services.
 // Both the in-memory fake and the MySQL adapter satisfy it.
 type repository interface {
 	projectapp.Repo
-	planapp.Repo
-	collectionapp.Repo
+	scenarioapp.Repo
+	executionapp.Repo
 	lifecycleapp.Repo
+	calibrationapp.Repo
 	ports.UsageRepository
 	ports.TenantRepository
 	ports.RoleAssignmentRepository
+	ports.ReportProgress
+	ports.ReportStore
+	ports.ReservationRepository
+	ports.ScheduleRepository
+	ports.CampaignRepository
+	ports.ClusterRegistry
+	// clusterapp.ActiveRunQuery backs the cluster-registry delete guard.
+	clusterapp.ActiveRunQuery
 }
 
 func main() {
@@ -92,25 +107,37 @@ func run(ctx context.Context, getenv func(string) string) error {
 		return err
 	}
 
-	sched, err := newScheduler(cfg.Cluster)
+	sched, err := newScheduler(cfg.Cluster, repo)
 	if err != nil {
 		return err
 	}
-	exec, err := newExecutor(cfg.Cluster)
+	clusterSvc, err := newClusterService(cfg.Cluster, repo)
 	if err != nil {
 		return err
 	}
-
 	sink := promsink.New(prometheus.DefaultRegisterer)
 	bus := eventbus.New()
-	collector := metricsapp.NewService(repo, sched, exec, sink, bus)
-	if resumeErr := collector.Resume(ctx); resumeErr != nil {
-		slog.Warn("resume metric collection", "error", resumeErr)
-	}
+	collector := metricsapp.NewService(repo, sink, bus, repo, repo)
+	// Nothing to resume after a restart: pods push, so a run already under way
+	// simply keeps sending to whichever controller is listening.
 	usage := usageapp.NewService(repo)
-	lifecycle := lifecycleapp.NewService(repo, sched, exec, store, cfg.Cluster.EngineImage).
-		WithMetrics(collector).WithUsage(usage)
-	admin := adminapp.NewService(repo, sched, lifecycle)
+	quota := quotaapp.NewService(repo)
+	campaigns := campaignapp.NewService(repo, sched)
+	lifecycle := lifecycleapp.NewService(repo, sched, store, cfg.Cluster.ImageFor).
+		WithMetrics(collector).WithUsage(usage).WithQuota(quota).WithFreeze(campaigns)
+	// Retrofitted after lifecycle exists, since lifecycle itself depends on
+	// quota (WithQuota above) -- this is the only order that avoids a
+	// circular construction. Lets a manual Trigger reclaim the same tenant's
+	// own overrunning capacity, exactly like a scheduled one (cmd/scheduler)
+	// can.
+	quota.WithStopper(lifecycle)
+	schedules := scheduleapp.NewService(repo, quota)
+	admin := adminapp.NewService(repo, sched, lifecycle).WithCampaigns(campaigns)
+	scenarios := scenarioapp.NewService(repo, store)
+	// No WithRunner: cmd/api only serves HTTP (create/trigger/get/profile/
+	// fan-out) -- driving a step (AdvanceOne) is cmd/calibrator's and
+	// cmd/scheduler's own job, never a synchronous request here.
+	calibrations := calibrationapp.NewService(repo).WithFingerprint(scenarios)
 	startAutoPurge(ctx, admin, cfg.Cluster)
 
 	authProvider, err := newAuthProvider(ctx, cfg.Auth)
@@ -120,19 +147,33 @@ func run(ctx context.Context, getenv func(string) string) error {
 	audit := auditmem.New(slog.Default())
 	slog.Info("auth configured", "mode", cfg.Auth.Mode, "rbac_enabled", cfg.Auth.EnableRBAC)
 
+	webAssets, err := fs.Sub(web.Dist, "dist")
+	if err != nil {
+		return fmt.Errorf("web assets: %w", err)
+	}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         planapp.NewService(repo, store),
-		Collections:   collectionapp.NewService(repo, store, cfg.Limits.MaxEnginesInCollection),
+		Scenarios:     scenarios,
+		Executions:    executionapp.NewService(repo, store, cfg.Limits.MaxEnginesInExecution),
 		Lifecycle:     lifecycle,
+		Schedules:     schedules,
+		Campaigns:     campaigns,
+		Calibrations:  calibrations,
 		Usage:         usage,
+		Metrics:       collector,
+		Reports:       repo,
+		Reservations:  repo,
+		IngestToken:   cfg.Cluster.IngestToken,
 		Admin:         admin,
 		Events:        bus,
 		Store:         store,
 		Auth:          authapp.NewService(authProvider, repo, cfg.Auth.EnableRBAC),
-		Tenants:       tenantapp.NewService(repo, repo),
+		Tenants:       tenantapp.NewService(repo, repo, repo),
+		Clusters:      clusterSvc,
 		Audit:         audit,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
+		StaticAssets:  webAssets,
 	})
 
 	srv := &http.Server{
@@ -166,7 +207,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 // newRepository selects the repository implementation from config.
 // "fake" is the in-memory default for local development and the walking
 // skeleton; "mysql" opens the pool and applies migrations. deployContext scopes
-// the running_plan rows this process owns.
+// the running_scenario rows this process owns.
 func newRepository(cfg config.DBConfig, deployContext string) (repository, error) {
 	switch cfg.Driver {
 	case "fake":
@@ -207,16 +248,18 @@ func startAutoPurge(ctx context.Context, admin *adminapp.Service, cfg config.Clu
 				if purged, err := admin.AutoPurgeStale(ctx, cfg.AutoPurgeIdle); err != nil {
 					slog.Warn("auto-purge sweep", "error", err)
 				} else if len(purged) > 0 {
-					slog.Info("auto-purged idle collections", "collections", purged)
+					slog.Info("auto-purged idle executions", "executions", purged)
 				}
 			}
 		}
 	}()
 }
 
-// newScheduler selects the Scheduler adapter. "fake" is in-memory; "k8s" uses
-// the in-cluster Kubernetes client.
-func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
+// newScheduler selects the Scheduler adapter. "fake" is in-memory; "k8s" builds
+// a registry-backed Router: the control plane's own (in-cluster) client serves
+// the default cluster and holds the credential Secrets, and any registered
+// cluster is resolved to its own client on demand.
+func newScheduler(cfg config.ClusterConfig, registry ports.ClusterRegistry) (ports.Scheduler, error) {
 	switch cfg.Scheduler {
 	case "fake":
 		return fake.NewScheduler(), nil
@@ -229,10 +272,45 @@ func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
 		if err != nil {
 			return nil, fmt.Errorf("k8s client: %w", err)
 		}
-		return k8sscheduler.New(client, k8sscheduler.Config{Namespace: cfg.Namespace, EnginePort: cfg.EnginePort}), nil
+		factory := k8sscheduler.NewClientFactory(client, k8sscheduler.DefaultDeploy{
+			Namespace: cfg.Namespace, SidecarImage: cfg.SidecarImage, IngestURL: cfg.IngestURL,
+		}, registry)
+		return k8sscheduler.NewRouter(factory, k8sscheduler.Config{EnginePort: cfg.EnginePort}), nil
 	default:
 		return nil, fmt.Errorf("scheduler %q not supported", cfg.Scheduler)
 	}
+}
+
+// newClusterService wires the cluster-registry application service backing the
+// /api/clusters management endpoints. It is enabled only for the k8s scheduler
+// with a configured credential-encryption key (needed to encrypt BYOC
+// kubeconfigs at rest); otherwise it returns nil and the endpoints are disabled
+// (a deployment that does not register clusters need not configure a key).
+func newClusterService(cfg config.ClusterConfig, repo repository) (httpapi.ClusterService, error) {
+	if cfg.Scheduler != "k8s" || cfg.CredentialKey == "" {
+		return nil, nil
+	}
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("cluster registry: k8s in-cluster config: %w", err)
+	}
+	client, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("cluster registry: k8s client: %w", err)
+	}
+	cipher, err := secretbox.NewFromHex(cfg.CredentialKey)
+	if err != nil {
+		return nil, fmt.Errorf("cluster registry: credential key: %w", err)
+	}
+	return clusterapp.NewService(clusterapp.Deps{
+		Registry:    repo,
+		Prober:      k8sscheduler.Prober{},
+		Credentials: k8sscheduler.NewHomeCredentialStore(client, cfg.Namespace),
+		Runs:        repo,
+		Cipher:      cipher,
+		Parse:       k8sscheduler.ParsePortsKubeconfig,
+		SecretName:  k8sscheduler.CredentialSecretName,
+	}), nil
 }
 
 // newAuthProvider selects the authentication adapter. "none" authenticates
@@ -241,7 +319,7 @@ func newScheduler(cfg config.ClusterConfig) (ports.Scheduler, error) {
 func newAuthProvider(ctx context.Context, cfg config.AuthConfig) (ports.AuthProvider, error) {
 	switch cfg.Mode {
 	case "none":
-		return noauth.New("setagaya"), nil
+		return noauth.New("honryu"), nil
 	case "oidc":
 		keys, err := fetchJWKS(ctx, cfg.OIDC.JWKSURL)
 		if err != nil {
@@ -274,21 +352,6 @@ func fetchJWKS(ctx context.Context, url string) (*oidc.StaticKeySet, error) {
 		return nil, err
 	}
 	return oidc.ParseJWKS(body)
-}
-
-// newExecutor selects the Executor adapter. "fake" records triggers; "jmeter"
-// and "k6" drive their respective agents over HTTP.
-func newExecutor(cfg config.ClusterConfig) (ports.Executor, error) {
-	switch cfg.Executor {
-	case "fake":
-		return fake.NewExecutor(), nil
-	case "jmeter":
-		return jmeter.New(nil), nil
-	case "k6":
-		return k6.New(nil), nil
-	default:
-		return nil, fmt.Errorf("executor %q not supported", cfg.Executor)
-	}
 }
 
 // newObjectStore selects the ObjectStore adapter. "local" stores artifacts on

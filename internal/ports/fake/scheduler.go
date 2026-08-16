@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Scheduler is an in-memory ports.Scheduler for fast use-case tests. It records
@@ -15,12 +15,18 @@ import (
 // pod logs are controllable via exported fields.
 type Scheduler struct {
 	mu          sync.Mutex
-	deployments map[int64]map[int64]schedDeploy // collection -> plan -> deploy
+	deployments map[int64]map[int64]schedDeploy // execution -> scenario -> deploy
 
 	// Unreachable, when true, makes engines appear deployed but not routable.
 	Unreachable bool
-	// PodLogText is returned by PodLog for deployed plans.
+	// PodLogText is returned by PodLog for deployed scenarios.
 	PodLogText string
+	// PodLogErr, when set, is returned by PodLog instead of a log.
+	PodLogErr error
+	// PodLogDelay, when set, is slept before PodLog returns -- lets a test prove
+	// callers fetch multiple shards' logs concurrently rather than one after
+	// another.
+	PodLogDelay time.Duration
 	// IngressIP is reported by EngineDetail.
 	IngressIP string
 	// Pools is returned by NodePools.
@@ -45,7 +51,7 @@ func NewScheduler() *Scheduler {
 }
 
 // NodePools returns the configured pools.
-func (s *Scheduler) NodePools(_ context.Context) ([]ports.NodePool, error) {
+func (s *Scheduler) NodePools(_ context.Context, _ ports.ClusterRef) ([]ports.NodePool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]ports.NodePool(nil), s.Pools...), nil
@@ -58,71 +64,69 @@ func (s *Scheduler) now() time.Time {
 	return time.Now()
 }
 
-// DeployPlan records the deployment, keeping the earliest deploy time per plan.
-func (s *Scheduler) DeployPlan(_ context.Context, spec ports.DeploySpec) error {
+// DeployScenario records the deployment, keeping the earliest deploy time per scenario.
+func (s *Scheduler) DeployScenario(_ context.Context, spec ports.DeploySpec) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	plans, ok := s.deployments[spec.CollectionID]
+	scenarios, ok := s.deployments[spec.ExecutionID]
 	if !ok {
-		plans = map[int64]schedDeploy{}
-		s.deployments[spec.CollectionID] = plans
+		scenarios = map[int64]schedDeploy{}
+		s.deployments[spec.ExecutionID] = scenarios
 	}
-	if existing, ok := plans[spec.PlanID]; ok {
+	if existing, ok := scenarios[spec.ScenarioID]; ok {
 		existing.spec = spec
-		plans[spec.PlanID] = existing // keep original deployAt (idempotent)
+		scenarios[spec.ScenarioID] = existing // keep original deployAt (idempotent)
 		return nil
 	}
-	plans[spec.PlanID] = schedDeploy{spec: spec, deployAt: s.now()}
+	scenarios[spec.ScenarioID] = schedDeploy{spec: spec, deployAt: s.now()}
 	return nil
 }
 
-// EngineURLs returns synthetic per-engine URLs, or ErrEnginesUnreachable.
-func (s *Scheduler) EngineURLs(_ context.Context, collectionID, planID int64, engines int) ([]string, error) {
+// ExecutionStatus reports deployed/wanted engines and reachability per scenario.
+// LastDeploy returns the spec a scenario was last deployed with, so a test can
+// assert what each pod was actually given rather than only that a deploy
+// happened.
+func (s *Scheduler) LastDeploy(executionID, scenarioID int64) (ports.DeploySpec, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, ok := s.deployments[collectionID][planID]
-	if !ok || s.Unreachable {
-		return nil, ports.ErrEnginesUnreachable
+	d, ok := s.deployments[executionID][scenarioID]
+	if !ok {
+		return ports.DeploySpec{}, false
 	}
-	urls := make([]string, engines)
-	for i := range urls {
-		urls[i] = fmt.Sprintf("http://engine-%d-%d-%d-%d.fake", d.spec.ProjectID, collectionID, planID, i)
-	}
-	return urls, nil
+	return d.spec, true
 }
 
-// CollectionStatus reports deployed/wanted engines and reachability per plan.
-func (s *Scheduler) CollectionStatus(_ context.Context, collectionID int64, plans []ports.PlanRef) (ports.CollectionStatus, error) {
+func (s *Scheduler) ExecutionStatus(_ context.Context, _ ports.ClusterRef, executionID int64, scenarios []ports.ScenarioRef) (ports.ExecutionStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	status := ports.CollectionStatus{}
-	for _, ref := range plans {
-		pr := ports.PlanReadiness{PlanID: ref.PlanID, EnginesWanted: ref.Engines}
-		if d, ok := s.deployments[collectionID][ref.PlanID]; ok {
-			pr.EnginesDeployed = d.spec.Engines
+	status := ports.ExecutionStatus{}
+	for _, ref := range scenarios {
+		pr := ports.ScenarioReadiness{ScenarioID: ref.ScenarioID, EnginesWanted: ref.Shards}
+		if d, ok := s.deployments[executionID][ref.ScenarioID]; ok {
+			pr.EnginesDeployed = len(d.spec.Shards)
 			pr.Reachable = !s.Unreachable
 		}
 		status.PoolSize += pr.EnginesDeployed
-		status.Plans = append(status.Plans, pr)
+		status.Scenarios = append(status.Scenarios, pr)
 	}
 	return status, nil
 }
 
-// EngineDetail lists the engine pods of a collection.
-func (s *Scheduler) EngineDetail(_ context.Context, _, collectionID int64) (ports.CollectionDetail, error) {
+// EngineDetail lists the engine pods of an execution.
+func (s *Scheduler) EngineDetail(_ context.Context, _ ports.ClusterRef, _, executionID int64) (ports.ExecutionDetail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	detail := ports.CollectionDetail{IngressIP: s.IngressIP}
-	planIDs := make([]int64, 0, len(s.deployments[collectionID]))
-	for planID := range s.deployments[collectionID] {
-		planIDs = append(planIDs, planID)
+	detail := ports.ExecutionDetail{IngressIP: s.IngressIP}
+	planIDs := make([]int64, 0, len(s.deployments[executionID]))
+	for scenarioID := range s.deployments[executionID] {
+		planIDs = append(planIDs, scenarioID)
 	}
 	sort.Slice(planIDs, func(i, j int) bool { return planIDs[i] < planIDs[j] })
-	for _, planID := range planIDs {
-		d := s.deployments[collectionID][planID]
-		for i := 0; i < d.spec.Engines; i++ {
+	for _, scenarioID := range planIDs {
+		d := s.deployments[executionID][scenarioID]
+		for i := 0; i < len(d.spec.Shards); i++ {
 			detail.Engines = append(detail.Engines, ports.EngineDetail{
-				Name:        fmt.Sprintf("engine-%d-%d-%d-%d", d.spec.ProjectID, collectionID, planID, i),
+				Name:        fmt.Sprintf("engine-%d-%d-%d-%d", d.spec.ProjectID, executionID, scenarioID, i),
 				Status:      "Running",
 				CreatedTime: d.deployAt,
 			})
@@ -131,33 +135,46 @@ func (s *Scheduler) EngineDetail(_ context.Context, _, collectionID int64) (port
 	return detail, nil
 }
 
-// PurgeCollection removes all record of a collection's deployments.
-func (s *Scheduler) PurgeCollection(_ context.Context, collectionID int64) error {
+// PurgeExecution removes all record of a execution's deployments.
+func (s *Scheduler) PurgeExecution(_ context.Context, _ ports.ClusterRef, executionID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.deployments, collectionID)
+	delete(s.deployments, executionID)
 	return nil
 }
 
-// PodLog returns the canned log for a deployed plan.
-func (s *Scheduler) PodLog(_ context.Context, collectionID, planID int64) (string, error) {
+// PodLog returns the canned log for a deployed scenario.
+func (s *Scheduler) PodLog(_ context.Context, _ ports.ClusterRef, executionID, scenarioID int64, shard int) (string, error) {
+	// Outside the lock: PodLogDelay simulates per-shard I/O latency, and holding
+	// the lock across it would itself force concurrent callers to serialize,
+	// defeating the point of a delay a test uses to prove they don't.
+	if s.PodLogDelay > 0 {
+		time.Sleep(s.PodLogDelay)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.deployments[collectionID][planID]; !ok {
+	d, ok := s.deployments[executionID][scenarioID]
+	if !ok || shard < 0 || shard >= len(d.spec.Shards) {
 		return "", ports.ErrEnginesUnreachable
 	}
-	return s.PodLogText, nil
+	if s.PodLogErr != nil {
+		return "", s.PodLogErr
+	}
+	// Shard-specific, like a real pod's: the port promises logs addressed per
+	// pod, and a fake that answered every shard identically could not catch a
+	// caller that silently ignored the one it asked for.
+	return fmt.Sprintf("%s (shard %d)", s.PodLogText, shard), nil
 }
 
-// DeployedCollections maps collection id to its earliest deploy time.
-func (s *Scheduler) DeployedCollections(_ context.Context) (map[int64]time.Time, error) {
+// DeployedExecutions maps execution id to its earliest deploy time.
+func (s *Scheduler) DeployedExecutions(_ context.Context, _ ports.ClusterRef) (map[int64]time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[int64]time.Time{}
-	for collectionID, plans := range s.deployments {
-		for _, d := range plans {
-			if cur, ok := out[collectionID]; !ok || d.deployAt.Before(cur) {
-				out[collectionID] = d.deployAt
+	for executionID, scenarios := range s.deployments {
+		for _, d := range scenarios {
+			if cur, ok := out[executionID]; !ok || d.deployAt.Before(cur) {
+				out[executionID] = d.deployAt
 			}
 		}
 	}

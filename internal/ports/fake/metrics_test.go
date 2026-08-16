@@ -3,8 +3,8 @@ package fake_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func TestFakeMetricsSink_RecordsAndDeletes(t *testing.T) {
@@ -17,7 +17,7 @@ func TestFakeMetricsSink_RecordsAndDeletes(t *testing.T) {
 		t.Fatalf("recorded = %+v", got)
 	}
 
-	s.DeleteCollection(7)
+	s.DeleteExecution(7)
 	if got := s.Deleted(); len(got) != 1 || got[0] != 7 {
 		t.Fatalf("deleted = %+v", got)
 	}

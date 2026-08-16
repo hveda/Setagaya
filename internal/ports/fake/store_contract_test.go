@@ -3,22 +3,22 @@ package fake_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
-	"github.com/heridotlife/Setagaya/internal/ports/objectstoretest"
-	"github.com/heridotlife/Setagaya/internal/ports/repositorytest"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/ports/objectstoretest"
+	"github.com/heridotlife/honryu/internal/ports/repositorytest"
 )
 
-func TestFakeStore_PlanContract(t *testing.T) {
+func TestFakeStore_ScenarioContract(t *testing.T) {
 	t.Parallel()
-	repositorytest.RunPlanRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
+	repositorytest.RunScenarioRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
 		return fake.NewStore()
 	})
 }
 
-func TestFakeStore_CollectionContract(t *testing.T) {
+func TestFakeStore_ExecutionContract(t *testing.T) {
 	t.Parallel()
-	repositorytest.RunCollectionRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
+	repositorytest.RunExecutionRepositoryContract(t, func(_ *testing.T) repositorytest.Repository {
 		return fake.NewStore()
 	})
 }
@@ -40,6 +40,48 @@ func TestFakeStore_TenantContract(t *testing.T) {
 func TestFakeStore_RoleAssignmentContract(t *testing.T) {
 	t.Parallel()
 	repositorytest.RunRoleAssignmentRepositoryContract(t, func(_ *testing.T) ports.RoleAssignmentRepository {
+		return fake.NewStore()
+	})
+}
+
+func TestFakeStore_ReservationContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunReservationRepositoryContract(t, func(_ *testing.T) ports.ReservationRepository {
+		return fake.NewStore()
+	})
+}
+
+func TestFakeStore_ScheduleContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunScheduleRepositoryContract(t, func(_ *testing.T) ports.ScheduleRepository {
+		return fake.NewStore()
+	})
+}
+
+func TestFakeStore_CampaignContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunCampaignRepositoryContract(t, func(_ *testing.T) ports.CampaignRepository {
+		return fake.NewStore()
+	})
+}
+
+func TestFakeStore_CalibrationJobContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunCalibrationJobRepositoryContract(t, func(_ *testing.T) ports.CalibrationJobRepository {
+		return fake.NewStore()
+	})
+}
+
+func TestFakeStore_CapacityProfileContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunCapacityProfileRepositoryContract(t, func(_ *testing.T) ports.CapacityProfileRepository {
+		return fake.NewStore()
+	})
+}
+
+func TestFakeStore_ClusterRegistryContract(t *testing.T) {
+	t.Parallel()
+	repositorytest.RunClusterRegistryContract(t, func(_ *testing.T) ports.ClusterRegistry {
 		return fake.NewStore()
 	})
 }

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/app/usageapp"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/app/usageapp"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func TestRecordAndHistory(t *testing.T) {

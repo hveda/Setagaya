@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/config"
+	"github.com/heridotlife/honryu/internal/config"
 )
 
 func TestNewProjectRepository_Fake(t *testing.T) {
@@ -35,7 +35,7 @@ func TestNewProjectRepository_MySQL_Unreachable(t *testing.T) {
 	// open-ok / ping-error wiring branch without needing a container.
 	_, err := newRepository(config.DBConfig{
 		Driver: "mysql",
-		DSN:    "setagaya:secret@tcp(127.0.0.1:1)/setagaya?parseTime=true",
+		DSN:    "honryu:secret@tcp(127.0.0.1:1)/honryu?parseTime=true",
 	}, "default")
 	if err == nil {
 		t.Fatal("newRepository(mysql, unreachable): expected error, got nil")
@@ -57,7 +57,7 @@ func TestSetupLogging_AllVariants(t *testing.T) {
 
 func TestRun_ConfigError(t *testing.T) {
 	t.Parallel()
-	env := map[string]string{"SETAGAYA_HTTP_PORT": "not-a-number"}
+	env := map[string]string{"HONRYU_HTTP_PORT": "not-a-number"}
 	err := run(context.Background(), func(k string) string { return env[k] })
 	if err == nil {
 		t.Fatal("run with invalid config: expected error, got nil")
@@ -66,7 +66,7 @@ func TestRun_ConfigError(t *testing.T) {
 
 func TestRealMain_ConfigError(t *testing.T) {
 	// t.Setenv marks the test non-parallel and restores the env afterwards.
-	t.Setenv("SETAGAYA_HTTP_PORT", "not-a-number")
+	t.Setenv("HONRYU_HTTP_PORT", "not-a-number")
 	if err := realMain(); err == nil {
 		t.Fatal("realMain with invalid config: expected error, got nil")
 	}
@@ -77,9 +77,9 @@ func TestRun_ServesAndShutsDownCleanly(t *testing.T) {
 
 	port := freePort(t)
 	env := map[string]string{
-		"SETAGAYA_HTTP_PORT":  strconv.Itoa(port),
-		"SETAGAYA_DB_DRIVER":  "fake",
-		"SETAGAYA_LOG_FORMAT": "text",
+		"HONRYU_HTTP_PORT":  strconv.Itoa(port),
+		"HONRYU_DB_DRIVER":  "fake",
+		"HONRYU_LOG_FORMAT": "text",
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -97,6 +97,18 @@ func TestRun_ServesAndShutsDownCleanly(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/projects status = %d, want 200", resp.StatusCode)
+	}
+
+	// The embedded SPA build (web.Dist, unwrapped by run()'s fs.Sub) is
+	// served for "/" -- proves the embed and fs.Sub wiring actually work,
+	// not just that they compiled.
+	staticResp, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	_ = staticResp.Body.Close()
+	if staticResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / status = %d, want 200", staticResp.StatusCode)
 	}
 
 	cancel()

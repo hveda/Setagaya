@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 // failingCreate embeds a real fake store but forces CreateProject to fail,

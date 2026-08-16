@@ -3,10 +3,10 @@ package memory_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/eventbus/memory"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/eventbustest"
+	"github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/eventbustest"
 )
 
 func TestMemoryBus_Contract(t *testing.T) {

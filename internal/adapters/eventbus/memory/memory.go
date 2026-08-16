@@ -1,4 +1,4 @@
-// Package memory is the in-process ports.EventBus: per-collection fan-out to
+// Package memory is the in-process ports.EventBus: per-execution fan-out to
 // live subscribers with non-blocking delivery (slow subscribers drop events
 // rather than stalling the collector).
 package memory
@@ -6,8 +6,8 @@ package memory
 import (
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // subBuffer is how many events a subscriber may fall behind before delivery to
@@ -32,10 +32,10 @@ func New() *Bus {
 var _ ports.EventBus = (*Bus)(nil)
 
 // Publish delivers m to every current subscriber without blocking.
-func (b *Bus) Publish(collectionID int64, m engine.Metric) {
+func (b *Bus) Publish(executionID int64, m engine.Metric) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for sub := range b.subs[collectionID] {
+	for sub := range b.subs[executionID] {
 		select {
 		case sub.ch <- m:
 		default: // subscriber is behind: drop rather than stall the collector
@@ -44,13 +44,13 @@ func (b *Bus) Publish(collectionID int64, m engine.Metric) {
 }
 
 // Subscribe registers a subscriber and returns its channel and a cancel func.
-func (b *Bus) Subscribe(collectionID int64) (<-chan engine.Metric, func()) {
+func (b *Bus) Subscribe(executionID int64) (<-chan engine.Metric, func()) {
 	sub := &subscriber{ch: make(chan engine.Metric, subBuffer)}
 	b.mu.Lock()
-	set, ok := b.subs[collectionID]
+	set, ok := b.subs[executionID]
 	if !ok {
 		set = make(map[*subscriber]struct{})
-		b.subs[collectionID] = set
+		b.subs[executionID] = set
 	}
 	set[sub] = struct{}{}
 	b.mu.Unlock()
@@ -60,9 +60,9 @@ func (b *Bus) Subscribe(collectionID int64) (<-chan engine.Metric, func()) {
 		once.Do(func() {
 			b.mu.Lock()
 			defer b.mu.Unlock()
-			delete(b.subs[collectionID], sub)
-			if len(b.subs[collectionID]) == 0 {
-				delete(b.subs, collectionID)
+			delete(b.subs[executionID], sub)
+			if len(b.subs[executionID]) == 0 {
+				delete(b.subs, executionID)
 			}
 			close(sub.ch)
 		})

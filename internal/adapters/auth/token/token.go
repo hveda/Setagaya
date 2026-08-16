@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Provider maps bearer tokens to accounts.

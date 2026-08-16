@@ -1,16 +1,16 @@
-# Setagaya
+# 奔流 (Honryu)
 
-[![CI](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/codeql.yml)
-[![Security](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml/badge.svg)](https://github.com/heridotlife/Setagaya/actions/workflows/security.yml)
+[![CI](https://github.com/heridotlife/honryu/actions/workflows/ci.yml/badge.svg)](https://github.com/heridotlife/honryu/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/heridotlife/honryu/actions/workflows/codeql.yml/badge.svg)](https://github.com/heridotlife/honryu/actions/workflows/codeql.yml)
+[![Security](https://github.com/heridotlife/honryu/actions/workflows/security.yml/badge.svg)](https://github.com/heridotlife/honryu/actions/workflows/security.yml)
 [![golangci-lint](https://img.shields.io/badge/golangci--lint-enabled-4c1)](.golangci.yml)
-[![codecov](https://codecov.io/gh/heridotlife/Setagaya/graph/badge.svg)](https://codecov.io/gh/heridotlife/Setagaya)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/heridotlife/Setagaya)](go.mod)
-[![License](https://img.shields.io/github/license/heridotlife/Setagaya)](LICENSE)
+[![codecov](https://codecov.io/gh/heridotlife/honryu/graph/badge.svg)](https://codecov.io/gh/heridotlife/honryu)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/heridotlife/honryu)](go.mod)
+[![License](https://img.shields.io/github/license/heridotlife/honryu)](LICENSE)
 
-Setagaya is a cloud-native, distributed load-testing platform written in Go. It
+Honryu is a cloud-native, distributed load-testing platform written in Go. It
 orchestrates load-generation engines (JMeter and k6) on Kubernetes, streams live
-metrics to Prometheus, and exposes a REST API for managing projects, test plans,
+metrics to Prometheus, and exposes a REST API for managing projects, scenarios,
 and runs — with pluggable authentication, RBAC, and multi-tenancy.
 
 The codebase is a test-driven, hexagonal (ports-and-adapters) implementation:
@@ -27,7 +27,7 @@ cmd/
   agent/        engine-side metrics agent
 internal/
   domain/       pure business types + rules, zero I/O imports
-                (project, collection, plan, execution, run, engine,
+                (project, scenario, execution, loadprofile, run, engine,
                  usage, account, rbac, tenant)
   ports/        interfaces the app depends on
                 (Repository, Scheduler, Executor, ObjectStore,
@@ -35,7 +35,7 @@ internal/
     fake/       in-memory port implementations for fast tests
     *test/      reusable conformance suites run against every adapter
   app/          use-cases orchestrating the domain over ports
-                (project, collection, plan, lifecycle, metrics, usage,
+                (project, scenario, execution, lifecycle, metrics, usage,
                  admin, auth, tenant)
   adapters/
     httpapi/          inbound REST adapter (net/http)
@@ -71,7 +71,7 @@ flowchart TB
     subgraph core["Application core — no infrastructure imports"]
         direction TB
         api["httpapi<br/>(inbound adapter)"]
-        app["use-cases<br/>project · collection · plan · lifecycle<br/>metrics · usage · admin · auth · tenant"]
+        app["use-cases<br/>project · scenario · execution · lifecycle<br/>metrics · usage · admin · auth · tenant"]
         domain["domain<br/>pure types + rules"]
         ports{{"ports (interfaces)<br/>Repository · Scheduler · Executor · ObjectStore<br/>AuthProvider · MetricsSink · EventBus · AuditLog"}}
         api --> app
@@ -122,14 +122,14 @@ sequenceDiagram
     participant Eng as engines
     participant Prom as Prometheus
 
-    User->>API: POST /collections/{id}/deploy
+    User->>API: POST /executions/{id}/deploy
     API->>Auth: authenticate + authorize
     Auth-->>API: account (tenant-scoped)
     API->>LC: Deploy
     LC->>Sched: create engine pods
     Sched-->>Eng: schedule
 
-    User->>API: POST /collections/{id}/trigger
+    User->>API: POST /executions/{id}/trigger
     API->>LC: Trigger
     LC->>Exec: Trigger(config) per engine
     Exec->>Eng: start test
@@ -140,12 +140,12 @@ sequenceDiagram
         LC->>Prom: record
     end
 
-    User->>API: GET /collections/{id}/stream
+    User->>API: GET /executions/{id}/stream
     API-->>User: live metrics (SSE)
 
-    User->>API: POST /collections/{id}/stop
+    User->>API: POST /executions/{id}/stop
     LC->>Exec: Stop
-    User->>API: POST /collections/{id}/purge
+    User->>API: POST /executions/{id}/purge
     LC->>Sched: delete engine pods
 ```
 
@@ -176,37 +176,37 @@ curl localhost:8080/metrics      # Prometheus exposition
 
 ## Configuration
 
-Configuration is read from `SETAGAYA_*` environment variables (see
+Configuration is read from `HONRYU_*` environment variables (see
 `internal/config`); there are no config files or global singletons. Everything
 has a local-dev default, so `go run ./cmd/api` works with no environment set.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SETAGAYA_HTTP_PORT` | `8080` | API listen port |
-| `SETAGAYA_DB_DRIVER` | `fake` | `fake` (in-memory) or `mysql` |
-| `SETAGAYA_DB_DSN` | – | MySQL DSN (required when driver is `mysql`) |
-| `SETAGAYA_STORAGE_DRIVER` | `local` | `local` or `nexus` |
-| `SETAGAYA_STORAGE_ROOT` | `storage-data` | filesystem root (local store) |
-| `SETAGAYA_STORAGE_BASE_URL` | – | retrieval base URL (local) / Nexus server URL |
-| `SETAGAYA_NEXUS_REPO` | – | Nexus raw repository (required for `nexus`) |
-| `SETAGAYA_NEXUS_USERNAME` / `_PASSWORD` | – | Nexus basic-auth credentials |
-| `SETAGAYA_SCHEDULER` | `fake` | `fake` or `k8s` |
-| `SETAGAYA_EXECUTOR` | `fake` | `fake`, `jmeter`, or `k6` |
-| `SETAGAYA_ENGINE_IMAGE` | `setagaya/jmeter:latest` | engine container image |
-| `SETAGAYA_AUTH_MODE` | `none` | `none` (fixed admin) or `oidc` |
-| `SETAGAYA_ENABLE_RBAC` | `false` | enable tenant-scoped RBAC |
-| `SETAGAYA_OIDC_ISSUER` / `_AUDIENCE` / `_JWKS_URL` | – | OIDC ID-token verification (required for `oidc`) |
-| `SETAGAYA_MAX_ENGINES` | `500` | per-collection engine guardrail |
-| `SETAGAYA_LOG_LEVEL` / `_FORMAT` | `info` / `json` | structured logging |
+| `HONRYU_HTTP_PORT` | `8080` | API listen port |
+| `HONRYU_DB_DRIVER` | `fake` | `fake` (in-memory) or `mysql` |
+| `HONRYU_DB_DSN` | – | MySQL DSN (required when driver is `mysql`) |
+| `HONRYU_STORAGE_DRIVER` | `local` | `local` or `nexus` |
+| `HONRYU_STORAGE_ROOT` | `storage-data` | filesystem root (local store) |
+| `HONRYU_STORAGE_BASE_URL` | – | retrieval base URL (local) / Nexus server URL |
+| `HONRYU_NEXUS_REPO` | – | Nexus raw repository (required for `nexus`) |
+| `HONRYU_NEXUS_USERNAME` / `_PASSWORD` | – | Nexus basic-auth credentials |
+| `HONRYU_SCHEDULER` | `fake` | `fake` or `k8s` |
+| `HONRYU_EXECUTOR` | `fake` | `fake`, `jmeter`, or `k6` |
+| `HONRYU_ENGINE_IMAGE` | `honryu/jmeter:latest` | engine container image |
+| `HONRYU_AUTH_MODE` | `none` | `none` (fixed admin) or `oidc` |
+| `HONRYU_ENABLE_RBAC` | `false` | enable tenant-scoped RBAC |
+| `HONRYU_OIDC_ISSUER` / `_AUDIENCE` / `_JWKS_URL` | – | OIDC ID-token verification (required for `oidc`) |
+| `HONRYU_MAX_ENGINES` | `500` | per-execution engine guardrail |
+| `HONRYU_LOG_LEVEL` / `_FORMAT` | `info` / `json` | structured logging |
 
 Run against MySQL with the JMeter executor on Kubernetes, for example:
 
 ```bash
-SETAGAYA_DB_DRIVER=mysql SETAGAYA_DB_DSN='user:pw@tcp(db:3306)/setagaya' \
-SETAGAYA_SCHEDULER=k8s SETAGAYA_EXECUTOR=jmeter \
-SETAGAYA_AUTH_MODE=oidc SETAGAYA_ENABLE_RBAC=true \
-SETAGAYA_OIDC_ISSUER=https://issuer.example \
-SETAGAYA_OIDC_JWKS_URL=https://issuer.example/.well-known/jwks.json \
+HONRYU_DB_DRIVER=mysql HONRYU_DB_DSN='user:pw@tcp(db:3306)/honryu' \
+HONRYU_SCHEDULER=k8s HONRYU_EXECUTOR=jmeter \
+HONRYU_AUTH_MODE=oidc HONRYU_ENABLE_RBAC=true \
+HONRYU_OIDC_ISSUER=https://issuer.example \
+HONRYU_OIDC_JWKS_URL=https://issuer.example/.well-known/jwks.json \
 go run ./cmd/api
 ```
 

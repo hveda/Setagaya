@@ -5,8 +5,8 @@ package main
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/config"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	"github.com/heridotlife/honryu/internal/config"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 // TestNewProjectRepository_MySQL covers the mysql wiring branch: open, ping and

@@ -6,9 +6,9 @@ package noauth
 import (
 	"net/http"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Provider authenticates all requests as one account.
@@ -22,7 +22,7 @@ var _ ports.AuthProvider = (*Provider)(nil)
 // given global roles. With no roles, the account is a service-provider admin.
 func New(subject string, globalRoles ...string) *Provider {
 	if subject == "" {
-		subject = "setagaya"
+		subject = "honryu"
 	}
 	if len(globalRoles) == 0 {
 		globalRoles = []string{rbac.RoleServiceProviderAdmin}

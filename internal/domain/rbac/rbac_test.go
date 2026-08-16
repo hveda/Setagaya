@@ -3,8 +3,8 @@ package rbac_test
 import (
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 )
 
 func ptr(v int64) *int64 { return &v }
@@ -19,7 +19,7 @@ func TestPermission_Allows(t *testing.T) {
 	}{
 		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "project", rbac.ActionRead, true},
 		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "project", rbac.ActionDelete, false},
-		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "plan", rbac.ActionRead, false},
+		{rbac.Permission{Resource: "project", Actions: []rbac.Action{rbac.ActionRead}}, "scenario", rbac.ActionRead, false},
 		{rbac.Permission{Resource: "*", Actions: []rbac.Action{rbac.ActionRead}}, "anything", rbac.ActionRead, true},
 		{rbac.Permission{Resource: "project", Actions: []rbac.Action{"*"}}, "project", rbac.ActionDelete, true},
 	}
@@ -71,11 +71,40 @@ func TestAuthorize_ViewerCannotWrite(t *testing.T) {
 	catalog := rbac.DefaultCatalog()
 	acct := account.Account{Subject: "v", Tenants: map[int64][]string{1: {rbac.RoleTenantViewer}}}
 
-	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceCollection, Action: rbac.ActionRead, TenantID: ptr(1)}); !d.Allowed {
+	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceExecution, Action: rbac.ActionRead, TenantID: ptr(1)}); !d.Allowed {
 		t.Fatalf("viewer read denied: %+v", d)
 	}
-	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceCollection, Action: rbac.ActionDelete, TenantID: ptr(1)}); d.Allowed {
+	if d := rbac.Authorize(acct, catalog, rbac.Request{Resource: rbac.ResourceExecution, Action: rbac.ActionDelete, TenantID: ptr(1)}); d.Allowed {
 		t.Fatalf("viewer delete should be denied: %+v", d)
+	}
+}
+
+// A campaign manager freezes other teams' projects for a window, so this
+// authority is deliberately not bundled into RoleTenantEditor -- an editor
+// with no campaign_manager grant must be denied, even though editor already
+// grants ResourceProject/ResourceExecution write access.
+func TestAuthorize_CampaignManager(t *testing.T) {
+	t.Parallel()
+	catalog := rbac.DefaultCatalog()
+	editor := account.Account{Subject: "e", Tenants: map[int64][]string{5: {rbac.RoleTenantEditor}}}
+	if d := rbac.Authorize(editor, catalog, rbac.Request{Resource: rbac.ResourceCampaign, Action: rbac.ActionCreate, TenantID: ptr(5)}); d.Allowed {
+		t.Fatalf("tenant editor should not be able to create a campaign: %+v", d)
+	}
+
+	pm := account.Account{Subject: "pm", Tenants: map[int64][]string{5: {rbac.RoleCampaignManager}}}
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceCampaign, Action: rbac.ActionCreate, TenantID: ptr(5)}); !d.Allowed {
+		t.Fatalf("campaign manager create denied: %+v", d)
+	}
+	// Not in a different tenant.
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceCampaign, Action: rbac.ActionCreate, TenantID: ptr(9)}); d.Allowed {
+		t.Fatalf("campaign manager should be denied in a tenant they hold no grant in: %+v", d)
+	}
+	// Can read projects/executions (to see what they're binding), but not edit them.
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceProject, Action: rbac.ActionRead, TenantID: ptr(5)}); !d.Allowed {
+		t.Fatalf("campaign manager project read denied: %+v", d)
+	}
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceProject, Action: rbac.ActionUpdate, TenantID: ptr(5)}); d.Allowed {
+		t.Fatalf("campaign manager should not be able to edit a project: %+v", d)
 	}
 }
 

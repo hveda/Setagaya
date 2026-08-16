@@ -10,12 +10,12 @@ import (
 	"sync"
 	"testing"
 
-	nexusadapter "github.com/heridotlife/Setagaya/internal/adapters/storage/nexus"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/objectstoretest"
+	nexusadapter "github.com/heridotlife/honryu/internal/adapters/storage/nexus"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/objectstoretest"
 )
 
-const testRepo = "setagaya-raw"
+const testRepo = "honryu-raw"
 
 // fakeNexus is an in-memory stand-in for a Nexus raw repository.
 type fakeNexus struct {
@@ -98,7 +98,7 @@ func TestNexus_SendsBasicAuth(t *testing.T) {
 	store := nexusadapter.New(url, testRepo, nexusadapter.WithBasicAuth("admin", "s3cret"))
 	ctx := context.Background()
 
-	if err := store.Upload(ctx, "plan/1/a.jmx", bytes.NewReader([]byte("x"))); err != nil {
+	if err := store.Upload(ctx, "scenario/1/a.jmx", bytes.NewReader([]byte("x"))); err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
 	if !f.authSeen {
@@ -107,7 +107,7 @@ func TestNexus_SendsBasicAuth(t *testing.T) {
 
 	// Wrong credentials surface as an error.
 	bad := nexusadapter.New(url, testRepo, nexusadapter.WithBasicAuth("admin", "wrong"))
-	if err := bad.Upload(ctx, "plan/1/a.jmx", bytes.NewReader([]byte("x"))); err == nil {
+	if err := bad.Upload(ctx, "scenario/1/a.jmx", bytes.NewReader([]byte("x"))); err == nil {
 		t.Fatal("Upload with bad creds: want error, got nil")
 	}
 }
@@ -115,8 +115,8 @@ func TestNexus_SendsBasicAuth(t *testing.T) {
 func TestNexus_URL(t *testing.T) {
 	t.Parallel()
 	store := nexusadapter.New("https://nexus.example.com/", testRepo)
-	want := "https://nexus.example.com/repository/setagaya-raw/plan/7/test.jmx"
-	if got := store.URL("plan/7/test.jmx"); got != want {
+	want := "https://nexus.example.com/repository/honryu-raw/scenario/7/test.jmx"
+	if got := store.URL("scenario/7/test.jmx"); got != want {
 		t.Fatalf("URL = %q, want %q", got, want)
 	}
 }

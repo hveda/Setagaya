@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/run"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/run"
 )
 
-func ec(plans ...execution.ExecutionPlan) execution.ExecutionCollection {
-	return execution.ExecutionCollection{Tests: plans}
+func ec(scenarios ...loadprofile.Entry) loadprofile.Profile {
+	return loadprofile.Profile{Tests: scenarios}
 }
 
 func TestDerivePhase(t *testing.T) {
@@ -50,17 +50,17 @@ func TestCanDeploy(t *testing.T) {
 func TestCanTrigger(t *testing.T) {
 	t.Parallel()
 
-	plan := execution.ExecutionPlan{PlanID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
-	full := ec(plan)
+	scenario := loadprofile.Entry{ScenarioID: 1, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10}
+	full := ec(scenario)
 
 	cases := []struct {
 		name    string
 		phase   run.Phase
-		coll    execution.ExecutionCollection
+		coll    loadprofile.Profile
 		ready   int
 		wantErr error
 	}{
-		{"no plans", run.PhaseDeployed, ec(), 0, run.ErrNoPlans},
+		{"no scenarios", run.PhaseDeployed, ec(), 0, run.ErrNoScenarios},
 		{"not deployed", run.PhaseIdle, full, 0, run.ErrNotDeployed},
 		{"already running", run.PhaseRunning, full, 2, run.ErrAlreadyRunning},
 		{"engines not ready", run.PhaseDeployed, full, 1, run.ErrEnginesNotReady},
@@ -100,8 +100,8 @@ func TestVirtualUsers(t *testing.T) {
 	t.Parallel()
 
 	got := run.VirtualUsers(ec(
-		execution.ExecutionPlan{Engines: 2, Concurrency: 10},
-		execution.ExecutionPlan{Engines: 3, Concurrency: 5},
+		loadprofile.Entry{Engines: 2, Concurrency: 10},
+		loadprofile.Entry{Engines: 3, Concurrency: 5},
 	))
 	if got != 2*10+3*5 {
 		t.Errorf("VirtualUsers = %d, want %d", got, 2*10+3*5)
@@ -115,7 +115,7 @@ func TestRun_FinishedAndElapsed(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
-	open := run.Run{ID: 1, CollectionID: 2, StartedAt: start}
+	open := run.Run{ID: 1, ExecutionID: 2, StartedAt: start}
 	if open.Finished() {
 		t.Error("open run should not be finished")
 	}

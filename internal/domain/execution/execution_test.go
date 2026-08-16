@@ -2,84 +2,98 @@ package execution_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/execution"
 )
 
-func validPlan(planID int64, engines, concurrency int) execution.ExecutionPlan {
-	return execution.ExecutionPlan{
-		Name:        "p",
-		PlanID:      planID,
-		Engines:     engines,
-		Concurrency: concurrency,
-		Rampup:      1,
-		Duration:    60,
+func TestNew_Valid(t *testing.T) {
+	t.Parallel()
+
+	c, err := execution.New("  peak-hour  ", 3)
+	if err != nil {
+		t.Fatalf("New: unexpected error: %v", err)
+	}
+	if c.Name != "peak-hour" {
+		t.Errorf("Name = %q, want trimmed peak-hour", c.Name)
+	}
+	if c.ProjectID != 3 {
+		t.Errorf("ProjectID = %d, want 3", c.ProjectID)
+	}
+	if c.CSVSplit {
+		t.Errorf("CSVSplit = true, want false by default")
+	}
+	if c.Kind != execution.KindNormal {
+		t.Errorf("Kind = %q, want %q by default", c.Kind, execution.KindNormal)
 	}
 }
 
-func TestExecutionPlan_Validate(t *testing.T) {
+func TestNew_Errors(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name    string
-		ep      execution.ExecutionPlan
-		wantErr error
+		name     string
+		collName string
+		project  int64
+		wantErr  error
 	}{
-		{"valid", validPlan(1, 2, 10), nil},
-		{"no plan id", execution.ExecutionPlan{Engines: 1, Concurrency: 1, Duration: 1}, execution.ErrPlanRequired},
-		{"zero engines", execution.ExecutionPlan{PlanID: 1, Engines: 0, Concurrency: 1, Duration: 1}, execution.ErrEnginesInvalid},
-		{"zero concurrency", execution.ExecutionPlan{PlanID: 1, Engines: 1, Concurrency: 0, Duration: 1}, execution.ErrConcurrencyInvalid},
-		{"zero duration", execution.ExecutionPlan{PlanID: 1, Engines: 1, Concurrency: 1, Duration: 0}, execution.ErrDurationInvalid},
+		{"empty name", "", 1, execution.ErrNameRequired},
+		{"name too long", strings.Repeat("c", 101), 1, execution.ErrNameTooLong},
+		{"zero project", "peak", 0, execution.ErrProjectRequired},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := tc.ep.Validate()
-			if tc.wantErr == nil {
-				if err != nil {
-					t.Fatalf("Validate() = %v, want nil", err)
-				}
-				return
-			}
+			_, err := execution.New(tc.collName, tc.project)
 			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("Validate() = %v, want %v", err, tc.wantErr)
+				t.Fatalf("New(%q,%d) err = %v, want %v", tc.collName, tc.project, err, tc.wantErr)
 			}
 		})
 	}
 }
 
-func TestExecutionCollection_Validate_And_TotalEngines(t *testing.T) {
+// An execution row persisted before Kind existed decodes to the Go zero
+// value ("") -- Validate must keep treating that as valid (equivalent to
+// KindNormal), the same tolerance it already gives an empty Engine.
+func TestValidate_EmptyKindIsValid(t *testing.T) {
 	t.Parallel()
-
-	ec := execution.ExecutionCollection{
-		CollectionID: 5,
-		Tests: []execution.ExecutionPlan{
-			validPlan(1, 2, 10),
-			validPlan(2, 3, 10),
-		},
-	}
-	if err := ec.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-	if got := ec.TotalEngines(); got != 5 {
-		t.Fatalf("TotalEngines = %d, want 5", got)
+	c := execution.Execution{Name: "peak", ProjectID: 1}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate (empty kind) = %v, want nil", err)
 	}
 }
 
-func TestExecutionCollection_Validate_Errors(t *testing.T) {
+func TestValidate_UnknownKindRejected(t *testing.T) {
 	t.Parallel()
-
-	empty := execution.ExecutionCollection{CollectionID: 5}
-	if err := empty.Validate(); !errors.Is(err, execution.ErrNoPlans) {
-		t.Fatalf("empty Validate = %v, want ErrNoPlans", err)
+	c := execution.Execution{Name: "peak", ProjectID: 1, Kind: execution.Kind("bogus")}
+	if err := c.Validate(); !errors.Is(err, execution.ErrKindUnknown) {
+		t.Fatalf("Validate (unknown kind) = %v, want ErrKindUnknown", err)
 	}
+}
 
-	bad := execution.ExecutionCollection{
-		CollectionID: 5,
-		Tests:        []execution.ExecutionPlan{validPlan(1, 0, 1)}, // zero engines
+func TestValidate_CalibrateEngineKindAccepted(t *testing.T) {
+	t.Parallel()
+	c := execution.Execution{Name: "peak", ProjectID: 1, Kind: execution.KindCalibrateEngine}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate (CalibrateEngine kind) = %v, want nil", err)
 	}
-	if err := bad.Validate(); !errors.Is(err, execution.ErrEnginesInvalid) {
-		t.Fatalf("bad Validate = %v, want ErrEnginesInvalid", err)
+}
+
+func TestKind_Known(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		kind execution.Kind
+		want bool
+	}{
+		{execution.KindNormal, true},
+		{execution.KindCalibrateEngine, true},
+		{execution.Kind(""), false},
+		{execution.Kind("bogus"), false},
+	}
+	for _, tc := range cases {
+		if got := tc.kind.Known(); got != tc.want {
+			t.Errorf("Kind(%q).Known() = %v, want %v", tc.kind, got, tc.want)
+		}
 	}
 }

@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/auth/oidc"
-	"github.com/heridotlife/Setagaya/internal/ports/authtest"
+	"github.com/heridotlife/honryu/internal/adapters/auth/oidc"
+	"github.com/heridotlife/honryu/internal/ports/authtest"
 )
 
 const (
 	testKid    = "test-key-1"
 	testIssuer = "https://issuer.example"
-	testAud    = "setagaya"
+	testAud    = "honryu"
 )
 
 // signer mints signed JWTs for tests.

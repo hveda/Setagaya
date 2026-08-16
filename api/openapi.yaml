@@ -1,0 +1,2073 @@
+openapi: 3.0.3
+info:
+  title: 奔流 (Honryu) API
+  version: 0.1.0
+  description: |
+    Honryu is a Kubernetes-native load-testing platform.
+
+    Vocabulary follows Taurus and the wider load-testing community:
+
+      * a **scenario** is a reusable workload definition;
+      * an **execution** is the runnable unit that groups scenarios, together
+        with their load profile (concurrency, ramp-up, duration, engines).
+
+    This document is kept honest by a test: `TestOpenAPIMatchesRoutes` fails if
+    the router registers a route this file does not describe, or vice versa.
+  license:
+    name: See LICENSE
+
+servers:
+  - url: /
+    description: The API server
+
+tags:
+  - name: health
+    description: Liveness and metrics
+  - name: projects
+    description: Projects, the ownership root
+  - name: scenarios
+    description: Reusable workload definitions
+  - name: executions
+    description: Runnable units grouping scenarios
+  - name: lifecycle
+    description: Deploying, triggering, and observing runs
+  - name: schedules
+    description: >-
+      Time-triggered executions: one-shot or recurring, each occurrence's
+      quota admission decided (and its capacity held, if admitted) up front
+  - name: reports
+    description: >-
+      Post-run diagnosis: stored reports, captured engine logs, and the
+      compiled config each run actually used -- retrievable after the engines
+      and their pods are gone, with no cluster access
+  - name: usage
+    description: Engine usage accounting
+  - name: admin
+    description: Operator views
+  - name: tenants
+    description: Multi-tenancy and role grants
+  - name: campaigns
+    description: >-
+      PM-owned readiness events: a window, participating services each bound
+      to one designated readiness execution, and a rolled-up go/no-go verdict
+  - name: calibration
+    description: >-
+      Engine-capacity search: a CalibrateEngine execution measures one engine
+      pod's sustainable QPS for a scenario, producing a CapacityProfile the
+      fan-out calculator turns a target aggregate QPS into a required engine
+      count from
+  - name: files
+    description: Artifact download
+  - name: ingest
+    description: Measurements pushed by engine pods
+
+components:
+  parameters:
+    ProjectID:
+      name: project_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ScenarioID:
+      name: scenario_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ExecutionID:
+      name: execution_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    TenantID:
+      name: tenant_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ClusterName:
+      name: name
+      in: path
+      required: true
+      schema: { type: string }
+    ScheduleID:
+      name: schedule_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    CampaignID:
+      name: campaign_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    CalibrationJobID:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    CapacityProfileEngine:
+      name: engine
+      in: query
+      required: true
+      description: Taurus executor the profile was calibrated on (e.g. jmeter, k6).
+      schema: { type: string }
+    CapacityProfileCPU:
+      name: cpu
+      in: query
+      required: true
+      description: The calibrated pod's CPU request, ports.DeploySpec's own string format (e.g. "1", "500m").
+      schema: { type: string }
+    CapacityProfileMemory:
+      name: memory
+      in: query
+      required: true
+      description: The calibrated pod's memory request, ports.DeploySpec's own string format (e.g. "512Mi").
+      schema: { type: string }
+    FanOutTargetQPS:
+      name: target_qps
+      in: query
+      required: true
+      description: The aggregate request rate to size engine capacity for.
+      schema: { type: number, format: double }
+    Filename:
+      name: filename
+      in: query
+      required: true
+      schema: { type: string }
+    RunID:
+      name: run_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Shard:
+      name: shard
+      in: path
+      required: true
+      description: The pod's index within its scenario, matching the shard plan.
+      schema: { type: integer }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum reports to return, most recent first. Omitted or non-positive means no limit.
+      schema: { type: integer }
+
+  securitySchemes:
+    engineToken:
+      type: http
+      scheme: bearer
+      description: The deployment's engine credential, held by every engine pod.
+
+  schemas:
+    Cluster:
+      type: object
+      description: A registered cluster Honryu can generate load from. The credential is never surfaced; secret_ref names it.
+      required: [name, ingest_url, sidecar_image, namespace, secret_ref, origin]
+      properties:
+        name: { type: string, description: The ClusterRef; empty on an execution means the default cluster }
+        api_url: { type: string }
+        ingest_url: { type: string }
+        sidecar_image: { type: string }
+        namespace: { type: string }
+        secret_ref: { type: string }
+        origin: { type: string, enum: [operator, byoc] }
+        created_by: { type: string }
+        created_time: { type: string, format: date-time }
+    MetricBatch:
+      type: object
+      description: One engine pod's measurements.
+      required: [execution_id, intervals]
+      properties:
+        execution_id: { type: integer, format: int64 }
+        scenario_id: { type: integer, format: int64 }
+        run_id: { type: integer, format: int64 }
+        shard_index:
+          type: integer
+          description: The pod's index within the execution, matching the shard plan.
+        final:
+          type: boolean
+          description: Marks the last batch a pod will send, so a finished pod is distinguishable from a silent one.
+        intervals:
+          type: array
+          items: { $ref: '#/components/schemas/MetricInterval' }
+    MetricInterval:
+      type: object
+      description: One second of measurement for one request label.
+      properties:
+        ts: { type: integer, format: int64, description: Unix seconds }
+        label: { type: string }
+        concurrency: { type: integer }
+        samples: { type: integer, format: int64 }
+        succeeded: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        bytes: { type: integer, format: int64 }
+        latency:
+          type: object
+          description: Response-time buckets, keyed by response time in seconds.
+          additionalProperties: { type: integer, format: int64 }
+        response_codes:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              message: { type: string }
+              response_code: { type: string }
+              count: { type: integer, format: int64 }
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+    Project:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        owner: { type: string }
+        sid: { type: string }
+        tenant_id: { type: integer, format: int64, nullable: true }
+        created_time: { type: string, format: date-time }
+    Scenario:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        project_id: { type: integer, format: int64 }
+        created_time: { type: string, format: date-time }
+    LoadProfileEntry:
+      description: One scenario's load configuration; maps onto a Taurus execution block.
+      type: object
+      properties:
+        name: { type: string }
+        scenario_id: { type: integer, format: int64 }
+        concurrency: { type: integer }
+        rampup: { type: integer }
+        engines: { type: integer }
+        duration: { type: integer }
+        csv_split: { type: boolean }
+    Execution:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        project_id: { type: integer, format: int64 }
+        engine:
+          type: string
+          description: Engine the execution runs on; absent means the deployment default.
+        csv_split: { type: boolean }
+        load_profile:
+          type: array
+          items: { $ref: '#/components/schemas/LoadProfileEntry' }
+    ScenarioReadiness:
+      type: object
+      properties:
+        scenario_id: { type: integer, format: int64 }
+        engines: { type: integer }
+        engines_deployed: { type: integer }
+        engines_reachable: { type: boolean }
+    ExecutionStatus:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [idle, deployed, running]
+        status:
+          type: array
+          items: { $ref: '#/components/schemas/ScenarioReadiness' }
+        pool_size: { type: integer }
+    EngineDetail:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        created_time: { type: string, format: date-time }
+    Tenant:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        display_name: { type: string }
+        status: { type: string }
+        created_time: { type: string, format: date-time }
+    Reservation:
+      type: object
+      description: A tenant's claim on engine capacity for a bounded window -- the reservation calendar's unit.
+      properties:
+        id: { type: integer, format: int64 }
+        tenant_id: { type: integer, format: int64 }
+        cluster: { type: string }
+        engine_count: { type: integer }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        execution_id: { type: integer, format: int64 }
+    Occurrence:
+      type: object
+      description: One computed fire time for a schedule and its outcome, decided when it was reserved -- not deferred until it actually fires.
+      properties:
+        id: { type: integer, format: int64 }
+        fire_time: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [reserved, rejected, fired, completed]
+        reservation_id:
+          type: integer
+          format: int64
+          description: Present only while status is reserved.
+    Schedule:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+        tenant_id: { type: integer, format: int64 }
+        cluster: { type: string }
+        kind:
+          type: string
+          enum: [one_shot, recurring]
+        fire_at:
+          type: string
+          format: date-time
+          description: Set for kind=one_shot.
+        recurrence:
+          type: string
+          description: A standard 5-field cron expression. Set for kind=recurring.
+        active: { type: boolean }
+        occurrences:
+          type: array
+          items: { $ref: '#/components/schemas/Occurrence' }
+
+    CampaignServiceBinding:
+      type: object
+      description: One participating service (project) and its designated readiness execution.
+      properties:
+        project_id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+    Campaign:
+      type: object
+      description: A PM-owned readiness event -- a window, participating services, and (once ended or aborted) a rolled-up verdict.
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        tenant_id: { type: integer, format: int64 }
+        window_start: { type: string, format: date-time }
+        window_end: { type: string, format: date-time }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignServiceBinding' }
+        active:
+          type: boolean
+          description: Derived from the window and aborted_at, not a stored status.
+        aborted_at:
+          type: string
+          format: date-time
+          description: Present only once the campaign has been aborted.
+
+    FailingCriterion:
+      type: object
+      description: One configured Taurus pass/fail criterion that triggered, or whose subject/syntax fell outside the practical grammar subset evaluated.
+      properties:
+        criterion: { type: string, description: "The original configured expression, unmodified (e.g. \"failures>10%\")." }
+        unparsed:
+          type: boolean
+          description: True when the criterion could not be evaluated at all -- its outcome is unknown, not confirmed triggered.
+    ServiceVerdict:
+      type: object
+      description: One participating service's contribution to a campaign's rolled-up verdict, read from its designated execution's latest report.
+      properties:
+        project_id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+        has_report:
+          type: boolean
+          description: False when the designated execution has never produced a report at all -- distinct from a report that already says "passed".
+        outcome: { type: string, enum: [passed, failed, aborted, error] }
+        failing_criteria:
+          type: array
+          items: { $ref: '#/components/schemas/FailingCriterion' }
+          description: Only populated when outcome is "failed".
+        short_of_target_qps:
+          type: boolean
+          description: True when the service requested a target QPS and achieved less than 95% of it -- a criteria pass under a fraction of the intended load is not a real go. Always false when no target QPS was requested.
+        requested_throughput: { type: number, description: "The report's requested throughput (QPS); 0 means unlimited." }
+        achieved_throughput: { type: number, description: The report's achieved throughput (QPS). }
+    OtherLoad:
+      type: object
+      description: One reservation or completed launch, other than the campaign's own designated executions, that overlapped its window -- the minimum mitigation for the residual risk that a non-participating execution could distort the campaign's readiness numbers by contending for shared infrastructure Honryu cannot see or scope around.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        engine_count: { type: integer }
+    CampaignVerdict:
+      type: object
+      description: A campaign's rolled-up go/no-go.
+      properties:
+        campaign_id: { type: integer, format: int64 }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/ServiceVerdict' }
+        go:
+          type: boolean
+          description: True only when every service has a report, that report's outcome is "passed", and it is not short of its target QPS (see ServiceVerdict.short_of_target_qps).
+        other_load:
+          type: array
+          items: { $ref: '#/components/schemas/OtherLoad' }
+          description: Every other execution active in the campaign's tenant during its window, excluding its own participating executions.
+    ServiceComparison:
+      type: object
+      description: One project's classification against a baseline campaign.
+      properties:
+        project_id: { type: integer, format: int64 }
+        status: { type: string, enum: [improved, regressed, newly_at_risk, still_at_risk, steady, new, dropped] }
+        has_current:
+          type: boolean
+          description: False only for "dropped" -- the project does not participate in this campaign.
+        go: { type: boolean, description: This campaign's go/no-go signal for the project; meaningless when has_current is false. }
+        has_baseline:
+          type: boolean
+          description: False for "new" and "newly_at_risk" -- the project did not participate in the baseline campaign.
+        baseline_go: { type: boolean, description: The baseline campaign's go/no-go signal for the project; meaningless when has_baseline is false. }
+    CampaignComparison:
+      type: object
+      description: A campaign's per-service classification against a baseline campaign.
+      properties:
+        campaign_id: { type: integer, format: int64 }
+        has_baseline:
+          type: boolean
+          description: False when no baseline campaign could be resolved (no prior ended campaign in the tenant, and none given explicitly) -- services is empty in that case, not computed against an empty baseline.
+        baseline_campaign_id: { type: integer, format: int64 }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/ServiceComparison' }
+
+    CalibrationExecution:
+      type: object
+      description: A CalibrateEngine execution -- an ordinary execution pinned to one pod size, with its target-health criterion and search bounds recorded up front.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        name: { type: string }
+        project_id: { type: integer, format: int64 }
+        engine: { type: string }
+        cpu: { type: string, description: 'The pinned pod''s CPU request (e.g. "1", "500m"), fixed for every step of the search.' }
+        memory: { type: string, description: 'The pinned pod''s memory request (e.g. "512Mi").' }
+        criterion: { type: string, description: 'The target-health expression that trips target-saturation (e.g. "failures>5%").' }
+        seed_qps: { type: number, format: double }
+        max_qps: { type: number, format: double, description: The absolute ceiling the search will never issue a step above. }
+        max_steps: { type: integer }
+        hold_seconds: { type: integer, description: How long each step holds steady state before its report is read. }
+    CalibrationStep:
+      type: object
+      description: One real, settled run's classified outcome.
+      properties:
+        requested_qps: { type: number, format: double }
+        achieved_qps: { type: number, format: double }
+        classification: { type: string, enum: [engine_saturated, target_saturated, clean] }
+    CalibrationResult:
+      type: object
+      description: A finished search's terminal outcome.
+      properties:
+        saturated_by:
+          type: string
+          enum: [engine, target, neither]
+          description: Which side gave out first. "engine" means per_pod_qps is confirmed capacity; otherwise it is a lower bound.
+        per_pod_qps: { type: number, format: double }
+    CalibrationJob:
+      type: object
+      description: A calibration search's current state and full step-by-step history.
+      properties:
+        id: { type: integer, format: int64 }
+        execution_id: { type: integer, format: int64 }
+        phase:
+          type: string
+          enum: [pending, bracketing, bisecting, done, failed]
+        step_count: { type: integer }
+        next_requested_qps:
+          type: number
+          format: double
+          description: The QPS the next step must run at. Absent once result is set.
+        result: { $ref: '#/components/schemas/CalibrationResult' }
+        failure_reason:
+          type: string
+          description: Set only when phase is "failed" -- an operational failure (the step's run itself errored), not a search outcome.
+        created_time: { type: string, format: date-time }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/CalibrationStep' }
+    CapacityProfile:
+      type: object
+      description: A calibration's confirmed-or-floor answer for one (scenario, engine, cpu, memory) key.
+      properties:
+        scenario_id: { type: integer, format: int64 }
+        engine: { type: string }
+        cpu: { type: string }
+        memory: { type: string }
+        per_pod_qps: { type: number, format: double }
+        saturated_by: { type: string, enum: [engine, target, neither] }
+        scenario_fingerprint:
+          type: string
+          description: The scenario's content hash at calibration time -- the fan-out calculator treats any mismatch against the scenario's current fingerprint as staleness.
+        calibrated_at: { type: string, format: date-time }
+        job_id: { type: integer, format: int64 }
+    FanOutResult:
+      type: object
+      description: The fan-out calculator's answer -- an engine count only ever accompanies status "ok", so a caller can never read one without its own caveat.
+      properties:
+        status:
+          type: string
+          enum: [ok, target_limited, inconclusive, stale, no_profile]
+        engines:
+          type: integer
+          description: Present only when status is "ok".
+
+    Report:
+      type: object
+      description: What a run is judged on, kept after its engines and pods are gone.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        scenario_id:
+          type: integer
+          format: int64
+          description: Populated only when the execution's profile has exactly one scenario; 0 otherwise, since the label breakdown covers the multi-scenario case.
+        run_id: { type: integer, format: int64 }
+        engine: { type: string }
+        correlation_id:
+          type: string
+          description: The trace id the run's generated load carried in its W3C traceparent/baggage headers -- the id to deep-link into a customer's own APM for exactly this run, alongside started_at/ended_at. Empty for runs that predate it.
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        outcome:
+          type: string
+          enum: [passed, failed, aborted, error]
+        requested: { $ref: '#/components/schemas/Load' }
+        achieved: { $ref: '#/components/schemas/Load' }
+        error_rate:
+          type: number
+          description: Every failure, whoever caused it. Not a verdict input on its own -- attribution splits it by side.
+        latency:
+          type: object
+          description: 'Percentile number to response-time seconds, e.g. {"95": 0.2}.'
+          additionalProperties: { type: number }
+        attribution: { $ref: '#/components/schemas/Attribution' }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ErrorSignature' }
+        labels:
+          type: array
+          items: { $ref: '#/components/schemas/LabelSummary' }
+    Trend:
+      type: object
+      description: An execution's run-over-run history, most recent first.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/TrendPoint' }
+    TrendPoint:
+      type: object
+      description: One run's contribution to its execution's trend.
+      properties:
+        run_id: { type: integer, format: int64 }
+        outcome: { type: string, enum: [passed, failed, aborted, error] }
+        achieved_throughput: { type: number }
+        requested_throughput: { type: number }
+        error_rate: { type: number }
+        p50: { type: number }
+        p90: { type: number }
+        p95: { type: number }
+        p99: { type: number }
+        hit_target_qps:
+          type: boolean
+          description: True when no target QPS was requested, or the run achieved at least 95% of it.
+        has_comparable_predecessor:
+          type: boolean
+          description: False when no earlier report in the trend shares this run's execution, requested load, engine, and cluster -- "no baseline", never a false regression.
+        regressed:
+          type: boolean
+          description: True only when this run did not hit target QPS while its nearest comparable predecessor did. The reverse transition (an improvement) is visible directly via hit_target_qps and is not separately flagged.
+    SignatureHistoryRow:
+      type: object
+      description: One failure mode's totals across every run of an execution.
+      properties:
+        label: { type: string }
+        response_code: { type: string }
+        side: { type: string, enum: [target, engine, unknown] }
+        total_count: { type: integer, format: int64 }
+        run_count:
+          type: integer
+          description: How many distinct runs this exact (label, response_code, side) signature appeared in.
+    SignatureBreakdown:
+      type: object
+      description: One grouped bucket (a label, or a response code) and every finer-grained row that contributed to it.
+      properties:
+        key: { type: string, description: "The grouped-on value -- a label or a response code, depending on the request's ?by=." }
+        total_count: { type: integer, format: int64, description: "A safe re-sum of the contributing rows' counts." }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/SignatureHistoryRow' }
+    ErrorSignatureHistory:
+      type: object
+      description: An execution's error signatures aggregated across every run, grouped by one axis.
+      properties:
+        execution_id: { type: integer, format: int64 }
+        grouped_by: { type: string, enum: [label, response_code] }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/SignatureBreakdown' }
+    Load:
+      type: object
+      description: A rate of work, requested or achieved.
+      properties:
+        concurrency: { type: integer }
+        throughput:
+          type: number
+          description: Requests per second. Zero means unlimited when requested, nothing measured when achieved.
+        duration_seconds: { type: integer }
+        samples: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+    Attribution:
+      type: object
+      description: A run's failures, split by who caused them. All three are always present -- unknown is never folded into target or engine.
+      properties:
+        target: { type: integer, format: int64 }
+        engine: { type: integer, format: int64 }
+        unknown: { type: integer, format: int64 }
+    ErrorSignature:
+      type: object
+      description: One failure mode across a run, keyed on label, response code, and side -- never on engine message text, which differs per engine for the same failure.
+      properties:
+        label: { type: string }
+        response_code: { type: string }
+        side:
+          type: string
+          enum: [target, engine, unknown]
+        count: { type: integer, format: int64 }
+        exemplars:
+          type: array
+          description: A bounded sample of the engine wordings behind this signature, for a human to read -- never the grouping key.
+          items: { type: string }
+    LabelSummary:
+      type: object
+      description: One request's share of a run.
+      properties:
+        label: { type: string }
+        samples: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        error_rate: { type: number }
+        latency:
+          type: object
+          additionalProperties: { type: number }
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Not permitted
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such resource
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Not valid in the current state
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoContent:
+      description: Success, no body
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      responses:
+        '200': { description: Healthy }
+
+  /metrics:
+    get:
+      tags: [health]
+      summary: Prometheus metrics exposition
+      responses:
+        '200':
+          description: Metrics in Prometheus text format
+          content:
+            text/plain: {}
+
+  /api/projects:
+    get:
+      tags: [projects]
+      summary: List projects visible to the caller
+      responses:
+        '200':
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, owner]
+              properties:
+                name: { type: string }
+                owner: { type: string }
+                sid: { type: string }
+                tenant_id: { type: integer, format: int64 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/projects/{project_id}:
+    get:
+      tags: [projects]
+      summary: Get a project
+      parameters: [{ $ref: '#/components/parameters/ProjectID' }]
+      responses:
+        '200':
+          description: Project
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [projects]
+      summary: Delete a project
+      description: Rejected while the project still owns scenarios or executions.
+      parameters: [{ $ref: '#/components/parameters/ProjectID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/scenarios:
+    post:
+      tags: [scenarios]
+      summary: Create a scenario
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, project_id]
+              properties:
+                name: { type: string }
+                project_id: { type: integer, format: int64 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/scenarios/import:
+    post:
+      tags: [scenarios]
+      summary: Import a JMeter plan as a scenario
+      description: |
+        Creates a native, JMeter-pinned scenario from an uploaded `.jmx`. The
+        plan is not converted -- Taurus runs it as-is -- so the response carries
+        an inspection report describing what Honryu will do differently: load
+        settings baked into the plan that the execution's load profile
+        overrides, data files that must be uploaded separately, and listeners
+        whose output Honryu does not read.
+
+        A plan with no `TestPlan` element is refused: it parses, but it cannot
+        run.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, project_id]
+              properties:
+                file: { type: string, format: binary }
+                project_id: { type: integer, format: int64 }
+                name:
+                  type: string
+                  description: Defaults to the uploaded filename without its extension.
+      responses:
+        '201':
+          description: Scenario created, with the inspection report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scenario: { $ref: '#/components/schemas/Scenario' }
+                  report:
+                    type: object
+                    properties:
+                      test_plan_name: { type: string }
+                      thread_groups:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name: { type: string }
+                            threads: { type: integer }
+                            ramp_up_seconds: { type: integer }
+                            duration_seconds: { type: integer }
+                      data_files:
+                        type: array
+                        items: { type: string }
+                      findings:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum: [load-overridden, unreachable-path, listener-ignored, external-reporting]
+                            element: { type: string }
+                            detail: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/scenarios/{scenario_id}:
+    get:
+      tags: [scenarios]
+      summary: Get a scenario and its files
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: Scenario
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [scenarios]
+      summary: Delete a scenario
+      description: Rejected while the scenario is referenced by an execution.
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/scenarios/{scenario_id}/files:
+    get:
+      tags: [scenarios]
+      summary: List a scenario's files
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: File names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  test_file: { type: string }
+                  data:
+                    type: array
+                    items: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [scenarios]
+      summary: Upload a script or data file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [scenarios]
+      summary: Delete one of a scenario's files
+      parameters:
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/Filename' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/scenarios/{scenario_id}/requests:
+    put:
+      tags: [scenarios]
+      summary: Upload a portable scenario's declarative workload
+      description: |
+        A Taurus `scenarios:` fragment (requests, default-address, headers,
+        data-sources) -- the same shape Taurus itself expects, not a separate
+        request-definition vocabulary. Only valid for a portable scenario; an
+        engine-native scenario (pinned by an uploaded script) rejects this
+        with a conflict, since it runs its script instead and would never
+        read a stored fragment. Replaces whatever was uploaded before in
+        full -- there is no partial patch.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions:
+    post:
+      tags: [executions]
+      summary: Create an execution
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, project_id]
+              properties:
+                name: { type: string }
+                project_id: { type: integer, format: int64 }
+                engine:
+                  type: string
+                  description: |
+                    Engine to run on. Omit to use the deployment's configured
+                    default. Must be an engine this deployment has an image for,
+                    and one every scenario in the execution can run on.
+                  enum: [jmeter, k6, gatling, locust, apiritif, ab, siege]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Execution' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/executions/{execution_id}:
+    get:
+      tags: [executions]
+      summary: Get an execution and its load profile
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Execution
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Execution' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [executions]
+      summary: Delete an execution
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/files:
+    get:
+      tags: [executions]
+      summary: List an execution's data files
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: File names
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [executions]
+      summary: Upload a data file shared by the execution's scenarios
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    delete:
+      tags: [executions]
+      summary: Delete one of an execution's data files
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/Filename' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/config:
+    get:
+      tags: [executions]
+      summary: Get the execution's load profile
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Load profile
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LoadProfileEntry' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [executions]
+      summary: Replace the execution's load profile
+      description: |
+        Accepts the uploaded configuration file. This format is replaced by
+        Taurus YAML in a later phase.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/deploy:
+    post:
+      tags: [lifecycle]
+      summary: Deploy the execution's engines
+      description: Idempotent from idle or deployed; rejected mid-run.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/trigger:
+    post:
+      tags: [lifecycle]
+      summary: Start the run
+      description: Requires every engine to be deployed and reachable.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/stop:
+    post:
+      tags: [lifecycle]
+      summary: Stop the run, leaving engines deployed
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/purge:
+    post:
+      tags: [lifecycle]
+      summary: Tear down all engines
+      description: Purging an execution with nothing deployed is not an error.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/status:
+    get:
+      tags: [lifecycle]
+      summary: Report phase and per-scenario engine readiness
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionStatus' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/engines:
+    get:
+      tags: [lifecycle]
+      summary: List the execution's engine pods
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Engines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ingress_ip: { type: string }
+                  engines:
+                    type: array
+                    items: { $ref: '#/components/schemas/EngineDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/scenarios/{scenario_id}/logs:
+    get:
+      tags: [lifecycle]
+      summary: Fetch the logs of a scenario's first engine pod
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/ScenarioID' }
+      responses:
+        '200':
+          description: Pod log
+          content:
+            text/plain: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/executions/{execution_id}/stream:
+    get:
+      tags: [lifecycle]
+      summary: Stream live run metrics as server-sent events
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/schedules:
+    post:
+      tags: [schedules]
+      summary: Create a time-triggered schedule for the execution
+      description: |
+        Computes every occurrence within the 7-day admission horizon (a
+        one-shot schedule's single fire_at; a recurring schedule's cron
+        recurrence stepped forward) and reserves each independently. An
+        occurrence that does not fit the tenant's quota is marked rejected,
+        not an error on the whole call -- partial success, visible on the
+        returned schedule's occurrences.
+
+        tenant_id decides which tenant's quota the schedule's occurrences
+        draw against, so under RBAC the caller must be authorized for that
+        specific tenant (global or tenant-scoped), not merely authorized to
+        manage the execution -- the same rule creating a project under a
+        given tenant_id already follows.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [tenant_id, kind]
+              properties:
+                tenant_id: { type: integer, format: int64 }
+                cluster: { type: string }
+                kind:
+                  type: string
+                  enum: [one_shot, recurring]
+                fire_at:
+                  type: string
+                  format: date-time
+                  description: Required for kind=one_shot.
+                recurrence:
+                  type: string
+                  description: A standard 5-field cron expression. Required for kind=recurring.
+      responses:
+        '201':
+          description: Schedule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Schedule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      tags: [schedules]
+      summary: List an execution's schedules and their occurrences' statuses
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '200':
+          description: Schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Schedule' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/schedules/{schedule_id}:
+    delete:
+      tags: [schedules]
+      summary: Delete a schedule
+      description: Releases every occurrence that still holds a reservation.
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/ScheduleID' }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/tenants/{tenant_id}/campaigns:
+    post:
+      tags: [campaigns]
+      summary: Define a campaign -- a window and its participating services
+      description: |
+        Each service is a (project, designated execution) pair: the
+        execution is that service's readiness test for the campaign,
+        exempt from freeze and the input to its verdict. Requires a role
+        (global or scoped to this tenant) granting campaign
+        create/update/admin -- an ordinary tenant editor or admin cannot
+        create a campaign, since it freezes other teams' work for its
+        window.
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, window_start, window_end, service_project_id, service_execution_id]
+              properties:
+                name: { type: string }
+                window_start: { type: string, format: date-time }
+                window_end: { type: string, format: date-time }
+                service_project_id:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Index-paired with service_execution_id.
+                service_execution_id:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Index-paired with service_project_id.
+      responses:
+        '201':
+          description: Campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      tags: [campaigns]
+      summary: List a tenant's campaigns
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      responses:
+        '200':
+          description: Campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Campaign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/campaigns/{campaign_id}:
+    get:
+      tags: [campaigns]
+      summary: Get one campaign
+      parameters: [{ $ref: '#/components/parameters/CampaignID' }]
+      responses:
+        '200':
+          description: Campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/campaigns/{campaign_id}/verdict:
+    get:
+      tags: [campaigns]
+      summary: Get a campaign's rolled-up verdict
+      description: |
+        Per-service outcome (and, for a failed service, its named failing
+        criteria, within the supported criteria-expression subset), plus
+        one overall go/no-go. Does not require the campaign to be closed --
+        a caller may check progress mid-window as easily as a final
+        verdict once it ends.
+
+        Unlike creating or listing campaigns, read access here does not
+        require a campaign-manager grant: the caller must be authorized to
+        view at least one of the campaign's participating projects, the
+        same check every other project-scoped read already uses.
+      parameters: [{ $ref: '#/components/parameters/CampaignID' }]
+      responses:
+        '200':
+          description: CampaignVerdict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CampaignVerdict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/campaigns/{campaign_id}/comparison:
+    get:
+      tags: [campaigns]
+      summary: Compare a campaign's per-service go/no-go against a baseline campaign
+      description: |
+        Classifies each participating project as improved, regressed,
+        newly_at_risk, still_at_risk, steady, new, or dropped, matched by
+        project id. The baseline defaults to the tenant's most-recent-prior
+        *ended* campaign (aborted, or its window has closed); pass
+        `?baseline=<campaign_id>` to compare against a specific one instead.
+        A campaign with no resolvable baseline (e.g. the tenant's first
+        campaign) returns `has_baseline: false` with no services, not an
+        error.
+
+        Authorization mirrors the verdict endpoint: the caller must be
+        authorized to view at least one of the campaign's participating
+        projects.
+      parameters:
+        - { $ref: '#/components/parameters/CampaignID' }
+        - name: baseline
+          in: query
+          required: false
+          description: Explicit baseline campaign id, overriding the default resolution.
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: CampaignComparison
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CampaignComparison' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/calibrations:
+    post:
+      tags: [calibration]
+      summary: Configure a new CalibrateEngine execution
+      description: |
+        An ordinary execution pinned to one pod size, with its target-health
+        criterion and search bounds recorded up front. Its scenario is bound
+        afterward the ordinary way (PUT .../config, unchanged by
+        calibration), and its search begins with a separate trigger call.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [project_id, name, engine, criterion, cpu, memory]
+              properties:
+                project_id: { type: integer, format: int64 }
+                name: { type: string }
+                engine: { type: string }
+                criterion: { type: string }
+                cpu: { type: string }
+                memory: { type: string }
+                seed_qps: { type: number, format: double, description: Defaulted when omitted. }
+                max_qps: { type: number, format: double, description: Defaulted when omitted. }
+                max_steps: { type: integer, description: Defaulted when omitted. }
+                hold_seconds: { type: integer, description: Defaulted when omitted. }
+      responses:
+        '201':
+          description: CalibrationExecution
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalibrationExecution' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/calibration/trigger:
+    post:
+      tags: [calibration]
+      summary: Start a fresh calibration search
+      description: >-
+        Creates a Pending job over an already-configured CalibrateEngine
+        execution -- a controller (cmd/calibrator, or cmd/scheduler hosting
+        the same loop) picks it up and advances it one step per tick.
+      parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
+      responses:
+        '201':
+          description: CalibrationJob
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalibrationJob' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/calibrations/{job_id}:
+    get:
+      tags: [calibration]
+      summary: Get a calibration job's status and progress
+      parameters: [{ $ref: '#/components/parameters/CalibrationJobID' }]
+      responses:
+        '200':
+          description: CalibrationJob
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalibrationJob' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/scenarios/{scenario_id}/capacity-profile:
+    get:
+      tags: [calibration]
+      summary: Get the stored calibration profile for one exact pod size
+      parameters:
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/CapacityProfileEngine' }
+        - { $ref: '#/components/parameters/CapacityProfileCPU' }
+        - { $ref: '#/components/parameters/CapacityProfileMemory' }
+      responses:
+        '200':
+          description: CapacityProfile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacityProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/scenarios/{scenario_id}/capacity-profile/fanout:
+    get:
+      tags: [calibration]
+      summary: Turn a target aggregate QPS into a required engine count
+      description: >-
+        Returns an engine count only for a fresh, engine-limited profile;
+        otherwise a named reason (target_limited, stale, or no_profile) --
+        never a number a reader could mistake for one.
+      parameters:
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/CapacityProfileEngine' }
+        - { $ref: '#/components/parameters/CapacityProfileCPU' }
+        - { $ref: '#/components/parameters/CapacityProfileMemory' }
+        - { $ref: '#/components/parameters/FanOutTargetQPS' }
+      responses:
+        '200':
+          description: FanOutResult
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FanOutResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/executions/{execution_id}/reports:
+    get:
+      tags: [reports]
+      summary: List an execution's reports, most recent first
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Report' }
+
+  /api/executions/{execution_id}/trend:
+    get:
+      tags: [reports]
+      summary: An execution's run-over-run trend
+      description: |
+        Achieved QPS, requested QPS, latency percentiles (p50/p90/p95/p99),
+        and error rate as raw advisory series, most recent first -- never
+        auto-flagged. The one flagged signal is `regressed`: true only when a
+        run did not hit its target QPS while its nearest comparable
+        predecessor (same execution, requested load, engine, and cluster)
+        did. A run with no comparable predecessor has
+        `has_comparable_predecessor: false` ("no baseline"), never a false
+        regression.
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Trend
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Trend' }
+
+  /api/executions/{execution_id}/error-signatures:
+    get:
+      tags: [reports]
+      summary: An execution's error signatures aggregated across every run
+      description: |
+        Each failure mode (label, response code, side) totalled across the
+        execution's whole run history, grouped by label (`?by=label`, the
+        default) or by response code (`?by=code`) -- independently, so a
+        reader can ask either "which requests fail most" or "which response
+        codes dominate", not just one fixed axis.
+
+        A group's total_count is a safe re-sum of its contributing rows; run
+        coverage (run_count) is only meaningful per leaf row, not rolled up
+        to the group -- a run producing two response codes under one label
+        would otherwise be double counted.
+      parameters:
+        - { $ref: '#/components/parameters/ExecutionID' }
+        - name: by
+          in: query
+          required: false
+          description: 'Grouping axis: "label" (default) or "code".'
+          schema: { type: string, enum: [label, code], default: label }
+      responses:
+        '200':
+          description: ErrorSignatureHistory
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorSignatureHistory' }
+
+  /api/runs/{run_id}/report:
+    get:
+      tags: [reports]
+      summary: Fetch a run's stored report
+      parameters: [{ $ref: '#/components/parameters/RunID' }]
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Report' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log:
+    get:
+      tags: [reports]
+      summary: Fetch a shard's captured engine log
+      description: >-
+        Durable, unlike /api/executions/{execution_id}/scenarios/{scenario_id}/logs:
+        this survives the pod's teardown, keyed by the run that produced it
+        rather than reflecting whatever is currently deployed.
+      parameters:
+        - { $ref: '#/components/parameters/RunID' }
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/Shard' }
+      responses:
+        '200':
+          description: Engine log
+          content:
+            text/plain: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config:
+    get:
+      tags: [reports]
+      summary: Fetch a shard's compiled Taurus config, exactly as the run used it
+      description: >-
+        A snapshot taken when the run started, immune to a later re-deploy
+        changing what is currently staged for the scenario.
+      parameters:
+        - { $ref: '#/components/parameters/RunID' }
+        - { $ref: '#/components/parameters/ScenarioID' }
+        - { $ref: '#/components/parameters/Shard' }
+      responses:
+        '200':
+          description: Compiled Taurus YAML
+          content:
+            text/plain: {}
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/usage/history:
+    get:
+      tags: [usage]
+      summary: Engine usage history
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Usage rows
+          content:
+            application/json: {}
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/usage/summary:
+    get:
+      tags: [usage]
+      summary: Aggregated engine usage
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json: {}
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/admin/executions:
+    get:
+      tags: [admin]
+      summary: List currently deployed executions
+      responses:
+        '200':
+          description: Deployed executions
+          content:
+            application/json: {}
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/nodes:
+    get:
+      tags: [admin]
+      summary: Summarise the node pools backing engine capacity
+      responses:
+        '200':
+          description: Node pools
+          content:
+            application/json: {}
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/abort:
+    post:
+      tags: [admin]
+      summary: Kill-switch -- tear down every in-flight execution matching a scope
+      description: |
+        Tears down every matching in-flight execution via the existing
+        Stop/Purge, within a bounded time. `campaign` is a valid scope now
+        (unreachable until Phase 6 introduces campaigns) so this endpoint
+        will not need touching again once it does -- it currently matches
+        nothing rather than erroring. Requires a service-provider admin
+        under RBAC.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [scope, value]
+              properties:
+                scope:
+                  type: string
+                  enum: [tenant, cluster, campaign, execution_list]
+                value:
+                  type: string
+                  description: >-
+                    A tenant id (scope=tenant), a cluster ref (scope=cluster,
+                    empty for the default cluster), unused (scope=campaign),
+                    or a comma-separated list of execution ids
+                    (scope=execution_list).
+      responses:
+        '200':
+          description: Aborted execution ids
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  aborted:
+                    type: array
+                    items: { type: integer, format: int64 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tenants:
+    get:
+      tags: [tenants]
+      summary: List tenants
+      responses:
+        '200':
+          description: Tenants
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Tenant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [tenants]
+      summary: Create a tenant
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, display_name]
+              properties:
+                name: { type: string }
+                display_name: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tenants/{tenant_id}:
+    get:
+      tags: [tenants]
+      summary: Get a tenant
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      responses:
+        '200':
+          description: Tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [tenants]
+      summary: Set a tenant's status
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/tenants/{tenant_id}/quota:
+    get:
+      tags: [tenants]
+      summary: Get a tenant's per-cluster engine quota ceiling
+      description: |
+        Reads as 0 when never configured -- unconfigured, not unlimited.
+        `cluster` defaults to the implicit default cluster (until Phase 8's
+        registry exists) when omitted.
+      parameters:
+        - { $ref: '#/components/parameters/TenantID' }
+        - name: cluster
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Ceiling
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cluster: { type: string }
+                  ceiling: { type: integer }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [tenants]
+      summary: Set a tenant's per-cluster engine quota ceiling
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [ceiling]
+              properties:
+                cluster: { type: string }
+                ceiling: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/tenants/{tenant_id}/reservations:
+    get:
+      tags: [tenants]
+      summary: List a tenant's engine-capacity reservations over a date range
+      description: |
+        The reservation calendar's data source. `from`/`to` default to
+        [now, now+7d) when omitted -- the same rolling horizon a recurring
+        schedule's occurrences are reserved within. `cluster` defaults to
+        the implicit default cluster (until Phase 8's registry exists).
+      parameters:
+        - { $ref: '#/components/parameters/TenantID' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: cluster
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reservations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Reservation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/tenants/{tenant_id}/roles:
+    post:
+      tags: [tenants]
+      summary: Grant a role within a tenant
+      parameters: [{ $ref: '#/components/parameters/TenantID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [subject, role]
+              properties:
+                subject: { type: string }
+                email: { type: string }
+                role: { type: string }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [tenants]
+      summary: Revoke a role within a tenant
+      parameters:
+        - { $ref: '#/components/parameters/TenantID' }
+        - { name: subject, in: query, required: true, schema: { type: string } }
+        - { name: role, in: query, required: true, schema: { type: string } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/roles:
+    post:
+      tags: [tenants]
+      summary: Grant a global role
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [subject, role]
+              properties:
+                subject: { type: string }
+                email: { type: string }
+                role: { type: string }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [tenants]
+      summary: Revoke a global role
+      parameters:
+        - { name: subject, in: query, required: true, schema: { type: string } }
+        - { name: role, in: query, required: true, schema: { type: string } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/clusters:
+    get:
+      tags: [clusters]
+      summary: List registered clusters
+      responses:
+        '200':
+          description: Clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Cluster' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [clusters]
+      summary: Register a cluster (operator secret_ref, or BYOC kubeconfig)
+      description: |
+        Platform-admin only. Provide either an operator registration (secret_ref
+        naming an existing home-cluster Secret) or a BYOC registration (a
+        self-contained kubeconfig). Registration probes the target for
+        reachability and least-privilege RBAC before storing the entry.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, ingest_url, sidecar_image, namespace]
+              properties:
+                name: { type: string }
+                ingest_url: { type: string }
+                sidecar_image: { type: string }
+                namespace: { type: string }
+                secret_ref: { type: string, description: Operator registration; existing home-cluster Secret }
+                kubeconfig: { type: string, description: BYOC registration; a self-contained kubeconfig }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cluster' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: The cluster is unreachable, unauthorized, or under-privileged
+
+  /api/clusters/{name}:
+    get:
+      tags: [clusters]
+      summary: Get a registered cluster
+      parameters: [{ $ref: '#/components/parameters/ClusterName' }]
+      responses:
+        '200':
+          description: Cluster
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cluster' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [clusters]
+      summary: Update a cluster's deploy settings
+      parameters: [{ $ref: '#/components/parameters/ClusterName' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                ingest_url: { type: string }
+                sidecar_image: { type: string }
+                namespace: { type: string }
+      responses:
+        '200':
+          description: Cluster
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cluster' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [clusters]
+      summary: Remove a cluster (rejected while it has an active run)
+      parameters: [{ $ref: '#/components/parameters/ClusterName' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/ingest:
+    post:
+      tags: [ingest]
+      summary: Push measurements from an engine pod
+      description: |
+        Accepts one pod's per-second measurements. Results are pushed rather than
+        scraped, so the control plane never reaches into a cluster to collect
+        them.
+
+        Authenticated with the deployment's engine credential as a bearer token,
+        not a user session: engine pods hold no account. Batches are idempotent
+        -- a pod retries a push it could not complete, and a repeated interval is
+        counted once -- and may arrive out of order.
+
+        Latency is sent as buckets rather than percentiles, because percentiles
+        from separate pods cannot be combined afterwards.
+      security:
+        - engineToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MetricBatch' }
+      responses:
+        '202': { description: Accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: The execution has no active run, or the batch belongs to a finished one
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/files/{kind}/{id}/{name}:
+    get:
+      tags: [files]
+      summary: Download an uploaded artifact
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [scenario, execution]
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The artifact
+          content:
+            application/octet-stream: {}
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }

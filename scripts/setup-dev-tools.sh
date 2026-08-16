@@ -5,7 +5,7 @@
 
 set -e
 
-echo "🚀 Setting up Setagaya development tools..."
+echo "🚀 Setting up Honryu development tools..."
 
 # Check if we have the required package managers
 if ! command -v npm >/dev/null 2>&1; then

@@ -1,6 +1,6 @@
 # Security Release Checklist
 
-This checklist ensures that security considerations are properly addressed before each release of Setagaya.
+This checklist ensures that security considerations are properly addressed before each release of Honryu.
 
 ## Pre-Release Security Validation
 

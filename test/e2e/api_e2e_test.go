@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 func TestAPI_ProjectsEndToEnd(t *testing.T) {
@@ -26,7 +26,7 @@ func TestAPI_ProjectsEndToEnd(t *testing.T) {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      svc,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
@@ -47,7 +47,7 @@ func TestAPI_ProjectsEndToEnd(t *testing.T) {
 	}
 
 	// Seed a project through the real service → MySQL write path.
-	created, err := svc.Create(context.Background(), "web-api", "setagaya", "77")
+	created, err := svc.Create(context.Background(), "web-api", "honryu", "77")
 	if err != nil {
 		t.Fatalf("seed create: %v", err)
 	}

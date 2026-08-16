@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewTenantRepo builds a fresh, empty TenantRepository for one test.

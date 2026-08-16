@@ -8,7 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/config"
+	"github.com/heridotlife/honryu/internal/config"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func TestNewAuthProvider(t *testing.T) {
@@ -54,32 +55,15 @@ func TestNewAuthProvider(t *testing.T) {
 func TestNewScheduler(t *testing.T) {
 	t.Parallel()
 
-	if s, err := newScheduler(config.ClusterConfig{Scheduler: "fake"}); err != nil || s == nil {
+	if s, err := newScheduler(config.ClusterConfig{Scheduler: "fake"}, fake.NewStore()); err != nil || s == nil {
 		t.Fatalf("newScheduler(fake) = %v, %v", s, err)
 	}
 	// k8s outside a cluster fails to load in-cluster config: covers that branch.
-	if _, err := newScheduler(config.ClusterConfig{Scheduler: "k8s", Namespace: "default", EnginePort: 8080}); err == nil {
+	if _, err := newScheduler(config.ClusterConfig{Scheduler: "k8s", Namespace: "default", EnginePort: 8080}, fake.NewStore()); err == nil {
 		t.Fatal("newScheduler(k8s) outside cluster: expected error, got nil")
 	}
-	if _, err := newScheduler(config.ClusterConfig{Scheduler: "nope"}); err == nil {
+	if _, err := newScheduler(config.ClusterConfig{Scheduler: "nope"}, fake.NewStore()); err == nil {
 		t.Fatal("newScheduler(nope): expected error, got nil")
-	}
-}
-
-func TestNewExecutor(t *testing.T) {
-	t.Parallel()
-
-	if e, err := newExecutor(config.ClusterConfig{Executor: "fake"}); err != nil || e == nil {
-		t.Fatalf("newExecutor(fake) = %v, %v", e, err)
-	}
-	if e, err := newExecutor(config.ClusterConfig{Executor: "jmeter"}); err != nil || e == nil {
-		t.Fatalf("newExecutor(jmeter) = %v, %v", e, err)
-	}
-	if e, err := newExecutor(config.ClusterConfig{Executor: "k6"}); err != nil || e == nil || e.Kind() != "k6" {
-		t.Fatalf("newExecutor(k6) = %v, %v", e, err)
-	}
-	if _, err := newExecutor(config.ClusterConfig{Executor: "nope"}); err == nil {
-		t.Fatal("newExecutor(nope): expected error, got nil")
 	}
 }
 
@@ -95,7 +79,7 @@ func TestNewObjectStore(t *testing.T) {
 	if err != nil || s == nil {
 		t.Fatalf("newObjectStore(nexus) = %v, %v", s, err)
 	}
-	if got := s.URL("plan/1/a.jmx"); got != "https://nexus.example/repository/raw/plan/1/a.jmx" {
+	if got := s.URL("scenario/1/a.jmx"); got != "https://nexus.example/repository/raw/scenario/1/a.jmx" {
 		t.Fatalf("nexus URL = %q", got)
 	}
 	if _, err := newObjectStore(config.StorageConfig{Driver: "s3"}); err == nil {

@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 // boomRepo embeds a real fake store but forces the project reads to fail,
@@ -28,7 +28,7 @@ func (boomRepo) ListProjectsByOwners(context.Context, []string) ([]project.Proje
 func boomRouter() http.Handler {
 	return httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(boomRepo{Store: fake.NewStore()}),
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 }
 

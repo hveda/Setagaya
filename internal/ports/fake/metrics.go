@@ -3,8 +3,8 @@ package fake
 import (
 	"sync"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // MetricsSink is an in-memory ports.MetricsSink that records calls for
@@ -27,11 +27,11 @@ func (s *MetricsSink) Record(m engine.Metric) {
 	s.recorded = append(s.recorded, m)
 }
 
-// DeleteCollection records the deletion.
-func (s *MetricsSink) DeleteCollection(collectionID int64) {
+// DeleteExecution records the deletion.
+func (s *MetricsSink) DeleteExecution(executionID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.deleted = append(s.deleted, collectionID)
+	s.deleted = append(s.deleted, executionID)
 }
 
 // Recorded returns a copy of the recorded metrics.
@@ -41,7 +41,7 @@ func (s *MetricsSink) Recorded() []engine.Metric {
 	return append([]engine.Metric(nil), s.recorded...)
 }
 
-// Deleted returns the collection ids passed to DeleteCollection.
+// Deleted returns the execution ids passed to DeleteExecution.
 func (s *MetricsSink) Deleted() []int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -2,7 +2,16 @@
 *.exe
 /bin/
 /dist/
-setagaya-api
+honryu-api
+
+# web/ (React SPA) build output and dependencies. dist/.gitkeep is tracked
+# on purpose -- cmd/api's go:embed directive needs at least one file under
+# web/dist to compile even in a checkout that has never run `bun run build`;
+# a real build's emptyOutDir removes it locally, which is expected.
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+web/*.tsbuildinfo
 
 # Test & coverage artifacts
 cover.out
@@ -12,6 +21,9 @@ coverage.html
 
 # Local object-store data
 storage-data/
+
+# Cortex workflow artifacts
+/.cortex/
 
 # Editor / OS
 .DS_Store

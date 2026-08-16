@@ -1,10 +1,11 @@
-module github.com/heridotlife/Setagaya
+module github.com/heridotlife/honryu
 
 go 1.26.0
 
 require (
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.2
@@ -69,6 +70,7 @@ require (
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.5 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/testcontainers/testcontainers-go v0.43.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect

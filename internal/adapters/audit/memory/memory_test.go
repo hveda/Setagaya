@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/audit/memory"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/adapters/audit/memory"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 func TestLog_RecordsAndStampsTime(t *testing.T) {
