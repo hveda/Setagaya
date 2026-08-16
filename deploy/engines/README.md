@@ -49,7 +49,7 @@ Each image needs `bzt` plus that engine's toolchain, and nothing else:
 | Engine | Toolchain | Notes |
 |---|---|---|
 | `jmeter` | JDK 21, JMeter 5.6.x | bzt downloads JMeter on first use unless it is baked in; bake it in so pods need no network |
-| `k6` | k6 binary | script-only — a scenario must carry a `.js`, since bzt's k6 executor rejects the declarative form |
+| `k6` | k6 binary | script-only — a scenario must carry a `.js`, since bzt's k6 executor rejects the declarative form. Image: `deploy/engines/k6/` (unlike JMeter, bzt never provisions k6 — `installable=False` — so the image bakes the pinned binary in itself) |
 | `gatling` | **JDK ≤ 17**, Gatling 3.9.5 | see the Scala constraint above; unsupported until the pairing is settled (spec open question 1) |
 
 An engine is only supported once its image has run the checks in
