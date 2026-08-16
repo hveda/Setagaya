@@ -139,6 +139,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	// cmd/scheduler's own job, never a synchronous request here.
 	calibrations := calibrationapp.NewService(repo).WithFingerprint(scenarios)
 	startAutoPurge(ctx, admin, cfg.Cluster)
+	startReconcile(ctx, lifecycle, cfg.Cluster)
 
 	authProvider, err := newAuthProvider(ctx, cfg.Auth)
 	if err != nil {
@@ -174,6 +175,11 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Audit:         audit,
 		DefaultOwners: []string{"honryu"},
 		StaticAssets:  webAssets,
+		// The trigger endpoint's bounded readiness wait (Phase 11): a
+		// client may fire deploy->trigger back-to-back without owning the
+		// retry itself.
+		TriggerReadyPoll:    cfg.HTTP.TriggerReadyPoll,
+		TriggerReadyTimeout: cfg.HTTP.TriggerReadyTimeout,
 	})
 
 	srv := &http.Server{
@@ -391,4 +397,28 @@ func setupLogging(cfg config.LogConfig) {
 		handler = slog.NewJSONHandler(os.Stdout, opts)
 	}
 	slog.SetDefault(slog.New(handler))
+}
+
+// startReconcile launches the stranded-run sweep unless it is disabled
+// (interval zero). It stops when ctx is cancelled. Each pass finalizes open
+// runs whose engines already finished -- nothing else ever will, and the
+// report it writes is evidence-based.
+func startReconcile(ctx context.Context, lifecycle *lifecycleapp.Service, cfg config.ClusterConfig) {
+	if cfg.ReconcileInterval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(cfg.ReconcileInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := lifecycle.Reconcile(ctx); err != nil {
+					slog.Warn("stranded-run reconcile", "error", err)
+				}
+			}
+		}
+	}()
 }

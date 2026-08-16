@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -73,6 +74,14 @@ type Deps struct {
 	Audit ports.AuditLog
 	// DefaultOwners is the owner set used when RBAC is disabled (no-auth mode).
 	DefaultOwners []string
+	// TriggerReadyPoll is how often POST /trigger retries while a just-deployed
+	// execution's engine pods are still starting up. Zero means the default
+	// (2s, matching calibrationapp's own readiness loop).
+	TriggerReadyPoll time.Duration
+	// TriggerReadyTimeout bounds how long POST /trigger waits for those pods
+	// before returning the last conflict. Zero means the default (2m). The
+	// wait is per-request: cancelling the request context cancels the wait.
+	TriggerReadyTimeout time.Duration
 	// StaticAssets serves the SPA build (web/dist, unwrapped from web.Dist's
 	// "dist/" prefix by the caller) for any unmatched non-/api/ path.
 	// Optional; nil disables static serving (e.g. in tests that only exercise
@@ -202,7 +211,7 @@ func Routes() []Route {
 
 // NewRouter builds the HTTP handler for the API server.
 func NewRouter(d Deps) http.Handler {
-	h := &handlers{deps: d}
+	h := &handlers{deps: d, sleep: time.Sleep}
 
 	mux := http.NewServeMux()
 	for _, r := range routes {
@@ -244,8 +253,18 @@ func (h *handlers) authenticate(next http.Handler) http.Handler {
 }
 
 type handlers struct {
-	deps Deps
+	deps  Deps
+	sleep func(time.Duration)
 }
+
+// defaultTriggerReadyPoll and defaultTriggerReadyTimeout mirror
+// calibrationapp's own readiness loop constants (triggerReadyPollInterval /
+// triggerReadyTimeout, step.go): the same 2s/2m that has bounded the
+// scheduler-side retry since Phase 7 now also bounds the HTTP boundary.
+const (
+	defaultTriggerReadyPoll    = 2 * time.Second
+	defaultTriggerReadyTimeout = 2 * time.Minute
+)
 
 func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

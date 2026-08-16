@@ -57,6 +57,7 @@ type Repo interface {
 	// PendingCorrelationID returns the id the latest Deploy minted, which
 	// Trigger stamps onto the run it starts.
 	PendingCorrelationID(ctx context.Context, executionID int64) (string, error)
+	ports.OrphanRepository
 	ports.RunRepository
 }
 
@@ -74,12 +75,19 @@ type Metrics interface {
 	// Idempotent: a run already finalised by its own natural completion is left
 	// untouched.
 	Finalize(ctx context.Context, executionID, runID int64) error
+	// FinalizeOrphaned writes the report for a stranded run -- one still open
+	// whose engines already finished (their Finals arrived orphaned). The
+	// outcome is derived from the orphaned shards' own exit codes.
+	FinalizeOrphaned(ctx context.Context, executionID, runID int64, orphans []ports.OrphanCompletion) error
 }
 
 type noopMetrics struct{}
 
 func (noopMetrics) Purge(int64)                                  {}
 func (noopMetrics) Finalize(context.Context, int64, int64) error { return nil }
+func (noopMetrics) FinalizeOrphaned(context.Context, int64, int64, []ports.OrphanCompletion) error {
+	return nil
+}
 
 // Usage records the usage of a run: a launch opened on trigger and closed on
 // teardown. The usageapp service implements it; a no-op default is used when
@@ -294,6 +302,12 @@ func (s *Service) Deploy(ctx context.Context, executionID int64) error {
 	if err := s.repo.SetPendingCorrelationID(ctx, executionID, tc.TraceID); err != nil {
 		return err
 	}
+	// A new deploy is genuinely new engines: whatever orphaned Finals the
+	// previous generation left are stale evidence, cleared before any pod of
+	// this generation can run, so Trigger's stranded-run guard starts clean.
+	if err := s.repo.ClearOrphanCompletions(ctx, executionID); err != nil {
+		return err
+	}
 	headers := telemetry.Headers(tc, telemetry.Identity{
 		TenantID:         coll.TenantID,
 		ProjectID:        coll.ProjectID,
@@ -430,6 +444,19 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 		return err
 	}
 
+	// Engines that already ran and finished cannot be triggered again: a
+	// pod's bzt never reruns (task 23c's exit-code-then-sleep fix), so a run
+	// opened against them is a corpse -- nothing will ever send its Final
+	// (task 121 hit this live: StartRun minutes after deploy, engine already
+	// done, run stranded open with no report). The orphaned Finals those
+	// engines pushed are the only reliable signal; pods stay Ready forever,
+	// so readiness alone cannot tell finished from starting.
+	if orphans, err := s.repo.OrphanCompletions(ctx, executionID); err != nil {
+		return err
+	} else if len(orphans) > 0 {
+		return fmt.Errorf("%w: %d orphaned shard completion(s)", run.ErrEnginesFinished, len(orphans))
+	}
+
 	// Quota is opt-in with the tenant it scopes to: an execution that never
 	// named one has no ceiling to check against, so every existing deployment
 	// (none of which set up tenant context) triggers exactly as before.
@@ -488,6 +515,76 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 		_ = s.usage.RecordStart(ctx, executionID, proj.Owner, ec.TotalEngines(), run.VirtualUsers(ec))
 	}
 	return nil
+}
+
+// Reconcile closes stranded runs: ones still open whose engines already
+// finished, so no Final for them can ever arrive (they pushed orphaned Finals
+// instead). A run qualifies only when the orphans cover every shard the load
+// profile planned -- partial orphans might still be a mid-run pod dying, which
+// the run's own progress handles -- and closing it writes an evidence-based
+// report via FinalizeOrphaned, never an invented pass. A run with no orphan
+// evidence is left alone: it may genuinely still be running.
+//
+// Idempotent by construction: SaveReport keeps the first report for a run, so
+// a second pass over the same stranded run writes nothing new. Runs that
+// finished naturally but were never torn down also pass through harmlessly --
+// their orphans (if any) produce a report that loses to the real one already
+// stored.
+func (s *Service) Reconcile(ctx context.Context) error {
+	open, err := s.repo.OpenRuns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, orun := range open {
+		orphans, err := s.repo.OrphanCompletions(ctx, orun.ExecutionID)
+		if err != nil {
+			return err
+		}
+		if len(orphans) == 0 {
+			continue
+		}
+		profile, err := s.repo.LoadProfileFor(ctx, orun.ExecutionID)
+		if err != nil {
+			return err
+		}
+		if !orphansCoverProfile(orphans, profile) {
+			continue
+		}
+		if err := s.metrics.FinalizeOrphaned(ctx, orun.ExecutionID, orun.RunID, orphans); err != nil {
+			return err
+		}
+		// Close the run the way teardown would: the report is written, so
+		// the execution must not read as running (the next Trigger after a
+		// redeploy should work, not ErrAlreadyRunning).
+		if err := s.repo.StopRun(ctx, orun.ExecutionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// orphansCoverProfile reports whether the orphaned completions name every
+// (scenario, shard) the load profile planned: full coverage is the evidence
+// that the whole engine pool finished while the run stood open.
+func orphansCoverProfile(orphans []ports.OrphanCompletion, profile []loadprofile.Entry) bool {
+	seen := make(map[shardKey]struct{}, len(orphans))
+	for _, oc := range orphans {
+		seen[shardKey{scenarioID: oc.ScenarioID, shard: oc.ShardIndex}] = struct{}{}
+	}
+	for _, e := range profile {
+		for i := 0; i < e.Engines; i++ {
+			if _, ok := seen[shardKey{scenarioID: e.ScenarioID, shard: i}]; !ok {
+				return false
+			}
+		}
+	}
+	return len(profile) > 0
+}
+
+// shardKey identifies one engine pod of one scenario.
+type shardKey struct {
+	scenarioID int64
+	shard      int
 }
 
 // Stop halts the run: it stops every engine and clears run state. A run must be

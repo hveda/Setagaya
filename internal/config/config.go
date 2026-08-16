@@ -111,6 +111,11 @@ type ClusterConfig struct {
 	// purges them.
 	AutoPurgeInterval time.Duration
 	AutoPurgeIdle     time.Duration
+	// ReconcileInterval is how often the stranded-run reconciliation pass
+	// runs; zero disables it. A pass finalizes open runs whose engines
+	// already finished (their Finals arrived orphaned) -- evidence-based
+	// reports, never invented passes.
+	ReconcileInterval time.Duration
 	// CredentialKey is the hex-encoded (64 hex digits) app-held key that
 	// encrypts BYOC cluster credentials at rest (AES-256-GCM). Empty disables
 	// the cluster-registry management API (/api/clusters) -- a deployment that
@@ -142,6 +147,13 @@ type HTTPConfig struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+	// TriggerReadyPoll is how often POST /api/executions/{id}/trigger
+	// retries while just-deployed engine pods are still starting. The
+	// default matches calibrationapp's own readiness loop.
+	TriggerReadyPoll time.Duration
+	// TriggerReadyTimeout bounds that wait; expiring surfaces the same
+	// conflict error the immediate check used to.
+	TriggerReadyTimeout time.Duration
 }
 
 // Addr returns the listen address in ":port" form.
@@ -174,7 +186,12 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		HTTP:    HTTPConfig{Port: 8080, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second},
+		HTTP: HTTPConfig{
+			Port: 8080, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
+			// The 2s/2m readiness bounds calibrationapp has used since
+			// Phase 7, now also bounding the HTTP trigger boundary.
+			TriggerReadyPoll: 2 * time.Second, TriggerReadyTimeout: 2 * time.Minute,
+		},
 		DB:      DBConfig{Driver: "fake"},
 		Log:     LogConfig{Level: "info", Format: "json"},
 		Storage: StorageConfig{Driver: "local", Root: "storage-data"},
@@ -188,6 +205,10 @@ func Load(getenv func(string) string) (Config, error) {
 			EnginePort:    8080,
 			Context:       "default",
 			AutoPurgeIdle: time.Hour,
+			// The stranded-run sweep: frequent enough that a corpse run is
+			// closed within minutes, quiet enough to be idle in the common
+			// case (the pass is one query when nothing is stranded).
+			ReconcileInterval: time.Minute,
 		},
 		Auth:       AuthConfig{Mode: "none"},
 		Scheduler:  SchedulerConfig{TickInterval: 30 * time.Second, HorizonInterval: 24 * time.Hour},
@@ -205,7 +226,13 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.HTTP.IdleTimeout, err = durEnv(getenv, "HTTP_IDLE_TIMEOUT", cfg.HTTP.IdleTimeout); err != nil {
-		return Config{}, err
+		return cfg, err
+	}
+	if cfg.HTTP.TriggerReadyPoll, err = durEnv(getenv, "HTTP_TRIGGER_READY_POLL", cfg.HTTP.TriggerReadyPoll); err != nil {
+		return cfg, err
+	}
+	if cfg.HTTP.TriggerReadyTimeout, err = durEnv(getenv, "HTTP_TRIGGER_READY_TIMEOUT", cfg.HTTP.TriggerReadyTimeout); err != nil {
+		return cfg, err
 	}
 	cfg.DB.Driver = strEnv(getenv, "DB_DRIVER", cfg.DB.Driver)
 	cfg.DB.DSN = strEnv(getenv, "DB_DSN", cfg.DB.DSN)
@@ -240,6 +267,9 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.Cluster.AutoPurgeInterval, err = durEnv(getenv, "AUTOPURGE_INTERVAL", cfg.Cluster.AutoPurgeInterval); err != nil {
+		return Config{}, err
+	}
+	if cfg.Cluster.ReconcileInterval, err = durEnv(getenv, "RECONCILE_INTERVAL", cfg.Cluster.ReconcileInterval); err != nil {
 		return Config{}, err
 	}
 	if cfg.Cluster.AutoPurgeIdle, err = durEnv(getenv, "AUTOPURGE_IDLE", cfg.Cluster.AutoPurgeIdle); err != nil {

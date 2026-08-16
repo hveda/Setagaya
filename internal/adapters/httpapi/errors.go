@@ -52,6 +52,11 @@ var badRequestErrors = []error{
 	// configuration gap on the caller's side, the same as a native scenario
 	// with no script (ErrNoTestFile above) -- not a server fault.
 	compile.ErrRequestsRequired,
+	// A scenario/engine pairing bzt's executors cannot honour (a portable
+	// scenario under a script-only engine like k6, or a native artefact
+	// under the wrong engine) is the caller's configuration, caught at
+	// compile time inside Deploy -- 400 with the stated reason, not a 500.
+	scenario.ErrEngineNeedsScript, scenario.ErrEnginePinned,
 	tenant.ErrNameRequired, tenant.ErrNameTooLong, tenant.ErrNameInvalid,
 	tenant.ErrDisplayNameRequired, tenant.ErrStatusInvalid,
 	tenantapp.ErrCeilingInvalid,
@@ -83,6 +88,10 @@ var conflictErrors = []error{
 	scenarioapp.ErrScenarioInUse, scenarioapp.ErrScenarioNotPortable,
 	projectapp.ErrProjectHasScenarios, projectapp.ErrProjectHasExecutions,
 	run.ErrNotDeployed, run.ErrEnginesNotReady, run.ErrAlreadyRunning, run.ErrNotRunning,
+	// Triggering engines that already finished: re-deploying is the fix, and
+	// the trigger's bounded readiness wait must not retry it away either
+	// (it is not a readiness error).
+	run.ErrEnginesFinished,
 	ports.ErrEnginesUnreachable, ports.ErrRunActive,
 	// A pod pushing to an execution that is not running, or pushing for a run
 	// that has ended, is a state conflict rather than a server fault -- and a

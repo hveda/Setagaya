@@ -1092,7 +1092,11 @@ paths:
     post:
       tags: [lifecycle]
       summary: Start the run
-      description: Requires every engine to be deployed and reachable.
+      description: >-
+        Requires every engine to be deployed and reachable. Engines still
+        starting up after a just-returned deploy are waited for, bounded by
+        HONRYU_HTTP_TRIGGER_READY_TIMEOUT (default 2m, polled every 2s); a
+        timeout or a genuinely untriggerable execution surfaces as 409.
       parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
       responses:
         '204': { $ref: '#/components/responses/NoContent' }

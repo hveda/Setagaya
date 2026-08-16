@@ -1,0 +1,14 @@
+# bzt's own default config, merged into every run automatically (bzt always
+# reads ~/.bzt-rc). Registers the Honryu KPI reporter unconditionally, so
+# the compiled per-execution config Honryu generates never has to know it
+# exists. Nothing else to pin: bzt's k6 tool is installable=False -- it only
+# checks the `k6` binary this image bakes in, there is no bzt-side version
+# to hold steady the way the jmeter image pins JMeter's.
+modules:
+  honryu:
+    class: honryu_kpi.HonryuKPIReporter
+    filename: /honryu/kpi/stream.jsonl
+reporting:
+  - module: honryu
+settings:
+  check-updates: false

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	"github.com/heridotlife/honryu/internal/app/executionapp"
@@ -19,6 +21,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/run"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
@@ -41,12 +44,14 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	sched := fake.NewScheduler()
 
 	h := httpapi.NewRouter(httpapi.Deps{
-		Projects:      projectapp.NewService(store),
-		Scenarios:     scenarioapp.NewService(store, obj),
-		Executions:    executionapp.NewService(store, obj, 100),
-		Lifecycle:     lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("img")),
-		Store:         obj,
-		DefaultOwners: []string{"honryu"},
+		Projects:            projectapp.NewService(store),
+		Scenarios:           scenarioapp.NewService(store, obj),
+		Executions:          executionapp.NewService(store, obj, 100),
+		Lifecycle:           lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("img")),
+		Store:               obj,
+		DefaultOwners:       []string{"honryu"},
+		TriggerReadyPoll:    time.Millisecond,
+		TriggerReadyTimeout: 10 * time.Millisecond,
 	})
 
 	p, _ := project.New("web", owner, "")
@@ -115,9 +120,85 @@ func TestLifecycleHTTP_TriggerBeforeDeployConflicts(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "honryu")
 	base := "/api/executions/" + itoa(e.executionID)
+	start := time.Now()
 	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusConflict {
 		t.Fatalf("trigger before deploy = %d, want 409", rec.Code)
 	}
+	// The 409 is the readiness wait expiring (10ms env default), not the
+	// pre-wait immediate rejection -- and never the unbounded default.
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("trigger conflict took %s, the readiness wait is not bounded", elapsed)
+	}
+}
+
+// The readiness wait at the HTTP boundary: one startup beat is retried over,
+// a never-ready pool expires into the same 409 fast, and a client disconnect
+// cancels the wait rather than holding it. Every client used to own this
+// retry itself (task 121's live finding); now the handler does.
+func TestLifecycleHTTP_TriggerWaitsForEngineReadiness(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	deployed := func(t *testing.T) (lifecycleEnv, string) {
+		t.Helper()
+		e := newLifecycleEnv(t, "honryu")
+		if err := e.sched.DeployScenario(ctx, ports.DeploySpec{
+			ProjectID: 1, ExecutionID: e.executionID, ScenarioID: e.scenarioID,
+			// Two shards: the seeded profile asks for Engines: 2, and Trigger
+			// counts readiness against that total.
+			Shards: []ports.ShardSpec{{Index: 0, Config: []byte("c")}, {Index: 1, Config: []byte("c")}},
+		}); err != nil {
+			t.Fatalf("DeployScenario: %v", err)
+		}
+		return e, "/api/executions/" + itoa(e.executionID) + "/trigger"
+	}
+
+	t.Run("retries then succeeds", func(t *testing.T) {
+		t.Parallel()
+		e, path := deployed(t)
+		e.sched.NotReadyCalls = 1 // one startup beat, then ready
+		if rec := do(t, e.h, http.MethodPost, path); rec.Code != http.StatusOK {
+			t.Fatalf("trigger after one not-ready status = %d (%s), want 200", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("never-ready expires fast", func(t *testing.T) {
+		t.Parallel()
+		e, path := deployed(t)
+		e.sched.NotReadyCalls = 1 << 30
+		start := time.Now()
+		if rec := do(t, e.h, http.MethodPost, path); rec.Code != http.StatusConflict {
+			t.Fatalf("trigger never-ready = %d, want 409", rec.Code)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("trigger wait took %s, far past its 10ms bound", elapsed)
+		}
+	})
+
+	t.Run("client disconnect cancels the wait", func(t *testing.T) {
+		t.Parallel()
+		e, path := deployed(t)
+		e.sched.NotReadyCalls = 1 << 30
+
+		ctx, cancel := context.WithCancel(ctx)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, nil)
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			cancel()
+		}()
+		start := time.Now()
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("trigger cancelled = %d, want 409 (not a hang)", rec.Code)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("cancelled trigger took %s, kept waiting past the disconnect", elapsed)
+		}
+	})
 }
 
 func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
@@ -180,6 +261,49 @@ func TestLifecycleHTTP_DeployNoScenariosIsBadRequest(t *testing.T) {
 	rec := do(t, e.h, http.MethodPost, "/api/executions/"+itoa(bareID)+"/deploy")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("deploy no plans = %d, want 400", rec.Code)
+	}
+}
+
+// A portable scenario deployed under a script-only engine (k6 rejects the
+// declarative form) is the caller's configuration: compile catches it inside
+// Deploy and the response must be a 400 naming the engine, not a 500.
+func TestLifecycleHTTP_DeployScriptOnlyEngineIsBadRequest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newLifecycleEnv(t, "honryu")
+
+	c, _ := e.store.GetExecution(ctx, e.executionID)
+	portable, err := scenario.New("declarative", c.ProjectID)
+	if err != nil {
+		t.Fatalf("scenario.New: %v", err)
+	}
+	portableID, err := e.store.CreateScenario(ctx, portable)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /checkout\n")
+	if err := e.store.SetScenarioRequests(ctx, portableID, raw); err != nil {
+		t.Fatalf("SetScenarioRequests: %v", err)
+	}
+
+	onK6, _ := execution.New("on-k6", c.ProjectID)
+	onK6.Engine = taurus.ExecutorK6
+	k6ID, err := e.store.CreateExecution(ctx, onK6)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	if err := e.store.StoreLoadProfile(ctx, k6ID, false, []loadprofile.Entry{
+		{Name: "p", ScenarioID: portableID, Concurrency: 5, Rampup: 1, Engines: 1, Duration: 10},
+	}); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	rec := do(t, e.h, http.MethodPost, "/api/executions/"+itoa(k6ID)+"/deploy")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("deploy portable-on-k6 = %d, want 400", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "k6") {
+		t.Fatalf("deploy error does not name the engine: %s", body)
 	}
 }
 

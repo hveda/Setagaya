@@ -168,6 +168,7 @@ func truncateAll(t *testing.T, db *sql.DB) {
 		"project", "scenario", "execution", "execution_scenario",
 		"scenario_data", "scenario_test_file", "scenario_requests", "execution_data",
 		"execution_run", "execution_run_history", "running_scenario",
+		"execution_orphan_completion",
 		"execution_launch", "execution_launch_history",
 		"tenant", "role_grant",
 		"execution_report", "report_error_signature",
