@@ -183,6 +183,49 @@ func TestLifecycleHTTP_DeployNoScenariosIsBadRequest(t *testing.T) {
 	}
 }
 
+// A portable scenario deployed under a script-only engine (k6 rejects the
+// declarative form) is the caller's configuration: compile catches it inside
+// Deploy and the response must be a 400 naming the engine, not a 500.
+func TestLifecycleHTTP_DeployScriptOnlyEngineIsBadRequest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newLifecycleEnv(t, "honryu")
+
+	c, _ := e.store.GetExecution(ctx, e.executionID)
+	portable, err := scenario.New("declarative", c.ProjectID)
+	if err != nil {
+		t.Fatalf("scenario.New: %v", err)
+	}
+	portableID, err := e.store.CreateScenario(ctx, portable)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /checkout\n")
+	if err := e.store.SetScenarioRequests(ctx, portableID, raw); err != nil {
+		t.Fatalf("SetScenarioRequests: %v", err)
+	}
+
+	onK6, _ := execution.New("on-k6", c.ProjectID)
+	onK6.Engine = taurus.ExecutorK6
+	k6ID, err := e.store.CreateExecution(ctx, onK6)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	if err := e.store.StoreLoadProfile(ctx, k6ID, false, []loadprofile.Entry{
+		{Name: "p", ScenarioID: portableID, Concurrency: 5, Rampup: 1, Engines: 1, Duration: 10},
+	}); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	rec := do(t, e.h, http.MethodPost, "/api/executions/"+itoa(k6ID)+"/deploy")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("deploy portable-on-k6 = %d, want 400", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "k6") {
+		t.Fatalf("deploy error does not name the engine: %s", body)
+	}
+}
+
 func TestLifecycleHTTP_EnginesMissingExecution(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "honryu")

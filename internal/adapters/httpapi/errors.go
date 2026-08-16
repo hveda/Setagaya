@@ -52,6 +52,11 @@ var badRequestErrors = []error{
 	// configuration gap on the caller's side, the same as a native scenario
 	// with no script (ErrNoTestFile above) -- not a server fault.
 	compile.ErrRequestsRequired,
+	// A scenario/engine pairing bzt's executors cannot honour (a portable
+	// scenario under a script-only engine like k6, or a native artefact
+	// under the wrong engine) is the caller's configuration, caught at
+	// compile time inside Deploy -- 400 with the stated reason, not a 500.
+	scenario.ErrEngineNeedsScript, scenario.ErrEnginePinned,
 	tenant.ErrNameRequired, tenant.ErrNameTooLong, tenant.ErrNameInvalid,
 	tenant.ErrDisplayNameRequired, tenant.ErrStatusInvalid,
 	tenantapp.ErrCeilingInvalid,
