@@ -396,3 +396,68 @@ func deployShards(n int) []ports.ShardSpec {
 	}
 	return out
 }
+
+// stubScoper is a CampaignScoper with injectable failures, for proving
+// Abort's campaign-scope error propagation and partial-abort semantics
+// without leaning on campaignapp internals.
+type stubScoper struct {
+	campaign campaign.Campaign
+	getErr   error
+	inScope  []int64
+	scopeErr error
+	abortErr error
+	aborted  bool
+}
+
+func (s *stubScoper) Get(context.Context, int64) (campaign.Campaign, error) {
+	return s.campaign, s.getErr
+}
+func (s *stubScoper) InScopeExecutions(context.Context, int64) ([]int64, error) {
+	return s.inScope, s.scopeErr
+}
+func (s *stubScoper) Abort(context.Context, int64) error {
+	s.aborted = true
+	return s.abortErr
+}
+
+func TestAbort_Campaign_InScopeLookupErrorPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, _, purger, svc, _ := seed(t)
+	svc = svc.WithCampaigns(&stubScoper{scopeErr: errors.New("scope resolve down")})
+
+	aborted, err := svc.Abort(ctx, adminapp.ScopeCampaign, "5")
+	if err == nil {
+		t.Fatal("Abort with a failing scope resolver: want error")
+	}
+	if aborted != nil {
+		t.Errorf("aborted = %v, want nil when matching failed", aborted)
+	}
+	if len(purger.purged) != 0 {
+		t.Errorf("purged = %v, want nothing purged when matching failed", purger.purged)
+	}
+}
+
+func TestAbort_Campaign_ScoperAbortFailureStillReportsPurgedExecutions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, _, purger, svc, executionID := seed(t)
+	scoper := &stubScoper{inScope: []int64{executionID}, abortErr: errors.New("campaign close failed")}
+	svc = svc.WithCampaigns(scoper)
+
+	aborted, err := svc.Abort(ctx, adminapp.ScopeCampaign, "5")
+	if err == nil {
+		t.Fatal("Abort with a failing campaign close: want error")
+	}
+	// Partial-abort semantics: the engines were torn down and the caller is
+	// told so, even though closing the campaign failed.
+	if len(aborted) != 1 || aborted[0] != executionID {
+		t.Fatalf("aborted = %v, want [%d]", aborted, executionID)
+	}
+	if len(purger.purged) != 1 || purger.purged[0] != executionID {
+		t.Fatalf("purged = %v, want [%d]", purger.purged, executionID)
+	}
+	if !scoper.aborted {
+		t.Error("campaign close was not attempted")
+	}
+}
