@@ -78,6 +78,10 @@ jobs:
           output: trivy.sarif
           exit-code: "0"
       - name: Upload Trivy SARIF
+        # Transient GitHub API 5xx outages (observed: run 32049432183, the
+        # scan passed but the upload failed with "No server is currently
+        # available") must not fail CI. The scan steps above stay strict.
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: trivy.sarif
@@ -99,6 +103,9 @@ jobs:
           path: "."
           fail-build: false
       - name: Upload Grype SARIF
+        # Same transient-5xx hardening as the other SARIF uploads: the
+        # scan is strict, the code-scanning sync degrades gracefully.
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
@@ -121,6 +128,9 @@ jobs:
           output-file: hadolint.sarif
           no-fail: true
       - name: Upload Hadolint SARIF
+        # Same transient-5xx hardening as the other SARIF uploads: the
+        # scan is strict, the code-scanning sync degrades gracefully.
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: hadolint.sarif
