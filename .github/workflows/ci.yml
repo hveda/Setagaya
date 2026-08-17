@@ -13,11 +13,12 @@ on:
   pull_request:
 
 # One in-flight run per branch: on a feat/** push with an open feat->develop
-# PR, the push-event and pull_request-event runs share this group (head_ref
-# is the PR's source branch; ref falls back to the pushed ref) and the later
-# event cancels the earlier.
+# PR, the push-event and pull_request-event runs share this group -- head_ref
+# (PR source branch) and ref_name (pushed branch, no refs/heads/ prefix, the
+# plain ref would NOT match) both resolve to the bare branch name -- and the
+# later event cancels the earlier.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
