@@ -45,4 +45,5 @@ Phased development driven by `.cortex/<date>-<phase>/` containing `spec.md` → 
 ## Git / release flow
 
 - Branches: `feat/*` → `develop` → `main`. Pushing to `develop` auto-opens/updates a draft PR to `main` — don't merge `feat/*` straight to `main`.
+- **Closing a phase: `make phase-merge PHASE="phase N slug"`**, not a manual `git merge`. It runs the full bar (gofmt/vet/lint/test/coverage gate) and only merges `feat/*` into `develop` on success — the merge is the check, so a phase cannot land below the coverage constraint the way phases 10-12 did. Never pushes; prints the `git push` to run next. `PHASE_MERGE_DRY_RUN=1` runs every check and stops before merging.
 - Conventional commits with scope, e.g. `feat(lifecycleapp): mint a fresh trace context once per Deploy`.

@@ -30,6 +30,10 @@ cover: ## unit tests with coverage profile (no infra)
 cover-gate: ## full coverage (unit+integration+e2e) enforcing the threshold (needs Docker)
 	./scripts/coverage.sh
 
+.PHONY: phase-merge
+phase-merge: ## run the full bar, then merge the working branch into develop (PHASE="phase N slug")
+	./scripts/phase-merge.sh
+
 .PHONY: integration
 integration: ## adapter contract tests against real infra (needs Docker)
 	$(GO) test -p 1 -count=1 -timeout 30m -tags=integration ./internal/adapters/... ./cmd/...
