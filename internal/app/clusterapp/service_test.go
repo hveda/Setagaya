@@ -21,6 +21,12 @@ type fakeCredStore struct {
 	materialized   map[string]ports.ClusterCredential
 	secrets        map[string]ports.ClusterCredential // pre-seeded operator secrets
 	materializeErr error
+	deleteErr      error
+	// deleteCalls logs every secret name Delete was invoked with, regardless
+	// of which map it touches -- the origin-gating tests assert against this
+	// log rather than materialized state, so they fail if Delete is ever
+	// called for an operator cluster even if the fake's bookkeeping changes.
+	deleteCalls []string
 }
 
 func newCredStore() *fakeCredStore {
@@ -47,6 +53,10 @@ func (f *fakeCredStore) Read(_ context.Context, secretName string) (ports.Cluste
 }
 
 func (f *fakeCredStore) Delete(_ context.Context, secretName string) error {
+	f.deleteCalls = append(f.deleteCalls, secretName)
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	delete(f.materialized, secretName)
 	return nil
 }
@@ -359,6 +369,115 @@ func TestDelete_NotFound(t *testing.T) {
 	h := newHarness(t)
 	if err := h.svc.Delete(context.Background(), "ghost"); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("Delete(ghost) = %v, want ErrNotFound", err)
+	}
+}
+
+// Deleting a BYOC cluster must remove the credential Secret it materialized at
+// registration -- the phase-12 leak this test pins shut: DELETE removed the
+// registry row but left the Secret behind, found live in phase 12's dogfood and
+// again in phase 13's cleanup.
+func TestDelete_BYOCRemovesTheMaterializedSecret(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err != nil {
+		t.Fatalf("RegisterBYOC: %v", err)
+	}
+	if _, ok := h.creds.materialized["honryu-cluster-prod-eu"]; !ok {
+		t.Fatalf("setup: Secret not materialized")
+	}
+
+	if err := h.svc.Delete(ctx, "prod-eu"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, ok := h.creds.materialized["honryu-cluster-prod-eu"]; ok {
+		t.Fatalf("credential Secret survived Delete -- the phase-12 leak")
+	}
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("registry row survived Delete")
+	}
+}
+
+// An operator entry's Secret is infrastructure the operator manages out of
+// band -- RegisterOperator only ever reads it (service.go, "Read backs
+// operator registration (whose Secret is the source of truth)"). Deleting an
+// operator cluster must never touch it: doing so would destroy operator
+// infrastructure, a worse defect than the leak this phase fixes. Asserted
+// against the Delete call log, not materialized-map state, so this fails even
+// if the fake's internal bookkeeping changes.
+func TestDelete_OperatorLeavesItsSecretUntouched(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	h.creds.secrets["prod-eu-creds"] = ports.ClusterCredential{APIURL: "https://op:6443", CACert: []byte("op-ca"), Token: "op-token"}
+	entry := clusterregistry.Cluster{
+		Name: "prod-eu", IngestURL: "http://ingest", SidecarImage: "img",
+		Namespace: "honryu", SecretRef: "prod-eu-creds", CreatedBy: "admin",
+	}
+	if _, err := h.svc.RegisterOperator(ctx, entry); err != nil {
+		t.Fatalf("RegisterOperator: %v", err)
+	}
+
+	if err := h.svc.Delete(ctx, "prod-eu"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if len(h.creds.deleteCalls) != 0 {
+		t.Fatalf("Credentials.Delete called for an operator cluster: %v", h.creds.deleteCalls)
+	}
+	if _, ok := h.creds.secrets["prod-eu-creds"]; !ok {
+		t.Fatalf("operator's out-of-band Secret was removed")
+	}
+}
+
+// A teardown failure must abort the delete with the row and the Secret both
+// intact -- Secret-before-row is what keeps a failed delete retryable instead
+// of reproducing the phase-12 orphan the other way around.
+func TestDelete_TeardownFailureAbortsAndRetrySucceeds(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err != nil {
+		t.Fatalf("RegisterBYOC: %v", err)
+	}
+	h.creds.deleteErr = errors.New("k8s: secret delete denied")
+
+	if err := h.svc.Delete(ctx, "prod-eu"); err == nil {
+		t.Fatal("Delete succeeded despite the credential store's Delete failing")
+	}
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); err != nil {
+		t.Fatalf("registry row removed despite the aborted delete: %v", err)
+	}
+	if _, ok := h.creds.materialized["honryu-cluster-prod-eu"]; !ok {
+		t.Fatalf("Secret removed despite the aborted delete")
+	}
+
+	h.creds.deleteErr = nil
+	if err := h.svc.Delete(ctx, "prod-eu"); err != nil {
+		t.Fatalf("retried Delete: %v", err)
+	}
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("registry row survived the retried Delete")
+	}
+}
+
+// A Secret already absent (e.g. from a previous partial attempt) must not
+// block Delete -- the real adapter tolerates a not-found Secret delete, and
+// the fake mirrors that by construction (deleting an absent map key is a
+// no-op), so this pins the contract rather than the fake's mechanics.
+func TestDelete_SecretAlreadyAbsentStillSucceeds(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RegisterBYOC(ctx, byocEntry(), []byte("kc")); err != nil {
+		t.Fatalf("RegisterBYOC: %v", err)
+	}
+	delete(h.creds.materialized, "honryu-cluster-prod-eu") // simulate a prior partial delete
+
+	if err := h.svc.Delete(ctx, "prod-eu"); err != nil {
+		t.Fatalf("Delete(Secret already absent): %v", err)
+	}
+	if _, err := h.store.GetCluster(ctx, "prod-eu"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("registry row survived Delete")
 	}
 }
 
