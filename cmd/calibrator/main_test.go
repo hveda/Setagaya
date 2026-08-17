@@ -45,6 +45,39 @@ func TestNewRepository_MySQL_Unreachable(t *testing.T) {
 	}
 }
 
+func TestNewRepository_MySQL_BadDSN(t *testing.T) {
+	t.Parallel()
+	// A DSN missing the slash separating the database name is rejected at
+	// Open, before any connection is attempted.
+	if _, err := newRepository(config.DBConfig{Driver: "mysql", DSN: "honryu:secret"}, "default"); err == nil {
+		t.Fatal("newRepository(mysql, malformed DSN): expected error, got nil")
+	}
+}
+
+func TestRun_ObjectStoreError(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{"HONRYU_DB_DRIVER": "fake", "HONRYU_STORAGE_DRIVER": "s3"}
+	if err := run(context.Background(), func(k string) string { return env[k] }); err == nil {
+		t.Fatal("run with an unsupported storage driver: expected error, got nil")
+	}
+}
+
+func TestRun_SchedulerError(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{"HONRYU_DB_DRIVER": "fake", "HONRYU_SCHEDULER": "nope"}
+	if err := run(context.Background(), func(k string) string { return env[k] }); err == nil {
+		t.Fatal("run with an unsupported scheduler: expected error, got nil")
+	}
+}
+
+// A service not configured for advancing (no runner) reports an operational
+// error; advanceCalibrationOnce must log it and return rather than panic --
+// the next tick moves on regardless.
+func TestAdvanceCalibrationOnce_ErrorIsLoggedNotPropagated(t *testing.T) {
+	t.Parallel()
+	advanceCalibrationOnce(context.Background(), calibrationapp.NewService(fake.NewStore()))
+}
+
 func TestNewScheduler(t *testing.T) {
 	t.Parallel()
 	if s, err := newScheduler(config.ClusterConfig{Scheduler: "fake"}, fake.NewStore()); err != nil || s == nil {
@@ -62,6 +95,15 @@ func TestNewObjectStore(t *testing.T) {
 	t.Parallel()
 	if s, err := newObjectStore(config.StorageConfig{Driver: "local", Root: t.TempDir()}); err != nil || s == nil {
 		t.Fatalf("newObjectStore(local) = %v, %v", s, err)
+	}
+	s, err := newObjectStore(config.StorageConfig{
+		Driver: "nexus", BaseURL: "https://nexus.example", Repo: "raw", Username: "u", Password: "p",
+	})
+	if err != nil || s == nil {
+		t.Fatalf("newObjectStore(nexus) = %v, %v", s, err)
+	}
+	if got := s.URL("scenario/1/a.jmx"); got != "https://nexus.example/repository/raw/scenario/1/a.jmx" {
+		t.Fatalf("nexus URL = %q", got)
 	}
 	if _, err := newObjectStore(config.StorageConfig{Driver: "s3"}); err == nil {
 		t.Fatal("newObjectStore(s3): expected error, got nil")

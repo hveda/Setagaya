@@ -2,20 +2,24 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/app/campaignapp"
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/quotaapp"
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/config"
+	"github.com/heridotlife/honryu/internal/domain/calibration"
 	"github.com/heridotlife/honryu/internal/domain/campaign"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
 	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/reservation"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/schedule"
@@ -116,6 +120,31 @@ func TestRun_NewRepositoryError(t *testing.T) {
 	}
 	if err := run(context.Background(), func(k string) string { return env[k] }); err == nil {
 		t.Fatal("run with an unreachable mysql DSN: expected error, got nil")
+	}
+}
+
+func TestRun_ObjectStoreError(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{"HONRYU_DB_DRIVER": "fake", "HONRYU_STORAGE_DRIVER": "s3"}
+	if err := run(context.Background(), func(k string) string { return env[k] }); err == nil {
+		t.Fatal("run with an unsupported storage driver: expected error, got nil")
+	}
+}
+
+func TestRun_SchedulerError(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{"HONRYU_DB_DRIVER": "fake", "HONRYU_SCHEDULER": "nope"}
+	if err := run(context.Background(), func(k string) string { return env[k] }); err == nil {
+		t.Fatal("run with an unsupported scheduler: expected error, got nil")
+	}
+}
+
+func TestNewRepository_MySQL_BadDSN(t *testing.T) {
+	t.Parallel()
+	// A DSN missing the slash separating the database name is rejected at
+	// Open, before any connection is attempted.
+	if _, err := newRepository(config.DBConfig{Driver: "mysql", DSN: "honryu:secret"}, "default"); err == nil {
+		t.Fatal("newRepository(mysql, malformed DSN): expected error, got nil")
 	}
 }
 
@@ -675,4 +704,94 @@ func TestRunDrainLoop_TicksMoreThanOnceUntilCancelled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
 	runDrainLoop(ctx, campaigns, lifecycle, store, 10*time.Millisecond) // must return once ctx is done, without panicking
+}
+
+// stubRunner is a scripted calibrationapp.Runner, mirroring cmd/calibrator's
+// own test double -- duplicated rather than imported, since the two binaries
+// are separate package mains that cannot share test helpers.
+type stubRunner struct {
+	responses []report.Report
+	calls     int
+}
+
+func (r *stubRunner) RunStep(context.Context, int64, float64, int, float64) (report.Report, error) {
+	if r.calls >= len(r.responses) {
+		return report.Report{}, errors.New("stubRunner: no more scripted responses")
+	}
+	resp := r.responses[r.calls]
+	r.calls++
+	return resp, nil
+}
+
+type stubFingerprinter struct{}
+
+func (stubFingerprinter) ScenarioFingerprint(context.Context, int64) (string, error) {
+	return "fp", nil
+}
+
+// targetSaturatedReport reports the engine keeping up while the overall error
+// rate trips a "failures>5%" criterion -- a single-tick terminal outcome,
+// enough to prove the hosted loop actually advances a real job.
+func targetSaturatedReport(requestedQPS float64) report.Report {
+	return report.Report{
+		Requested:   report.Load{Throughput: requestedQPS},
+		Achieved:    report.Load{Throughput: requestedQPS, Samples: 1000},
+		ErrorRate:   0.10,
+		Attribution: report.Attribution{Target: 100},
+	}
+}
+
+// A service not configured for advancing (no runner) reports an operational
+// error; advanceCalibrationOnce must log it and return rather than panic --
+// the next tick moves on regardless.
+func TestAdvanceCalibrationOnce_ErrorIsLoggedNotPropagated(t *testing.T) {
+	t.Parallel()
+	advanceCalibrationOnce(context.Background(), calibrationapp.NewService(fake.NewStore()))
+}
+
+// The hosted loop's reason to exist: one due job claimed, driven through its
+// single terminal step, and left done.
+func TestAdvanceCalibrationOnce_AdvancesADueJob(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, err := store.CreateProject(ctx, p)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	spec := calibration.Spec{Criterion: "failures>5%", CPU: "1", Memory: "512Mi", SeedQPS: 10, MaxQPS: 1000, MaxSteps: 5, HoldSeconds: 1}
+	setup := calibrationapp.NewService(store)
+	executionID, err := setup.Create(ctx, "calibrate", projectID, taurus.ExecutorJMeter, spec)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	pl, _ := scenario.NewNative("target", projectID, taurus.ExecutorJMeter)
+	scenarioID, err := store.CreateScenario(ctx, pl)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	entries := []loadprofile.Entry{{ScenarioID: scenarioID, Engines: 1, Concurrency: 1, Duration: 1}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, entries); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+	jobID, err := setup.Trigger(ctx, executionID)
+	if err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+
+	calibrations := calibrationapp.NewService(store).
+		WithRunner(&stubRunner{responses: []report.Report{targetSaturatedReport(10)}}).
+		WithFingerprint(stubFingerprinter{})
+
+	advanceCalibrationOnce(ctx, calibrations)
+
+	job, err := calibrations.Get(ctx, jobID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if job.Phase != calibration.PhaseDone {
+		t.Fatalf("job.Phase = %q, want done", job.Phase)
+	}
 }

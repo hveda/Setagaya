@@ -1,6 +1,10 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -32,6 +36,7 @@ func TestParseLabelMap(t *testing.T) {
 		{"empty target", "probe=", nil, true},
 		{"empty source", "=probe", nil, true},
 		{"malformed json", `{"a":`, nil, true},
+		{"empty segments are skipped", "a=b,,c=d", map[string]string{"a": "b", "c": "d"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,5 +127,79 @@ func TestConfigFrom_TakesTheTokenFromTheEnvironment(t *testing.T) {
 	}
 	if cfg.Token != "s3cret" {
 		t.Errorf("Token = %q, want it read from the environment", cfg.Token)
+	}
+}
+
+func TestRun_RejectsBadConfiguration(t *testing.T) {
+	t.Parallel()
+
+	cases := [][]string{
+		{"-ingest-url", "http://x", "-label-map", "no-separator"},
+		{"-execution-id", "not-a-number"},
+	}
+	for _, args := range cases {
+		if err := run(args); err == nil {
+			t.Errorf("run(%v) succeeded, want a configuration error", args)
+		}
+	}
+}
+
+// End to end through run(): the engine already wrote its exit code, so the
+// sidecar pushes its final batch to the ingest and finishes cleanly.
+func TestRun_FinishesWhenTheEngineWroteItsExitCode(t *testing.T) {
+	t.Parallel()
+
+	var pushes int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		pushes++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	stream := filepath.Join(dir, "stream.jsonl")
+	if err := os.WriteFile(stream, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write stream: %v", err)
+	}
+	exitCode := filepath.Join(dir, "exit-code")
+	if err := os.WriteFile(exitCode, []byte("0"), 0o644); err != nil {
+		t.Fatalf("write exit code: %v", err)
+	}
+
+	if err := run([]string{
+		"-ingest-url", srv.URL,
+		"-stream", stream,
+		"-exit-code", exitCode,
+		"-flush-interval", "10ms",
+	}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if pushes == 0 {
+		t.Fatal("the sidecar finished without ever pushing a batch")
+	}
+}
+
+// A final push the ingest rejects surfaces as run's error: measurements not
+// accepted by the control plane are lost, so failing loudly is correct.
+func TestRun_SurfacesIngestFailure(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stream := filepath.Join(dir, "stream.jsonl")
+	if err := os.WriteFile(stream, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write stream: %v", err)
+	}
+	exitCode := filepath.Join(dir, "exit-code")
+	if err := os.WriteFile(exitCode, []byte("0"), 0o644); err != nil {
+		t.Fatalf("write exit code: %v", err)
+	}
+
+	if err := run([]string{
+		"-ingest-url", "http://127.0.0.1:1/ingest",
+		"-stream", stream,
+		"-exit-code", exitCode,
+		"-flush-interval", "10ms",
+	}); err == nil {
+		t.Fatal("run with an unreachable ingest: expected error, got nil")
 	}
 }
