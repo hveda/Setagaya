@@ -9,6 +9,7 @@ const navItems = [
   { href: '/reservations', label: 'Reservations' },
   { href: '/status', label: 'Live Status' },
   { href: '/campaigns', label: 'Campaigns' },
+  { href: '/clusters', label: 'Clusters' },
 ];
 
 function applyTheme(dark: boolean) {
