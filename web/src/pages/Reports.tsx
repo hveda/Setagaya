@@ -5,25 +5,12 @@ import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import CopyButton from '../components/ui/CopyButton';
 import Input from '../components/ui/Input';
+import OutcomeBadge from '../components/ui/OutcomeBadge';
 import { ApiError } from '../api/client';
 import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from '../api/reports';
-import type { Outcome, Report } from '../api/reports';
+import type { Report } from '../api/reports';
 import { formatApmLink, loadApmTemplate, saveApmTemplate } from '../api/apm';
-
-const outcomeClasses: Record<Outcome, string> = {
-  passed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-  failed: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-  aborted: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
-  error: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-};
-
-function OutcomeBadge({ outcome }: { outcome: Outcome }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${outcomeClasses[outcome]}`}>
-      {outcome}
-    </span>
-  );
-}
+import { SignatureSection, TrendSection } from './ReportsTrend';
 
 /** Engine badge: the engine kind that produced the run (jmeter, k6, ...) -- rendered only when the report carries one. */
 function EngineBadge({ engine }: { engine: string }) {
@@ -77,6 +64,7 @@ export default function Reports() {
 function ReportsList() {
   const [executionId, setExecutionId] = useState('');
   const [reports, setReports] = useState<Report[] | null>(null);
+  const [loadedExecutionId, setLoadedExecutionId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -91,8 +79,10 @@ function ReportsList() {
     try {
       const got = await listExecutionReports(executionIdNum);
       setReports(got);
+      setLoadedExecutionId(executionIdNum);
     } catch (err) {
       setReports(null);
+      setLoadedExecutionId(null);
       setError(err instanceof ApiError ? err.message : 'Failed to load reports.');
     } finally {
       setLoading(false);
@@ -138,35 +128,40 @@ function ReportsList() {
 
       <ApmTemplateSettings />
 
-      {reports && (
-        <Card padding="none">
-          {reports.length === 0 ? (
-            <p className="text-body-sm p-6 text-slate-500 dark:text-slate-400">No reports for this execution yet.</p>
-          ) : (
-            <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-              {reports.map((r) => (
-                <li key={r.run_id}>
-                  <Link
-                    to={`/reports/${r.run_id}`}
-                    className="flex min-h-[44px] flex-col gap-2 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="flex flex-wrap items-center gap-3">
-                      <OutcomeBadge outcome={r.outcome} />
-                      <span className="text-body-sm font-medium text-slate-900 dark:text-white">Run #{r.run_id}</span>
-                      <span className="text-caption text-slate-500 dark:text-slate-400">scenario {r.scenario_id}</span>
-                      {r.engine && <EngineBadge engine={r.engine} />}
-                      {r.cluster && <ClusterBadge cluster={r.cluster} />}
-                    </div>
-                    <div className="text-caption text-slate-500 dark:text-slate-400">
-                      {formatTime(r.started_at)} · {r.achieved.samples ?? 0} samples ·{' '}
-                      {(r.error_rate * 100).toFixed(1)}% errors
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+      {reports && loadedExecutionId !== null && (
+        <>
+          <Card padding="none">
+            {reports.length === 0 ? (
+              <p className="text-body-sm p-6 text-slate-500 dark:text-slate-400">No reports for this execution yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+                {reports.map((r) => (
+                  <li key={r.run_id}>
+                    <Link
+                      to={`/reports/${r.run_id}`}
+                      className="flex min-h-[44px] flex-col gap-2 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <OutcomeBadge outcome={r.outcome} />
+                        <span className="text-body-sm font-medium text-slate-900 dark:text-white">Run #{r.run_id}</span>
+                        <span className="text-caption text-slate-500 dark:text-slate-400">scenario {r.scenario_id}</span>
+                        {r.engine && <EngineBadge engine={r.engine} />}
+                        {r.cluster && <ClusterBadge cluster={r.cluster} />}
+                      </div>
+                      <div className="text-caption text-slate-500 dark:text-slate-400">
+                        {formatTime(r.started_at)} · {r.achieved.samples ?? 0} samples ·{' '}
+                        {(r.error_rate * 100).toFixed(1)}% errors
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <TrendSection executionId={loadedExecutionId} />
+          <SignatureSection executionId={loadedExecutionId} />
+        </>
       )}
     </div>
   );
