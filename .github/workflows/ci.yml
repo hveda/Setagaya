@@ -5,11 +5,20 @@ on:
   # main (post-merge) and feat/** -- a phase merges locally to develop
   # (feat/* -> develop, no PR), which ran no CI at all until this branch was
   # added; pushing the feat branch is now the earliest signal a phase can get.
-  # A feat/** push while its own feat->develop PR is open double-runs; accepted
-  # over the alternative of no CI on the common local-merge path.
+  # A feat/** push while its own feat->develop PR is open double-triggers
+  # (push + pull_request); the concurrency group below keys both events to
+  # the same branch so the newer run cancels the older duplicate.
   push:
     branches: [main, "feat/**"]
   pull_request:
+
+# One in-flight run per branch: on a feat/** push with an open feat->develop
+# PR, the push-event and pull_request-event runs share this group (head_ref
+# is the PR's source branch; ref falls back to the pushed ref) and the later
+# event cancels the earlier.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
