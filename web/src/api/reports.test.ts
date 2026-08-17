@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { listExecutionReports } from './reports';
+import { getShardConfig, listExecutionReports, shardObjectUrl } from './reports';
 
 describe('listExecutionReports', () => {
   afterEach(() => {
@@ -47,5 +47,30 @@ describe('listExecutionReports', () => {
     await listExecutionReports(1, 10);
 
     expect(seenUrl).toBe('/api/executions/1/reports?limit=10');
+  });
+});
+
+describe('shard objects', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('builds config and log URLs on the run/scenario/shard path', () => {
+    expect(shardObjectUrl(9, 2, 0, 'config')).toBe('/runs/9/scenarios/2/shards/0/config');
+    expect(shardObjectUrl(9, 2, 3, 'log')).toBe('/runs/9/scenarios/2/shards/3/log');
+  });
+
+  it('getShardConfig returns the raw text/plain body', async () => {
+    let seenUrl = '';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      seenUrl = String(input);
+      return new Response('execution:\n  concurrency: 10', { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const got = await getShardConfig(9, 2, 0);
+
+    expect(seenUrl).toBe('/api/runs/9/scenarios/2/shards/0/config');
+    expect(got).toBe('execution:\n  concurrency: 10');
   });
 });

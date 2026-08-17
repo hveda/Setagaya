@@ -30,7 +30,8 @@ export class ApiClient {
     this.getToken = options.getToken ?? (() => localStorage.getItem('honryu_token'));
   }
 
-  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  /** Sends a request with the usual auth/Accept headers, returning the checked response. */
+  private async send(path: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/json');
     const token = this.getToken();
@@ -42,10 +43,20 @@ export class ApiClient {
     if (!res.ok) {
       throw new ApiError(res.status, await extractErrorMessage(res));
     }
+    return res;
+  }
+
+  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const res = await this.send(path, init);
     if (res.status === 204) {
       return undefined as T;
     }
     return (await res.json()) as T;
+  }
+
+  /** GETs a text/plain body (e.g. shard config/log objects) with the same auth and error handling as request. */
+  text(path: string): Promise<string> {
+    return this.send(path, { method: 'GET' }).then((res) => res.text());
   }
 
   get<T>(path: string): Promise<T> {

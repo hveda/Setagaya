@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ExternalLink } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
+import CopyButton from '../components/ui/CopyButton';
 import Input from '../components/ui/Input';
 import { ApiError } from '../api/client';
-import { getRunReport, listExecutionReports } from '../api/reports';
+import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from '../api/reports';
 import type { Outcome, Report } from '../api/reports';
+import { formatApmLink, loadApmTemplate, saveApmTemplate } from '../api/apm';
 
 const outcomeClasses: Record<Outcome, string> = {
   passed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
@@ -20,6 +23,37 @@ function OutcomeBadge({ outcome }: { outcome: Outcome }) {
       {outcome}
     </span>
   );
+}
+
+/** Engine badge: the engine kind that produced the run (jmeter, k6, ...) -- rendered only when the report carries one. */
+function EngineBadge({ engine }: { engine: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+      {engine}
+    </span>
+  );
+}
+
+/**
+ * Cluster badge: the load origin. Absent cluster means the deployment
+ * default -- rendered as nothing, not as "default", so legacy rows stay
+ * quiet.
+ */
+function ClusterBadge({ cluster }: { cluster: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-900/30 dark:text-violet-300">
+      {cluster}
+    </span>
+  );
+}
+
+/** Validates the shard viewer's input: shards are 0-indexed non-negative integers; anything else is null. */
+export function parseShard(raw: string): number | null {
+  if (raw.trim() === '') {
+    return null;
+  }
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
 function formatTime(iso: string): string {
@@ -102,6 +136,8 @@ function ReportsList() {
         )}
       </Card>
 
+      <ApmTemplateSettings />
+
       {reports && (
         <Card padding="none">
           {reports.length === 0 ? (
@@ -114,10 +150,12 @@ function ReportsList() {
                     to={`/reports/${r.run_id}`}
                     className="flex min-h-[44px] flex-col gap-2 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <OutcomeBadge outcome={r.outcome} />
                       <span className="text-body-sm font-medium text-slate-900 dark:text-white">Run #{r.run_id}</span>
                       <span className="text-caption text-slate-500 dark:text-slate-400">scenario {r.scenario_id}</span>
+                      {r.engine && <EngineBadge engine={r.engine} />}
+                      {r.cluster && <ClusterBadge cluster={r.cluster} />}
                     </div>
                     <div className="text-caption text-slate-500 dark:text-slate-400">
                       {formatTime(r.started_at)} · {r.achieved.samples ?? 0} samples ·{' '}
@@ -131,6 +169,56 @@ function ReportsList() {
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * The APM deep-link template, stored per browser (localStorage): when set,
+ * each run's correlation id links into the operator's own APM. Client-side
+ * only -- the server never sees it (same precedent as the theme toggle).
+ */
+function ApmTemplateSettings() {
+  const [template, setTemplate] = useState<string>(() => loadApmTemplate());
+  const [saved, setSaved] = useState(false);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>APM deep-link template</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="flex flex-col gap-4 sm:flex-row sm:items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveApmTemplate(template);
+            setSaved(true);
+          }}
+        >
+          {/* text, not url: the {correlation_id} placeholder is not a valid URL character, so url validation would reject it. */}
+          <Input
+            label="URL template"
+            type="text"
+            value={template}
+            onChange={(e) => {
+              setTemplate(e.target.value);
+              setSaved(false);
+            }}
+            placeholder="https://apm.example.com/trace/{correlation_id}"
+            helperText="Optional. Put {correlation_id} where the trace id goes; run pages then link each correlation id into your APM. Saved in this browser only."
+            fullWidth
+          />
+          <Button type="submit" variant="secondary">
+            Save template
+          </Button>
+        </form>
+        {saved && (
+          <p className="text-caption mt-3 text-emerald-600 dark:text-emerald-400" role="status">
+            Template saved.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -152,10 +240,104 @@ function LoadStat({ label, load }: { label: string; load: Report['requested'] })
   );
 }
 
+/**
+ * One engine shard's durable objects: the compiled config exactly as the
+ * run used it, and the captured log that outlives the pod. Scenario comes
+ * from the report (prefilled); the operator only picks the shard number.
+ */
+function ShardObjects({ report }: { report: Report }) {
+  const [shard, setShard] = useState('0');
+  const [config, setConfig] = useState<string | null>(null);
+  const [log, setLog] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async (raw: string) => {
+    const parsed = parseShard(raw);
+    if (parsed === null) {
+      setError('Shard must be a non-negative integer.');
+      setConfig(null);
+      setLog(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const [cfg, shardLog] = await Promise.all([
+        getShardConfig(report.run_id, report.scenario_id, parsed),
+        getShardLog(report.run_id, report.scenario_id, parsed),
+      ]);
+      setConfig(cfg);
+      setLog(shardLog);
+    } catch (err) {
+      setConfig(null);
+      setLog(null);
+      setError(err instanceof ApiError ? err.message : 'Failed to load shard objects.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Shard objects</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-caption text-slate-500 dark:text-slate-400">
+          Run #{report.run_id} · scenario {report.scenario_id} — pick a shard to view the config it ran with and the log it captured.
+        </p>
+        <form
+          className="flex items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void load(shard);
+          }}
+        >
+          <div className="w-32">
+            <Input
+              label="Shard"
+              type="number"
+              min={0}
+              value={shard}
+              onChange={(e) => setShard(e.target.value)}
+            />
+          </div>
+          <Button type="submit" variant="secondary" disabled={loading}>
+            {loading ? 'Loading…' : 'Load shard'}
+          </Button>
+        </form>
+        {error && (
+          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </p>
+        )}
+        {config !== null && (
+          <div className="space-y-2">
+            <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Config (as the run used it)</p>
+            <pre className="max-h-96 overflow-auto rounded-lg bg-slate-900 p-4 font-mono text-xs leading-relaxed text-slate-100 dark:bg-slate-950">
+              {config}
+            </pre>
+          </div>
+        )}
+        {log !== null && (
+          <div className="space-y-2">
+            <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Log (captured engine output)</p>
+            <pre className="max-h-96 overflow-auto rounded-lg bg-slate-900 p-4 font-mono text-xs leading-relaxed text-slate-100 dark:bg-slate-950">
+              {log}
+            </pre>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ReportDetail({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [apmTemplate] = useState<string>(() => loadApmTemplate());
 
   useEffect(() => {
     const id = Number(runId);
@@ -208,8 +390,49 @@ function ReportDetail({ runId }: { runId: string }) {
                 <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Ended</p>
                 <p className="text-body-sm text-slate-900 dark:text-white">{formatTime(report.ended_at)}</p>
               </div>
+              {report.engine && (
+                <div>
+                  <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Engine</p>
+                  <p className="text-body-sm text-slate-900 dark:text-white">{report.engine}</p>
+                </div>
+              )}
+              {report.cluster && (
+                <div>
+                  <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Cluster</p>
+                  <p className="text-body-sm text-slate-900 dark:text-white">{report.cluster}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {report.correlation_id && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Correlation id</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap items-center gap-3">
+                  <code className="rounded-md bg-slate-100 px-2 py-1 font-mono text-body-sm break-all text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+                    {report.correlation_id}
+                  </code>
+                  <CopyButton value={report.correlation_id} label="Copy correlation id" />
+                  {formatApmLink(apmTemplate, report.correlation_id) && (
+                    <a
+                      href={formatApmLink(apmTemplate, report.correlation_id) as string}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-sm font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
+                    >
+                      Open in APM <ExternalLink aria-hidden className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+                <p className="text-caption mt-2 text-slate-500 dark:text-slate-400">
+                  The trace id this run&apos;s load carried (traceparent/baggage); paste it into your APM to see exactly this run&apos;s traffic.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -283,11 +506,13 @@ function ReportDetail({ runId }: { runId: string }) {
                         <p className="text-caption mt-1 text-slate-500 dark:text-slate-400">{e.exemplars[0]}</p>
                       )}
                     </li>
-                  ))}
+                  )                  )}
                 </ul>
               )}
             </CardContent>
           </Card>
+
+          <ShardObjects report={report} />
         </>
       )}
     </div>

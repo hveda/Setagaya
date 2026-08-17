@@ -74,3 +74,21 @@ export async function listExecutionReports(executionId: number, limit?: number):
 export function getRunReport(runId: number): Promise<Report> {
   return apiClient.get<Report>(`/runs/${runId}/report`);
 }
+
+/** The two shard object kinds the run endpoints expose (task 30). */
+export type ShardObjectKind = 'config' | 'log';
+
+/** Builds the object-store path for a shard's config or log; serves as the single source of that URL shape. */
+export function shardObjectUrl(runId: number, scenarioId: number, shard: number, kind: ShardObjectKind): string {
+  return `/runs/${runId}/scenarios/${scenarioId}/shards/${shard}/${kind}`;
+}
+
+/** A shard's compiled Taurus config exactly as the run used it (text/plain). */
+export function getShardConfig(runId: number, scenarioId: number, shard: number): Promise<string> {
+  return apiClient.text(shardObjectUrl(runId, scenarioId, shard, 'config'));
+}
+
+/** A shard's captured engine output, durable after the pod that produced it is deleted (text/plain). */
+export function getShardLog(runId: number, scenarioId: number, shard: number): Promise<string> {
+  return apiClient.text(shardObjectUrl(runId, scenarioId, shard, 'log'));
+}
