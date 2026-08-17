@@ -115,4 +115,31 @@ describe('ApiClient', () => {
     expect(seenBody).toBe('name=checkout');
     expect(got).toEqual({ ok: true });
   });
+
+  it('text() GETs and returns the raw text/plain body', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/mock-api/runs/1/scenarios/2/shards/0/config');
+      return new Response('concurrency: 10', { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new ApiClient({ baseUrl: '/mock-api', getToken: () => null });
+    const got = await client.text('/runs/1/scenarios/2/shards/0/config');
+
+    expect(got).toBe('concurrency: 10');
+  });
+
+  it('text() surfaces the error envelope like JSON requests do', async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ message: 'shard not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new ApiClient({ baseUrl: '/mock-api', getToken: () => null });
+    await expect(client.text('/runs/1/scenarios/2/shards/9/config')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 404,
+      message: 'shard not found',
+    });
+  });
 });

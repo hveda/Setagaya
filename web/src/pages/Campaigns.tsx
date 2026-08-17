@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import Input from '../components/ui/Input';
 import { ApiError } from '../api/client';
 import { createCampaign, getCampaignVerdict, listTenantCampaigns } from '../api/campaigns';
 import type { Campaign, CampaignVerdict, Outcome, ServiceVerdict } from '../api/campaigns';
+import { getCampaignComparison } from '../api/comparison';
+import type { CampaignComparison, ComparisonStatus } from '../api/comparison';
 
 type CampaignStatus = 'upcoming' | 'active' | 'ended' | 'aborted';
 
@@ -62,6 +64,71 @@ function ServiceStatusBadge({ status }: { status: ServiceStatus }) {
   );
 }
 
+/** Display labels for the wire's snake_case classifications (newly_at_risk -> "newly at risk"). */
+export const comparisonStatusLabels: Record<ComparisonStatus, string> = {
+  improved: 'improved',
+  regressed: 'regressed',
+  newly_at_risk: 'newly at risk',
+  still_at_risk: 'still at risk',
+  steady: 'steady',
+  new: 'new',
+  dropped: 'dropped',
+};
+
+// Distinct per classification: the go/no-go direction the chip encodes
+// (emerald = go-positive, red = go-negative, amber/orange = risk, slate =
+// unchanged/neutral, sky = participation without baseline, violet = left).
+export const comparisonStatusClasses: Record<ComparisonStatus, string> = {
+  improved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  regressed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  newly_at_risk: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+  still_at_risk: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+  steady: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
+  new: 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300',
+  dropped: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
+};
+
+/**
+ * The go/no-go transition a classification summarizes, derived from the
+ * classification itself (the server classified from the same booleans).
+ * new/dropped are participation changes, not verdict transitions.
+ */
+export function comparisonTransition(status: ComparisonStatus): string {
+  switch (status) {
+    case 'improved':
+      return 'no-go → go';
+    case 'regressed':
+      return 'go → no-go';
+    case 'steady':
+      return 'go → go';
+    case 'still_at_risk':
+      return 'no-go → no-go';
+    case 'newly_at_risk':
+      return 'new: no-go';
+    case 'new':
+      return 'new: go';
+    case 'dropped':
+      return 'left this campaign';
+  }
+}
+
+/** Baseline-override input: a positive campaign id, 'empty' (use default resolution), or 'invalid'. */
+export function parseBaselineId(raw: string): number | 'empty' | 'invalid' {
+  if (raw.trim() === '') {
+    return 'empty';
+  }
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : 'invalid';
+}
+
+function ComparisonStatusBadge({ status }: { status: ComparisonStatus }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${comparisonStatusClasses[status]}`}>
+      {comparisonStatusLabels[status]}
+    </span>
+  );
+}
+
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
@@ -74,6 +141,127 @@ interface ServiceRow {
 
 function emptyRow(): ServiceRow {
   return { projectId: '', executionId: '' };
+}
+
+/**
+ * Per-service go/no-go comparison against a baseline campaign (phase 9's
+ * comparison endpoint): the baseline defaults to the tenant's most-recent
+ * prior ended campaign; an override input passes ?baseline=. No baseline
+ * resolvable (the tenant's first campaign) renders as information, never
+ * an error.
+ */
+function ComparisonPanel({ campaignId }: { campaignId: number }) {
+  const [comparison, setComparison] = useState<CampaignComparison | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [baselineInput, setBaselineInput] = useState('');
+  const [baselineError, setBaselineError] = useState<string | null>(null);
+  // null = default resolution (most recent prior ended campaign).
+  const [baselineOverride, setBaselineOverride] = useState<number | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    getCampaignComparison(campaignId, baselineOverride ?? undefined)
+      .then(setComparison)
+      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : 'Failed to load comparison.'))
+      .finally(() => setLoading(false));
+  }, [campaignId, baselineOverride]);
+
+  const applyBaseline = () => {
+    const parsed = parseBaselineId(baselineInput);
+    if (parsed === 'invalid') {
+      setBaselineError('Enter a positive campaign id, or leave empty for the default baseline.');
+      return;
+    }
+    setBaselineError(null);
+    setBaselineOverride(parsed === 'empty' ? null : parsed);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Comparison against baseline</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <form
+          className="flex flex-col gap-3 sm:flex-row sm:items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            applyBaseline();
+          }}
+        >
+          <div className="w-64">
+            <Input
+              label="Baseline campaign ID"
+              type="number"
+              min={1}
+              value={baselineInput}
+              onChange={(e) => setBaselineInput(e.target.value)}
+              placeholder="default: latest ended"
+            />
+          </div>
+          <Button type="submit" variant="secondary" disabled={loading}>
+            Compare
+          </Button>
+        </form>
+        {baselineError && (
+          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            {baselineError}
+          </p>
+        )}
+
+        {loading && <p className="text-body-sm text-slate-500 dark:text-slate-400">Loading comparison…</p>}
+        {error && (
+          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </p>
+        )}
+        {!loading && !error && comparison && (
+          <>
+            {!comparison.has_baseline ? (
+              // First campaign (no prior ended campaign, none given): the
+              // endpoint returns has_baseline:false with no services -- an
+              // expected state, rendered as such.
+              <p className="text-body-sm text-slate-500 dark:text-slate-400">
+                First campaign — no baseline to compare against yet. The next campaign in this tenant will compare
+                against this one.
+              </p>
+            ) : (
+              <>
+                <p className="text-caption text-slate-500 dark:text-slate-400">
+                  {baselineOverride
+                    ? `vs campaign #${comparison.baseline_campaign_id ?? baselineOverride} (explicit baseline)`
+                    : `vs campaign #${comparison.baseline_campaign_id} (most recent ended)`}
+                </p>
+                {comparison.services.length === 0 ? (
+                  <p className="text-body-sm text-slate-500 dark:text-slate-400">
+                    No per-service changes against this baseline.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {comparison.services.map((sc) => (
+                      <li key={sc.project_id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <ComparisonStatusBadge status={sc.status} />
+                          <span className="text-body-sm font-medium text-slate-900 dark:text-white">
+                            project #{sc.project_id}
+                          </span>
+                          <span className="text-caption text-slate-500 dark:text-slate-400">
+                            {comparisonTransition(sc.status)}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 /** Create a campaign, browse a tenant's campaigns, and view a campaign's rolled-up verdict. */
@@ -418,6 +606,8 @@ export default function Campaigns() {
           </CardContent>
         </Card>
       )}
+
+      {selectedId !== null && <ComparisonPanel key={selectedId} campaignId={selectedId} />}
     </div>
   );
 }

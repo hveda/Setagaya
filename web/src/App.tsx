@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import DashboardLayout from './components/DashboardLayout';
+import Clusters from './pages/Clusters';
 import Campaigns from './pages/Campaigns';
 import LiveStatus from './pages/LiveStatus';
 import Reports from './pages/Reports';
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/reservations" element={<Reservations />} />
           <Route path="/status" element={<LiveStatus />} />
           <Route path="/campaigns" element={<Campaigns />} />
+          <Route path="/clusters" element={<Clusters />} />
         </Routes>
       </DashboardLayout>
     </BrowserRouter>

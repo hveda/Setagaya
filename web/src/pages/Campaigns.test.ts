@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { campaignStatus, serviceStatus } from './Campaigns';
+import {
+  campaignStatus,
+  comparisonStatusClasses,
+  comparisonStatusLabels,
+  comparisonTransition,
+  parseBaselineId,
+  serviceStatus,
+} from './Campaigns';
 import type { Campaign, ServiceVerdict } from '../api/campaigns';
+import type { ComparisonStatus } from '../api/comparison';
 
 function makeCampaign(overrides: Partial<Campaign> = {}): Campaign {
   return {
@@ -58,5 +66,73 @@ describe('serviceStatus', () => {
   // pending is the safe fallback rather than crashing on an unknown badge.
   it('falls back to pending if has_report is true but outcome is missing', () => {
     expect(serviceStatus(makeServiceVerdict({ has_report: true }))).toBe('pending');
+  });
+});
+
+const allStatuses: ComparisonStatus[] = [
+  'improved',
+  'regressed',
+  'newly_at_risk',
+  'still_at_risk',
+  'steady',
+  'new',
+  'dropped',
+];
+
+describe('comparison status mapping', () => {
+  // Table-test the full classification set: every wire status needs a
+  // display label (underscores gone) and chip classes, or the badge
+  // renders undefined.
+  it.each(allStatuses)('labels and styles %s', (status) => {
+    expect(comparisonStatusLabels[status]).toBeTruthy();
+    expect(comparisonStatusLabels[status]).not.toMatch(/_/);
+    expect(comparisonStatusClasses[status]).toBeTruthy();
+  });
+
+  it('covers exactly the seven classifications', () => {
+    expect(Object.keys(comparisonStatusLabels).sort()).toEqual([...allStatuses].sort());
+  });
+
+  it('humanizes the snake_case risk statuses', () => {
+    expect(comparisonStatusLabels.newly_at_risk).toBe('newly at risk');
+    expect(comparisonStatusLabels.still_at_risk).toBe('still at risk');
+  });
+});
+
+describe('comparisonTransition', () => {
+  // The transition caption mirrors the classification's definition
+  // (domain/campaign/compare.go): improved/regressed are verdict flips,
+  // steady/still_at_risk hold, new/dropped are participation changes.
+  it.each([
+    ['improved', 'no-go → go'],
+    ['regressed', 'go → no-go'],
+    ['steady', 'go → go'],
+    ['still_at_risk', 'no-go → no-go'],
+    ['newly_at_risk', 'new: no-go'],
+    ['new', 'new: go'],
+    ['dropped', 'left this campaign'],
+  ] as [ComparisonStatus, string][])('summarizes %s', (status, expected) => {
+    expect(comparisonTransition(status)).toBe(expected);
+  });
+});
+
+describe('parseBaselineId', () => {
+  it('accepts a positive campaign id', () => {
+    expect(parseBaselineId('4')).toBe(4);
+    expect(parseBaselineId(' 12 ')).toBe(12);
+  });
+
+  it('treats empty (or blank) input as the default resolution', () => {
+    expect(parseBaselineId('')).toBe('empty');
+    expect(parseBaselineId('   ')).toBe('empty');
+  });
+
+  // Number('') is 0, and 0 is not a valid campaign id -- blank input must
+  // not slip through as an override.
+  it('rejects zero, negatives, fractions, and junk', () => {
+    expect(parseBaselineId('0')).toBe('invalid');
+    expect(parseBaselineId('-3')).toBe('invalid');
+    expect(parseBaselineId('1.5')).toBe('invalid');
+    expect(parseBaselineId('abc')).toBe('invalid');
   });
 });

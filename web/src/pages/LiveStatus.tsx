@@ -3,8 +3,10 @@ import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import Input from '../components/ui/Input';
 import { ApiError } from '../api/client';
-import { getExecutionStatus, streamExecutionMetrics } from '../api/status';
-import type { EngineMetric, ExecutionStatus, Phase } from '../api/status';
+import { getExecutionInfo, getExecutionStatus, streamExecutionMetrics } from '../api/status';
+import type { EngineMetric, ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
+import ClusterBadge from '../components/ui/ClusterBadge';
+import EngineBadge from '../components/ui/EngineBadge';
 
 const phaseClasses: Record<Phase, string> = {
   idle: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
@@ -51,6 +53,15 @@ function summarize(events: ReceivedMetric[]): LiveStats {
   };
 }
 
+/**
+ * Engines still missing for a scenario: wanted minus deployed, floored at
+ * zero (a terminating engine can briefly report one extra). Drives the
+ * pending-engines mark on the scenario rows.
+ */
+export function engineShortfall(s: Pick<ScenarioStatus, 'engines' | 'engines_deployed'>): number {
+  return Math.max(0, s.engines - s.engines_deployed);
+}
+
 function StatCard({ label, value, caption }: { label: string; value: string; caption: string }) {
   return (
     <div>
@@ -65,6 +76,7 @@ function StatCard({ label, value, caption }: { label: string; value: string; cap
 export default function LiveStatus() {
   const [executionId, setExecutionId] = useState('');
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [info, setInfo] = useState<ExecutionInfo | null>(null);
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
   const [stats, setStats] = useState<LiveStats>({ throughput: 0, errorRate: 0, latencySeconds: null });
   const [error, setError] = useState<string | null>(null);
@@ -76,13 +88,27 @@ export default function LiveStatus() {
     }
     let cancelled = false;
 
-    getExecutionStatus(activeId)
-      .then((s) => {
-        if (!cancelled) setStatus(s);
+    // The execution's setup (engine kind, cluster) is immutable -- fetched
+    // once. The lifecycle snapshot changes as engines deploy, so it polls.
+    getExecutionInfo(activeId)
+      .then((i) => {
+        if (!cancelled) setInfo(i);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load status.');
+        if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load execution.');
       });
+
+    const loadStatus = () => {
+      getExecutionStatus(activeId)
+        .then((s) => {
+          if (!cancelled) setStatus(s);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load status.');
+        });
+    };
+    loadStatus();
+    const poll = setInterval(loadStatus, 10_000);
 
     eventsRef.current = [];
     setStats({ throughput: 0, errorRate: 0, latencySeconds: null });
@@ -103,6 +129,7 @@ export default function LiveStatus() {
       cancelled = true;
       unsubscribe();
       clearInterval(ticker);
+      clearInterval(poll);
     };
   }, [activeId]);
 
@@ -114,6 +141,7 @@ export default function LiveStatus() {
     }
     setError(null);
     setStatus(null);
+    setInfo(null);
     setActiveId(id);
   };
 
@@ -156,7 +184,11 @@ export default function LiveStatus() {
         <>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Execution #{activeId}</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>Execution #{activeId}</CardTitle>
+                {info?.engine && <EngineBadge engine={info.engine} />}
+                {info?.cluster && <ClusterBadge cluster={info.cluster} />}
+              </div>
               <PhaseBadge phase={status.phase} />
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-6 sm:grid-cols-3">
@@ -205,6 +237,9 @@ export default function LiveStatus() {
                     </div>
                     <div className="text-caption text-slate-500 dark:text-slate-400">
                       {sc.engines_deployed}/{sc.engines} engines deployed
+                      {engineShortfall(sc) > 0 && (
+                        <span className="text-amber-600 dark:text-amber-400"> · {engineShortfall(sc)} pending</span>
+                      )}
                     </div>
                   </li>
                 ))}
