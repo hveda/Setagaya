@@ -34,7 +34,9 @@ if [ -n "${TAGS}" ]; then
 fi
 
 # shellcheck disable=SC2086
-go test ${GOFLAGS_P} -count=1 -tags="${TAGS}" \
+# -timeout: the instrumented mysql adapter package alone runs ~12min under
+# the coverage build, past go test's 10m default.
+go test ${GOFLAGS_P} -count=1 -timeout 30m -tags="${TAGS}" \
   -covermode=atomic -coverpkg="${COVERPKG}" -coverprofile="${PROFILE}" ./...
 
 total=$(go tool cover -func="${PROFILE}" | awk '/^total:/ {print substr($3, 1, length($3)-1)}')
