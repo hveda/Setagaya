@@ -9,7 +9,7 @@
 # (internal/adapters/scheduler/k8s/k8s.go's sidecarScript) -- a shell-less
 # distroless image would fail to even start that container. The binary is
 # named /honryu-${CMD} to match that same hardcoded /honryu-sidecar path.
-FROM golang:1.26 AS build
+FROM golang:1.26.6 AS build
 ARG CMD=api
 WORKDIR /src
 COPY go.mod go.sum ./
