@@ -1,22 +1,19 @@
 name: CI
 
 on:
-  # pull_request covers feature->develop and develop->main. push also covers
-  # main (post-merge) and feat/** -- a phase merges locally to develop
-  # (feat/* -> develop, no PR), which ran no CI at all until this branch was
-  # added; pushing the feat branch is now the earliest signal a phase can get.
-  # A feat/** push while its own feat->develop PR is open double-triggers
-  # (push + pull_request); the concurrency group below keys both events to
-  # the same branch so the newer run cancels the older duplicate.
+  # pull_request covers feature->develop and develop->main; since phase 14
+  # every phase merge goes through a feat->develop PR, so pull_request
+  # already gives feat branches full CI -- a feat/** push trigger is pure
+  # duplication (and raced pull_request into double runs; a concurrency
+  # group cannot fix a 3-second registration race). push stays for main
+  # only, covering the post-merge case.
   push:
-    branches: [main, "feat/**"]
+    branches: [main]
   pull_request:
 
-# One in-flight run per branch: on a feat/** push with an open feat->develop
-# PR, the push-event and pull_request-event runs share this group -- head_ref
-# (PR source branch) and ref_name (pushed branch, no refs/heads/ prefix, the
-# plain ref would NOT match) both resolve to the bare branch name -- and the
-# later event cancels the earlier.
+# One in-flight run per branch: guards the edge where a main push and a
+# develop->main PR-sync event race (head_ref is the PR's source branch;
+# ref_name is the pushed bare branch name -- plain ref would never match).
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
