@@ -42,6 +42,10 @@ export interface Report {
   scenario_id: number;
   run_id: number;
   engine?: string;
+  /** Load origin: empty/absent means the deployment default cluster. */
+  cluster?: string;
+  /** Trace id the run's load carried (traceparent/baggage); absent on runs that predate it. */
+  correlation_id?: string;
   started_at: string;
   ended_at: string;
   outcome: Outcome;
