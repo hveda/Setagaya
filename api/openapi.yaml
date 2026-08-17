@@ -528,6 +528,9 @@ components:
           description: Populated only when the execution's profile has exactly one scenario; 0 otherwise, since the label breakdown covers the multi-scenario case.
         run_id: { type: integer, format: int64 }
         engine: { type: string }
+        cluster:
+          type: string
+          description: The load origin -- the registered cluster this run generated load from. Empty means the deployment default.
         correlation_id:
           type: string
           description: The trace id the run's generated load carried in its W3C traceparent/baggage headers -- the id to deep-link into a customer's own APM for exactly this run, alongside started_at/ended_at. Empty for runs that predate it.
