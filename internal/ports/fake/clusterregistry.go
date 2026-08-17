@@ -93,6 +93,35 @@ func (s *Store) SetClusterCredential(_ context.Context, name string, ciphertext 
 	return nil
 }
 
+// SetClusterIngestTokenHash stores name's ingest-token hash (overwrite =
+// rotation; empty clears), or ports.ErrNotFound if the entry is absent.
+func (s *Store) SetClusterIngestTokenHash(_ context.Context, name string, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.clusters[name]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	c.IngestTokenHash = hash
+	s.clusters[name] = c
+	return nil
+}
+
+// ClusterByIngestTokenHash resolves a hash to its cluster, or
+// ports.ErrNotFound. Uniqueness is the contract a real store enforces with an
+// index; the fake enforces it by construction (first match wins, and tests
+// never seed colliding hashes).
+func (s *Store) ClusterByIngestTokenHash(_ context.Context, hash string) (clusterregistry.Cluster, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.clusters {
+		if c.IngestTokenHash != "" && c.IngestTokenHash == hash {
+			return c, nil
+		}
+	}
+	return clusterregistry.Cluster{}, ports.ErrNotFound
+}
+
 // GetClusterCredential returns name's stored ciphertext, ports.ErrNotFound if
 // the entry is absent, or nil for an entry with no credential.
 func (s *Store) GetClusterCredential(_ context.Context, name string) ([]byte, error) {

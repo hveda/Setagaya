@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
 	"github.com/heridotlife/honryu/internal/domain/metrics"
 )
 
@@ -19,11 +21,6 @@ const maxIngestBytes = 8 << 20 // 8 MiB
 // sidecar rather than scraped, so the control plane never has to reach into a
 // cluster -- which is what lets an execution run somewhere it could not address.
 func (h *handlers) ingest(w http.ResponseWriter, r *http.Request) {
-	if !h.authorizeIngest(r) {
-		writeError(w, http.StatusUnauthorized, "invalid ingest credentials")
-		return
-	}
-
 	var batch metrics.Batch
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxIngestBytes))
 	if err := dec.Decode(&batch); err != nil {
@@ -32,6 +29,13 @@ func (h *handlers) ingest(w http.ResponseWriter, r *http.Request) {
 	}
 	if batch.ExecutionID <= 0 {
 		writeError(w, http.StatusBadRequest, "batch does not name an execution")
+		return
+	}
+
+	// The body is decoded before credentials are checked because scoping a
+	// cluster token needs to know which execution the batch claims.
+	if code, msg := h.checkIngestCredentials(r.Context(), r, batch); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -44,20 +48,45 @@ func (h *handlers) ingest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// authorizeIngest checks the shared engine credential.
+// checkIngestCredentials authenticates a push and, for cluster tokens, scopes
+// it. It returns 0 when the push may proceed, else the HTTP status and message
+// to answer with.
 //
 // Engine pods are not users: they hold no account and outlive no session, so
-// they authenticate with a token issued to the deployment rather than through
-// the user AuthProvider. An empty configured token rejects everything, so a
-// deployment that forgot to set one is closed rather than open.
-func (h *handlers) authorizeIngest(r *http.Request) bool {
-	if h.deps.IngestToken == "" {
-		return false
-	}
+// they authenticate with a token rather than through the user AuthProvider. Two
+// credentials exist, tried in order:
+//
+//  1. The deployment-wide engine token (Deps.IngestToken). Empty configured
+//     token rejects everything, so a deployment that forgot to set one is
+//     closed rather than open.
+//  2. A per-cluster ingest token minted at BYOC registration. The presentation
+//     is hashed and looked up; the token names a cluster, so the push is
+//     additionally scoped to that cluster: the batch's execution must be one
+//     routed there. A cluster token never speaks for the default fleet or for
+//     a rival cluster's executions.
+func (h *handlers) checkIngestCredentials(ctx context.Context, r *http.Request, batch metrics.Batch) (int, string) {
 	presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok {
-		return false
+		return http.StatusUnauthorized, "invalid ingest credentials"
 	}
 	// Constant time, so a wrong token cannot be discovered a byte at a time.
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(h.deps.IngestToken)) == 1
+	if h.deps.IngestToken != "" &&
+		subtle.ConstantTimeCompare([]byte(presented), []byte(h.deps.IngestToken)) == 1 {
+		return 0, ""
+	}
+	if h.deps.IngestTokens == nil || h.deps.ExecutionCluster == nil {
+		return http.StatusUnauthorized, "invalid ingest credentials"
+	}
+	cluster, err := h.deps.IngestTokens.ClusterByIngestTokenHash(ctx, clusterregistry.HashToken(presented))
+	if err != nil {
+		return http.StatusUnauthorized, "invalid ingest credentials"
+	}
+	exe, err := h.deps.ExecutionCluster.GetExecution(ctx, batch.ExecutionID)
+	if err != nil {
+		return http.StatusForbidden, "ingest token is not valid for this execution"
+	}
+	if exe.Cluster != cluster.Name {
+		return http.StatusForbidden, "ingest token is not valid for this execution"
+	}
+	return 0, ""
 }

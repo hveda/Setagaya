@@ -14,7 +14,9 @@ var _ ports.ClusterRegistry = (*Repository)(nil)
 
 // clusterColumns are the domain-mapped columns. byoc_credential is deliberately
 // excluded: it is opaque ciphertext accessed only through the credential
-// methods, never round-tripped as part of the domain Cluster.
+// methods, never round-tripped as part of the domain Cluster. ingest_token_hash
+// is excluded for the same reason -- derived credential data, accessed only
+// through the token-hash methods.
 const clusterColumns = "name, api_url, ca_cert, ingest_url, sidecar_image, namespace, secret_ref, origin, created_by, created_time"
 
 // CreateCluster stores c, or ports.ErrClusterExists if the name is taken.
@@ -151,6 +153,39 @@ func (r *Repository) GetClusterCredential(ctx context.Context, name string) ([]b
 		return nil, fmt.Errorf("mysql: get cluster credential: %w", err)
 	}
 	return ciphertext, nil
+}
+
+// SetClusterIngestTokenHash stores SHA-256 of a cluster's ingest token
+// against an existing entry (overwrite = rotation; empty clears), or returns
+// ports.ErrNotFound.
+func (r *Repository) SetClusterIngestTokenHash(ctx context.Context, name string, hash string) error {
+	res, err := r.db.ExecContext(ctx,
+		"UPDATE cluster_registry SET ingest_token_hash = ? WHERE name = ?", hash, name)
+	if err != nil {
+		return fmt.Errorf("mysql: set cluster ingest token hash: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mysql: set cluster ingest token hash rows affected: %w", err)
+	}
+	if n == 0 {
+		if _, getErr := r.GetCluster(ctx, name); getErr != nil {
+			return getErr
+		}
+	}
+	return nil
+}
+
+// ClusterByIngestTokenHash resolves an ingest token's hash to its cluster, or
+// ports.ErrNotFound when no entry carries it.
+func (r *Repository) ClusterByIngestTokenHash(ctx context.Context, hash string) (clusterregistry.Cluster, error) {
+	row := r.db.QueryRowContext(ctx,
+		"SELECT "+clusterColumns+" FROM cluster_registry WHERE ingest_token_hash = ?", hash)
+	c, err := scanCluster(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return clusterregistry.Cluster{}, ports.ErrNotFound
+	}
+	return c, err
 }
 
 func scanCluster(s rowScanner) (clusterregistry.Cluster, error) {

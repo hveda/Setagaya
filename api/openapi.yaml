@@ -1970,6 +1970,28 @@ paths:
         '422':
           description: The cluster is unreachable, unauthorized, or under-privileged
 
+  /api/clusters/{name}/rotate-ingest-token:
+    post:
+      tags: [clusters]
+      summary: Replace a cluster's ingest token
+      description: >-
+        Mints a fresh per-cluster ingest token, returned exactly once in the
+        response body; the previous token stops authenticating immediately.
+        Store it in the cluster's honryu-ingest Secret (key "token") so engine
+        sidecars present it to /api/ingest. The plane keeps only a hash.
+      parameters: [{ $ref: '#/components/parameters/ClusterName' }]
+      responses:
+        '200':
+          description: The one-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ingest_token: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/clusters/{name}:
     get:
       tags: [clusters]

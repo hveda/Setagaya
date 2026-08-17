@@ -76,6 +76,12 @@ type Cluster struct {
 	// this cluster's client. Every entry references one -- consumption is
 	// uniform regardless of Origin.
 	SecretRef string
+	// IngestTokenHash is SHA-256 of this cluster's ingest token (see token.go),
+	// empty for entries that have none minted. The token itself is shown to
+	// the registrant exactly once at mint/rotate and never stored -- this
+	// field is credential-derived data, never a credential, and never appears
+	// in any API response.
+	IngestTokenHash string
 	// Origin records who owns the credential's source of truth.
 	Origin Origin
 	// CreatedBy and CreatedTime are audit metadata assigned at registration.

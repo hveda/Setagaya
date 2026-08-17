@@ -117,20 +117,35 @@ func TestRegisterBYOC_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterBYOC: %v", err)
 	}
-	if got.Origin != clusterregistry.OriginBYOC || got.SecretRef != "honryu-cluster-prod-eu" {
-		t.Fatalf("entry = %+v, want byoc origin + derived secret ref", got)
+	if got.Cluster.Origin != clusterregistry.OriginBYOC || got.Cluster.SecretRef != "honryu-cluster-prod-eu" {
+		t.Fatalf("entry = %+v, want byoc origin + derived secret ref", got.Cluster)
 	}
-	if got.APIURL != "https://byoc:6443" || got.CACert != "byoc-ca" {
-		t.Fatalf("entry api/ca not taken from the kubeconfig: %+v", got)
+	if got.Cluster.APIURL != "https://byoc:6443" || got.Cluster.CACert != "byoc-ca" {
+		t.Fatalf("entry api/ca not taken from the kubeconfig: %+v", got.Cluster)
 	}
-
-	// Persisted.
+	// The minted ingest token: shown once here, only its hash stored.
+	if got.IngestToken == "" {
+		t.Fatal("BYOC registration returned no ingest token")
+	}
 	stored, err := h.store.GetCluster(ctx, "prod-eu")
 	if err != nil {
 		t.Fatalf("GetCluster: %v", err)
 	}
-	if stored.SecretRef != "honryu-cluster-prod-eu" {
-		t.Fatalf("stored SecretRef = %q", stored.SecretRef)
+	if stored.IngestTokenHash != clusterregistry.HashToken(got.IngestToken) {
+		t.Fatalf("stored hash = %q, want hash of the returned token", stored.IngestTokenHash)
+	}
+	resolved, err := h.store.ClusterByIngestTokenHash(ctx, stored.IngestTokenHash)
+	if err != nil || resolved.Name != "prod-eu" {
+		t.Fatalf("token hash resolved to %+v, %v; want prod-eu", resolved, err)
+	}
+
+	// Persisted.
+	persisted, err := h.store.GetCluster(ctx, "prod-eu")
+	if err != nil {
+		t.Fatalf("GetCluster: %v", err)
+	}
+	if persisted.SecretRef != "honryu-cluster-prod-eu" {
+		t.Fatalf("stored SecretRef = %q", persisted.SecretRef)
 	}
 	// Secret materialized.
 	if _, ok := h.creds.materialized["honryu-cluster-prod-eu"]; !ok {
