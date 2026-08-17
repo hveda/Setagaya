@@ -259,13 +259,31 @@ func (s *Service) Update(ctx context.Context, name, ingestURL, sidecarImage, nam
 
 // Delete removes a cluster, guarded: it is rejected with ErrClusterInUse while
 // any execution bound to it has an active run.
+//
+// For a BYOC entry this also tears down the credential Secret RegisterBYOC
+// materialized -- Secret first, registry row second, so a teardown failure
+// aborts the delete with both intact and a retry can pick up where it left
+// off, rather than leaving the row gone and the Secret orphaned. An operator
+// entry's Secret is never touched: RegisterOperator only ever reads it (it is
+// infrastructure the operator manages out of band, not something Honryu
+// created), so deleting it on deregistration would destroy operator
+// infrastructure -- a worse defect than the leak this guards against.
 func (s *Service) Delete(ctx context.Context, name string) error {
+	entry, err := s.deps.Registry.GetCluster(ctx, name)
+	if err != nil {
+		return err
+	}
 	active, err := s.deps.Runs.ExecutionsWithActiveRunOnCluster(ctx, name)
 	if err != nil {
 		return err
 	}
 	if len(active) > 0 {
 		return fmt.Errorf("%w: executions %v", ErrClusterInUse, active)
+	}
+	if entry.Origin == clusterregistry.OriginBYOC {
+		if err := s.deps.Credentials.Delete(ctx, entry.SecretRef); err != nil {
+			return fmt.Errorf("clusterapp: delete credential secret: %w", err)
+		}
 	}
 	return s.deps.Registry.DeleteCluster(ctx, name)
 }

@@ -34,7 +34,13 @@ if [ -n "${TAGS}" ]; then
 fi
 
 # shellcheck disable=SC2086
-go test ${GOFLAGS_P} -count=1 -tags="${TAGS}" \
+# -timeout: the instrumented mysql adapter package alone runs ~12min under the
+# coverage build on a developer box, past go test's 10m default. This is a
+# safety net against a hang, not a time budget -- GitHub-hosted runners have
+# 2-4 vCPU and this lane runs -p 1, so the same suite can take several times
+# longer there, and a timeout would fail the gate for reasons unrelated to
+# coverage. Kept generous deliberately; the CI job's own ceiling is hours.
+go test ${GOFLAGS_P} -count=1 -timeout 60m -tags="${TAGS}" \
   -covermode=atomic -coverpkg="${COVERPKG}" -coverprofile="${PROFILE}" ./...
 
 total=$(go tool cover -func="${PROFILE}" | awk '/^total:/ {print substr($3, 1, length($3)-1)}')

@@ -156,3 +156,56 @@ func TestNexus_RequestErrorsOnBadURL(t *testing.T) {
 		t.Fatal("Delete to dead addr: want error")
 	}
 }
+
+// countingTransport records requests seen by an injected client.
+type countingTransport struct {
+	inner http.RoundTripper
+	seen  int
+}
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.seen++
+	return c.inner.RoundTrip(r)
+}
+
+func TestNexus_WithClientUsesTheInjectedClient(t *testing.T) {
+	t.Parallel()
+	url := newServer(t, newFakeNexus())
+	rt := &countingTransport{inner: http.DefaultTransport}
+	store := nexusadapter.New(url, testRepo, nexusadapter.WithClient(&http.Client{Transport: rt}))
+	ctx := context.Background()
+
+	if err := store.Upload(ctx, "k", bytes.NewReader([]byte("v"))); err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	got, err := store.Download(ctx, "k")
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if string(got) != "v" {
+		t.Fatalf("Download = %q, want %q", got, "v")
+	}
+	if rt.seen != 2 {
+		t.Fatalf("injected transport saw %d requests, want 2", rt.seen)
+	}
+}
+
+// WithClient(nil) must not clobber the default client -- optionality is
+// guarded, and the default client still works end to end.
+func TestNexus_WithClientNilKeepsTheDefaultClient(t *testing.T) {
+	t.Parallel()
+	url := newServer(t, newFakeNexus())
+	store := nexusadapter.New(url, testRepo, nexusadapter.WithClient(nil))
+	ctx := context.Background()
+
+	if err := store.Upload(ctx, "k", bytes.NewReader([]byte("v"))); err != nil {
+		t.Fatalf("Upload with nil client override: %v", err)
+	}
+	got, err := store.Download(ctx, "k")
+	if err != nil {
+		t.Fatalf("Download with nil client override: %v", err)
+	}
+	if string(got) != "v" {
+		t.Fatalf("Download = %q, want %q", got, "v")
+	}
+}

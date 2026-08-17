@@ -2,11 +2,14 @@ package httpapi_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	"github.com/heridotlife/honryu/internal/app/clusterapp"
@@ -245,6 +248,135 @@ func TestClusters_NotConfiguredReturns404(t *testing.T) {
 	}
 }
 
+// updateCluster replaces a cluster's mutable deploy settings and answers with
+// the ordinary cluster shape (openapi PUT /api/clusters/{name}).
+func TestUpdateCluster_HappyPath(t *testing.T) {
+	t.Parallel()
+	var gotName, gotIngest, gotSidecar, gotNS string
+	svc := &stubClusterService{update: func(name, ingest, sidecar, ns string) (clusterregistry.Cluster, error) {
+		gotName, gotIngest, gotSidecar, gotNS = name, ingest, sidecar, ns
+		return clusterregistry.Cluster{
+			Name:         name,
+			APIURL:       "https://api:6443",
+			IngestURL:    ingest,
+			SidecarImage: sidecar,
+			Namespace:    ns,
+			SecretRef:    "prod-eu-secret",
+			Origin:       clusterregistry.OriginOperator,
+			CreatedTime:  time.Unix(1700000000, 0).UTC(),
+		}, nil
+	}}
+	h := newClusterRouter(svc)
+
+	rec := doForm(t, h, http.MethodPut, "/api/clusters/prod-eu", url.Values{
+		"ingest_url": {"http://ingest2"}, "sidecar_image": {"img:2"}, "namespace": {"honryu-system"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if gotName != "prod-eu" || gotIngest != "http://ingest2" || gotSidecar != "img:2" || gotNS != "honryu-system" {
+		t.Fatalf("update args = %q/%q/%q/%q, want prod-eu/http://ingest2/img:2/honryu-system", gotName, gotIngest, gotSidecar, gotNS)
+	}
+	var body struct {
+		Name         string    `json:"name"`
+		APIURL       string    `json:"api_url"`
+		IngestURL    string    `json:"ingest_url"`
+		SidecarImage string    `json:"sidecar_image"`
+		Namespace    string    `json:"namespace"`
+		SecretRef    string    `json:"secret_ref"`
+		Origin       string    `json:"origin"`
+		CreatedTime  time.Time `json:"created_time"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode update response: %v (%s)", err, rec.Body.String())
+	}
+	if body.Name != "prod-eu" || body.APIURL != "https://api:6443" || body.IngestURL != "http://ingest2" ||
+		body.SidecarImage != "img:2" || body.Namespace != "honryu-system" ||
+		body.SecretRef != "prod-eu-secret" || body.Origin != "operator" || body.CreatedTime.IsZero() {
+		t.Fatalf("update response = %+v, want the full cluster shape", body)
+	}
+}
+
+func TestUpdateCluster_ErrorMapping(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"missing cluster", ports.ErrNotFound, http.StatusNotFound},
+		{"validation", clusterregistry.ErrIngestURLRequired, http.StatusBadRequest},
+		{"in use", clusterapp.ErrClusterInUse, http.StatusConflict},
+		{"internal", errors.New("boom"), http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc := &stubClusterService{update: func(string, string, string, string) (clusterregistry.Cluster, error) {
+				return clusterregistry.Cluster{}, tc.err
+			}}
+			h := newClusterRouter(svc)
+			rec := doForm(t, h, http.MethodPut, "/api/clusters/prod-eu", url.Values{"ingest_url": {"http://ingest"}})
+			if rec.Code != tc.want {
+				t.Fatalf("update (%s) = %d, want %d (%s)", tc.name, rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpdateCluster_MalformedForm(t *testing.T) {
+	t.Parallel()
+	svc := &stubClusterService{update: func(string, string, string, string) (clusterregistry.Cluster, error) {
+		t.Fatal("update must not run for an unparseable form")
+		return clusterregistry.Cluster{}, nil
+	}}
+	h := newClusterRouter(svc)
+	rec := doRaw(t, h, http.MethodPut, "/api/clusters/prod-eu", "%zz=1")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("update (malformed form) = %d, want 400 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateCluster_MalformedForm(t *testing.T) {
+	t.Parallel()
+	h := newClusterRouter(&stubClusterService{})
+	rec := doRaw(t, h, http.MethodPost, "/api/clusters", "%zz=1")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create (malformed form) = %d, want 400 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListClusters_Error(t *testing.T) {
+	t.Parallel()
+	svc := &stubClusterService{list: func() ([]clusterregistry.Cluster, error) {
+		return nil, errors.New("boom")
+	}}
+	h := newClusterRouter(svc)
+	if rec := doForm(t, h, http.MethodGet, "/api/clusters", nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("list (error) = %d, want 500 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// Without the cluster registry every cluster route, mutation and read alike,
+// is a 404 -- the same optional-dependency contract the tenants and campaigns
+// gates enforce.
+func TestClusterRoutes_NotConfigured(t *testing.T) {
+	t.Parallel()
+	h := httpapi.NewRouter(httpapi.Deps{DefaultOwners: []string{"honryu"}})
+	cases := []struct{ method, path string }{
+		{http.MethodPost, "/api/clusters"},
+		{http.MethodPost, "/api/clusters/prod-eu/rotate-ingest-token"},
+		{http.MethodGet, "/api/clusters/prod-eu"},
+		{http.MethodPut, "/api/clusters/prod-eu"},
+		{http.MethodDelete, "/api/clusters/prod-eu"},
+	}
+	for _, tc := range cases {
+		if rec := doForm(t, h, tc.method, tc.path, nil); rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s (not configured) = %d, want 404", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
 // Cluster-registry management is platform-admin gated: a tenant admin, however
 // privileged within its tenant, is forbidden; a service-provider admin is not.
 func TestClusters_RBAC_PlatformAdminGate(t *testing.T) {
@@ -257,6 +389,10 @@ func TestClusters_RBAC_PlatformAdminGate(t *testing.T) {
 	forbidden := f.req(t, http.MethodGet, "/api/clusters", "val-tok", nil)
 	if forbidden.Code != http.StatusForbidden {
 		t.Fatalf("list (tenant admin) = %d, want 403 (%s)", forbidden.Code, forbidden.Body.String())
+	}
+	forbiddenPut := f.req(t, http.MethodPut, "/api/clusters/prod-eu", "val-tok", url.Values{"namespace": {"x"}})
+	if forbiddenPut.Code != http.StatusForbidden {
+		t.Fatalf("update (tenant admin) = %d, want 403 (%s)", forbiddenPut.Code, forbiddenPut.Body.String())
 	}
 	allowed := f.req(t, http.MethodGet, "/api/clusters", "admin-tok", nil)
 	if allowed.Code != http.StatusOK {

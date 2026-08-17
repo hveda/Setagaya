@@ -25,6 +25,10 @@ storage-data/
 # Cortex workflow artifacts
 /.cortex/
 
+# repomix output (local codebase-dump tool, not a build artifact)
+repomix-output.md
+repomix.config.json
+
 # Editor / OS
 .DS_Store
 *.tmp

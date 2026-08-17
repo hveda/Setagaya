@@ -86,3 +86,38 @@ func TestNewObjectStore(t *testing.T) {
 		t.Fatal("newObjectStore(s3): expected error, got nil")
 	}
 }
+
+// The cluster registry is wired only for the k8s scheduler with a credential
+// key, and that path needs the in-cluster config -- absent in a unit test
+// environment, so the error must surface rather than silently disabling the
+// endpoints. Anything else returns a nil service (endpoints disabled), not an
+// error: a deployment not registering clusters need not configure a key.
+func TestNewClusterService(t *testing.T) {
+	t.Parallel()
+
+	if _, err := newClusterService(config.ClusterConfig{Scheduler: "k8s", CredentialKey: "0123456789abcdef"}, fake.NewStore()); err == nil {
+		t.Fatal("newClusterService(k8s) outside a cluster: expected error, got nil")
+	}
+	for _, cfg := range []config.ClusterConfig{
+		{Scheduler: "fake", CredentialKey: "0123456789abcdef"},
+		{Scheduler: "k8s"}, // no credential key: not registering clusters
+	} {
+		if svc, err := newClusterService(cfg, fake.NewStore()); err != nil || svc != nil {
+			t.Fatalf("newClusterService(%+v) = %v, %v, want nil, nil", cfg, svc, err)
+		}
+	}
+}
+
+func TestFetchJWKS_Errors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// A control character makes request construction itself fail.
+	if _, err := fetchJWKS(ctx, "http://127.0.0.1/\x7f"); err == nil {
+		t.Fatal("fetchJWKS with an invalid URL: expected error, got nil")
+	}
+	// Nothing listens on port 1: the request fails in transport.
+	if _, err := fetchJWKS(ctx, "http://127.0.0.1:1/jwks"); err == nil {
+		t.Fatal("fetchJWKS with an unreachable endpoint: expected error, got nil")
+	}
+}

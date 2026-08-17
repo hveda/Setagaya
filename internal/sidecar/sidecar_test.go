@@ -634,3 +634,42 @@ func TestSidecar_UnreadableExitCodeIsNotTreatedAsCompletion(t *testing.T) {
 		}
 	}
 }
+
+// Sent reports how many batches were pushed: it starts at zero and ends equal
+// to the number of batches the ingest server actually received.
+func TestSidecar_SentCountsPushedBatches(t *testing.T) {
+	t.Parallel()
+
+	c := &collector{}
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stream.jsonl")
+	seed := line(t, 1, "checkout-cart", 10) + line(t, 2, "checkout-cart", 5)
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed stream: %v", err)
+	}
+
+	fresh := sidecar.New(sidecar.Config{StreamPath: path, IngestURL: srv.URL})
+	if got := fresh.Sent(); got != 0 {
+		t.Fatalf("Sent() on a fresh sidecar = %d, want 0", got)
+	}
+
+	sc, stop := run(t, sidecar.Config{
+		Identity:      sidecar.Identity{ExecutionID: 7, ScenarioID: 11, RunID: 3, ShardIndex: 0},
+		StreamPath:    path,
+		IngestURL:     srv.URL,
+		FlushInterval: 20 * time.Millisecond,
+		PollInterval:  5 * time.Millisecond,
+	})
+	stop()
+
+	batches := c.all()
+	if len(batches) == 0 {
+		t.Fatal("ingest server received no batches")
+	}
+	if got := sc.Sent(); got != len(batches) {
+		t.Fatalf("Sent() = %d, want %d (batches the server received)", got, len(batches))
+	}
+}
