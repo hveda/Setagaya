@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarize } from './LiveStatus';
+import { engineShortfall, summarize } from './LiveStatus';
 import type { ReceivedMetric } from './LiveStatus';
 import type { EngineMetric } from '../api/status';
 
@@ -43,5 +43,19 @@ describe('summarize', () => {
       { receivedAt: 4000, metric: makeMetric({ status: '200' }) },
     ];
     expect(summarize(events).errorRate).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe('engineShortfall', () => {
+  it('is zero when every wanted engine is deployed', () => {
+    expect(engineShortfall({ engines: 4, engines_deployed: 4 })).toBe(0);
+  });
+
+  it('counts engines still missing while a scenario scales up', () => {
+    expect(engineShortfall({ engines: 4, engines_deployed: 1 })).toBe(3);
+  });
+
+  it('never goes negative when a terminating engine briefly over-reports', () => {
+    expect(engineShortfall({ engines: 4, engines_deployed: 5 })).toBe(0);
   });
 });

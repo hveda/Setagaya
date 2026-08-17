@@ -54,3 +54,41 @@ export function streamExecutionMetrics(executionId: number, onMetric: (m: Engine
   };
   return () => source.close();
 }
+
+/** One line of an execution's requested load profile (domain loadprofile.Entry's JSON shape). */
+export interface LoadProfileEntry {
+  name: string;
+  scenario_id: number;
+  concurrency: number;
+  rampup: number;
+  engines: number;
+  throughput?: number;
+}
+
+/** A data file the execution references, as a served URL (executionapp.FileRef). */
+export interface FileRef {
+  filename: string;
+  url: string;
+}
+
+/**
+ * GET /api/executions/{execution_id} -- the execution's immutable setup:
+ * which engine kind runs it, on which cluster, under what load profile.
+ * Field names mirror httpapi's executionResponse JSON tags exactly. engine
+ * and cluster are omitempty: absent means the deployment defaults.
+ */
+export interface ExecutionInfo {
+  id: number;
+  name: string;
+  project_id: number;
+  engine?: string;
+  cluster?: string;
+  csv_split: boolean;
+  created_time: string;
+  load_profile: LoadProfileEntry[];
+  data: FileRef[];
+}
+
+export function getExecutionInfo(executionId: number): Promise<ExecutionInfo> {
+  return apiClient.get<ExecutionInfo>(`/executions/${executionId}`);
+}

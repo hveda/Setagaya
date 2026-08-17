@@ -3,7 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
+import ClusterBadge from '../components/ui/ClusterBadge';
 import CopyButton from '../components/ui/CopyButton';
+import EngineBadge from '../components/ui/EngineBadge';
 import Input from '../components/ui/Input';
 import OutcomeBadge from '../components/ui/OutcomeBadge';
 import { ApiError } from '../api/client';
@@ -11,28 +13,6 @@ import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from 
 import type { Report } from '../api/reports';
 import { formatApmLink, loadApmTemplate, saveApmTemplate } from '../api/apm';
 import { SignatureSection, TrendSection } from './ReportsTrend';
-
-/** Engine badge: the engine kind that produced the run (jmeter, k6, ...) -- rendered only when the report carries one. */
-function EngineBadge({ engine }: { engine: string }) {
-  return (
-    <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
-      {engine}
-    </span>
-  );
-}
-
-/**
- * Cluster badge: the load origin. Absent cluster means the deployment
- * default -- rendered as nothing, not as "default", so legacy rows stay
- * quiet.
- */
-function ClusterBadge({ cluster }: { cluster: string }) {
-  return (
-    <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-900/30 dark:text-violet-300">
-      {cluster}
-    </span>
-  );
-}
 
 /** Validates the shard viewer's input: shards are 0-indexed non-negative integers; anything else is null. */
 export function parseShard(raw: string): number | null {
