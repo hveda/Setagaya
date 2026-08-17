@@ -1,12 +1,14 @@
 name: CI
 
 on:
-  # Run once per change: pull_request covers feature->develop and
-  # develop->main; push only on main (post-merge). Scoping push to main
-  # avoids a duplicate run when a merge to develop also syncs the open
-  # develop->main PR.
+  # pull_request covers feature->develop and develop->main. push also covers
+  # main (post-merge) and feat/** -- a phase merges locally to develop
+  # (feat/* -> develop, no PR), which ran no CI at all until this branch was
+  # added; pushing the feat branch is now the earliest signal a phase can get.
+  # A feat/** push while its own feat->develop PR is open double-runs; accepted
+  # over the alternative of no CI on the common local-merge path.
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
   pull_request:
 
 permissions:
