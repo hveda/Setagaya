@@ -1,0 +1,7 @@
+apiVersion: v2
+name: honryu
+description: 奔流 (Honryu) -- Kubernetes-native load-testing platform. Deploys the control plane (api, scheduler, calibrator, MySQL) and, optionally, in-cluster monitoring (Prometheus, Grafana). Engine pods are created at runtime by the api/scheduler themselves and are not managed by this chart.
+type: application
+version: 0.1.0
+appVersion: "phase16"
+home: https://github.com/heridotlife/honryu

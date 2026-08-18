@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "honryu.fullname" . }}-calibrator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: calibrator
+spec:
+  replicas: {{ .Values.calibrator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "honryu.selectorLabels" (merge (dict "component" "calibrator") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "honryu.selectorLabels" (merge (dict "component" "calibrator") .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      nodeSelector:
+        {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
+      imagePullSecrets:
+        - name: {{ .Values.image.pullSecret }}
+      containers:
+        - name: calibrator
+          image: "{{ .Values.image.registry }}/honryu-calibrator:{{ .Values.image.calibrator.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/honryu-calibrator"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "honryu.fullname" . }}-config
+          env:
+            - name: HONRYU_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mysqlCredentials }}
+                  key: dsn
+            - name: HONRYU_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.ingestToken }}
+                  key: token
+            - name: HONRYU_CALIBRATOR_TICK_INTERVAL
+              value: {{ .Values.calibrator.tickInterval | quote }}
+          resources:
+            {{- toYaml .Values.calibrator.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /honryu-storage
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "honryu.fullname" . }}-object-store

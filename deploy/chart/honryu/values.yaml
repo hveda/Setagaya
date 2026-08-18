@@ -1,0 +1,98 @@
+# Default values for the honryu chart. A deployment-specific overrides file
+# (e.g. ../honryu-homelab-values.yaml) supplies the real hostname, registry,
+# and secret names for a given cluster; nothing here is meant to be used
+# unmodified against a real cluster.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: registry.pve.heri.life/honryu
+  # Every tag here is pinned deliberately -- no ":latest". Phase 11's own
+  # scar: a mutated image pushed under an unchanged tag served a stale
+  # digest, because imagePullPolicy is Always/IfNotPresent by tag, not by
+  # content. A new build always gets a new tag.
+  api:
+    tag: phase15
+  calibrator:
+    tag: phase16
+  scheduler:
+    tag: phase16
+  sidecar:
+    tag: phase16
+  pullPolicy: Always
+  pullSecret: registry-pve-heri-life
+
+serviceAccount:
+  name: honryu
+
+# Secrets are referenced by name only -- this chart contains no secret
+# value, and creates none. Each must already exist in the release namespace
+# (mysql-credentials: keys dsn/root-password/password; honryu-ingest: key
+# token; the credential key: key credential-key).
+secrets:
+  mysqlCredentials: mysql-credentials
+  ingestToken: honryu-ingest
+  clusterCredentialKey: honryu-cluster-credential-key
+
+# Non-secret configuration shared by every component that embeds
+# cmd.config.Load (api, scheduler, calibrator all read a near-identical
+# env shape) -- rendered into one ConfigMap so it is set once, not
+# hand-duplicated per Deployment.
+config:
+  dbDriver: mysql
+  scheduler: k8s
+  defaultEngine: jmeter
+  # jmeter and k6 both pinned to their phase-11 "-2" tags (the KPI-reporter
+  # float-coercion fix); keeping both here is deliberate -- the live
+  # honryu-calibrator Deployment this chart replaces had drifted to a
+  # jmeter-only list (missing k6 entirely), which would have silently
+  # broken k6 calibration. One shared value keeps api and calibrator from
+  # drifting apart again.
+  engineImages: "jmeter=registry.pve.heri.life/honryu/engine-jmeter:5.6.3-2,k6=registry.pve.heri.life/honryu/engine-k6:0.57.0-2"
+  deployContext: homelab
+  logFormat: text
+  storageRoot: /honryu-storage
+
+api:
+  replicas: 1
+  authMode: none
+  # Minimal, deliberately: platform components should not compete with
+  # engine pods for the control-plane node's capacity, and Karpenter is
+  # meant to be driven by engine demand, not by the platform (spec decision
+  # 2). The live Deployment this replaces set no requests at all.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+calibrator:
+  replicas: 1
+  tickInterval: 10s
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+# Ingest URL, resolved in-cluster (the sidecar and the calibration engine
+# pods both push here) -- default derives from the release name/namespace
+# via the fullname helper; override only if the Service name differs.
+ingestUrl: ""
+
+# Every stateful pod (mysql, object store, and later prometheus) is pinned
+# to the control-plane node: a local-path PV binds to the node that created
+# it, and Karpenter recycles the nodes it provisions -- a pod that landed on
+# a Karpenter node would lose its volume (or, for the object store, silently
+# split/lose engine logs) the moment that node is consolidated.
+statefulNodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+
+objectStore:
+  storageClassName: local-path
+  size: 5Gi
