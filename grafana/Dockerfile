@@ -19,6 +19,16 @@ ENV GF_SECURITY_X_XSS_PROTECTION=true
 ENV GF_LOG_MODE=console
 ENV GF_LOG_LEVEL=info
 
+# Grafana 13's plugin "preinstall" feature reaches out to grafana.com for a
+# default catalog (grafana-lokiexplore-app, elasticsearch, zipkin, ...) on
+# every cold start. Found live (2026-08-18, phase 16 cutover): this cluster
+# has no route to the public internet, so each of the ~6 default plugins
+# times out (~10-15s apiece) before Grafana's HTTP listener binds --
+# 60-90s+ added to every pod start/restart, and the readiness probe reports
+# "connection refused" the whole time. None of these plugins are used by
+# this deployment's dashboards.
+ENV GF_PLUGINS_PREINSTALL_DISABLED=true
+
 # Copy configuration files with proper permissions
 #
 # No ./plugins copy: the only vendored plugin was grafana-piechart-panel
