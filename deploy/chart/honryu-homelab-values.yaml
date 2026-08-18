@@ -12,7 +12,7 @@ image:
   calibrator:
     tag: phase16
   scheduler:
-    tag: phase16
+    tag: phase16b
   sidecar:
     tag: phase16
   pullSecret: registry-pve-heri-life
