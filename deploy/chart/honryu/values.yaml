@@ -85,6 +85,20 @@ calibrator:
       cpu: 250m
       memory: 128Mi
 
+scheduler:
+  # 1, not more: the loop is safe at >1 (row-locked claims, no leader
+  # election -- cmd/scheduler's own package doc), but HA is out of scope
+  # here (spec Non-goals: "no HA and no autoscaling of platform
+  # components -- single replicas").
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
 # Ingest URL, resolved in-cluster (the sidecar and the calibration engine
 # pods both push here) -- default derives from the release name/namespace
 # via the fullname helper; override only if the Service name differs.
