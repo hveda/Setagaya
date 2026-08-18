@@ -26,3 +26,8 @@ statefulNodeSelector:
 objectStore:
   storageClassName: local-path
   size: 5Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: honryu.pve.heri.life
