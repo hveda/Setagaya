@@ -20,6 +20,11 @@ image:
     tag: phase16
   sidecar:
     tag: phase16
+  # Already a real tag, not a floating one -- pinned here for consistency
+  # with the rest of image.*, so mysql's version is a values-file decision
+  # like everything else, not a hardcoded literal in the template.
+  mysql:
+    tag: "8.4"
   pullPolicy: Always
   pullSecret: registry-pve-heri-life
 
@@ -96,3 +101,18 @@ statefulNodeSelector:
 objectStore:
   storageClassName: local-path
   size: 5Gi
+
+mysql:
+  storageClassName: local-path
+  size: 10Gi
+  # MySQL needs materially more than the platform components: an idle 8.4
+  # instance alone floats around 150-250Mi resident, and a run's own
+  # measurements pass through it. Still minimal by MySQL standards, not
+  # "as much as available".
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
