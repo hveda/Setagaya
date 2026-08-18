@@ -1,175 +1,225 @@
-// Package metricsapp is the metric-collection use-case: it reads the live
-// metric stream from every engine of a collection's running plans (via the
-// Executor), stamps each measurement with its collection/plan/engine/run
-// identity, and fans it to the MetricsSink (Prometheus) and the EventBus (SSE
-// subscribers). Collection runs in the background per collection and is started
-// and stopped by the lifecycle.
+// Package metricsapp is the metric use-case: it absorbs the measurements engine
+// pods push, stamps each with the pod that produced it, fans it to the
+// MetricsSink (Prometheus) and the EventBus (SSE subscribers) for the live view,
+// and accumulates it into the run's report.
+//
+// Measurements used to be pulled: the controller opened a stream to every
+// engine's agent, which meant tracking which executions were being collected,
+// re-establishing those streams after a restart, and losing whatever a pod
+// measured once it became unreachable. Under Taurus a sidecar in each pod pushes
+// instead, so none of that machinery has anything to do -- an unreachable pod is
+// simply one that has stopped sending, and what it sent already arrived.
+//
+// What remains is dropping an execution's series when it is purged, and
+// finalising a run's report once it is over -- naturally, when every shard has
+// said it is done, or because Honryu itself is ending it.
 package metricsapp
 
 import (
 	"context"
-	"strconv"
-	"sync"
+	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/run"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
-// Repo is the persistence the collector reads to know what is running.
+// Repo is the persistence the service reads to attribute a pushed batch and to
+// finalise a run's report.
 type Repo interface {
-	ExecutionPlansFor(ctx context.Context, collectionID int64) ([]execution.ExecutionPlan, error)
-	CurrentRun(ctx context.Context, collectionID int64) (int64, bool, error)
-	RunningPlans(ctx context.Context) ([]ports.RunningPlan, error)
+	// GetExecution supplies a report's Engine, from the execution's own
+	// configured preference.
+	GetExecution(ctx context.Context, executionID int64) (execution.Execution, error)
+	LoadProfileFor(ctx context.Context, executionID int64) ([]loadprofile.Entry, error)
+	CurrentRun(ctx context.Context, executionID int64) (int64, bool, error)
+	// RunHistory supplies a report's StartedAt: nothing else keeps when a run
+	// began once it is no longer the active one.
+	RunHistory(ctx context.Context, runID int64) (ports.RunRecord, error)
+	// OrphanCompletions' recording side: a shard Final that arrives with no
+	// open run is evidence the engines already finished, and Trigger refuses
+	// to open a corpse-run against it until the next Deploy clears it.
+	RecordOrphanCompletion(ctx context.Context, oc ports.OrphanCompletion) error
 }
 
-// Service collects and fans out engine metrics.
+// Service absorbs pushed measurements and finalises runs.
 type Service struct {
-	repo  Repo
-	sched ports.Scheduler
-	exec  ports.Executor
-	sink  ports.MetricsSink
-	bus   ports.EventBus
-
-	mu      sync.Mutex
-	cancels map[int64]*collectRun
+	repo     Repo
+	sink     ports.MetricsSink
+	bus      ports.EventBus
+	progress ports.ReportProgress
+	reports  ports.ReportStore
+	// seen deduplicates intervals a pod pushed more than once, for the live
+	// view only. The permanent record's exactness comes from ReportProgress's
+	// own per-shard sequence, which survives a restart this map does not.
+	seen *seen
+	now  func() time.Time
 }
 
-// collectRun identifies one background collection so its own goroutine can
-// clean up without clobbering a later Start for the same collection.
-type collectRun struct{ cancel context.CancelFunc }
-
-// NewService wires the collector.
-func NewService(repo Repo, sched ports.Scheduler, exec ports.Executor, sink ports.MetricsSink, bus ports.EventBus) *Service {
-	return &Service{repo: repo, sched: sched, exec: exec, sink: sink, bus: bus, cancels: map[int64]*collectRun{}}
+// NewService wires the metric service.
+func NewService(repo Repo, sink ports.MetricsSink, bus ports.EventBus, progress ports.ReportProgress, reports ports.ReportStore) *Service {
+	return &Service{repo: repo, sink: sink, bus: bus, progress: progress, reports: reports, seen: newSeen(), now: time.Now}
 }
 
-// Start begins background collection for a collection's current run. It is
-// idempotent: a second Start while collection is active is a no-op.
-func (s *Service) Start(collectionID int64) {
-	s.mu.Lock()
-	if _, ok := s.cancels[collectionID]; ok {
-		s.mu.Unlock()
-		return
+// WithNow overrides the clock a finalised report is stamped with. Returns the
+// receiver for chaining.
+func (s *Service) WithNow(now func() time.Time) *Service {
+	if now != nil {
+		s.now = now
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	token := &collectRun{cancel: cancel}
-	s.cancels[collectionID] = token
-	s.mu.Unlock()
-
-	go func() {
-		_ = s.CollectCollection(ctx, collectionID)
-		s.mu.Lock()
-		if s.cancels[collectionID] == token { // still ours
-			delete(s.cancels, collectionID)
-		}
-		s.mu.Unlock()
-	}()
+	return s
 }
 
-// Stop cancels background collection for a collection.
-func (s *Service) Stop(collectionID int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if token, ok := s.cancels[collectionID]; ok {
-		token.cancel()
-		delete(s.cancels, collectionID)
-	}
+// Purge drops an execution's metric series and forgets what it absorbed.
+//
+// Called when an execution's engines are removed. Without it a long-lived
+// controller would hold a series for every execution it had ever run.
+func (s *Service) Purge(executionID int64) {
+	s.sink.DeleteExecution(executionID)
+	s.seen.forget(executionID)
 }
 
-// Purge stops collection and drops the collection's metric series.
-func (s *Service) Purge(collectionID int64) {
-	s.Stop(collectionID)
-	s.sink.DeleteCollection(collectionID)
-}
-
-// Resume restarts collection for every collection with running plans, so a
-// restarted controller re-establishes its metric streams.
-func (s *Service) Resume(ctx context.Context) error {
-	rps, err := s.repo.RunningPlans(ctx)
+// Finalize writes the report for a run Honryu is deliberately ending -- a
+// user-initiated Stop or Purge -- rather than one that finished on its own.
+//
+// Idempotent: a run already finalised by its own natural completion is left
+// untouched. That is what stops a Purge called after a run has already
+// finished from overwriting its real verdict with "aborted" -- teardown and
+// natural completion are racing to finalise the same run, and whichever gets
+// there first decides it. The guarantee comes from SaveReport itself (the
+// first report saved for a run is the one that survives), not from a check
+// here first: a plain existence check followed later by a save would leave a
+// window where both racers could pass the check before either had written.
+func (s *Service) Finalize(ctx context.Context, executionID, runID int64) error {
+	outcome, err := s.stopOutcome(ctx, runID)
 	if err != nil {
 		return err
 	}
-	seen := map[int64]struct{}{}
-	for _, rp := range rps {
-		if _, ok := seen[rp.CollectionID]; ok {
+	return s.finalize(ctx, executionID, runID, outcome)
+}
+
+// FinalizeOrphaned writes the report for a run whose engines finished while it
+// was open -- the stranded-run case a reconciliation pass closes. The outcome
+// mirrors stopOutcome's severity logic but sources its evidence from the
+// orphaned Finals themselves (the run's own progress never absorbed them,
+// which is what stranded it): an abort is the baseline, and any shard's real
+// exit-code evidence that is more severe wins.
+func (s *Service) FinalizeOrphaned(ctx context.Context, executionID, runID int64, orphans []ports.OrphanCompletion) error {
+	outcomes := []taurus.Outcome{taurus.OutcomeAborted}
+	for _, oc := range orphans {
+		if oc.ExitCode == nil {
+			outcomes = append(outcomes, taurus.OutcomeFromExitCode(-1))
 			continue
 		}
-		seen[rp.CollectionID] = struct{}{}
-		s.Start(rp.CollectionID)
+		outcomes = append(outcomes, taurus.OutcomeFromExitCode(*oc.ExitCode))
 	}
-	return nil
+	return s.finalize(ctx, executionID, runID, taurus.WorstOutcome(outcomes))
 }
 
-// CollectCollection streams metrics for every plan of a collection's current
-// run until ctx is cancelled or all engine streams end.
-func (s *Service) CollectCollection(ctx context.Context, collectionID int64) error {
-	runID, ok, err := s.repo.CurrentRun(ctx, collectionID)
+// stopOutcome is the outcome for a run Honryu is deliberately ending.
+//
+// Not derived from shard exit codes the way finalizeCompleted's is:
+// taurus.OutcomeFromExitCode's own doc comment establishes that bzt's real
+// exit codes cannot tell a deliberate stop from a crash, so Honryu's own
+// certainty that it issued the stop -- OutcomeAborted -- is the baseline, not
+// something inferred here. But a shard that had already finished naturally,
+// with a real exit code, in the race between Stop and that shard's own last
+// Final batch is real evidence and must not be silently discarded just
+// because Stop reached the run first: if that evidence is more severe than an
+// ordinary abort -- a criteria failure or an engine error -- it must win.
+func (s *Service) stopOutcome(ctx context.Context, runID int64) (taurus.Outcome, error) {
+	states, err := s.progress.ShardStates(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	outcomes := []taurus.Outcome{taurus.OutcomeAborted}
+	for _, st := range states {
+		if st.Finished && st.ExitCode != nil {
+			outcomes = append(outcomes, taurus.OutcomeFromExitCode(*st.ExitCode))
+		}
+	}
+	return taurus.WorstOutcome(outcomes), nil
+}
+
+// finalize builds a run's report from its accumulated measurements, stores it,
+// and discards the working state that produced it.
+//
+// Discard runs whether this call's SaveReport actually wrote the report or
+// found one already there: either way the working state this run produced is
+// no longer needed, and running it unconditionally means a retry after a
+// prior Discard failure still cleans up rather than short-circuiting on an
+// early "already finalised" check the way a return-before-Discard would.
+func (s *Service) finalize(ctx context.Context, executionID, runID int64, outcome taurus.Outcome) error {
+	snapshot, err := s.progress.Snapshot(ctx, runID)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return nil
+	profile, err := s.repo.LoadProfileFor(ctx, executionID)
+	if err != nil {
+		return err
 	}
-	plans, err := s.repo.ExecutionPlansFor(ctx, collectionID)
+	history, err := s.repo.RunHistory(ctx, runID)
+	if err != nil {
+		return err
+	}
+	exe, err := s.repo.GetExecution(ctx, executionID)
 	if err != nil {
 		return err
 	}
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var firstErr error
-	for _, ep := range plans {
-		wg.Add(1)
-		go func(ep execution.ExecutionPlan) {
-			defer wg.Done()
-			if err := s.CollectPlan(ctx, collectionID, ep.PlanID, ep.Engines, runID); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
-			}
-		}(ep)
+	meta := report.Meta{
+		ExecutionID: executionID,
+		RunID:       runID,
+		// The execution's own configured preference. Empty when it deferred to
+		// the deployment's default engine instead of naming one -- that
+		// resolution happens in lifecycleapp at deploy time and is not
+		// currently threaded through to here, so a defaulted execution's
+		// report still under-reports which engine actually ran.
+		Engine: exe.Engine,
+		// The load origin: the cluster this run generated load from (empty =
+		// the deployment default), recorded on the report so a reader knows
+		// where the numbers came from.
+		Cluster: exe.Cluster,
+		// The run's own correlation id, from its history row -- NOT the
+		// execution's pending value, which by finalize time can already point at
+		// a later deploy. Engine and Cluster above accept that imprecision; a
+		// wrong correlation id would be load-bearing, deep-linking a reader into
+		// the wrong run's traffic.
+		CorrelationID: history.CorrelationID,
+		StartedAt:     history.StartedTime,
+		EndedAt:       s.now(),
+		Requested:     requestedLoad(profile),
+		Outcome:       outcome,
 	}
-	wg.Wait()
-	return firstErr
-}
+	// An execution can bundle several scenarios under one run; ScenarioID is
+	// informational and only unambiguous when there is exactly one. The label
+	// breakdown the report already carries covers the multi-scenario case.
+	if len(profile) == 1 {
+		meta.ScenarioID = profile[0].ScenarioID
+	}
 
-// CollectPlan streams metrics from every engine of a plan.
-func (s *Service) CollectPlan(ctx context.Context, collectionID, planID int64, engines int, runID int64) error {
-	urls, err := s.sched.EngineURLs(ctx, collectionID, planID, engines)
-	if err != nil {
+	rep := report.Restore(snapshot).Report(meta)
+	if err := s.reports.SaveReport(ctx, rep); err != nil {
 		return err
 	}
-	var wg sync.WaitGroup
-	for i, url := range urls {
-		wg.Add(1)
-		go func(engineID int, url string) {
-			defer wg.Done()
-			s.pumpEngine(ctx, collectionID, planID, engineID, runID, url)
-		}(i, url)
-	}
-	wg.Wait()
-	return nil
+	return s.progress.Discard(ctx, runID)
 }
 
-// pumpEngine subscribes to one engine and forwards every measurement, stamped
-// with its identity, to the sink and the bus.
-func (s *Service) pumpEngine(ctx context.Context, collectionID, planID int64, engineID int, runID int64, url string) {
-	ch, err := s.exec.Subscribe(ctx, url)
-	if err != nil {
-		return
+// requestedLoad collapses an execution's load profile into the one figure a
+// report compares achieved load against. An execution can bundle several
+// scenarios, each with its own rate: concurrency sums exactly as usage
+// accounting already collapses it (run.VirtualUsers), throughput sums since
+// each scenario's target rate is additive, and duration takes the longest,
+// since the run lasts as long as its longest scenario.
+func requestedLoad(profile []loadprofile.Entry) report.Load {
+	load := report.Load{Concurrency: run.VirtualUsers(loadprofile.Profile{Tests: profile})}
+	for _, e := range profile {
+		load.Throughput += float64(e.Throughput)
+		if e.Duration > load.DurationSeconds {
+			load.DurationSeconds = e.Duration
+		}
 	}
-	collStr := strconv.FormatInt(collectionID, 10)
-	planStr := strconv.FormatInt(planID, 10)
-	engStr := strconv.Itoa(engineID)
-	runStr := strconv.FormatInt(runID, 10)
-	for m := range ch {
-		m.CollectionID = collStr
-		m.PlanID = planStr
-		m.EngineID = engStr
-		m.RunID = runStr
-		s.sink.Record(m)
-		s.bus.Publish(collectionID, m)
-	}
+	return load
 }

@@ -7,16 +7,16 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 var errBoom = errors.New("boom")
@@ -29,137 +29,137 @@ type failStore struct {
 	fail string
 }
 
-func (f *failStore) CreatePlan(ctx context.Context, p plan.Plan) (int64, error) {
-	if f.fail == "CreatePlan" {
+func (f *failStore) CreateScenario(ctx context.Context, p scenario.Scenario) (int64, error) {
+	if f.fail == "CreateScenario" {
 		return 0, errBoom
 	}
-	return f.Store.CreatePlan(ctx, p)
+	return f.Store.CreateScenario(ctx, p)
 }
 
-func (f *failStore) CreateCollection(ctx context.Context, c collection.Collection) (int64, error) {
-	if f.fail == "CreateCollection" {
+func (f *failStore) CreateExecution(ctx context.Context, c execution.Execution) (int64, error) {
+	if f.fail == "CreateExecution" {
 		return 0, errBoom
 	}
-	return f.Store.CreateCollection(ctx, c)
+	return f.Store.CreateExecution(ctx, c)
 }
 
-func (f *failStore) AddPlanFile(ctx context.Context, planID int64, filename string, isTest bool) error {
-	if f.fail == "AddPlanFile" {
+func (f *failStore) AddScenarioFile(ctx context.Context, scenarioID int64, filename string, isTest bool) error {
+	if f.fail == "AddScenarioFile" {
 		return errBoom
 	}
-	return f.Store.AddPlanFile(ctx, planID, filename, isTest)
+	return f.Store.AddScenarioFile(ctx, scenarioID, filename, isTest)
 }
 
-func (f *failStore) AddCollectionFile(ctx context.Context, collectionID int64, filename string) error {
-	if f.fail == "AddCollectionFile" {
+func (f *failStore) AddExecutionFile(ctx context.Context, executionID int64, filename string) error {
+	if f.fail == "AddExecutionFile" {
 		return errBoom
 	}
-	return f.Store.AddCollectionFile(ctx, collectionID, filename)
+	return f.Store.AddExecutionFile(ctx, executionID, filename)
 }
 
-func (f *failStore) PlanFilesFor(ctx context.Context, planID int64) (ports.PlanFiles, error) {
-	if f.fail == "PlanFilesFor" {
-		return ports.PlanFiles{}, errBoom
+func (f *failStore) ScenarioFilesFor(ctx context.Context, scenarioID int64) (ports.ScenarioFiles, error) {
+	if f.fail == "ScenarioFilesFor" {
+		return ports.ScenarioFiles{}, errBoom
 	}
-	return f.Store.PlanFilesFor(ctx, planID)
+	return f.Store.ScenarioFilesFor(ctx, scenarioID)
 }
 
-func (f *failStore) CollectionFilesFor(ctx context.Context, collectionID int64) ([]string, error) {
-	if f.fail == "CollectionFilesFor" {
+func (f *failStore) ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error) {
+	if f.fail == "ExecutionFilesFor" {
 		return nil, errBoom
 	}
-	return f.Store.CollectionFilesFor(ctx, collectionID)
+	return f.Store.ExecutionFilesFor(ctx, executionID)
 }
 
-func (f *failStore) StoreExecutionCollection(ctx context.Context, collectionID int64, csvSplit bool, plans []execution.ExecutionPlan) error {
-	if f.fail == "StoreExecutionCollection" {
+func (f *failStore) StoreExecutionConfig(ctx context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry, criteria []string) error {
+	if f.fail == "StoreExecutionConfig" {
 		return errBoom
 	}
-	return f.Store.StoreExecutionCollection(ctx, collectionID, csvSplit, plans)
+	return f.Store.StoreExecutionConfig(ctx, executionID, csvSplit, entries, criteria)
 }
 
-func (f *failStore) ListPlansByProject(ctx context.Context, projectID int64) ([]plan.Plan, error) {
-	if f.fail == "ListPlansByProject" {
+func (f *failStore) ListScenariosByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error) {
+	if f.fail == "ListScenariosByProject" {
 		return nil, errBoom
 	}
-	return f.Store.ListPlansByProject(ctx, projectID)
+	return f.Store.ListScenariosByProject(ctx, projectID)
 }
 
 // failEnv builds a router over a failStore and seeds an owned
-// project/plan/collection. Set fs.fail before issuing the request.
+// project/scenario/execution. Set fs.fail before issuing the request.
 func failEnv(t *testing.T) (http.Handler, *failStore, ids) {
 	t.Helper()
 	fs := &failStore{Store: fake.NewStore()}
 	obj := fake.NewObjectStore()
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(fs),
-		Plans:         planapp.NewService(fs, obj),
-		Collections:   collectionapp.NewService(fs, obj, 100),
+		Scenarios:     scenarioapp.NewService(fs, obj),
+		Executions:    executionapp.NewService(fs, obj, 100),
 		Store:         obj,
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 
 	ctx := context.Background()
-	p, _ := project.New("web", "setagaya", "")
+	p, _ := project.New("web", "honryu", "")
 	projectID, _ := fs.CreateProject(ctx, p)
-	pl, _ := plan.New("smoke", projectID)
-	planID, _ := fs.Store.CreatePlan(ctx, pl)
-	c, _ := collection.New("peak", projectID)
-	collID, _ := fs.Store.CreateCollection(ctx, c)
-	return router, fs, ids{projectID, planID, collID}
+	pl, _ := scenario.New("smoke", projectID)
+	scenarioID, _ := fs.Store.CreateScenario(ctx, pl)
+	c, _ := execution.New("peak", projectID)
+	collID, _ := fs.Store.CreateExecution(ctx, c)
+	return router, fs, ids{projectID, scenarioID, collID}
 }
 
-type ids struct{ project, plan, collection int64 }
+type ids struct{ project, scenario, execution int64 }
 
 func TestHandlers_ServiceErrors_500(t *testing.T) {
 	t.Parallel()
 
-	t.Run("createPlan", func(t *testing.T) {
+	t.Run("createScenario", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "CreatePlan"
-		rec := postForm(t, h, "/api/plans", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
+		fs.fail = "CreateScenario"
+		rec := postForm(t, h, "/api/scenarios", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
 		assert500(t, rec.Code)
 	})
-	t.Run("createCollection", func(t *testing.T) {
+	t.Run("createExecution", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "CreateCollection"
-		rec := postForm(t, h, "/api/collections", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
+		fs.fail = "CreateExecution"
+		rec := postForm(t, h, "/api/executions", url.Values{"name": {"x"}, "project_id": {itoa(id.project)}})
 		assert500(t, rec.Code)
 	})
-	t.Run("uploadPlanFile", func(t *testing.T) {
+	t.Run("uploadScenarioFile", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "AddPlanFile"
-		rec := putMultipart(t, h, "/api/plans/"+itoa(id.plan)+"/files", "a.csv", "x")
+		fs.fail = "AddScenarioFile"
+		rec := putMultipart(t, h, "/api/scenarios/"+itoa(id.scenario)+"/files", "a.csv", "x")
 		assert500(t, rec.Code)
 	})
-	t.Run("uploadCollectionFile", func(t *testing.T) {
+	t.Run("uploadExecutionFile", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "AddCollectionFile"
-		rec := putMultipart(t, h, "/api/collections/"+itoa(id.collection)+"/files", "a.csv", "x")
+		fs.fail = "AddExecutionFile"
+		rec := putMultipart(t, h, "/api/executions/"+itoa(id.execution)+"/files", "a.csv", "x")
 		assert500(t, rec.Code)
 	})
-	t.Run("listPlanFiles", func(t *testing.T) {
+	t.Run("listScenarioFiles", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "PlanFilesFor"
-		rec := do(t, h, http.MethodGet, "/api/plans/"+itoa(id.plan)+"/files")
+		fs.fail = "ScenarioFilesFor"
+		rec := do(t, h, http.MethodGet, "/api/scenarios/"+itoa(id.scenario)+"/files")
 		assert500(t, rec.Code)
 	})
-	t.Run("listCollectionFiles", func(t *testing.T) {
+	t.Run("listExecutionFiles", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "CollectionFilesFor"
-		rec := do(t, h, http.MethodGet, "/api/collections/"+itoa(id.collection)+"/files")
+		fs.fail = "ExecutionFilesFor"
+		rec := do(t, h, http.MethodGet, "/api/executions/"+itoa(id.execution)+"/files")
 		assert500(t, rec.Code)
 	})
-	t.Run("uploadCollectionConfig", func(t *testing.T) {
+	t.Run("uploadExecutionConfig", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "StoreExecutionCollection"
-		yamlCfg := "multi-test:\n  collectionid: " + itoa(id.collection) + "\n  tests:\n    - testid: " + itoa(id.plan) + "\n      concurrency: 1\n      rampup: 1\n      engines: 1\n      duration: 1\n"
-		rec := putMultipart(t, h, "/api/collections/"+itoa(id.collection)+"/config", "c.yaml", yamlCfg)
+		fs.fail = "StoreExecutionConfig"
+		yamlCfg := "multi-test:\n  collectionid: " + itoa(id.execution) + "\n  tests:\n    - testid: " + itoa(id.scenario) + "\n      concurrency: 1\n      rampup: 1\n      engines: 1\n      duration: 1\n"
+		rec := putMultipart(t, h, "/api/executions/"+itoa(id.execution)+"/config", "c.yaml", yamlCfg)
 		assert500(t, rec.Code)
 	})
 	t.Run("deleteProject", func(t *testing.T) {
 		h, fs, id := failEnv(t)
-		fs.fail = "ListPlansByProject"
+		fs.fail = "ListScenariosByProject"
 		rec := do(t, h, http.MethodDelete, "/api/projects/"+itoa(id.project))
 		assert500(t, rec.Code)
 	})

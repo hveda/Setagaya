@@ -3,7 +3,7 @@
 // an account may perform an action. No I/O.
 package rbac
 
-import "github.com/heridotlife/Setagaya/internal/domain/account"
+import "github.com/heridotlife/honryu/internal/domain/account"
 
 // Action is an operation on a resource.
 type Action string
@@ -20,12 +20,20 @@ const (
 
 // Resource types.
 const (
-	ResourceProject    = "project"
-	ResourceCollection = "collection"
-	ResourcePlan       = "plan"
-	ResourceExecution  = "execution"
-	ResourceTenant     = "tenant"
-	ResourceSystem     = "system"
+	ResourceProject   = "project"
+	ResourceExecution = "execution"
+	ResourceScenario  = "scenario"
+	// ResourceRun guards the lifecycle actions (deploy, trigger, stop) as
+	// opposed to CRUD on the execution itself. It was named "execution" before
+	// the Honryu rename, which now belongs to the aggregate above.
+	ResourceRun    = "run"
+	ResourceTenant = "tenant"
+	ResourceSystem = "system"
+	// ResourceCampaign guards campaign create/read/update/list/admin --
+	// separate from ResourceProject/ResourceExecution because a campaign
+	// manager can register any project in their tenant into a campaign
+	// without holding edit rights on that project itself.
+	ResourceCampaign = "campaign"
 )
 
 // Wildcard matches any resource or action.
@@ -37,6 +45,13 @@ const (
 	RoleTenantAdmin          = "tenant_admin"
 	RoleTenantEditor         = "tenant_editor"
 	RoleTenantViewer         = "tenant_viewer"
+	// RoleCampaignManager is a PM's role: it can create and manage
+	// campaigns within its tenant, and read (but not edit) any project or
+	// execution there to see what it's binding into one -- deliberately
+	// separate from RoleTenantAdmin/Editor, since a campaign freezes other
+	// teams' work and that authority should not be bundled with ordinary
+	// project edit rights.
+	RoleCampaignManager = "campaign_manager"
 )
 
 // Permission grants a set of actions on a resource. A Resource of "*" matches
@@ -130,9 +145,9 @@ func DefaultCatalog() map[string]Role {
 			TenantScoped: true,
 			Permissions: []Permission{
 				{Resource: ResourceProject, Actions: all},
-				{Resource: ResourceCollection, Actions: all},
-				{Resource: ResourcePlan, Actions: all},
 				{Resource: ResourceExecution, Actions: all},
+				{Resource: ResourceScenario, Actions: all},
+				{Resource: ResourceRun, Actions: all},
 			},
 		},
 		RoleTenantEditor: {
@@ -140,9 +155,9 @@ func DefaultCatalog() map[string]Role {
 			TenantScoped: true,
 			Permissions: []Permission{
 				{Resource: ResourceProject, Actions: write},
-				{Resource: ResourceCollection, Actions: write},
-				{Resource: ResourcePlan, Actions: write},
 				{Resource: ResourceExecution, Actions: write},
+				{Resource: ResourceScenario, Actions: write},
+				{Resource: ResourceRun, Actions: write},
 			},
 		},
 		RoleTenantViewer: {
@@ -150,8 +165,17 @@ func DefaultCatalog() map[string]Role {
 			TenantScoped: true,
 			Permissions: []Permission{
 				{Resource: ResourceProject, Actions: read},
-				{Resource: ResourceCollection, Actions: read},
-				{Resource: ResourcePlan, Actions: read},
+				{Resource: ResourceExecution, Actions: read},
+				{Resource: ResourceScenario, Actions: read},
+				{Resource: ResourceRun, Actions: read},
+			},
+		},
+		RoleCampaignManager: {
+			Name:         RoleCampaignManager,
+			TenantScoped: true,
+			Permissions: []Permission{
+				{Resource: ResourceCampaign, Actions: all},
+				{Resource: ResourceProject, Actions: read},
 				{Resource: ResourceExecution, Actions: read},
 			},
 		},

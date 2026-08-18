@@ -54,4 +54,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/heridotlife/Setagaya
+        - github.com/heridotlife/honryu

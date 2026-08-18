@@ -36,10 +36,10 @@
       "pattern": "http://docs.grafana.org/v3.0/plugins/installation/"
     },
     {
-      "pattern": "^https://github.com/heridotlife/Setagaya/compare/"
+      "pattern": "^https://github.com/heridotlife/honryu/compare/"
     },
     {
-      "pattern": "^https://github.com/heridotlife/Setagaya/issues/"
+      "pattern": "^https://github.com/heridotlife/honryu/issues/"
     },
     {
       "pattern": "kubernetes/"

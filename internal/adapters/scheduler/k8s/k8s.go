@@ -1,8 +1,13 @@
-// Package k8s implements ports.Scheduler on top of Kubernetes. Each plan is a
-// StatefulSet fronted by a headless Service, giving every engine a stable
-// ordinal identity and DNS name (engine-<p>-<c>-<pl>-<i>). The clientset is
-// injected, so the whole adapter is exercised in-process against client-go's
-// fake clientset — no cluster, no container.
+// Package k8s implements ports.Scheduler on top of Kubernetes. Each scenario is
+// a StatefulSet, one pod per shard, whose stable ordinals let otherwise
+// identical pods pick out their own compiled config.
+//
+// The pods expose nothing. They ran an HTTP agent the controller called, which
+// needed a headless Service and a port; now they run bzt and push their results
+// out, so neither exists and no metrics scraper has a target to find.
+//
+// The clientset is injected, so the whole adapter is exercised in-process
+// against client-go's fake clientset — no cluster, no container.
 package k8s
 
 import (
@@ -10,6 +15,9 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -19,15 +27,65 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 const managedByLabel = "managed-by"
-const managedByValue = "setagaya-v3"
+const managedByValue = "honryu"
+
+// configHashAnnotation records a redeployNonce on the pod template, changed
+// on every DeployScenario call so a re-deploy always recreates its pods.
+//
+// This has to be unconditional, not a content fingerprint of the compiled
+// config: lifecycleapp.Service.Deploy only ever succeeds when no run is
+// currently active for the execution (run.CanDeploy rejects it otherwise),
+// so a previously-deployed pod is always either idle after finishing or
+// never triggered, never mid-flight -- reusing it is never correct. A
+// calibration search's engine-saturated retry re-deploys at the exact same
+// QPS, byte-identical compiled config included, and still needs a genuinely
+// fresh pod: its predecessor already ran bzt once and deliberately never
+// runs it again on its own (see engineScript), and a fingerprint keyed to
+// content alone would see no change and leave that finished pod in place,
+// producing no samples at all for the run that starts against it.
+//
+// The ConfigMap a re-deploy's new config lands in is a separate object a
+// running pod does not re-read either way, which is what makes some signal
+// on the pod template unconditionally necessary in the first place.
+const configHashAnnotation = "honryu.dev/config-hash"
+
+// engineContainer is the pod container running bzt, as opposed to the sidecar
+// beside it. A pod's logs must name it explicitly: the Kubernetes API refuses
+// GetLogs on a multi-container pod that does not.
+const engineContainer = "engine"
 
 // defaultPoolLabel groups nodes into pools when Config.PoolLabel is unset.
 const defaultPoolLabel = "cloud.google.com/gke-nodepool"
+
+// defaultTerminationGrace gives bzt time to finish after SIGINT.
+const defaultTerminationGrace = 30 * time.Second
+
+// Paths inside an engine pod.
+const (
+	// configSourceMount is the ConfigMap's own mount -- necessarily
+	// read-only (Kubernetes offers no writable ConfigMap volume at all).
+	// configMount is a separate, writable copy of it: bzt's JMeter executor
+	// saves a "modified" JMX beside the original script whenever the
+	// compiled config carries concurrency/throughput overrides (true for
+	// every native scenario), which fails outright against a read-only
+	// mount. engineScript copies configSourceMount into configMount before
+	// ever invoking bzt.
+	configSourceMount = "/honryu/config-src"
+	configMount       = "/honryu/config"
+	kpiMount          = "/honryu/kpi"
+	artifactsMount    = "/honryu/artifacts"
+	kpiStream         = kpiMount + "/stream.jsonl"
+	// kpiExitCode is where the engine container writes bzt's exit code once it
+	// finishes. It is how the sidecar learns the run is over on its own, rather
+	// than only at pod teardown -- see engineScript.
+	kpiExitCode = kpiMount + "/exit-code"
+)
 
 // Config tunes the adapter.
 type Config struct {
@@ -35,14 +93,25 @@ type Config struct {
 	EnginePort int
 	// PoolLabel is the node label whose value names the node pool.
 	PoolLabel string
+	// SidecarImage runs beside each engine, forwarding measurements.
+	SidecarImage string
+	// IngestURL is where the sidecar pushes batches.
+	IngestURL string
+	// TerminationGrace is how long a pod has to stop after its preStop hook
+	// runs. It must exceed the time bzt needs to finish writing, or the graceful
+	// stop is cut short and becomes the abrupt one it exists to avoid.
+	TerminationGrace time.Duration
 }
 
 // Scheduler is the Kubernetes-backed ports.Scheduler.
 type Scheduler struct {
-	client    kubernetes.Interface
-	ns        string
-	port      int
-	poolLabel string
+	client       kubernetes.Interface
+	ns           string
+	port         int
+	poolLabel    string
+	sidecarImage string
+	ingestURL    string
+	grace        time.Duration
 }
 
 // New builds a Scheduler over the given clientset.
@@ -59,7 +128,14 @@ func New(client kubernetes.Interface, cfg Config) *Scheduler {
 	if poolLabel == "" {
 		poolLabel = defaultPoolLabel
 	}
-	return &Scheduler{client: client, ns: ns, port: port, poolLabel: poolLabel}
+	grace := cfg.TerminationGrace
+	if grace <= 0 {
+		grace = defaultTerminationGrace
+	}
+	return &Scheduler{
+		client: client, ns: ns, port: port, poolLabel: poolLabel,
+		sidecarImage: cfg.SidecarImage, ingestURL: cfg.IngestURL, grace: grace,
+	}
 }
 
 var _ ports.Scheduler = (*Scheduler)(nil)
@@ -79,42 +155,80 @@ func int32Bounded(n int) int32 {
 	}
 }
 
-// DeployPlan creates (or scales) the StatefulSet and headless Service for a
-// plan. It is idempotent.
-func (s *Scheduler) DeployPlan(ctx context.Context, spec ports.DeploySpec) error {
-	name := engine.PlanName(spec.ProjectID, spec.CollectionID, spec.PlanID)
-	labels := engine.PlanLabels(spec.ProjectID, spec.CollectionID, spec.PlanID)
+// DeployScenario creates (or scales) the StatefulSet and headless Service for a
+// scenario. It is idempotent.
+func (s *Scheduler) DeployScenario(ctx context.Context, spec ports.DeploySpec) error {
+	name := engine.ScenarioName(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
+	labels := engine.ScenarioLabels(spec.ProjectID, spec.ExecutionID, spec.ScenarioID)
 	labels[managedByLabel] = managedByValue
 
-	if err := s.ensureService(ctx, name, labels); err != nil {
+	// The configs must exist before the pods that mount them, or the first pods
+	// start and fail before the ConfigMap lands.
+	if err := s.ensureConfigMap(ctx, name, labels, spec); err != nil {
 		return err
 	}
 	return s.ensureStatefulSet(ctx, name, labels, spec)
 }
 
-func (s *Scheduler) ensureService(ctx context.Context, name string, labels map[string]string) error {
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns, Labels: labels},
-		Spec: corev1.ServiceSpec{
-			ClusterIP: corev1.ClusterIPNone, // headless
-			Selector:  map[string]string{"app": name},
-			Ports:     []corev1.ServicePort{{Port: int32Bounded(s.port), Name: "agent"}},
-		},
+// ensureConfigMap holds every shard's compiled config, keyed by shard index.
+//
+// One map rather than one per pod: the pods of a StatefulSet share a template,
+// so each selects its own config by its ordinal at start-up. That is what lets
+// pods that are identical to Kubernetes run different fractions of the load.
+func (s *Scheduler) ensureConfigMap(ctx context.Context, name string, labels map[string]string, spec ports.DeploySpec) error {
+	data := make(map[string]string, len(spec.Shards)+len(spec.ScenarioFiles))
+	for _, sh := range spec.Shards {
+		data[shardConfigKey(sh.Index)] = string(sh.Config)
 	}
-	_, err := s.client.CoreV1().Services(s.ns).Create(ctx, svc, metav1.CreateOptions{})
+	// The scenario's own artefacts ride along, so a native scenario finds the
+	// script its config points at. A ConfigMap holds 1MiB, which a test plan
+	// exceeds only rarely -- when it does, the deploy fails loudly here rather
+	// than the pod failing quietly later.
+	for name, content := range spec.ScenarioFiles {
+		data[scenarioFileKey(name)] = string(content)
+	}
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns, Labels: labels},
+		Data:       data,
+	}
+	maps := s.client.CoreV1().ConfigMaps(s.ns)
+	_, err := maps.Create(ctx, cm, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
-		return nil
+		// A re-deploy replaces the configs: the shard plan may have changed.
+		existing, getErr := maps.Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		existing.Data = data
+		_, updErr := maps.Update(ctx, existing, metav1.UpdateOptions{})
+		return updErr
 	}
 	return err
 }
 
+// shardConfigKey names a shard's config within the ConfigMap.
+func shardConfigKey(index int) string { return fmt.Sprintf("shard-%d.yml", index) }
+
+// scenarioFileKey namespaces a scenario artefact so it cannot collide with a
+// shard config.
+func scenarioFileKey(name string) string { return "scenario--" + name }
+
 func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels map[string]string, spec ports.DeploySpec) error {
-	replicas := int32Bounded(spec.Engines)
+	replicas := int32Bounded(len(spec.Shards))
 	podLabels := map[string]string{}
 	for k, v := range labels {
 		podLabels[k] = v
 	}
 	podLabels["app"] = name
+
+	template := corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      podLabels,
+			Annotations: map[string]string{configHashAnnotation: redeployNonce()},
+		},
+		Spec: s.podSpec(spec, name),
+	}
 
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.ns, Labels: labels},
@@ -122,17 +236,12 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 			ServiceName: name,
 			Replicas:    &replicas,
 			Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: podLabels},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Name:      "engine",
-						Image:     spec.Image,
-						Ports:     []corev1.ContainerPort{{ContainerPort: int32Bounded(s.port)}},
-						Resources: resourceRequirements(spec),
-					}},
-				},
-			},
+			// Shards must start together: they ramp over the same window, and a
+			// staggered start would mean the aggregate never reaches the profile
+			// that was asked for. Kubernetes otherwise brings StatefulSet pods up
+			// one at a time, each waiting for the last to be ready.
+			PodManagementPolicy: appsv1.ParallelPodManagement,
+			Template:            template,
 		},
 	}
 
@@ -144,11 +253,197 @@ func (s *Scheduler) ensureStatefulSet(ctx context.Context, name string, labels m
 			return getErr
 		}
 		existing.Spec.Replicas = &replicas
+		// The template itself, not just the replica count -- see
+		// configHashAnnotation's own doc comment for why this must be a real
+		// replacement, not left as whatever the StatefulSet already had.
+		existing.Spec.Template = template
 		_, updErr := sets.Update(ctx, existing, metav1.UpdateOptions{})
 		return updErr
 	}
 	return err
 }
+
+// redeployCounter backs redeployNonce. Package-level and monotonic rather
+// than clock-based: two calls close enough in time could otherwise land on
+// the same wall-clock nanosecond (especially against a fake clientset in
+// tests, where calls are back-to-back with no real work between them), and
+// an unchanged annotation would defeat the entire point of setting one.
+var redeployCounter atomic.Uint64
+
+// redeployNonce returns a value guaranteed different from every other call
+// within this process's lifetime, for configHashAnnotation.
+func redeployNonce() string {
+	return strconv.FormatUint(redeployCounter.Add(1), 10)
+}
+
+// podSpec builds one engine pod: bzt running this shard's config, and the
+// sidecar forwarding what it measures.
+func (s *Scheduler) podSpec(spec ports.DeploySpec, name string) corev1.PodSpec {
+	grace := int64(s.grace.Seconds())
+
+	return corev1.PodSpec{
+		// A pod is deleted with SIGTERM, which bzt does not handle: it dies at
+		// once, writing no final report. The hook sends SIGINT instead, which bzt
+		// does handle, and the grace period gives it time to finish.
+		TerminationGracePeriodSeconds: &grace,
+		Volumes: []corev1.Volume{
+			{
+				// Read-only by necessity (Kubernetes has no writable
+				// ConfigMap volume) -- engineScript copies this into the
+				// writable "config" EmptyDir below before running bzt.
+				Name: "config-src",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: name},
+						Items:                configItems(spec),
+					},
+				},
+			},
+			{Name: "config", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			// The engine writes its KPI stream here and the sidecar reads it, so
+			// the handover never leaves the pod.
+			{Name: "kpi", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			{Name: "artifacts", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		},
+		Containers: []corev1.Container{
+			{
+				Name:    engineContainer,
+				Image:   spec.Image,
+				Command: []string{"/bin/sh", "-c", engineScript()},
+				// No port: an engine serves nothing. It ran an HTTP agent the
+				// controller called; now it runs bzt and its sidecar pushes the
+				// results out, so there is nothing to connect to and nothing for
+				// a metrics scraper to discover.
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "config-src", MountPath: configSourceMount, ReadOnly: true},
+					{Name: "config", MountPath: configMount},
+					{Name: "kpi", MountPath: kpiMount},
+					{Name: "artifacts", MountPath: artifactsMount},
+				},
+				Resources: resourceRequirements(spec),
+				Lifecycle: &corev1.Lifecycle{
+					PreStop: &corev1.LifecycleHandler{
+						Exec: &corev1.ExecAction{
+							Command: []string{"/bin/sh", "-c", "pkill -INT -f bzt || true"},
+						},
+					},
+				},
+			},
+			{
+				Name:    "sidecar",
+				Image:   s.sidecarImage,
+				Command: []string{"/bin/sh", "-c", s.sidecarScript(spec)},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "kpi", MountPath: kpiMount, ReadOnly: true},
+				},
+				// Like the engine container: /bin/sh is this container's PID 1 and
+				// does not forward the pod-teardown SIGTERM to the foreground
+				// sidecar process, so without this hook the sidecar never observes
+				// ordinary teardown and cannot flush what it has buffered since its
+				// last periodic tick. pkill reaches it directly, by command-line
+				// match, bypassing PID 1 entirely.
+				Lifecycle: &corev1.Lifecycle{
+					PreStop: &corev1.LifecycleHandler{
+						Exec: &corev1.ExecAction{
+							Command: []string{"/bin/sh", "-c", "pkill -TERM -f honryu-sidecar || true"},
+						},
+					},
+				},
+				Env: []corev1.EnvVar{{
+					Name: "HONRYU_INGEST_TOKEN",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "honryu-ingest"},
+							Key:                  "token",
+							Optional:             ptr(true),
+						},
+					},
+				}},
+			},
+		},
+	}
+}
+
+// engineScript picks this pod's config by its StatefulSet ordinal and runs bzt
+// on it. Pods share a template, so the ordinal in the hostname is the only thing
+// distinguishing one shard from another.
+//
+// bzt is run in the foreground rather than exec'd, and the container keeps
+// running once it finishes. Two things depend on that:
+//
+//   - The StatefulSet's pods can only have restartPolicy Always -- Kubernetes
+//     rejects anything else for a controller-managed pod. exec'ing bzt made it
+//     the container's own process, so kubelet restarted the container the
+//     instant bzt exited, cleanly or not, re-running the whole load profile.
+//     Confirmed against a real cluster: a container running only `sleep 3;
+//     exit 0` restarted three times within a minute, each a clean exitCode 0.
+//   - Nothing captured bzt's exit code, so Honryu had no way to know how a run
+//     ended (taurus.OutcomeFromExitCode existed with no feed).
+//
+// No set -e: bzt's own exit code must reach the `code=$?` line, and set -e
+// would abort the script the moment bzt exits non-zero -- which includes an
+// expected criteria failure (exit 3), not only an error.
+func engineScript() string {
+	argv := taurus.Command(configMount+"/shard-${ORDINAL}.yml", artifactsMount)
+	return `ORDINAL="${HOSTNAME##*-}"
+mkdir -p ` + kpiMount + `
+cp -r ` + configSourceMount + `/. ` + configMount + `
+` + strings.Join(argv, " ") + `
+code=$?
+echo "$code" > ` + kpiExitCode + `
+exec tail -f /dev/null`
+}
+
+// sidecarScript runs the forwarder with this pod's identity, then keeps the
+// container alive.
+//
+// Kubernetes' restartPolicy applies to every container in a pod alike: a
+// sidecar that exits cleanly once it has pushed its final batch would be
+// restarted exactly like the engine container would without the same fix, and
+// would re-read the KPI stream from the start under a new stream id -- which
+// the control plane would take for an unrelated stream and absorb all over
+// again, doubling every measurement already pushed.
+//
+// A crash is logged to stderr rather than let its exit code propagate as the
+// container's own. Letting it propagate would make kubelet's CrashLoopBackOff
+// the visible signal, but a restart hits exactly the stale-stream problem the
+// paragraph above describes: nothing here lets a restarted sidecar resume a
+// stream instead of re-reading it from the start, so trading a silent hang
+// for a silently doubled report is not the fix. A log line is the one signal
+// available that costs nothing extra to be wrong about.
+func (s *Scheduler) sidecarScript(spec ports.DeploySpec) string {
+	return fmt.Sprintf(`ORDINAL="${HOSTNAME##*-}"
+/honryu-sidecar -stream %s -exit-code %s -ingest-url %q -execution-id %d -scenario-id %d -shard-index "${ORDINAL}"
+code=$?
+if [ "$code" -ne 0 ]; then echo "honryu-sidecar exited $code" >&2; fi
+exec tail -f /dev/null`,
+		kpiStream, kpiExitCode, s.ingestURL, spec.ExecutionID, spec.ScenarioID)
+}
+
+// configItems maps ConfigMap entries onto the paths a pod expects: shard
+// configs at the root, scenario artefacts under scenario/ with their original
+// names, since a compiled config points at them by name.
+func configItems(spec ports.DeploySpec) []corev1.KeyToPath {
+	items := make([]corev1.KeyToPath, 0, len(spec.Shards)+len(spec.ScenarioFiles))
+	for _, sh := range spec.Shards {
+		key := shardConfigKey(sh.Index)
+		items = append(items, corev1.KeyToPath{Key: key, Path: key})
+	}
+	names := make([]string, 0, len(spec.ScenarioFiles))
+	for name := range spec.ScenarioFiles {
+		names = append(names, name)
+	}
+	sort.Strings(names) // deterministic, so a redeploy does not churn the spec
+	for _, name := range names {
+		items = append(items, corev1.KeyToPath{Key: scenarioFileKey(name), Path: "scenario/" + name})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return items
+}
+
+func ptr[T any](v T) *T { return &v }
 
 func resourceRequirements(spec ports.DeploySpec) corev1.ResourceRequirements {
 	list := corev1.ResourceList{}
@@ -164,73 +459,84 @@ func resourceRequirements(spec ports.DeploySpec) corev1.ResourceRequirements {
 	return corev1.ResourceRequirements{Requests: list, Limits: list}
 }
 
-// EngineURLs returns the stable per-engine DNS URLs, or ErrEnginesUnreachable
-// when the plan's Service is absent.
-func (s *Scheduler) EngineURLs(ctx context.Context, collectionID, planID int64, engines int) ([]string, error) {
-	projectID, err := s.projectOf(ctx, collectionID)
-	if err != nil {
-		return nil, err
-	}
-	name := engine.PlanName(projectID, collectionID, planID)
-	if _, err := s.client.CoreV1().Services(s.ns).Get(ctx, name, metav1.GetOptions{}); err != nil {
-		return nil, ports.ErrEnginesUnreachable
-	}
-	urls := make([]string, engines)
-	for i := range urls {
-		urls[i] = fmt.Sprintf("http://%s-%d.%s.%s.svc:%d", name, i, name, s.ns, s.port)
-	}
-	return urls, nil
-}
-
-// projectOf recovers the project id from any pod/statefulset labelled with the
-// collection; deploy specs carry the project but query methods do not.
-func (s *Scheduler) projectOf(ctx context.Context, collectionID int64) (int64, error) {
-	sel := fmt.Sprintf("collection=%d,%s=%s", collectionID, managedByLabel, managedByValue)
-	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
-	if err != nil {
-		return 0, err
-	}
-	if len(sets.Items) == 0 {
-		return 0, ports.ErrEnginesUnreachable
-	}
-	var projectID int64
-	_, _ = fmt.Sscanf(sets.Items[0].Labels["project"], "%d", &projectID)
-	return projectID, nil
-}
-
-// CollectionStatus counts ready pods per plan.
-func (s *Scheduler) CollectionStatus(ctx context.Context, collectionID int64, plans []ports.PlanRef) (ports.CollectionStatus, error) {
-	status := ports.CollectionStatus{}
+// ExecutionStatus counts ready pods per scenario.
+func (s *Scheduler) ExecutionStatus(ctx context.Context, _ ports.ClusterRef, executionID int64, plans []ports.ScenarioRef) (ports.ExecutionStatus, error) {
+	status := ports.ExecutionStatus{}
 	for _, ref := range plans {
-		ready, err := s.readyPods(ctx, collectionID, ref.PlanID)
+		ready, err := s.readyPods(ctx, executionID, ref.ScenarioID)
 		if err != nil {
-			return ports.CollectionStatus{}, err
+			return ports.ExecutionStatus{}, err
 		}
-		pr := ports.PlanReadiness{
-			PlanID:          ref.PlanID,
-			EnginesWanted:   ref.Engines,
+		pr := ports.ScenarioReadiness{
+			ScenarioID:      ref.ScenarioID,
+			EnginesWanted:   ref.Shards,
 			EnginesDeployed: ready,
-			Reachable:       ref.Engines > 0 && ready >= ref.Engines,
+			Reachable:       ref.Shards > 0 && ready >= ref.Shards,
 		}
 		status.PoolSize += ready
-		status.Plans = append(status.Plans, pr)
+		status.Scenarios = append(status.Scenarios, pr)
 	}
 	return status, nil
 }
 
-func (s *Scheduler) readyPods(ctx context.Context, collectionID, planID int64) (int, error) {
-	sel := fmt.Sprintf("collection=%d,plan=%d", collectionID, planID)
+// readyPods counts pods that are both Kubernetes-ready and running the
+// current deploy's own pod template -- not just any pod matching the label
+// selector.
+//
+// A pod being replaced by a re-deploy (see configHashAnnotation) can stay
+// Running and PodReady for its whole termination grace period (up to
+// defaultTerminationGrace, 30s) after receiving its shutdown signal --
+// Kubernetes does not flip PodReady to false just because a pod is being
+// deleted. Counting it would let triggerWhenReady's readiness poll succeed
+// against a pod that is on its way out rather than the fresh one this
+// deploy actually created, stamping the run's StartedAt tens of seconds
+// before any pod running its compiled config even exists -- inflating
+// achievedSeconds by that same margin and understating achieved throughput
+// enough to misclassify a run as engine-saturated when it never was one
+// (task 85's live verification: every step in a real search came back
+// engine-saturated even at trivially low requested rates, traced to
+// exactly this).
+func (s *Scheduler) readyPods(ctx context.Context, executionID, scenarioID int64) (int, error) {
+	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
+	currentNonce, err := s.currentRedeployNonce(ctx, sel)
+	if err != nil {
+		return 0, err
+	}
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return 0, err
 	}
 	ready := 0
 	for i := range pods.Items {
-		if podReady(&pods.Items[i]) {
-			ready++
+		p := &pods.Items[i]
+		if !podReady(p) {
+			continue
 		}
+		if currentNonce != "" && p.Annotations[configHashAnnotation] != currentNonce {
+			continue
+		}
+		ready++
 	}
 	return ready, nil
+}
+
+// currentRedeployNonce returns the current configHashAnnotation value from
+// the StatefulSet a re-deploy would update -- the value every pod created by
+// the *next* reconciliation will carry, and so what readyPods must require a
+// pod already have to count as belonging to the current deploy rather than
+// one being replaced. Empty (not an error) if no StatefulSet exists yet for
+// this selector: readyPods then falls back to its old label-only behaviour,
+// which for a nonexistent StatefulSet is equivalent anyway (there are no
+// pods to find).
+func (s *Scheduler) currentRedeployNonce(ctx context.Context, labelSelector string) (string, error) {
+	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return "", err
+	}
+	if len(sets.Items) == 0 {
+		return "", nil
+	}
+	return sets.Items[0].Spec.Template.Annotations[configHashAnnotation], nil
 }
 
 func podReady(p *corev1.Pod) bool {
@@ -245,15 +551,15 @@ func podReady(p *corev1.Pod) bool {
 	return false
 }
 
-// EngineDetail lists all engine pods of a collection.
-func (s *Scheduler) EngineDetail(ctx context.Context, projectID, collectionID int64) (ports.CollectionDetail, error) {
-	sel := fmt.Sprintf("project=%d,collection=%d", projectID, collectionID)
+// EngineDetail lists all engine pods of a execution.
+func (s *Scheduler) EngineDetail(ctx context.Context, _ ports.ClusterRef, projectID, executionID int64) (ports.ExecutionDetail, error) {
+	sel := fmt.Sprintf("project=%d,execution=%d", projectID, executionID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
-		return ports.CollectionDetail{}, err
+		return ports.ExecutionDetail{}, err
 	}
 	sort.Slice(pods.Items, func(i, j int) bool { return pods.Items[i].Name < pods.Items[j].Name })
-	detail := ports.CollectionDetail{}
+	detail := ports.ExecutionDetail{}
 	for i := range pods.Items {
 		p := &pods.Items[i]
 		detail.Engines = append(detail.Engines, ports.EngineDetail{
@@ -265,9 +571,9 @@ func (s *Scheduler) EngineDetail(ctx context.Context, projectID, collectionID in
 	return detail, nil
 }
 
-// PurgeCollection deletes every StatefulSet, Service, and Pod of a collection.
-func (s *Scheduler) PurgeCollection(ctx context.Context, collectionID int64) error {
-	sel := fmt.Sprintf("collection=%d,%s=%s", collectionID, managedByLabel, managedByValue)
+// PurgeExecution deletes every StatefulSet, Service, and Pod of a execution.
+func (s *Scheduler) PurgeExecution(ctx context.Context, _ ports.ClusterRef, executionID int64) error {
+	sel := fmt.Sprintf("execution=%d,%s=%s", executionID, managedByLabel, managedByValue)
 	opts := metav1.ListOptions{LabelSelector: sel}
 	del := metav1.DeleteOptions{}
 
@@ -291,30 +597,42 @@ func (s *Scheduler) PurgeCollection(ctx context.Context, collectionID int64) err
 	}
 	// Pods normally cascade from the StatefulSet; delete explicitly so state is
 	// consistent under the fake clientset too.
-	return s.client.CoreV1().Pods(s.ns).DeleteCollection(ctx, del, metav1.ListOptions{LabelSelector: fmt.Sprintf("collection=%d", collectionID)})
+	// DeleteCollection here is the Kubernetes client API (delete a execution of
+	// pods), not a Honryu concept -- it keeps its upstream name.
+	return s.client.CoreV1().Pods(s.ns).DeleteCollection(ctx, del, metav1.ListOptions{LabelSelector: fmt.Sprintf("execution=%d", executionID)})
 }
 
-// PodLog returns the logs of a plan's first engine pod.
-func (s *Scheduler) PodLog(ctx context.Context, collectionID, planID int64) (string, error) {
-	sel := fmt.Sprintf("collection=%d,plan=%d", collectionID, planID)
+// PodLog returns the engine container's logs from one shard's pod.
+//
+// The pod is found by its StatefulSet ordinal suffix rather than by name
+// reconstruction, since the name embeds the project id this method is not
+// given. The engine container is named explicitly: a pod with more than one
+// container -- every engine pod, since the sidecar shares it -- is rejected by
+// the Kubernetes API otherwise.
+func (s *Scheduler) PodLog(ctx context.Context, _ ports.ClusterRef, executionID, scenarioID int64, shard int) (string, error) {
+	sel := fmt.Sprintf("execution=%d,scenario=%d", executionID, scenarioID)
 	pods, err := s.client.CoreV1().Pods(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
 		return "", err
 	}
-	if len(pods.Items) == 0 {
-		return "", ports.ErrEnginesUnreachable
+	suffix := fmt.Sprintf("-%d", shard)
+	for i := range pods.Items {
+		if !strings.HasSuffix(pods.Items[i].Name, suffix) {
+			continue
+		}
+		req := s.client.CoreV1().Pods(s.ns).GetLogs(pods.Items[i].Name, &corev1.PodLogOptions{Container: engineContainer})
+		body, err := req.DoRaw(ctx)
+		if err != nil {
+			return "", err
+		}
+		return string(body), nil
 	}
-	req := s.client.CoreV1().Pods(s.ns).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{})
-	body, err := req.DoRaw(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
+	return "", ports.ErrEnginesUnreachable
 }
 
 // NodePools groups cluster nodes by their pool label, reporting each pool's
 // size and earliest node creation time.
-func (s *Scheduler) NodePools(ctx context.Context) ([]ports.NodePool, error) {
+func (s *Scheduler) NodePools(ctx context.Context, _ ports.ClusterRef) ([]ports.NodePool, error) {
 	nodes, err := s.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
@@ -344,8 +662,8 @@ func (s *Scheduler) NodePools(ctx context.Context) ([]ports.NodePool, error) {
 	return pools, nil
 }
 
-// DeployedCollections maps collection id to its earliest StatefulSet creation.
-func (s *Scheduler) DeployedCollections(ctx context.Context) (map[int64]time.Time, error) {
+// DeployedExecutions maps execution id to its earliest StatefulSet creation.
+func (s *Scheduler) DeployedExecutions(ctx context.Context, _ ports.ClusterRef) (map[int64]time.Time, error) {
 	sel := fmt.Sprintf("%s=%s", managedByLabel, managedByValue)
 	sets, err := s.client.AppsV1().StatefulSets(s.ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 	if err != nil {
@@ -354,7 +672,7 @@ func (s *Scheduler) DeployedCollections(ctx context.Context) (map[int64]time.Tim
 	out := map[int64]time.Time{}
 	for i := range sets.Items {
 		var cid int64
-		if _, err := fmt.Sscanf(sets.Items[i].Labels["collection"], "%d", &cid); err != nil {
+		if _, err := fmt.Sscanf(sets.Items[i].Labels["execution"], "%d", &cid); err != nil {
 			continue
 		}
 		created := sets.Items[i].CreationTimestamp.Time

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-We actively support security updates for the following versions of Setagaya:
+We actively support security updates for the following versions of Honryu:
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -12,7 +12,7 @@ We actively support security updates for the following versions of Setagaya:
 
 ## Reporting a Vulnerability
 
-We take security vulnerabilities seriously. If you discover a security vulnerability within Setagaya, please follow
+We take security vulnerabilities seriously. If you discover a security vulnerability within Honryu, please follow
 these steps:
 
 ### 🔒 Private Disclosure
@@ -57,7 +57,7 @@ We believe in recognizing security researchers who help us maintain a secure pla
 
 ### 🔐 Built-in Security Features
 
-Setagaya includes several security measures:
+Honryu includes several security measures:
 
 - **LDAP Authentication**: Enterprise authentication integration
 - **RBAC**: Role-based access control for projects and collections
@@ -109,7 +109,7 @@ We perform regular security scanning:
 - **Authentication**: Use strong, unique passwords
 - **Access**: Only grant necessary permissions
 - **Monitoring**: Monitor for unusual activity
-- **Updates**: Keep your Setagaya installation updated
+- **Updates**: Keep your Honryu installation updated
 - **Reporting**: Report suspicious activity immediately
 
 ## Vulnerability Disclosure Policy
@@ -125,7 +125,7 @@ We perform regular security scanning:
 
 This policy applies to:
 
-- ✅ Setagaya core application and components
+- ✅ Honryu core application and components
 - ✅ Official Docker images and containers
 - ✅ Documentation and example configurations
 - ✅ Dependencies and third-party components

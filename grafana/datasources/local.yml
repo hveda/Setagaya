@@ -1,7 +1,7 @@
 apiVersion: 1
 
 datasources:
-  - name: 'setagaya_prom'
+  - name: 'honryu_prom'
     type: 'prometheus'
     access: 'proxy'
     org_id: 1

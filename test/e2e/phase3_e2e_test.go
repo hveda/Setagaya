@@ -4,7 +4,9 @@ package e2e_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,66 +15,100 @@ import (
 	"testing"
 	"time"
 
-	membus "github.com/heridotlife/Setagaya/internal/adapters/eventbus/memory"
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	mysqladapter "github.com/heridotlife/Setagaya/internal/adapters/repo/mysql"
-	"github.com/heridotlife/Setagaya/internal/adapters/storage/local"
-	"github.com/heridotlife/Setagaya/internal/app/adminapp"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/metricsapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/app/usageapp"
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
-	"github.com/heridotlife/Setagaya/test/dbtest"
+	membus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	mysqladapter "github.com/heridotlife/honryu/internal/adapters/repo/mysql"
+	"github.com/heridotlife/honryu/internal/adapters/storage/local"
+	"github.com/heridotlife/honryu/internal/app/adminapp"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/metricsapp"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/app/usageapp"
+	"github.com/heridotlife/honryu/internal/domain/metrics"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports/fake"
+	"github.com/heridotlife/honryu/test/dbtest"
 )
 
 // TestPhase3_MetricsUsageAdminEndToEnd drives a run and asserts the live SSE
 // metric stream, usage accounting, and admin listing over real HTTP with a real
-// MySQL container. Scheduler/executor are fakes (the executor replays metrics).
+// MySQL container. The scheduler is a fake, and measurements are pushed through
+// the ingest seam the sidecar will use.
 func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 	db := dbtest.StartMySQL(t)
 	repo := mysqladapter.NewRepository(db)
 	store := local.New(t.TempDir(), "")
 	sched := fake.NewScheduler()
-	exec := fake.NewExecutor()
-	exec.Repeat = true
-	exec.Metrics = []engine.Metric{{Label: "home", Status: "200", Latency: 12.5, Threads: 8}}
 	sink := fake.NewMetricsSink()
 	bus := membus.New()
 
-	collector := metricsapp.NewService(repo, sched, exec, sink, bus)
+	collector := metricsapp.NewService(repo, sink, bus, repo, repo)
 	usage := usageapp.NewService(repo)
-	lifecycle := lifecycleapp.NewService(repo, sched, exec, store, "jmeter").WithMetrics(collector).WithUsage(usage)
+	lifecycle := lifecycleapp.NewService(repo, sched, store, lifecycleapp.StaticImage("jmeter")).WithMetrics(collector).WithUsage(usage)
 	admin := adminapp.NewService(repo, sched, lifecycle)
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Projects:      projectapp.NewService(repo),
-		Plans:         planapp.NewService(repo, store),
-		Collections:   collectionapp.NewService(repo, store, 500),
+		Scenarios:     scenarioapp.NewService(repo, store),
+		Executions:    executionapp.NewService(repo, store, 500),
 		Lifecycle:     lifecycle,
 		Usage:         usage,
 		Admin:         admin,
 		Events:        bus,
 		Store:         store,
-		DefaultOwners: []string{"setagaya"},
+		Metrics:       collector,
+		IngestToken:   "engine-token",
+		DefaultOwners: []string{"honryu"},
 	})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 	client := srv.Client()
 
-	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"setagaya"}})
-	planID := postForm(t, client, srv.URL+"/api/plans", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
-	putMultipart(t, client, srv.URL+"/api/plans/"+itoa(planID)+"/files", "plan.jmx", "<jmx/>")
-	collID := postForm(t, client, srv.URL+"/api/collections", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
-	cfg := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 2\n      duration: 30\n", collID, planID)
-	putMultipart(t, client, srv.URL+"/api/collections/"+itoa(collID)+"/config", "config.yaml", cfg)
+	projectID := postForm(t, client, srv.URL+"/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
+	scenarioID := postForm(t, client, srv.URL+"/api/scenarios", url.Values{"name": {"smoke"}, "project_id": {itoa(projectID)}})
+	putMultipart(t, client, srv.URL+"/api/scenarios/"+itoa(scenarioID)+"/files", "scenario.jmx", "<jmx/>")
+	collID := postForm(t, client, srv.URL+"/api/executions", url.Values{"name": {"peak"}, "project_id": {itoa(projectID)}})
+	cfg := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 2\n      duration: 30\n", collID, scenarioID)
+	putMultipart(t, client, srv.URL+"/api/executions/"+itoa(collID)+"/config", "config.yaml", cfg)
 
-	base := srv.URL + "/api/collections/" + itoa(collID)
+	base := srv.URL + "/api/executions/" + itoa(collID)
 	postAction(t, client, base+"/deploy", http.StatusOK)
 	postAction(t, client, base+"/trigger", http.StatusOK)
+
+	// Measurements arrive over the same endpoint a sidecar in an engine pod
+	// posts to, so this exercises the whole inbound path rather than reaching
+	// past it into the service.
+	runID, _, err := repo.CurrentRun(context.Background(), collID)
+	if err != nil {
+		t.Fatalf("CurrentRun: %v", err)
+	}
+	pushCtx, stopPushing := context.WithCancel(context.Background())
+	defer stopPushing()
+	go func() {
+		for ts := int64(0); ; ts++ {
+			select {
+			case <-pushCtx.Done():
+				return
+			default:
+			}
+			body, _ := json.Marshal(metrics.Batch{
+				ExecutionID: collID, ScenarioID: scenarioID, RunID: runID, ShardIndex: 0, StreamID: "e2e",
+				Intervals: []metrics.Interval{{
+					Seq: ts + 1, Timestamp: ts, Label: "home", Concurrency: 8, Samples: 20, Succeeded: 20,
+					Latency: metrics.Histogram{0.0125: 20}, ResponseCodes: map[string]int64{"200": 20},
+				}},
+			})
+			req, _ := http.NewRequestWithContext(pushCtx, http.MethodPost,
+				srv.URL+"/api/ingest", bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer engine-token")
+			if resp, err := client.Do(req); err == nil {
+				_ = resp.Body.Close()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 
 	// The live SSE stream delivers enriched metrics during the run.
 	streamCtx, cancelStream := context.WithCancel(context.Background())
@@ -82,32 +118,48 @@ func TestPhase3_MetricsUsageAdminEndToEnd(t *testing.T) {
 		t.Fatalf("open stream: %v", err)
 	}
 	line := readFirstSSE(t, resp.Body)
-	if !strings.Contains(line, `"label":"home"`) || !strings.Contains(line, `"collection_id":"`+itoa(collID)+`"`) {
+	if !strings.Contains(line, `"label":"home"`) || !strings.Contains(line, `"execution_id":"`+itoa(collID)+`"`) {
 		t.Fatalf("SSE metric = %q", line)
 	}
 	cancelStream()
 	_ = resp.Body.Close()
 
-	// Admin lists the collection as deployed.
-	var running []adminapp.RunningCollection
-	getJSON(t, client, srv.URL+"/api/admin/collections", http.StatusOK, &running)
-	if len(running) != 1 || running[0].CollectionID != collID {
-		t.Fatalf("admin collections = %+v", running)
+	// Admin lists the execution as deployed.
+	var running []adminapp.RunningExecution
+	getJSON(t, client, srv.URL+"/api/admin/executions", http.StatusOK, &running)
+	if len(running) != 1 || running[0].ExecutionID != collID {
+		t.Fatalf("admin executions = %+v", running)
 	}
 
 	postAction(t, client, base+"/stop", http.StatusOK)
 
-	// Usage history now has one finished launch for this collection.
+	// Stop ends the run through the same teardown that finalises its report --
+	// via the real MySQL adapter this exercises, not a fake standing in for it.
+	rep, err := repo.GetReport(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("GetReport after Stop: %v", err)
+	}
+	if rep.ExecutionID != collID || rep.RunID != runID {
+		t.Fatalf("report identity = %+v", rep)
+	}
+	if rep.Outcome != taurus.OutcomeAborted {
+		t.Fatalf("report outcome = %q, want aborted -- Honryu stopped this run itself", rep.Outcome)
+	}
+	if rep.Achieved.Samples == 0 {
+		t.Fatalf("report has no achieved samples: %+v", rep.Achieved)
+	}
+
+	// Usage history now has one finished launch for this execution.
 	var history []map[string]any
 	getJSON(t, client, srv.URL+"/api/usage/history", http.StatusOK, &history)
 	found := false
 	for _, h := range history {
-		if int64(h["CollectionID"].(float64)) == collID {
+		if int64(h["ExecutionID"].(float64)) == collID {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("usage history missing collection %d: %+v", collID, history)
+		t.Fatalf("usage history missing execution %d: %+v", collID, history)
 	}
 
 	postAction(t, client, base+"/purge", http.StatusOK)

@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // tenantResponse is the JSON wire shape for a Tenant.
@@ -141,6 +141,56 @@ func (h *handlers) setTenantStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r.Context(), "tenant.status", strconv.FormatInt(id, 10), status)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "status updated"})
+}
+
+// setTenantQuota sets a tenant's per-cluster engine quota ceiling. cluster
+// defaults to "" (the implicit default cluster, until Phase 8's registry
+// exists) when the form omits it.
+func (h *handlers) setTenantQuota(w http.ResponseWriter, r *http.Request) {
+	if !h.tenantAdminGate(w, r) {
+		return
+	}
+	id, ok := pathInt(r, "tenant_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid tenant id")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeError(w, http.StatusBadRequest, "failed to parse form")
+		return
+	}
+	ceiling, err := strconv.Atoi(r.PostForm.Get("ceiling"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid ceiling")
+		return
+	}
+	cluster := r.PostForm.Get("cluster")
+	if err := h.deps.Tenants.SetQuota(r.Context(), id, cluster, ceiling); err != nil {
+		respondError(w, err)
+		return
+	}
+	h.audit(r.Context(), "tenant.quota", strconv.FormatInt(id, 10), cluster)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "quota updated"})
+}
+
+// getTenantQuota returns a tenant's per-cluster engine quota ceiling (0 if
+// never configured). cluster defaults to "" when the query omits it.
+func (h *handlers) getTenantQuota(w http.ResponseWriter, r *http.Request) {
+	if !h.tenantAdminGate(w, r) {
+		return
+	}
+	id, ok := pathInt(r, "tenant_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid tenant id")
+		return
+	}
+	cluster := r.URL.Query().Get("cluster")
+	ceiling, err := h.deps.Tenants.GetQuota(r.Context(), id, cluster)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"cluster": cluster, "ceiling": ceiling})
 }
 
 func (h *handlers) assignTenantRole(w http.ResponseWriter, r *http.Request) {

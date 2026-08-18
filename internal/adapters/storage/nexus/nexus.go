@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // maxObjectBytes caps how much a single object download may buffer.

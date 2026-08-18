@@ -1,0 +1,29 @@
+# Builds any one of Honryu's own control-plane binaries (api, calibrator,
+# scheduler, sidecar) from a single Dockerfile, selected via
+# --build-arg CMD=<name>. They share one build stage because they share one
+# module and one dependency set -- four near-identical Dockerfiles would
+# only drift.
+#
+# Runtime base is alpine, not distroless: the k8s scheduler adapter's own
+# sidecar container Command is ["/bin/sh", "-c", "/honryu-sidecar ..."]
+# (internal/adapters/scheduler/k8s/k8s.go's sidecarScript) -- a shell-less
+# distroless image would fail to even start that container. The binary is
+# named /honryu-${CMD} to match that same hardcoded /honryu-sidecar path.
+FROM golang:1.26.6 AS build
+ARG CMD=api
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/honryu-${CMD} ./cmd/${CMD}
+
+FROM alpine:3.20
+ARG CMD=api
+# ARGs are build-time only; ENTRYPOINT's shell form expands $CMD at
+# container *runtime*, so it must be re-exposed as an ENV to survive into
+# the running container (exec-form ENTRYPOINT's JSON array, tried first,
+# does not expand ARG/ENV at all -- verified, it shipped the literal
+# "${CMD}" string).
+ENV CMD=${CMD}
+COPY --from=build /out/honryu-${CMD} /honryu-${CMD}
+ENTRYPOINT /honryu-${CMD}

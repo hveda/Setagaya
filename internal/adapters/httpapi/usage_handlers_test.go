@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/usageapp"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/app/usageapp"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func usageRouter(t *testing.T) (http.Handler, *fake.Store) {
@@ -16,7 +16,7 @@ func usageRouter(t *testing.T) (http.Handler, *fake.Store) {
 	store := fake.NewStore()
 	h := httpapi.NewRouter(httpapi.Deps{
 		Usage:         usageapp.NewService(store),
-		DefaultOwners: []string{"setagaya"},
+		DefaultOwners: []string{"honryu"},
 	})
 	return h, store
 }

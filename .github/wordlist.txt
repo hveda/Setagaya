@@ -1,7 +1,7 @@
 personal_ws-1.1 en 752
 codecov
 OpenSSF
-Setagaya
+Honryu
 JMeter
 Kubernetes
 multi
@@ -83,7 +83,7 @@ RBAC
 LDAP
 MySQL
 Prometheus
-setagaya
+honryu
 namespace
 namespaces
 Dockerfile
@@ -643,7 +643,7 @@ publicKeys
 OktaClaims
 RegisteredClaims
 ServiceProvider
-SetagayaRoles
+HonryuRoles
 TenantMemberships
 jwt
 AuthURL
@@ -675,7 +675,7 @@ authHeader
 RequirePermission
 StatusInternalServerError
 resourceType
-SetagayaAPI
+HonryuAPI
 authMw
 registerRoutes
 Params

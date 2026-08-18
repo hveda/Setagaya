@@ -10,12 +10,12 @@ import (
 	"sync"
 	"testing"
 
-	nexusadapter "github.com/heridotlife/Setagaya/internal/adapters/storage/nexus"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/objectstoretest"
+	nexusadapter "github.com/heridotlife/honryu/internal/adapters/storage/nexus"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/objectstoretest"
 )
 
-const testRepo = "setagaya-raw"
+const testRepo = "honryu-raw"
 
 // fakeNexus is an in-memory stand-in for a Nexus raw repository.
 type fakeNexus struct {
@@ -98,7 +98,7 @@ func TestNexus_SendsBasicAuth(t *testing.T) {
 	store := nexusadapter.New(url, testRepo, nexusadapter.WithBasicAuth("admin", "s3cret"))
 	ctx := context.Background()
 
-	if err := store.Upload(ctx, "plan/1/a.jmx", bytes.NewReader([]byte("x"))); err != nil {
+	if err := store.Upload(ctx, "scenario/1/a.jmx", bytes.NewReader([]byte("x"))); err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
 	if !f.authSeen {
@@ -107,7 +107,7 @@ func TestNexus_SendsBasicAuth(t *testing.T) {
 
 	// Wrong credentials surface as an error.
 	bad := nexusadapter.New(url, testRepo, nexusadapter.WithBasicAuth("admin", "wrong"))
-	if err := bad.Upload(ctx, "plan/1/a.jmx", bytes.NewReader([]byte("x"))); err == nil {
+	if err := bad.Upload(ctx, "scenario/1/a.jmx", bytes.NewReader([]byte("x"))); err == nil {
 		t.Fatal("Upload with bad creds: want error, got nil")
 	}
 }
@@ -115,8 +115,8 @@ func TestNexus_SendsBasicAuth(t *testing.T) {
 func TestNexus_URL(t *testing.T) {
 	t.Parallel()
 	store := nexusadapter.New("https://nexus.example.com/", testRepo)
-	want := "https://nexus.example.com/repository/setagaya-raw/plan/7/test.jmx"
-	if got := store.URL("plan/7/test.jmx"); got != want {
+	want := "https://nexus.example.com/repository/honryu-raw/scenario/7/test.jmx"
+	if got := store.URL("scenario/7/test.jmx"); got != want {
 		t.Fatalf("URL = %q, want %q", got, want)
 	}
 }
@@ -154,5 +154,58 @@ func TestNexus_RequestErrorsOnBadURL(t *testing.T) {
 	}
 	if err := store.Delete(ctx, "k"); err == nil {
 		t.Fatal("Delete to dead addr: want error")
+	}
+}
+
+// countingTransport records requests seen by an injected client.
+type countingTransport struct {
+	inner http.RoundTripper
+	seen  int
+}
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.seen++
+	return c.inner.RoundTrip(r)
+}
+
+func TestNexus_WithClientUsesTheInjectedClient(t *testing.T) {
+	t.Parallel()
+	url := newServer(t, newFakeNexus())
+	rt := &countingTransport{inner: http.DefaultTransport}
+	store := nexusadapter.New(url, testRepo, nexusadapter.WithClient(&http.Client{Transport: rt}))
+	ctx := context.Background()
+
+	if err := store.Upload(ctx, "k", bytes.NewReader([]byte("v"))); err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	got, err := store.Download(ctx, "k")
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if string(got) != "v" {
+		t.Fatalf("Download = %q, want %q", got, "v")
+	}
+	if rt.seen != 2 {
+		t.Fatalf("injected transport saw %d requests, want 2", rt.seen)
+	}
+}
+
+// WithClient(nil) must not clobber the default client -- optionality is
+// guarded, and the default client still works end to end.
+func TestNexus_WithClientNilKeepsTheDefaultClient(t *testing.T) {
+	t.Parallel()
+	url := newServer(t, newFakeNexus())
+	store := nexusadapter.New(url, testRepo, nexusadapter.WithClient(nil))
+	ctx := context.Background()
+
+	if err := store.Upload(ctx, "k", bytes.NewReader([]byte("v"))); err != nil {
+		t.Fatalf("Upload with nil client override: %v", err)
+	}
+	got, err := store.Download(ctx, "k")
+	if err != nil {
+		t.Fatalf("Download with nil client override: %v", err)
+	}
+	if string(got) != "v" {
+		t.Fatalf("Download = %q, want %q", got, "v")
 	}
 }

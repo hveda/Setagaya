@@ -1,4 +1,4 @@
-# Setagaya — developer Makefile
+# 奔流 (Honryu) — developer Makefile
 # Fast unit tests need no infra. Integration tests use Docker (testcontainers) and
 # are gated behind the `integration` build tag.
 
@@ -30,13 +30,21 @@ cover: ## unit tests with coverage profile (no infra)
 cover-gate: ## full coverage (unit+integration+e2e) enforcing the threshold (needs Docker)
 	./scripts/coverage.sh
 
+.PHONY: phase-merge
+phase-merge: ## run the full bar, then merge the working branch into develop (PHASE="phase N slug")
+	./scripts/phase-merge.sh
+
 .PHONY: integration
 integration: ## adapter contract tests against real infra (needs Docker)
-	$(GO) test -p 1 -count=1 -tags=integration ./internal/adapters/... ./cmd/...
+	$(GO) test -p 1 -count=1 -timeout 30m -tags=integration ./internal/adapters/... ./cmd/...
+
+.PHONY: engine
+engine: ## drive real load-test engines through the compiler (needs bzt on PATH)
+	$(GO) test -count=1 -timeout 25m -tags=engine ./test/engine/...
 
 .PHONY: e2e
 e2e: ## full-stack end-to-end tests (needs Docker)
-	$(GO) test -p 1 -count=1 -tags=e2e ./test/e2e/...
+	$(GO) test -p 1 -count=1 -timeout 30m -tags=e2e ./test/e2e/...
 
 .PHONY: lint
 lint:

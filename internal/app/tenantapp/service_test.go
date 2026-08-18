@@ -4,17 +4,17 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/app/tenantapp"
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
-	"github.com/heridotlife/Setagaya/internal/ports"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/app/tenantapp"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 func newSvc(t *testing.T) (*tenantapp.Service, *fake.Store) {
 	t.Helper()
 	store := fake.NewStore()
-	return tenantapp.NewService(store, store), store
+	return tenantapp.NewService(store, store, store), store
 }
 
 func TestCreateAndList(t *testing.T) {
@@ -65,6 +65,51 @@ func TestSetStatus(t *testing.T) {
 
 	if err := svc.SetStatus(ctx, tn.ID, "BOGUS"); !errors.Is(err, tenant.ErrStatusInvalid) {
 		t.Fatalf("SetStatus(bogus) = %v, want ErrStatusInvalid", err)
+	}
+}
+
+// An unconfigured ceiling reads as 0 -- unconfigured, not unlimited -- until
+// explicitly set, and stays scoped per cluster.
+func TestQuota(t *testing.T) {
+	t.Parallel()
+	svc, _ := newSvc(t)
+	ctx := t.Context()
+	tn, _ := svc.Create(ctx, "acme", "Acme")
+
+	got, err := svc.GetQuota(ctx, tn.ID, "default")
+	if err != nil || got != 0 {
+		t.Fatalf("GetQuota before configured = %d, %v, want 0, nil", got, err)
+	}
+
+	if err := svc.SetQuota(ctx, tn.ID, "default", 5); err != nil {
+		t.Fatalf("SetQuota: %v", err)
+	}
+	got, err = svc.GetQuota(ctx, tn.ID, "default")
+	if err != nil || got != 5 {
+		t.Fatalf("GetQuota = %d, %v, want 5, nil", got, err)
+	}
+
+	if got, err := svc.GetQuota(ctx, tn.ID, "eu-west"); err != nil || got != 0 {
+		t.Fatalf("GetQuota(other cluster) = %d, %v, want 0, nil", got, err)
+	}
+}
+
+func TestSetQuota_RejectsNegative(t *testing.T) {
+	t.Parallel()
+	svc, _ := newSvc(t)
+	ctx := t.Context()
+	tn, _ := svc.Create(ctx, "acme", "Acme")
+
+	if err := svc.SetQuota(ctx, tn.ID, "default", -1); !errors.Is(err, tenantapp.ErrCeilingInvalid) {
+		t.Fatalf("SetQuota(-1) = %v, want ErrCeilingInvalid", err)
+	}
+}
+
+func TestSetQuota_UnknownTenant(t *testing.T) {
+	t.Parallel()
+	svc, _ := newSvc(t)
+	if err := svc.SetQuota(t.Context(), 999, "default", 5); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("SetQuota(unknown tenant) = %v, want ErrNotFound", err)
 	}
 }
 

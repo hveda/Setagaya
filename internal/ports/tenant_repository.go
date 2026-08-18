@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/heridotlife/Setagaya/internal/domain/tenant"
+	"github.com/heridotlife/honryu/internal/domain/tenant"
 )
 
 // TenantRepository persists tenants.

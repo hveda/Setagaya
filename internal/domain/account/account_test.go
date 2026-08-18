@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/heridotlife/Setagaya/internal/domain/account"
+	"github.com/heridotlife/honryu/internal/domain/account"
 )
 
 func TestAccount_Zero(t *testing.T) {

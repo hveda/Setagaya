@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/domain/engine"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/engine"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewBus builds a fresh, empty EventBus for one test.
@@ -17,7 +17,7 @@ type NewBus func(t *testing.T) ports.EventBus
 func RunEventBusContract(t *testing.T, newBus NewBus) {
 	t.Helper()
 
-	t.Run("subscriber receives published events for its collection", func(t *testing.T) {
+	t.Run("subscriber receives published events for its execution", func(t *testing.T) {
 		bus := newBus(t)
 		ch, cancel := bus.Subscribe(1)
 		defer cancel()
@@ -33,7 +33,7 @@ func RunEventBusContract(t *testing.T, newBus NewBus) {
 		}
 	})
 
-	t.Run("events are scoped per collection", func(t *testing.T) {
+	t.Run("events are scoped per execution", func(t *testing.T) {
 		bus := newBus(t)
 		ch, cancel := bus.Subscribe(1)
 		defer cancel()
@@ -41,7 +41,7 @@ func RunEventBusContract(t *testing.T, newBus NewBus) {
 		bus.Publish(2, engine.Metric{Label: "other"})
 		select {
 		case m := <-ch:
-			t.Fatalf("received cross-collection event %+v", m)
+			t.Fatalf("received cross-execution event %+v", m)
 		case <-time.After(50 * time.Millisecond):
 		}
 	})

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // NewUsageRepo builds a fresh, empty UsageRepository for one test.
@@ -39,11 +39,11 @@ func RunUsageRepositoryContract(t *testing.T, newRepo NewUsageRepo) {
 			t.Fatalf("history = %d rows, want 1", len(hist))
 		}
 		got := hist[0]
-		if got.CollectionID != 1 || got.Owner != "alice" || got.Engines != 4 || got.VU != 40 || got.EndTime == nil {
+		if got.ExecutionID != 1 || got.Owner != "alice" || got.Engines != 4 || got.VU != 40 || got.EndTime == nil {
 			t.Fatalf("history row = %+v", got)
 		}
 
-		// A collection may be launched again once finished, and finishing with
+		// An execution may be launched again once finished, and finishing with
 		// nothing open is a no-op.
 		if err := repo.StartLaunch(ctx, 1, "alice", 4, 40); err != nil {
 			t.Fatalf("re-StartLaunch: %v", err)
@@ -66,7 +66,7 @@ func RunUsageRepositoryContract(t *testing.T, newRepo NewUsageRepo) {
 			t.Fatalf("LaunchHistory: %v", err)
 		}
 		for _, h := range hist {
-			if h.CollectionID == 2 {
+			if h.ExecutionID == 2 {
 				t.Fatalf("open launch leaked into history: %+v", h)
 			}
 		}

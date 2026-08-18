@@ -1,10 +1,4 @@
--- 0001_project: baseline `project` table.
---
--- Schema-compatible with the v2 `project` table in its fully-evolved form
--- (setagaya/db: 20180823 create + 20181031 name width + 20210301 sid +
--- 2025091101 tenant_id/created_by/updated_by), so v2 and v3 can share one
--- database during migration. The tenant_id foreign key to rbac_tenants is
--- added in a later phase once that table exists.
+-- 0001_project: projects, the ownership root for scenarios and executions.
 CREATE TABLE IF NOT EXISTS project (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name         VARCHAR(100) NOT NULL,

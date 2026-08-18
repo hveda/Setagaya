@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/heridotlife/Setagaya/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 )
 
 // rbacEnabled reports whether the RBAC authorization path is in force. When

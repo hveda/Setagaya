@@ -3,72 +3,79 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/heridotlife/Setagaya/internal/adapters/httpapi"
-	"github.com/heridotlife/Setagaya/internal/app/collectionapp"
-	"github.com/heridotlife/Setagaya/internal/app/lifecycleapp"
-	"github.com/heridotlife/Setagaya/internal/app/planapp"
-	"github.com/heridotlife/Setagaya/internal/app/projectapp"
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/execution"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/domain/run"
-	"github.com/heridotlife/Setagaya/internal/ports/fake"
+	"github.com/heridotlife/honryu/internal/adapters/httpapi"
+	"github.com/heridotlife/honryu/internal/app/executionapp"
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/run"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
+	"github.com/heridotlife/honryu/internal/ports"
+	"github.com/heridotlife/honryu/internal/ports/fake"
 )
 
 type lifecycleEnv struct {
-	h            http.Handler
-	store        *fake.Store
-	sched        *fake.Scheduler
-	exec         *fake.Executor
-	collectionID int64
-	planID       int64
-	owner        string
+	h           http.Handler
+	store       *fake.Store
+	sched       *fake.Scheduler
+	executionID int64
+	scenarioID  int64
+	owner       string
 }
 
 // newLifecycleEnv wires a router with the lifecycle service and seeds an owned
-// collection with one plan (JMX test file) and a stored execution config.
+// execution with one scenario (JMX test file) and a stored execution config.
 func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	t.Helper()
 	ctx := context.Background()
 	store := fake.NewStore()
 	obj := fake.NewObjectStore()
 	sched := fake.NewScheduler()
-	exec := fake.NewExecutor()
 
 	h := httpapi.NewRouter(httpapi.Deps{
-		Projects:      projectapp.NewService(store),
-		Plans:         planapp.NewService(store, obj),
-		Collections:   collectionapp.NewService(store, obj, 100),
-		Lifecycle:     lifecycleapp.NewService(store, sched, exec, obj, "img"),
-		Store:         obj,
-		DefaultOwners: []string{"setagaya"},
+		Projects:            projectapp.NewService(store),
+		Scenarios:           scenarioapp.NewService(store, obj),
+		Executions:          executionapp.NewService(store, obj, 100),
+		Lifecycle:           lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("img")),
+		Store:               obj,
+		DefaultOwners:       []string{"honryu"},
+		TriggerReadyPoll:    time.Millisecond,
+		TriggerReadyTimeout: 10 * time.Millisecond,
 	})
 
 	p, _ := project.New("web", owner, "")
 	projectID, _ := store.CreateProject(ctx, p)
-	coll, _ := collection.New("peak", projectID)
-	collectionID, _ := store.CreateCollection(ctx, coll)
-	pl, _ := plan.New("smoke", projectID)
-	planID, _ := store.CreatePlan(ctx, pl)
-	if err := store.AddPlanFile(ctx, planID, "test.jmx", true); err != nil {
+	coll, _ := execution.New("peak", projectID)
+	executionID, _ := store.CreateExecution(ctx, coll)
+	pl, _ := scenario.NewNative("smoke", projectID, taurus.ExecutorJMeter)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	if err := store.AddScenarioFile(ctx, scenarioID, "test.jmx", true); err != nil {
 		t.Fatalf("add test file: %v", err)
 	}
-	if err := store.StoreExecutionCollection(ctx, collectionID, false, []execution.ExecutionPlan{
-		{Name: "p", PlanID: planID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
+	_ = obj.Upload(ctx, fmt.Sprintf("scenario/%d/test.jmx", scenarioID), strings.NewReader("<jmx/>"))
+	if err := store.StoreLoadProfile(ctx, executionID, false, []loadprofile.Entry{
+		{Name: "p", ScenarioID: scenarioID, Concurrency: 5, Rampup: 1, Engines: 2, Duration: 10},
 	}); err != nil {
 		t.Fatalf("store exec: %v", err)
 	}
-	return lifecycleEnv{h: h, store: store, sched: sched, exec: exec, collectionID: collectionID, planID: planID, owner: owner}
+	return lifecycleEnv{h: h, store: store, sched: sched, executionID: executionID, scenarioID: scenarioID, owner: owner}
 }
 
 func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 	t.Parallel()
-	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.collectionID)
+	e := newLifecycleEnv(t, "honryu")
+	base := "/api/executions/" + itoa(e.executionID)
 
 	if rec := do(t, e.h, http.MethodPost, base+"/deploy"); rec.Code != http.StatusOK {
 		t.Fatalf("deploy = %d (%s)", rec.Code, rec.Body.String())
@@ -90,15 +97,14 @@ func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusOK {
 		t.Fatalf("trigger = %d (%s)", rec.Code, rec.Body.String())
 	}
-	if e.exec.TriggerCount() != 2 {
-		t.Fatalf("triggered engines = %d, want 2", e.exec.TriggerCount())
-	}
+	// No engine call on trigger under Taurus: a pod generates load from the
+	// moment it starts, so trigger records that the run is under way.
 
 	// Engines detail and pod log.
 	if rec := do(t, e.h, http.MethodGet, base+"/engines"); rec.Code != http.StatusOK {
 		t.Fatalf("engines = %d", rec.Code)
 	}
-	if rec := do(t, e.h, http.MethodGet, base+"/plans/"+itoa(e.planID)+"/logs"); rec.Code != http.StatusOK {
+	if rec := do(t, e.h, http.MethodGet, base+"/scenarios/"+itoa(e.scenarioID)+"/logs"); rec.Code != http.StatusOK {
 		t.Fatalf("logs = %d", rec.Code)
 	}
 
@@ -112,17 +118,93 @@ func TestLifecycleHTTP_DeployTriggerStatusStopPurge(t *testing.T) {
 
 func TestLifecycleHTTP_TriggerBeforeDeployConflicts(t *testing.T) {
 	t.Parallel()
-	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.collectionID)
+	e := newLifecycleEnv(t, "honryu")
+	base := "/api/executions/" + itoa(e.executionID)
+	start := time.Now()
 	if rec := do(t, e.h, http.MethodPost, base+"/trigger"); rec.Code != http.StatusConflict {
 		t.Fatalf("trigger before deploy = %d, want 409", rec.Code)
 	}
+	// The 409 is the readiness wait expiring (10ms env default), not the
+	// pre-wait immediate rejection -- and never the unbounded default.
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("trigger conflict took %s, the readiness wait is not bounded", elapsed)
+	}
+}
+
+// The readiness wait at the HTTP boundary: one startup beat is retried over,
+// a never-ready pool expires into the same 409 fast, and a client disconnect
+// cancels the wait rather than holding it. Every client used to own this
+// retry itself (task 121's live finding); now the handler does.
+func TestLifecycleHTTP_TriggerWaitsForEngineReadiness(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	deployed := func(t *testing.T) (lifecycleEnv, string) {
+		t.Helper()
+		e := newLifecycleEnv(t, "honryu")
+		if err := e.sched.DeployScenario(ctx, ports.DeploySpec{
+			ProjectID: 1, ExecutionID: e.executionID, ScenarioID: e.scenarioID,
+			// Two shards: the seeded profile asks for Engines: 2, and Trigger
+			// counts readiness against that total.
+			Shards: []ports.ShardSpec{{Index: 0, Config: []byte("c")}, {Index: 1, Config: []byte("c")}},
+		}); err != nil {
+			t.Fatalf("DeployScenario: %v", err)
+		}
+		return e, "/api/executions/" + itoa(e.executionID) + "/trigger"
+	}
+
+	t.Run("retries then succeeds", func(t *testing.T) {
+		t.Parallel()
+		e, path := deployed(t)
+		e.sched.NotReadyCalls = 1 // one startup beat, then ready
+		if rec := do(t, e.h, http.MethodPost, path); rec.Code != http.StatusOK {
+			t.Fatalf("trigger after one not-ready status = %d (%s), want 200", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("never-ready expires fast", func(t *testing.T) {
+		t.Parallel()
+		e, path := deployed(t)
+		e.sched.NotReadyCalls = 1 << 30
+		start := time.Now()
+		if rec := do(t, e.h, http.MethodPost, path); rec.Code != http.StatusConflict {
+			t.Fatalf("trigger never-ready = %d, want 409", rec.Code)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("trigger wait took %s, far past its 10ms bound", elapsed)
+		}
+	})
+
+	t.Run("client disconnect cancels the wait", func(t *testing.T) {
+		t.Parallel()
+		e, path := deployed(t)
+		e.sched.NotReadyCalls = 1 << 30
+
+		ctx, cancel := context.WithCancel(ctx)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, nil)
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			cancel()
+		}()
+		start := time.Now()
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("trigger cancelled = %d, want 409 (not a hang)", rec.Code)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("cancelled trigger took %s, kept waiting past the disconnect", elapsed)
+		}
+	})
 }
 
 func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
 	t.Parallel()
-	e := newLifecycleEnv(t, "setagaya")
-	base := "/api/collections/" + itoa(e.collectionID)
+	e := newLifecycleEnv(t, "honryu")
+	base := "/api/executions/" + itoa(e.executionID)
 	if rec := do(t, e.h, http.MethodPost, base+"/stop"); rec.Code != http.StatusConflict {
 		t.Fatalf("stop without run = %d, want 409", rec.Code)
 	}
@@ -131,26 +213,26 @@ func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
 func TestLifecycleHTTP_Forbidden(t *testing.T) {
 	t.Parallel()
 	e := newLifecycleEnv(t, "other-team")
-	base := "/api/collections/" + itoa(e.collectionID)
+	base := "/api/executions/" + itoa(e.executionID)
 	for _, op := range []string{"/deploy", "/trigger", "/stop", "/purge"} {
 		if rec := do(t, e.h, http.MethodPost, base+op); rec.Code != http.StatusForbidden {
-			t.Errorf("%s on foreign collection = %d, want 403", op, rec.Code)
+			t.Errorf("%s on foreign execution = %d, want 403", op, rec.Code)
 		}
 	}
 }
 
 func TestLifecycleHTTP_InvalidIDs(t *testing.T) {
 	t.Parallel()
-	e := newLifecycleEnv(t, "setagaya")
+	e := newLifecycleEnv(t, "honryu")
 	cases := []struct{ method, path string }{
-		{http.MethodPost, "/api/collections/x/deploy"},
-		{http.MethodPost, "/api/collections/x/trigger"},
-		{http.MethodPost, "/api/collections/x/stop"},
-		{http.MethodPost, "/api/collections/x/purge"},
-		{http.MethodGet, "/api/collections/x/status"},
-		{http.MethodGet, "/api/collections/x/engines"},
-		{http.MethodGet, "/api/collections/x/plans/1/logs"},
-		{http.MethodGet, "/api/collections/1/plans/x/logs"},
+		{http.MethodPost, "/api/executions/x/deploy"},
+		{http.MethodPost, "/api/executions/x/trigger"},
+		{http.MethodPost, "/api/executions/x/stop"},
+		{http.MethodPost, "/api/executions/x/purge"},
+		{http.MethodGet, "/api/executions/x/status"},
+		{http.MethodGet, "/api/executions/x/engines"},
+		{http.MethodGet, "/api/executions/x/scenarios/1/logs"},
+		{http.MethodGet, "/api/executions/1/scenarios/x/logs"},
 	}
 	for _, tc := range cases {
 		if rec := do(t, e.h, tc.method, tc.path); rec.Code != http.StatusBadRequest {
@@ -159,42 +241,85 @@ func TestLifecycleHTTP_InvalidIDs(t *testing.T) {
 	}
 }
 
-func TestLifecycleHTTP_DeployMissingCollection(t *testing.T) {
+func TestLifecycleHTTP_DeployMissingExecution(t *testing.T) {
 	t.Parallel()
-	e := newLifecycleEnv(t, "setagaya")
-	if rec := do(t, e.h, http.MethodPost, "/api/collections/9999/deploy"); rec.Code != http.StatusNotFound {
+	e := newLifecycleEnv(t, "honryu")
+	if rec := do(t, e.h, http.MethodPost, "/api/executions/9999/deploy"); rec.Code != http.StatusNotFound {
 		t.Fatalf("deploy missing = %d, want 404", rec.Code)
 	}
 }
 
-func TestLifecycleHTTP_DeployNoPlansIsBadRequest(t *testing.T) {
+func TestLifecycleHTTP_DeployNoScenariosIsBadRequest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	e := newLifecycleEnv(t, "setagaya")
-	// A fresh owned collection with no execution config.
-	c, _ := e.store.GetCollection(ctx, e.collectionID)
-	bare, _ := collection.New("bare", c.ProjectID)
-	bareID, _ := e.store.CreateCollection(ctx, bare)
+	e := newLifecycleEnv(t, "honryu")
+	// A fresh owned execution with no execution config.
+	c, _ := e.store.GetExecution(ctx, e.executionID)
+	bare, _ := execution.New("bare", c.ProjectID)
+	bareID, _ := e.store.CreateExecution(ctx, bare)
 
-	rec := do(t, e.h, http.MethodPost, "/api/collections/"+itoa(bareID)+"/deploy")
+	rec := do(t, e.h, http.MethodPost, "/api/executions/"+itoa(bareID)+"/deploy")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("deploy no plans = %d, want 400", rec.Code)
 	}
 }
 
-func TestLifecycleHTTP_EnginesMissingCollection(t *testing.T) {
+// A portable scenario deployed under a script-only engine (k6 rejects the
+// declarative form) is the caller's configuration: compile catches it inside
+// Deploy and the response must be a 400 naming the engine, not a 500.
+func TestLifecycleHTTP_DeployScriptOnlyEngineIsBadRequest(t *testing.T) {
 	t.Parallel()
-	e := newLifecycleEnv(t, "setagaya")
-	if rec := do(t, e.h, http.MethodGet, "/api/collections/9999/engines"); rec.Code != http.StatusNotFound {
+	ctx := context.Background()
+	e := newLifecycleEnv(t, "honryu")
+
+	c, _ := e.store.GetExecution(ctx, e.executionID)
+	portable, err := scenario.New("declarative", c.ProjectID)
+	if err != nil {
+		t.Fatalf("scenario.New: %v", err)
+	}
+	portableID, err := e.store.CreateScenario(ctx, portable)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /checkout\n")
+	if err := e.store.SetScenarioRequests(ctx, portableID, raw); err != nil {
+		t.Fatalf("SetScenarioRequests: %v", err)
+	}
+
+	onK6, _ := execution.New("on-k6", c.ProjectID)
+	onK6.Engine = taurus.ExecutorK6
+	k6ID, err := e.store.CreateExecution(ctx, onK6)
+	if err != nil {
+		t.Fatalf("CreateExecution: %v", err)
+	}
+	if err := e.store.StoreLoadProfile(ctx, k6ID, false, []loadprofile.Entry{
+		{Name: "p", ScenarioID: portableID, Concurrency: 5, Rampup: 1, Engines: 1, Duration: 10},
+	}); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	rec := do(t, e.h, http.MethodPost, "/api/executions/"+itoa(k6ID)+"/deploy")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("deploy portable-on-k6 = %d, want 400", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "k6") {
+		t.Fatalf("deploy error does not name the engine: %s", body)
+	}
+}
+
+func TestLifecycleHTTP_EnginesMissingExecution(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnv(t, "honryu")
+	if rec := do(t, e.h, http.MethodGet, "/api/executions/9999/engines"); rec.Code != http.StatusNotFound {
 		t.Fatalf("engines missing = %d, want 404", rec.Code)
 	}
 }
 
 func TestLifecycleHTTP_PodLogNotDeployed(t *testing.T) {
 	t.Parallel()
-	e := newLifecycleEnv(t, "setagaya")
-	// No deploy: the plan's engines are unreachable -> 409 conflict.
-	rec := do(t, e.h, http.MethodGet, "/api/collections/"+itoa(e.collectionID)+"/plans/"+itoa(e.planID)+"/logs")
+	e := newLifecycleEnv(t, "honryu")
+	// No deploy: the scenario's engines are unreachable -> 409 conflict.
+	rec := do(t, e.h, http.MethodGet, "/api/executions/"+itoa(e.executionID)+"/scenarios/"+itoa(e.scenarioID)+"/logs")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("logs not deployed = %d, want 409", rec.Code)
 	}

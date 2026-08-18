@@ -7,24 +7,24 @@ import (
 	"context"
 	"errors"
 
-	"github.com/heridotlife/Setagaya/internal/domain/collection"
-	"github.com/heridotlife/Setagaya/internal/domain/plan"
-	"github.com/heridotlife/Setagaya/internal/domain/project"
-	"github.com/heridotlife/Setagaya/internal/ports"
+	"github.com/heridotlife/honryu/internal/domain/execution"
+	"github.com/heridotlife/honryu/internal/domain/project"
+	"github.com/heridotlife/honryu/internal/domain/scenario"
+	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // Business-rule errors. Callers compare with errors.Is.
 var (
-	ErrProjectHasPlans       = errors.New("projectapp: cannot delete a project that has plans")
-	ErrProjectHasCollections = errors.New("projectapp: cannot delete a project that has collections")
+	ErrProjectHasScenarios  = errors.New("projectapp: cannot delete a project that has scenarios")
+	ErrProjectHasExecutions = errors.New("projectapp: cannot delete a project that has executions")
 )
 
 // Repo is the repository surface the project service needs: project CRUD plus
 // the child listings used to enforce delete rules.
 type Repo interface {
 	ports.ProjectRepository
-	ListPlansByProject(ctx context.Context, projectID int64) ([]plan.Plan, error)
-	ListCollectionsByProject(ctx context.Context, projectID int64) ([]collection.Collection, error)
+	ListScenariosByProject(ctx context.Context, projectID int64) ([]scenario.Scenario, error)
+	ListExecutionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
 }
 
 // Service provides project use-cases.
@@ -80,24 +80,24 @@ func (s *Service) CreateInTenant(ctx context.Context, name, owner, sid string, t
 }
 
 // Delete removes a project by ID. It refuses to delete a project that still has
-// plans or collections (ports.ErrNotFound if the project is absent).
+// scenarios or executions (ports.ErrNotFound if the project is absent).
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	if _, err := s.repo.GetProject(ctx, id); err != nil {
 		return err
 	}
-	plans, err := s.repo.ListPlansByProject(ctx, id)
+	scenarios, err := s.repo.ListScenariosByProject(ctx, id)
 	if err != nil {
 		return err
 	}
-	if len(plans) > 0 {
-		return ErrProjectHasPlans
+	if len(scenarios) > 0 {
+		return ErrProjectHasScenarios
 	}
-	collections, err := s.repo.ListCollectionsByProject(ctx, id)
+	executions, err := s.repo.ListExecutionsByProject(ctx, id)
 	if err != nil {
 		return err
 	}
-	if len(collections) > 0 {
-		return ErrProjectHasCollections
+	if len(executions) > 0 {
+		return ErrProjectHasExecutions
 	}
 	return s.repo.DeleteProject(ctx, id)
 }
