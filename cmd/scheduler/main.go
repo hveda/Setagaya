@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -34,8 +35,25 @@ import (
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/config"
+	rundomain "github.com/heridotlife/honryu/internal/domain/run" // aliased: this package's own run() is the local name
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
+)
+
+// triggerReadyPollInterval and triggerReadyTimeout mirror the exact bounded
+// wait phase 7 gave calibrationapp (triggerWhenReady, step.go) and phase 11
+// gave the HTTP trigger handler: Deploy returning success only means the
+// StatefulSet was accepted, not that its pod is scheduled, image-pulled, and
+// running. Found live in phase 16 task 170: honryu-scheduler's first ever
+// fire against a real cluster failed on exactly this race -- both images
+// were already cached (no pull needed) and Trigger still failed on the
+// first attempt, since fireOnce called it immediately after Deploy with no
+// wait at all. Not a rare edge case: two sequential Go calls will
+// essentially always outrun pod scheduling, so this fires on close to every
+// real occurrence until retried.
+const (
+	triggerReadyPollInterval = 2 * time.Second
+	triggerReadyTimeout      = 2 * time.Minute
 )
 
 // repository is the persistence cmd/scheduler needs. Both the in-memory fake
@@ -162,10 +180,11 @@ func runLoop(ctx context.Context, schedules *scheduleapp.Service, lifecycle *lif
 
 // fireOnce claims the earliest due occurrence, if any, and deploys then
 // triggers its execution -- pods are created just-in-time at fire time, not
-// held idle since the schedule was created. Best effort: a failed
-// deploy/trigger is logged, not retried here. The occurrence was already
-// marked fired by the claim (see scheduleapp.ClaimDue); a firing failure and
-// its retry/backoff policy are out of this task's scope.
+// held idle since the schedule was created. Deploy failures and non-readiness
+// Trigger failures are logged, not retried: the occurrence was already
+// marked fired by the claim (see scheduleapp.ClaimDue), and a firing
+// failure's own retry/backoff policy beyond triggerWhenReady's readiness
+// wait is out of this task's scope.
 func fireOnce(ctx context.Context, schedules *scheduleapp.Service, lifecycle *lifecycleapp.Service) {
 	claim, found, err := schedules.ClaimDue(ctx, time.Now())
 	if err != nil {
@@ -181,11 +200,37 @@ func fireOnce(ctx context.Context, schedules *scheduleapp.Service, lifecycle *li
 		log.Error("deploy", "error", err)
 		return
 	}
-	if err := lifecycle.Trigger(ctx, claim.Schedule.ExecutionID); err != nil {
+	if err := triggerWhenReady(ctx, lifecycle, claim.Schedule.ExecutionID, triggerReadyPollInterval, triggerReadyTimeout); err != nil {
 		log.Error("trigger", "error", err)
 		return
 	}
 	log.Info("fired due occurrence")
+}
+
+// triggerWhenReady retries Trigger while it fails on exactly the readiness
+// races (ErrNotDeployed, ErrEnginesNotReady) -- a just-deployed pod's
+// startup, not yet reachable -- for up to timeout. Any other error, or the
+// timeout itself, is returned immediately: only the readiness class is
+// worth waiting out, and retrying an already-running or quota-rejected
+// execution would only delay the same answer.
+func triggerWhenReady(ctx context.Context, lifecycle *lifecycleapp.Service, executionID int64, poll, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		err := lifecycle.Trigger(ctx, executionID)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, rundomain.ErrNotDeployed) && !errors.Is(err, rundomain.ErrEnginesNotReady) {
+			return err
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return err
+		}
+		if remaining := time.Until(deadline); remaining < poll {
+			poll = remaining
+		}
+		time.Sleep(poll)
+	}
 }
 
 // runHorizonLoop rolls every active recurring schedule's occurrence horizon
