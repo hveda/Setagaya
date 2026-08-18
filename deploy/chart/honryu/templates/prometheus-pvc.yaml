@@ -1,0 +1,18 @@
+{{- if .Values.prometheus.enabled -}}
+# Pinned to the control-plane node for the same reason as every other PVC in
+# this chart: a local-path volume binds to the node that created it, and
+# Karpenter recycles the nodes it provisions.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "honryu.fullname" . }}-prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.prometheus.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.prometheus.size }}
+{{- end -}}

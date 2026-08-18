@@ -31,3 +31,8 @@ ingress:
   enabled: true
   className: nginx
   host: honryu.pve.heri.life
+
+prometheus:
+  enabled: true
+  storageClassName: local-path
+  size: 2Gi

@@ -25,6 +25,11 @@ image:
   # like everything else, not a hardcoded literal in the template.
   mysql:
     tag: "8.4"
+  # Verified this tag actually exists (docker manifest inspect) before
+  # pinning it -- helm template/dry-run never pulls an image, so a typo'd
+  # or nonexistent tag here would only surface as a live ImagePullBackOff.
+  prometheus:
+    tag: v3.0.1
   pullPolicy: Always
   pullSecret: registry-pve-heri-life
 
@@ -103,6 +108,24 @@ ingress:
   enabled: false
   className: nginx
   host: ""
+
+prometheus:
+  enabled: false
+  # Deliberately small: the parent spec treats Prometheus as the live/
+  # short-retention surface, with durable summaries persisted to ReportStore
+  # (MySQL) at run completion (spec :92, :98) -- a large TSDB here would
+  # contradict that design, not merely waste space.
+  retention: 3d
+  storageClassName: local-path
+  size: 2Gi
+  scrapeInterval: 15s
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 # Ingest URL, resolved in-cluster (the sidecar and the calibration engine
 # pods both push here) -- default derives from the release name/namespace
