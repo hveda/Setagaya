@@ -13,7 +13,7 @@ image:
   # digest, because imagePullPolicy is Always/IfNotPresent by tag, not by
   # content. A new build always gets a new tag.
   api:
-    tag: phase15
+    tag: phase16c
   calibrator:
     tag: phase16
   scheduler:

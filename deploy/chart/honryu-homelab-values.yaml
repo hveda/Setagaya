@@ -8,7 +8,7 @@
 image:
   registry: registry.pve.heri.life/honryu
   api:
-    tag: phase15
+    tag: phase16c
   calibrator:
     tag: phase16
   scheduler:
