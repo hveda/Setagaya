@@ -36,3 +36,8 @@ prometheus:
   enabled: true
   storageClassName: local-path
   size: 2Gi
+
+grafana:
+  enabled: true
+  storageClassName: local-path
+  size: 1Gi
