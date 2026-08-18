@@ -34,6 +34,10 @@ cover-gate: ## full coverage (unit+integration+e2e) enforcing the threshold (nee
 phase-merge: ## run the full bar, then merge the working branch into develop (PHASE="phase N slug")
 	./scripts/phase-merge.sh
 
+.PHONY: helm-lint
+helm-lint: ## lint and render the honryu chart against homelab values (no cluster access)
+	./scripts/helm-lint.sh
+
 .PHONY: integration
 integration: ## adapter contract tests against real infra (needs Docker)
 	$(GO) test -p 1 -count=1 -timeout 30m -tags=integration ./internal/adapters/... ./cmd/...
