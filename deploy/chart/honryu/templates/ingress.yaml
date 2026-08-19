@@ -1,0 +1,41 @@
+{{- if .Values.ingress.enabled -}}
+# TLS deliberately absent: no ClusterIssuer exists on this cluster, and
+# internal HTTP over the LAN/tailnet perimeter is the accepted position for
+# phase 16 (spec Non-goals) -- a documented seam, not an oversight.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "honryu.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | required "ingress.host is required when ingress.enabled is true" }}
+      http:
+        paths:
+          # Exact match, listed first: /metrics routes to a Service with no
+          # selector (see metrics-block-service.yaml) rather than the api
+          # Service, so it 503s at the ingress while remaining reachable
+          # in-cluster (Prometheus scrapes the real Service directly, never
+          # through this Ingress). Not a server-snippet block: ingress-nginx
+          # has defaulted allow-snippet-annotations to false since v1.9, and
+          # this controller's ConfigMap (verified live) sets no override --
+          # a snippet-based deny would silently do nothing.
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "honryu.fullname" . }}-metrics-block
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "honryu.fullname" . }}-api
+                port:
+                  number: 8080
+{{- end -}}

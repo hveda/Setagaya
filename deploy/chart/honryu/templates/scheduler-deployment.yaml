@@ -1,0 +1,74 @@
+# The component that has never been deployed. Without it, scheduled
+# executions, campaign drain, and horizon extension fire for no one --
+# the parent spec's headline missing feature (scheduling) has been running
+# nowhere in the only deployment that exists.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "honryu.fullname" . }}-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+spec:
+  replicas: {{ .Values.scheduler.replicas }}
+  selector:
+    matchLabels:
+      {{- include "honryu.selectorLabels" (merge (dict "component" "scheduler") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "honryu.selectorLabels" (merge (dict "component" "scheduler") .) | nindent 8 }}
+    spec:
+      # Needs the same RBAC as api: it deploys/tears down engine pods
+      # itself when a scheduled occurrence fires.
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # Shares the object-store PVC with api/calibrator (lifecycleapp
+      # uploads/downloads shard configs and run logs through it, and a
+      # later api read must see what a scheduler-triggered deploy wrote) --
+      # so it is pinned to the same control-plane node, both to co-locate
+      # with that ReadWriteOnce volume and for the same Karpenter-eviction
+      # reasoning as every other stateful mount in this chart.
+      nodeSelector:
+        {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
+      imagePullSecrets:
+        - name: {{ .Values.image.pullSecret }}
+      containers:
+        - name: scheduler
+          image: "{{ .Values.image.registry }}/honryu-scheduler:{{ .Values.image.scheduler.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command: ["/honryu-scheduler"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "honryu.fullname" . }}-config
+          env:
+            - name: HONRYU_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mysqlCredentials }}
+                  key: dsn
+            # No HONRYU_INGEST_TOKEN: cfg.Cluster.IngestToken is read only by
+            # cmd/api (wired into httpapi.Deps for the ingest-auth check,
+            # cmd/api/main.go:168) -- cmd/scheduler never references it.
+            # The live honryu-calibrator Deployment sets it anyway; that is
+            # unused cruft this chart does not repeat.
+          # No liveness/readiness probe: cmd/scheduler (like cmd/calibrator)
+          # exposes no HTTP or TCP listener to probe, and has no Service in
+          # front of it for a readiness probe to gate. A crashed process
+          # already exits non-zero and the kubelet restarts the container;
+          # detecting a *hung-but-not-crashed* loop would need a heartbeat
+          # this binary does not emit today -- adding one is an application
+          # change, out of this phase's scope (spec Non-goals).
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /honryu-storage
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "honryu.fullname" . }}-object-store

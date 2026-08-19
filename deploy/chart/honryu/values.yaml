@@ -1,0 +1,280 @@
+# Default values for the honryu chart. A deployment-specific overrides file
+# (e.g. ../honryu-homelab-values.yaml) supplies the real hostname, registry,
+# and secret names for a given cluster; nothing here is meant to be used
+# unmodified against a real cluster.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: registry.pve.heri.life/honryu
+  # Every tag here is pinned deliberately -- no ":latest". Phase 11's own
+  # scar: a mutated image pushed under an unchanged tag served a stale
+  # digest, because imagePullPolicy is Always/IfNotPresent by tag, not by
+  # content. A new build always gets a new tag.
+  api:
+    tag: phase16c
+  calibrator:
+    tag: phase16
+  scheduler:
+    tag: phase16b
+  sidecar:
+    tag: phase16
+  # Already a real tag, not a floating one -- pinned here for consistency
+  # with the rest of image.*, so mysql's version is a values-file decision
+  # like everything else, not a hardcoded literal in the template.
+  mysql:
+    tag: "8.4"
+  # Verified this tag actually exists (docker manifest inspect) before
+  # pinning it -- helm template/dry-run never pulls an image, so a typo'd
+  # or nonexistent tag here would only surface as a live ImagePullBackOff.
+  prometheus:
+    tag: v3.0.1
+  # The repo's own build (grafana/Dockerfile: FROM grafana/grafana:13.1.3,
+  # provisioned dashboards/datasources baked in, the Angular piechart
+  # plugin dropped) -- tagged like every other honryu-owned image, not by
+  # the upstream Grafana version, since that's already pinned inside the
+  # Dockerfile's own FROM line.
+  grafana:
+    tag: phase16
+  pullPolicy: Always
+  pullSecret: registry-pve-heri-life
+
+serviceAccount:
+  name: honryu
+
+# Security contexts for the four honryu-owned binaries (api, calibrator,
+# scheduler; the sidecar is built by the k8s adapter, not this chart).
+#
+# Safe to harden this far because the binaries are unusually well-behaved
+# for it: CGO_ENABLED=0 static Go builds (deploy/honryu/Dockerfile), and a
+# grep of cmd/ + internal/ finds *no* os.CreateTemp/MkdirTemp/TempDir in
+# non-test code -- the only filesystem write is os.MkdirAll(storageRoot)
+# in internal/adapters/storage/local/local.go:38, which lands on the
+# mounted PVC, not the image. So readOnlyRootFilesystem costs nothing.
+#
+# The uid/gid is >10000 deliberately: Trivy's KSV-0020/KSV-0021 flag low
+# numeric ids for colliding with host users, and nothing in these images
+# needs a named account.
+#
+# UPGRADE HAZARD, if you are moving a release from before this block existed:
+# object-store content written while the pods ran as root is left owned
+# 0:0 mode 0750, and uid 10001 cannot read it. fsGroup does not rescue this
+# -- Kubernetes skips fsGroup ownership management for the hostPath-backed
+# volumes local-path hands out, so only the 0777 volume *root* stays
+# writable while every subdirectory underneath is unreadable. The pods come
+# up healthy and the failure looks like empty scenarios and missing run
+# artifacts, not like a crash. Found exactly this way on 2026-08-19; fixed
+# with a one-shot root Job running `chown -R 10001:10001 /honryu-storage`
+# against the honryu-object-store PVC. Fresh installs are unaffected.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  # Grants the pod's group ownership of the object-store PVC, which all
+  # three binaries mount read-write. Verified this mechanism works on this
+  # cluster's local-path volumes before relying on it: the grafana pod has
+  # run fsGroup 472 since phase 16 with 0 restarts.
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Secrets are referenced by name only -- this chart contains no secret
+# value, and creates none. Each must already exist in the release namespace
+# (mysql-credentials: keys dsn/root-password/password; honryu-ingest: key
+# token; the credential key: key credential-key).
+secrets:
+  mysqlCredentials: mysql-credentials
+  ingestToken: honryu-ingest
+  clusterCredentialKey: honryu-cluster-credential-key
+
+# Non-secret configuration shared by every component that embeds
+# cmd.config.Load (api, scheduler, calibrator all read a near-identical
+# env shape) -- rendered into one ConfigMap so it is set once, not
+# hand-duplicated per Deployment.
+config:
+  dbDriver: mysql
+  scheduler: k8s
+  defaultEngine: jmeter
+  # jmeter and k6 both pinned to their phase-11 "-2" tags (the KPI-reporter
+  # float-coercion fix); keeping both here is deliberate -- the live
+  # honryu-calibrator Deployment this chart replaces had drifted to a
+  # jmeter-only list (missing k6 entirely), which would have silently
+  # broken k6 calibration. One shared value keeps api and calibrator from
+  # drifting apart again.
+  # Split with an escaped line break (not a folded scalar, which would join
+  # with a space and corrupt the comma-separated value HONRYU_ENGINE_IMAGES
+  # parses). Verified the parsed string is byte-identical to the one-liner.
+  engineImages: "jmeter=registry.pve.heri.life/honryu/engine-jmeter:5.6.3-2,\
+    k6=registry.pve.heri.life/honryu/engine-k6:0.57.0-2"
+  deployContext: homelab
+  logFormat: text
+  storageRoot: /honryu-storage
+
+api:
+  replicas: 1
+  authMode: none
+  # Minimal, deliberately: platform components should not compete with
+  # engine pods for the control-plane node's capacity, and Karpenter is
+  # meant to be driven by engine demand, not by the platform (spec decision
+  # 2). The live Deployment this replaces set no requests at all.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+calibrator:
+  replicas: 1
+  tickInterval: 10s
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+scheduler:
+  # 1, not more: the loop is safe at >1 (row-locked claims, no leader
+  # election -- cmd/scheduler's own package doc), but HA is out of scope
+  # here (spec Non-goals: "no HA and no autoscaling of platform
+  # components -- single replicas").
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+ingress:
+  enabled: false
+  className: nginx
+  host: ""
+
+grafana:
+  enabled: false
+  storageClassName: local-path
+  size: 1Gi
+  # 472:0 is what the image already runs as (verified on the live pod:
+  # uid=472(grafana) gid=0(root)), and what the Dockerfile's own
+  # "chown -R 472:0" targets. runAsGroup 0 looks alarming but is the image's
+  # design -- group root owns the config it needs to read, and it is a group
+  # id, not privilege.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    runAsGroup: 0
+    fsGroup: 472
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+prometheus:
+  enabled: false
+  # Deliberately small: the parent spec treats Prometheus as the live/
+  # short-retention surface, with durable summaries persisted to ReportStore
+  # (MySQL) at run completion (spec :92, :98) -- a large TSDB here would
+  # contradict that design, not merely waste space.
+  retention: 3d
+  storageClassName: local-path
+  size: 2Gi
+  scrapeInterval: 15s
+  # 65534 (nobody) is what prom/prometheus already runs as, verified on the
+  # live pod. Its only writes are the TSDB under /prometheus, which is the
+  # mounted PVC, so a read-only root costs it nothing.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Ingest URL, resolved in-cluster (the sidecar and the calibration engine
+# pods both push here) -- default derives from the release name/namespace
+# via the fullname helper; override only if the Service name differs.
+ingestUrl: ""
+
+# Every stateful pod (mysql, object store, and later prometheus) is pinned
+# to the control-plane node: a local-path PV binds to the node that created
+# it, and Karpenter recycles the nodes it provisions -- a pod that landed on
+# a Karpenter node would lose its volume (or, for the object store, silently
+# split/lose engine logs) the moment that node is consolidated.
+statefulNodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+
+objectStore:
+  storageClassName: local-path
+  size: 5Gi
+
+mysql:
+  storageClassName: local-path
+  size: 10Gi
+  # Its own contexts, not the shared ones above: mysql:8.4 normally starts
+  # as root so its entrypoint can chown the datadir and then gosu down to
+  # the mysql account. Pinning runAsUser directly skips that root phase --
+  # verified safe against the *live* volume before changing it, because
+  # getting this wrong takes the database down: the image defines
+  # mysql:x:999:999 and every file under /var/lib/mysql is already owned
+  # 999:999, so the entrypoint has nothing left to chown.
+  #
+  # 999 is under the 10000 the honryu binaries use, so KSV-0020/KSV-0021
+  # still flag it (both LOW). That is the right trade: matching the uid the
+  # data is already owned by is worth more than satisfying a lint about
+  # numeric ranges, and remapping a populated datadir is gratuitous risk.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  # MySQL needs materially more than the platform components: an idle 8.4
+  # instance alone floats around 150-250Mi resident, and a run's own
+  # measurements pass through it. Still minimal by MySQL standards, not
+  # "as much as available".
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

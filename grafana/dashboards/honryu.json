@@ -109,37 +109,57 @@
       "valueName": "current"
     },
     {
-      "aliasColors": {},
-      "breakPoint": "50%",
-      "cacheTimeout": null,
-      "combine": {
-        "label": "Others",
-        "threshold": 0
-      },
-      "datasource": null,
-      "decimals": null,
-      "fontSize": "80%",
-      "format": "none",
+      "id": 38,
       "gridPos": {
         "h": 5,
         "w": 11,
         "x": 3,
         "y": 1
       },
-      "id": 38,
-      "interval": null,
-      "legend": {
-        "header": "",
-        "percentage": true,
-        "show": true,
-        "values": true
+      "title": "Response Status",
+      "type": "piechart",
+      "transparent": true,
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
       },
-      "legendType": "Right side",
-      "links": [],
-      "maxDataPoints": 3,
-      "nullPointMode": "connected",
-      "pieType": "pie",
-      "strokeWidth": 1,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "pieType": "pie",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "displayLabels": []
+      },
       "targets": [
         {
           "expr": "sum(honryu_status_counter{run_id=\"$runID\"}) by (status)",
@@ -148,11 +168,7 @@
           "legendFormat": "{{status}}",
           "refId": "A"
         }
-      ],
-      "title": "Response Status",
-      "transparent": true,
-      "type": "grafana-piechart-panel",
-      "valueName": "current"
+      ]
     },
     {
       "aliasColors": {},
@@ -901,37 +917,57 @@
           "valueName": "current"
         },
         {
-          "aliasColors": {},
-          "breakPoint": "50%",
-          "cacheTimeout": null,
-          "combine": {
-            "label": "Others",
-            "threshold": 0
-          },
-          "datasource": null,
-          "decimals": null,
-          "fontSize": "80%",
-          "format": "none",
+          "id": 39,
           "gridPos": {
             "h": 5,
             "w": 11,
             "x": 3,
             "y": 2
           },
-          "id": 39,
-          "interval": null,
-          "legend": {
-            "header": "",
-            "percentage": true,
-            "show": true,
-            "values": true
+          "title": "Response Status",
+          "type": "piechart",
+          "transparent": true,
+          "datasource": null,
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
           },
-          "legendType": "Right side",
-          "links": [],
-          "maxDataPoints": 3,
-          "nullPointMode": "connected",
-          "pieType": "pie",
-          "strokeWidth": 1,
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            },
+            "pieType": "pie",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "table",
+              "placement": "right",
+              "values": [
+                "value",
+                "percent"
+              ]
+            },
+            "displayLabels": []
+          },
           "targets": [
             {
               "expr": "sum(honryu_status_counter{run_id=\"$runID\", scenario_id=\"$scenarioID\"}) by (status)",
@@ -940,11 +976,7 @@
               "legendFormat": "{{status}}",
               "refId": "A"
             }
-          ],
-          "title": "Response Status",
-          "transparent": true,
-          "type": "grafana-piechart-panel",
-          "valueName": "current"
+          ]
         },
         {
           "aliasColors": {},
@@ -1569,37 +1601,57 @@
           "valueName": "current"
         },
         {
-          "aliasColors": {},
-          "breakPoint": "50%",
-          "cacheTimeout": null,
-          "combine": {
-            "label": "Others",
-            "threshold": 0
-          },
-          "datasource": null,
-          "decimals": null,
-          "fontSize": "80%",
-          "format": "none",
+          "id": 40,
           "gridPos": {
             "h": 5,
             "w": 11,
             "x": 3,
             "y": 3
           },
-          "id": 40,
-          "interval": null,
-          "legend": {
-            "header": "",
-            "percentage": true,
-            "show": true,
-            "values": true
+          "title": "Response Status",
+          "type": "piechart",
+          "transparent": true,
+          "datasource": null,
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
           },
-          "legendType": "Right side",
-          "links": [],
-          "maxDataPoints": 3,
-          "nullPointMode": "connected",
-          "pieType": "pie",
-          "strokeWidth": 1,
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            },
+            "pieType": "pie",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "table",
+              "placement": "right",
+              "values": [
+                "value",
+                "percent"
+              ]
+            },
+            "displayLabels": []
+          },
           "targets": [
             {
               "expr": "sum(honryu_status_counter{run_id=\"$runID\", label=\"$label\"}) by (status)",
@@ -1608,11 +1660,7 @@
               "legendFormat": "{{status}}",
               "refId": "A"
             }
-          ],
-          "title": "Response Status",
-          "transparent": true,
-          "type": "grafana-piechart-panel",
-          "valueName": "current"
+          ]
         },
         {
           "aliasColors": {},

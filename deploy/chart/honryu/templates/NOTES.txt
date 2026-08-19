@@ -1,0 +1,17 @@
+奔流 (Honryu) is deployed as release "{{ .Release.Name }}" in namespace {{ .Release.Namespace }}.
+
+API (and the embedded operator SPA):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "honryu.fullname" . }}-api 8080:8080
+  open http://127.0.0.1:8080/
+
+{{- if .Values.ingress }}
+{{- if .Values.ingress.enabled }}
+
+Once DNS resolves, the platform is also reachable at:
+  http://{{ .Values.ingress.host }}/
+{{- end }}
+{{- end }}
+
+Check rollout status:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "honryu.fullname" . }}-api
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "honryu.fullname" . }}-calibrator

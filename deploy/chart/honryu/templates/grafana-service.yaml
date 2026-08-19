@@ -1,0 +1,22 @@
+{{- if .Values.grafana.enabled -}}
+# ClusterIP only, like Prometheus -- no Ingress route in this phase. Reached
+# by port-forward for now; the platform's own hostname (Ingress, task 165)
+# is api + the embedded SPA, not Grafana.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "honryu.fullname" . }}-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "honryu.selectorLabels" (merge (dict "component" "grafana") .) | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+{{- end -}}

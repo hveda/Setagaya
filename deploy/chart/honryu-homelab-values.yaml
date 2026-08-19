@@ -1,0 +1,43 @@
+# talos-homelab overrides. Applied as:
+#   helm upgrade --install honryu deploy/chart/honryu -n honryu -f deploy/chart/honryu-homelab-values.yaml
+#
+# Secrets referenced below (mysql-credentials, honryu-ingest,
+# honryu-cluster-credential-key) must already exist in the honryu namespace
+# -- this file names them, it does not create them.
+
+image:
+  registry: registry.pve.heri.life/honryu
+  api:
+    tag: phase16c
+  calibrator:
+    tag: phase16
+  scheduler:
+    tag: phase16b
+  sidecar:
+    tag: phase16
+  pullSecret: registry-pve-heri-life
+
+api:
+  authMode: none
+
+statefulNodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+
+objectStore:
+  storageClassName: local-path
+  size: 5Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: honryu.pve.heri.life
+
+prometheus:
+  enabled: true
+  storageClassName: local-path
+  size: 2Gi
+
+grafana:
+  enabled: true
+  storageClassName: local-path
+  size: 1Gi

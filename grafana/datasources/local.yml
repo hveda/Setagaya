@@ -1,3 +1,10 @@
+# url points at the in-cluster Prometheus Service the honryu Helm chart
+# deploys (deploy/chart/honryu/templates/prometheus-service.yaml), named
+# literally "prometheus" -- not fullname-prefixed -- specifically so this
+# file, which is baked into the Grafana image at docker build time and
+# cannot be Helm-templated, resolves correctly regardless of Helm release
+# name. No functional change here (phase 16 task 167): the value already
+# matched the Service name chosen for exactly this reason.
 apiVersion: 1
 
 datasources:

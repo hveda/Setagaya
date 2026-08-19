@@ -1,0 +1,23 @@
+# Headless (clusterIP: None) so the StatefulSet gets stable per-pod DNS
+# (mysql-0.mysql.<ns>.svc.cluster.local), and named literally "mysql" --
+# not fullname-prefixed -- because the existing mysql-credentials Secret's
+# dsn value already resolves the bare hostname "mysql" (verified against the
+# live cluster's Secret). Renaming this Service would mean coordinating a
+# secret update at cutover; matching the existing name means it does not.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mysql
+spec:
+  clusterIP: None
+  selector:
+    {{- include "honryu.selectorLabels" (merge (dict "component" "mysql") .) | nindent 4 }}
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      protocol: TCP
