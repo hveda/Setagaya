@@ -1,12 +1,26 @@
 # Use latest stable Grafana with security updates (pinned by digest)
 FROM grafana/grafana:13.1.3@sha256:ab5cb380e3ff3172d6c8bd2e7cfd31cce977d2881b260e1f5bc089bf0b759b43
 
-# Security environment variables
-ENV GF_SECURITY_ADMIN_USER=honryu
-ENV GF_SECURITY_ADMIN_PASSWORD=honryu
-ENV GF_AUTH_ANONYMOUS_ENABLED=true
-ENV GF_AUTH_ANONYMOUS_ORG_NAME="Main Org."
-ENV GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+# Admin credentials are deliberately NOT set here.
+#
+# They used to be: ENV GF_SECURITY_ADMIN_USER/PASSWORD=honryu, which bakes the
+# credential into an image layer -- readable by anyone who can pull the image,
+# and permanent, since a later ENV in a running container does not erase the
+# layer that shipped it. Grafana admin means datasource edit and arbitrary
+# query against Prometheus, so this was a real grant, not a formality.
+# (Trivy DS-0031, hadolint DL3064.)
+#
+# The chart now injects both from the grafana-admin Secret
+# (deploy/chart/honryu/templates/grafana-deployment.yaml).
+#
+# The GF_AUTH_ANONYMOUS_* trio moved to the chart at the same time. Those
+# three were never secrets -- "true", "Main Org." and "Viewer" -- but every
+# scanner that greps env names for AUTH flagged them, which is 3 of the 4
+# DS-0031 criticals this file used to carry. Rather than suppress a rule that
+# was right about the fourth, they now live where they belong: whether a
+# deployment allows anonymous read is a property of *that deployment*, not of
+# the image, and the image's own default is now the safe one (anonymous off).
+# See grafana.anonymous.* in the chart's values.yaml.
 
 # Additional security settings
 ENV GF_SECURITY_DISABLE_GRAVATAR=true
@@ -51,17 +65,25 @@ COPY --chmod=644 ./dashboards /var/lib/grafana/dashboards
 # denied" until this find pass covered dashboards/ too. Predates this
 # phase's panel migration; it is why the dashboards had never actually
 # loaded (confirmed via task 14's finding that Grafana had never run here).
-USER root
+# Numeric ids, not names (hadolint DL3066): a non-numeric user cannot be
+# resolved by anything reading this image's config without the container's
+# own /etc/passwd, and 0/472 are exactly what "root"/"grafana" resolve to
+# here -- the same 472 the chart's runAsUser and fsGroup already pin.
+USER 0
 RUN chown -R 472:0 /etc/grafana/provisioning /var/lib/grafana/dashboards && \
     find /etc/grafana/provisioning /var/lib/grafana/dashboards -type d -exec chmod 755 {} \; && \
     find /etc/grafana/provisioning /var/lib/grafana/dashboards -type f -exec chmod 644 {} \;
 
-# Use non-root grafana user
-USER grafana
+# Use non-root grafana user (472, see the DL3066 note above)
+USER 472
 
-# Container health check against Grafana's health endpoint (DS-0026)
+# Container health check against Grafana's health endpoint (DS-0026).
+# Exec form, not shell form (hadolint DL3025): the shell form wraps this in
+# /bin/sh -c, which both adds a process and makes the command depend on a
+# shell existing in the image. wget's own exit status is already what the
+# check wants, so the "|| exit 1" the shell form needed is redundant.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+    CMD ["wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
 
 # Expose Grafana port
 EXPOSE 3000

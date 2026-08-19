@@ -437,6 +437,15 @@ func TestReportHTTP_InvalidPathParamsAreBadRequest(t *testing.T) {
 		"/api/runs/not-a-number/scenarios/1/shards/0/log",
 		"/api/runs/1/scenarios/not-a-number/shards/0/log",
 		"/api/runs/1/scenarios/1/shards/not-a-number/log",
+		// Parseable as int64 but out of range for the int the object-store
+		// key builder takes. Without the bound these wrap on a 32-bit build:
+		// 4294967296 truncates to 0 and would serve shard 0's log under a
+		// request for a shard that does not exist. Negative is rejected for
+		// the same reason -- a shard index is an ordinal, not an offset.
+		"/api/runs/1/scenarios/1/shards/4294967296/log",
+		"/api/runs/1/scenarios/1/shards/2147483648/log",
+		"/api/runs/1/scenarios/1/shards/-1/log",
+		"/api/runs/1/scenarios/1/shards/4294967296/config",
 	} {
 		if rec := do(t, h, http.MethodGet, path); rec.Code != http.StatusBadRequest {
 			t.Errorf("GET %s = %d, want 400", path, rec.Code)

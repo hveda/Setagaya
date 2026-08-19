@@ -42,6 +42,35 @@ spec:
           securityContext:
             {{- toYaml .Values.grafana.containerSecurityContext | nindent 12 }}
           env:
+            # Admin credentials come from a Secret, never from the image.
+            # They were ENV lines in grafana/Dockerfile until 2026-08-19,
+            # which put a working Grafana admin login in a layer anyone able
+            # to pull the image could read (Trivy DS-0031). Like every other
+            # secret in this chart, the Secret is referenced by name and is
+            # not created here.
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.grafanaAdmin }}
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.grafanaAdmin }}
+                  key: admin-password
+            # Anonymous read access: policy for this deployment, so it is set
+            # here rather than baked into the image. Keeping the homelab's
+            # existing behaviour -- dashboards are viewable without a login on
+            # a LAN/tailnet-only host, and editing still needs the admin
+            # credential above.
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: {{ .Values.grafana.anonymous.enabled | quote }}
+            {{- if .Values.grafana.anonymous.enabled }}
+            - name: GF_AUTH_ANONYMOUS_ORG_NAME
+              value: {{ .Values.grafana.anonymous.orgName | quote }}
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: {{ .Values.grafana.anonymous.orgRole | quote }}
+            {{- end }}
             # NOT /var/lib/grafana: the Dockerfile bakes dashboards into
             # /var/lib/grafana/dashboards (grafana/provisioning/dashboards/
             # all.yml's path:), and provisioning/{{ include "honryu.fullname" . }} into

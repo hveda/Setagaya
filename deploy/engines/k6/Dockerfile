@@ -10,11 +10,14 @@
 #
 # Built with deploy/ as context (see deploy/engines/README.md), the same as
 # the jmeter image, so engine/honryu_kpi.py sits alongside this directory.
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a
 
 ARG K6_VERSION=0.57.0
 
-RUN pip3 install --no-cache-dir bzt \
+# Version pinned for the same reason as the jmeter image, and to the same
+# version both currently ship -- the two engines must agree on bzt, since
+# honryu_kpi.py plugs into its reporting API from both.
+RUN pip3 install --no-cache-dir bzt==1.16.51 \
     && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 

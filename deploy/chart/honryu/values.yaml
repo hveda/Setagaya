@@ -36,7 +36,7 @@ image:
   # the upstream Grafana version, since that's already pinned inside the
   # Dockerfile's own FROM line.
   grafana:
-    tag: phase16
+    tag: phase18
   pullPolicy: Always
   pullSecret: registry-pve-heri-life
 
@@ -92,6 +92,17 @@ secrets:
   mysqlCredentials: mysql-credentials
   ingestToken: honryu-ingest
   clusterCredentialKey: honryu-cluster-credential-key
+  # keys: admin-user / admin-password. Only consumed when grafana.enabled.
+  #
+  # ROTATION DOES NOT HAPPEN BY ITSELF. GF_SECURITY_ADMIN_PASSWORD is applied
+  # only when Grafana first creates the admin user; after that the credential
+  # lives in grafana.db on the PVC and the env var is ignored. Changing this
+  # Secret on an existing install therefore looks like it worked -- the pod
+  # rolls, nothing errors -- while the old password keeps working and the new
+  # one does not. Verified exactly this way on 2026-08-19. To actually rotate:
+  #   curl -X PUT -u <user>:<current> -H 'Content-Type: application/json' \
+  #     -d '{"password":"<new>"}' http://localhost:3000/api/admin/users/1/password
+  grafanaAdmin: grafana-admin
 
 # Non-secret configuration shared by every component that embeds
 # cmd.config.Load (api, scheduler, calibrator all read a near-identical
@@ -165,6 +176,16 @@ grafana:
   enabled: false
   storageClassName: local-path
   size: 1Gi
+  # Anonymous read access. Moved out of grafana/Dockerfile (where it was
+  # baked into a layer) so it is a per-deployment decision: a chart installed
+  # somewhere internet-facing can turn this off without rebuilding an image.
+  # "Main Org." is Grafana's own default organisation name -- it must match
+  # the org the provisioned dashboards land in, or anonymous users see an
+  # empty Grafana.
+  anonymous:
+    enabled: true
+    orgName: "Main Org."
+    orgRole: Viewer
   # 472:0 is what the image already runs as (verified on the live pod:
   # uid=472(grafana) gid=0(root)), and what the Dockerfile's own
   # "chown -R 472:0" targets. runAsGroup 0 looks alarming but is the image's

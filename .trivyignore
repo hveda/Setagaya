@@ -5,7 +5,21 @@
 # and can be set to empty in security scanning contexts
 DS002
 
-# Allow HEALTHCHECK absence - we rely on Kubernetes health checks
+# Allow HEALTHCHECK absence - we rely on Kubernetes health checks.
+#
+# DS-0026 is the current id for this check; DKL-DI-0005 is the old one and no
+# longer matches anything, which is why three of these were showing up on the
+# Security tab despite the intent being recorded here since the file was
+# written. Both are kept so the entry works whichever id a given Trivy
+# version emits.
+#
+# The rationale still holds and is not merely convenience: Kubernetes ignores
+# Docker HEALTHCHECK entirely -- it uses the readiness/liveness probes on the
+# pod spec instead (see the api Deployment's httpGet /healthz). Adding one
+# would also be actively wrong for the shared deploy/honryu/Dockerfile, which
+# builds all four binaries: only api listens on a port at all, so any probe
+# baked into the image would fail for calibrator, scheduler and sidecar.
+DS-0026
 DKL-DI-0005
 
 # Allow latest tag in development contexts (not production)
