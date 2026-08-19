@@ -17,6 +17,12 @@ import (
 // credentialSecretPrefix namespaces the home-cluster Secrets Honryu writes to
 // hold each registered cluster's credential, keeping them distinct from a
 // user's own Secrets.
+//
+// #nosec G101 -- this is a Secret *name* prefix, not a credential. gosec
+// matches the identifier containing "credential" against a string literal;
+// the value is the constant "honryu-cluster-" that gets concatenated with a
+// cluster name to form a Kubernetes object name. No secret material appears
+// in this file -- it is read from and written to the Secret's data keys below.
 const credentialSecretPrefix = "honryu-cluster-"
 
 // Secret data keys. The credential is stored field-per-key so a human reading

@@ -82,6 +82,10 @@ func rejectLegacySchema(ctx context.Context, db *sql.DB) error {
 		args[i] = t
 	}
 
+	// #nosec G202 -- placeholders is strings.Repeat("?,", len(legacyTables))
+	// trimmed, so the concatenated span is a run of "?" separators and
+	// nothing else. The table names themselves are the package-level
+	// legacyTables literal and travel as bound args, not as SQL text.
 	rows, err := db.QueryContext(ctx,
 		"SELECT table_name FROM information_schema.tables"+
 			" WHERE table_schema = DATABASE() AND table_name IN ("+placeholders+")"+

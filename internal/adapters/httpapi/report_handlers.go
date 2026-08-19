@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 
@@ -183,8 +184,14 @@ func (h *handlers) runShardObject(w http.ResponseWriter, r *http.Request, kind, 
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
+	// Bounded before the int conversion below, not merely parsed. pathInt
+	// returns an int64 and RunShardKey takes an int, so on a 32-bit build a
+	// path like /shard/4294967296 would silently wrap to 0 and serve shard
+	// 0's log under a request for a shard that does not exist. Rejecting is
+	// the honest answer: a shard index is a small ordinal, and nothing
+	// legitimate reaches even MaxInt32.
 	shard, ok := pathInt(r, "shard")
-	if !ok {
+	if !ok || shard < 0 || shard > math.MaxInt32 {
 		writeError(w, http.StatusBadRequest, "invalid shard")
 		return
 	}

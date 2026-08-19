@@ -9,7 +9,11 @@
 # (internal/adapters/scheduler/k8s/k8s.go's sidecarScript) -- a shell-less
 # distroless image would fail to even start that container. The binary is
 # named /honryu-${CMD} to match that same hardcoded /honryu-sidecar path.
-FROM golang:1.26.6 AS build
+# Pinned by digest as well as tag: a tag is a moving pointer, so "golang:1.26.6"
+# alone does not make this build reproducible, and a compromised or simply
+# re-pushed tag would silently change the compiler that produces the binaries.
+# Digest resolved with `docker buildx imagetools inspect` at pin time.
+FROM golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6 AS build
 ARG CMD=api
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -17,7 +21,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/honryu-${CMD} ./cmd/${CMD}
 
-FROM alpine:3.20
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 ARG CMD=api
 # ARGs are build-time only; ENTRYPOINT's shell form expands $CMD at
 # container *runtime*, so it must be re-exposed as an ENV to survive into

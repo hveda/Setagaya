@@ -178,6 +178,12 @@ func mergeLabels(ctx context.Context, tx *sql.Tx, runID int64, labels []report.L
 		inClause[i] = "?"
 		inArgs = append(inArgs, l.Label)
 	}
+	// #nosec G202 -- the concatenated span is strings.Join over openRows,
+	// whose every element is the literal "(?,?)" assigned above. It is a
+	// placeholder list sized to len(labels), which is the one thing a
+	// prepared statement cannot parameterise. Every value still travels in
+	// openArgs as a bound parameter; no caller-controlled text reaches the
+	// SQL text. Same reasoning for each remaining G202 in this file.
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO report_progress_label (run_id, label) VALUES `+strings.Join(openRows, ",")+`
 		 ON DUPLICATE KEY UPDATE run_id=run_id`,
@@ -185,6 +191,7 @@ func mergeLabels(ctx context.Context, tx *sql.Tx, runID int64, labels []report.L
 		return fmt.Errorf("mysql: open label progress: %w", err)
 	}
 
+	// #nosec G202 -- inClause elements are the literal "?"; values bound via inArgs.
 	rows, err := tx.QueryContext(ctx,
 		`SELECT label, latency FROM report_progress_label
 		 WHERE run_id=? AND label IN (`+strings.Join(inClause, ",")+`) FOR UPDATE`,
@@ -228,6 +235,7 @@ func mergeLabels(ctx context.Context, tx *sql.Tx, runID int64, labels []report.L
 		mergeRows[i] = "(?,?,?,?,?)"
 		mergeArgs = append(mergeArgs, runID, l.Label, l.Samples, l.Failed, latency)
 	}
+	// #nosec G202 -- mergeRows elements are the literal "(?,?,?,?,?)"; values bound via mergeArgs.
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO report_progress_label (run_id, label, samples, failed, latency) VALUES `+strings.Join(mergeRows, ",")+`
 		 ON DUPLICATE KEY UPDATE
@@ -260,6 +268,7 @@ func mergeSignatures(ctx context.Context, tx *sql.Tx, runID int64, sigs []report
 		inClause[i] = "(?,?,?)"
 		inArgs = append(inArgs, sig.Label, sig.ResponseCode, string(sig.Side))
 	}
+	// #nosec G202 -- openRows elements are the literal "(?,?,?,?)"; values bound via openArgs.
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO report_progress_signature (run_id, label, response_code, side) VALUES `+strings.Join(openRows, ",")+`
 		 ON DUPLICATE KEY UPDATE run_id=run_id`,
@@ -267,6 +276,7 @@ func mergeSignatures(ctx context.Context, tx *sql.Tx, runID int64, sigs []report
 		return fmt.Errorf("mysql: open signature progress: %w", err)
 	}
 
+	// #nosec G202 -- inClause elements are the literal "(?,?,?)"; values bound via inArgs.
 	rows, err := tx.QueryContext(ctx,
 		`SELECT label, response_code, side, exemplars FROM report_progress_signature
 		 WHERE run_id=? AND (label, response_code, side) IN (`+strings.Join(inClause, ",")+`) FOR UPDATE`,
@@ -312,6 +322,7 @@ func mergeSignatures(ctx context.Context, tx *sql.Tx, runID int64, sigs []report
 		mergeRows[i] = "(?,?,?,?,?,?)"
 		mergeArgs = append(mergeArgs, runID, sig.Label, sig.ResponseCode, string(sig.Side), sig.Count, exemplars)
 	}
+	// #nosec G202 -- mergeRows elements are the literal "(?,?,?,?,?,?)"; values bound via mergeArgs.
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO report_progress_signature (run_id, label, response_code, side, count, exemplars) VALUES `+strings.Join(mergeRows, ",")+`
 		 ON DUPLICATE KEY UPDATE count=count+VALUES(count), exemplars=VALUES(exemplars)`,
@@ -446,6 +457,8 @@ func (r *Repository) Discard(ctx context.Context, runID int64) error {
 		"report_progress_label", "report_progress_second",
 		"report_progress_signature", "report_progress_shard",
 	} {
+		// #nosec G202 -- table comes from the literal slice ranged over just
+		// above, not from any caller. runID is bound.
 		if _, err := r.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE run_id=?", runID); err != nil {
 			return fmt.Errorf("mysql: discard %s: %w", table, err)
 		}

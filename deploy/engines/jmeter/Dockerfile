@@ -5,13 +5,19 @@
 # deploy/engines/README.md). Verified live: without this, a fresh pod's
 # first run spent its entire steady-state hold downloading JMeter and never
 # sent a single request (Phase 7 task 85's live verification).
-FROM eclipse-temurin:21-jdk-jammy
+FROM eclipse-temurin:21-jdk-jammy@sha256:dbfd085220ae632a0830166e443747d1ee89e9038d92e3b48c3e5e9d8292b9a7
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir bzt
+# Pinned to the version these images already ship (read off the running
+# engine-jmeter:5.6.3-2 image with `pip3 show bzt`), so pinning changes
+# nothing about behaviour and only removes the drift. Unpinned, this line
+# installed whatever bzt was newest at build time -- which sits badly beside
+# a Dockerfile whose whole point is that "pods need no network" because the
+# engine is baked in at a known version.
+RUN pip3 install --no-cache-dir bzt==1.16.51
 
 # The Honryu KPI reporter (streams bzt's per-second aggregated results to
 # the path the sidecar tails) and a default bzt config that always loads
