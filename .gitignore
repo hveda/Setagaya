@@ -1,8 +1,14 @@
-# Binaries and build output
+# Binaries and build output. One entry per cmd/: `go build ./cmd/<name>/...`
+# drops the binary in the working directory, so all four can land at the repo
+# root (a stray 39MB /scheduler from exactly that is what prompted listing
+# the other three alongside honryu-api).
 *.exe
 /bin/
 /dist/
-honryu-api
+/honryu-api
+/scheduler
+/calibrator
+/sidecar
 
 # web/ (React SPA) build output and dependencies. dist/.gitkeep is tracked
 # on purpose -- cmd/api's go:embed directive needs at least one file under
@@ -12,6 +18,8 @@ web/node_modules/
 web/dist/*
 !web/dist/.gitkeep
 web/*.tsbuildinfo
+# layout-check --screenshots output (diagnostic PNGs, regenerated on demand)
+web/.layout-check/
 
 # Test & coverage artifacts
 cover.out

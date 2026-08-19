@@ -29,6 +29,9 @@ CI order (must all pass): gofmt clean → `go vet` → `golangci-lint run` → u
 
 - Built with **bun** (`bun run build`), embedded into the Go binary via `go:embed` (`web/embed.go`). Tests: `vitest run` from `web/`.
 - `web/dist/.gitkeep` is committed intentionally so the embed compiles in fresh checkouts; a real build deletes it locally — do not "fix" or commit that deletion.
+- **`bun run layout-check`** (from `web/`) asserts layout invariants a real browser can see and `vitest` cannot: `vitest` runs in jsdom, which computes no geometry. It caught nothing when the mobile nav drawer was hidden with `invisible` but left in flow, still reserving its height — `<nav>` measured 370px against `h-16`'s 64px, putting a ~306px empty band above every page's content. Checks nav height, `<main>`'s offset, horizontal overflow, and (at mobile widths) that the drawer stays absolutely positioned, opens, doesn't shift `<main>`, and closes on an outside tap — across 3 viewports × 5 routes. Exits non-zero, so it works as a gate.
+  - Point it anywhere: `LAYOUT_CHECK_URL=https://honryu.pve.heri.life bun run layout-check` (default `http://localhost:4173`, i.e. `bun run preview`). Add `-- --screenshots` to dump PNGs to `web/.layout-check/`.
+  - Needs a Chromium binary; Playwright's cache is auto-discovered, else set `CHROMIUM_PATH`. Provision with `bunx playwright install chromium`. Deliberately **not** in CI — it needs a running SPA, and CI has no browser or deployment to point at.
 
 ## Style / lint exceptions (do not undo)
 
