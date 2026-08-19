@@ -11,13 +11,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Pinned to the version these images already ship (read off the running
-# engine-jmeter:5.6.3-2 image with `pip3 show bzt`), so pinning changes
-# nothing about behaviour and only removes the drift. Unpinned, this line
-# installed whatever bzt was newest at build time -- which sits badly beside
-# a Dockerfile whose whole point is that "pods need no network" because the
-# engine is baked in at a known version.
-RUN pip3 install --no-cache-dir bzt==1.16.51
+# bzt 1.16.51 -- the version this image already shipped (read off the running
+# engine-jmeter:5.6.3-2 with `pip3 show bzt`), so this changes nothing about
+# behaviour and only removes drift. Unpinned, this installed whatever bzt was
+# newest at build time, with all ~70 transitive dependencies floating too --
+# which sat badly beside a Dockerfile whose whole point is that "pods need no
+# network" because the engine is baked in at a known version.
+# See requirements.txt for how to regenerate the hashed set.
+COPY engines/jmeter/requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 # The Honryu KPI reporter (streams bzt's per-second aggregated results to
 # the path the sidecar tails) and a default bzt config that always loads
