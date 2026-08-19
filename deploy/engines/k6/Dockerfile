@@ -20,8 +20,31 @@ ARG K6_VERSION=0.57.0
 # different images; --require-hashes also makes a substituted artifact fail
 # the build rather than ship. See requirements.txt for how to regenerate.
 COPY engines/k6/requirements.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
-    && rm /tmp/requirements.txt \
+# The setuptools bump is a deliberate override of an upstream pin. It is
+# installed FIRST and the resolved set follows with --no-deps, so the
+# vulnerable version is never written into requirements.txt at all -- the
+# file then describes what the image actually contains, which is the whole
+# point of pinning it. --no-deps is safe because pip-compile's output is a
+# complete closure: every transitive dependency is already enumerated.
+#
+# bzt declares setuptools==79.0.1 exactly, which carries CVE-2026-59890
+# (medium, fixed in 83.0.0). There is no bzt release that avoids it -- 1.17.0
+# merely moves the pin to 80.10.2, still below the fix -- so the constraint
+# cannot be satisfied by upgrading bzt, and pip-compile fails outright on a
+# setuptools>=83 requirement. Note this vulnerable setuptools was already in
+# the published engine images (verified with pip3 show against
+# engine-k6:0.57.0-2); hash-pinning did not introduce it, it made it visible.
+#
+# Verified before overriding: with setuptools 84.0.0 in place, bzt --help
+# runs, bzt/bzt.engine import, and bzt.modules.aggregator still exports the
+# AggregatorListener/DataPoint/KPISet API that engine/honryu_kpi.py builds on.
+# setuptools is a build-time tool here; nothing in the load path needs the
+# exact version bzt names. Installing it before the rest also covers any
+# package that has to build from an sdist.
+COPY engines/requirements-setuptools.txt /tmp/requirements-setuptools.txt
+RUN pip3 install --no-cache-dir --no-deps --require-hashes -r /tmp/requirements-setuptools.txt \
+    && pip3 install --no-cache-dir --no-deps --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt /tmp/requirements-setuptools.txt \
     && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 

@@ -19,8 +19,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # network" because the engine is baked in at a known version.
 # See requirements.txt for how to regenerate the hashed set.
 COPY engines/jmeter/requirements.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
-    && rm /tmp/requirements.txt
+# setuptools override -- see the equivalent block in engines/k6/Dockerfile for
+# the full reasoning. Short version: bzt pins setuptools==79.0.1, which has
+# CVE-2026-59890 (medium, fixed in 83.0.0), and no bzt release avoids it.
+# Installed first, with the resolved set following via --no-deps, so the
+# vulnerable version never appears in requirements.txt.
+COPY engines/requirements-setuptools.txt /tmp/requirements-setuptools.txt
+RUN pip3 install --no-cache-dir --no-deps --require-hashes -r /tmp/requirements-setuptools.txt \
+    && pip3 install --no-cache-dir --no-deps --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt /tmp/requirements-setuptools.txt
 
 # The Honryu KPI reporter (streams bzt's per-second aggregated results to
 # the path the sidecar tails) and a default bzt config that always loads
