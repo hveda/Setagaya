@@ -1,0 +1,29 @@
+# setuptools override, shared by both engine images.
+#
+# Installed with --no-deps AFTER each image's resolved requirements.txt, to
+# override an upstream pin that cannot be satisfied any other way:
+#
+#   bzt 1.16.51 declares setuptools==79.0.1 exactly, and that version carries
+#   CVE-2026-59890 (medium, fixed in 83.0.0). No bzt release avoids it --
+#   1.17.0 only moves the pin to 80.10.2, still below the fix -- so upgrading
+#   bzt does not help, and adding "setuptools>=83" to the .in file makes
+#   pip-compile fail with ResolutionImpossible against bzt's exact pin.
+#
+# This vulnerable setuptools was ALREADY in the published engine images:
+# `pip3 show setuptools` against engine-k6:0.57.0-2 and engine-jmeter:5.6.3-2
+# both report 79.0.1. Writing the dependency set down did not introduce it, it
+# made it visible to the scanners that read these files.
+#
+# Verified safe before overriding: with 84.0.0 installed, `bzt --help` runs,
+# `import bzt, bzt.engine` succeeds, and bzt.modules.aggregator still exports
+# the AggregatorListener / DataPoint / KPISet API that engine/honryu_kpi.py is
+# written against. setuptools is a build-time tool here; nothing on the load
+# path depends on the exact version bzt names.
+#
+# One file for both images because this wheel is py3-none-any -- unlike
+# requirements.txt, whose resolution differs between the two base Pythons.
+#
+# Recheck when bumping bzt: if a future release pins >=83.0.0 itself, this
+# file and both --no-deps steps should be deleted rather than carried.
+setuptools==84.0.0 \
+    --hash=sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670
