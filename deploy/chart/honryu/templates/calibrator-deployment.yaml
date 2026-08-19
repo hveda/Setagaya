@@ -17,6 +17,8 @@ spec:
         {{- include "honryu.selectorLabels" (merge (dict "component" "calibrator") .) | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       nodeSelector:
         {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
       imagePullSecrets:
@@ -25,6 +27,8 @@ spec:
         - name: calibrator
           image: "{{ .Values.image.registry }}/honryu-calibrator:{{ .Values.image.calibrator.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           command: ["/honryu-calibrator"]
           envFrom:
             - configMapRef:

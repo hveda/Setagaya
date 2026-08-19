@@ -23,6 +23,8 @@ spec:
       # Needs the same RBAC as api: it deploys/tears down engine pods
       # itself when a scheduled occurrence fires.
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       # Shares the object-store PVC with api/calibrator (lifecycleapp
       # uploads/downloads shard configs and run logs through it, and a
       # later api read must see what a scheduler-triggered deploy wrote) --
@@ -37,6 +39,8 @@ spec:
         - name: scheduler
           image: "{{ .Values.image.registry }}/honryu-scheduler:{{ .Values.image.scheduler.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           command: ["/honryu-scheduler"]
           envFrom:
             - configMapRef:

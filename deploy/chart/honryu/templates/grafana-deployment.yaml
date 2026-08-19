@@ -9,6 +9,13 @@ metadata:
     app.kubernetes.io/component: grafana
 spec:
   replicas: 1
+  # Same reasoning as prometheus-deployment.yaml, applied pre-emptively
+  # rather than after an incident: grafana.db is SQLite on a ReadWriteOnce
+  # PVC, so overlapping old and new pods means two writers against one
+  # database file. This one happened to survive its rolling update; that is
+  # luck about timing, not a guarantee worth keeping.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "honryu.selectorLabels" (merge (dict "component" "grafana") .) | nindent 6 }}
@@ -24,13 +31,16 @@ spec:
       # fsGroup 472 matches the Dockerfile's own "chown -R 472:0" and the
       # "grafana" user it runs as -- a freshly-provisioned PVC mounts
       # root-owned otherwise, which the non-root grafana process can't
-      # write to.
+      # write to. The uid/gid/seccomp around it were added later; fsGroup
+      # was here first and is the part that was load-bearing from day one.
       securityContext:
-        fsGroup: 472
+        {{- toYaml .Values.grafana.podSecurityContext | nindent 8 }}
       containers:
         - name: grafana
           image: "{{ .Values.image.registry }}/grafana:{{ .Values.image.grafana.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.grafana.containerSecurityContext | nindent 12 }}
           env:
             # NOT /var/lib/grafana: the Dockerfile bakes dashboards into
             # /var/lib/grafana/dashboards (grafana/provisioning/dashboards/
@@ -56,8 +66,24 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/grafana-data
+            - name: plugins
+              mountPath: /var/lib/grafana/plugins
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "honryu.fullname" . }}-grafana
+        # Both exist only because the root filesystem is now read-only.
+        # /var/lib/grafana/plugins ships in the image (verified present and
+        # empty on the live pod) and Grafana expects to write it at startup;
+        # it is safe to shadow with an emptyDir precisely because the one
+        # vendored plugin was dropped in phase 16. Note this is *not* the
+        # same path as GF_PATHS_DATA above -- mounting /var/lib/grafana
+        # itself would still hide the baked-in dashboards.
+        - name: plugins
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
 {{- end -}}

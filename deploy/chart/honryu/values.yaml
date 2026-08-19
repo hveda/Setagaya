@@ -43,6 +43,47 @@ image:
 serviceAccount:
   name: honryu
 
+# Security contexts for the four honryu-owned binaries (api, calibrator,
+# scheduler; the sidecar is built by the k8s adapter, not this chart).
+#
+# Safe to harden this far because the binaries are unusually well-behaved
+# for it: CGO_ENABLED=0 static Go builds (deploy/honryu/Dockerfile), and a
+# grep of cmd/ + internal/ finds *no* os.CreateTemp/MkdirTemp/TempDir in
+# non-test code -- the only filesystem write is os.MkdirAll(storageRoot)
+# in internal/adapters/storage/local/local.go:38, which lands on the
+# mounted PVC, not the image. So readOnlyRootFilesystem costs nothing.
+#
+# The uid/gid is >10000 deliberately: Trivy's KSV-0020/KSV-0021 flag low
+# numeric ids for colliding with host users, and nothing in these images
+# needs a named account.
+#
+# UPGRADE HAZARD, if you are moving a release from before this block existed:
+# object-store content written while the pods ran as root is left owned
+# 0:0 mode 0750, and uid 10001 cannot read it. fsGroup does not rescue this
+# -- Kubernetes skips fsGroup ownership management for the hostPath-backed
+# volumes local-path hands out, so only the 0777 volume *root* stays
+# writable while every subdirectory underneath is unreadable. The pods come
+# up healthy and the failure looks like empty scenarios and missing run
+# artifacts, not like a crash. Found exactly this way on 2026-08-19; fixed
+# with a one-shot root Job running `chown -R 10001:10001 /honryu-storage`
+# against the honryu-object-store PVC. Fresh installs are unaffected.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  # Grants the pod's group ownership of the object-store PVC, which all
+  # three binaries mount read-write. Verified this mechanism works on this
+  # cluster's local-path volumes before relying on it: the grafana pod has
+  # run fsGroup 472 since phase 16 with 0 restarts.
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
 # Secrets are referenced by name only -- this chart contains no secret
 # value, and creates none. Each must already exist in the release namespace
 # (mysql-credentials: keys dsn/root-password/password; honryu-ingest: key
@@ -124,6 +165,23 @@ grafana:
   enabled: false
   storageClassName: local-path
   size: 1Gi
+  # 472:0 is what the image already runs as (verified on the live pod:
+  # uid=472(grafana) gid=0(root)), and what the Dockerfile's own
+  # "chown -R 472:0" targets. runAsGroup 0 looks alarming but is the image's
+  # design -- group root owns the config it needs to read, and it is a group
+  # id, not privilege.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    runAsGroup: 0
+    fsGroup: 472
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
   resources:
     requests:
       cpu: 50m
@@ -142,6 +200,21 @@ prometheus:
   storageClassName: local-path
   size: 2Gi
   scrapeInterval: 15s
+  # 65534 (nobody) is what prom/prometheus already runs as, verified on the
+  # live pod. Its only writes are the TSDB under /prometheus, which is the
+  # mounted PVC, so a read-only root costs it nothing.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
   resources:
     requests:
       cpu: 50m
@@ -170,6 +243,30 @@ objectStore:
 mysql:
   storageClassName: local-path
   size: 10Gi
+  # Its own contexts, not the shared ones above: mysql:8.4 normally starts
+  # as root so its entrypoint can chown the datadir and then gosu down to
+  # the mysql account. Pinning runAsUser directly skips that root phase --
+  # verified safe against the *live* volume before changing it, because
+  # getting this wrong takes the database down: the image defines
+  # mysql:x:999:999 and every file under /var/lib/mysql is already owned
+  # 999:999, so the entrypoint has nothing left to chown.
+  #
+  # 999 is under the 10000 the honryu binaries use, so KSV-0020/KSV-0021
+  # still flag it (both LOW). That is the right trade: matching the uid the
+  # data is already owned by is worth more than satisfying a lint about
+  # numeric ranges, and remapping a populated datadir is gratuitous risk.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
   # MySQL needs materially more than the platform components: an idle 8.4
   # instance alone floats around 150-250Mi resident, and a run's own
   # measurements pass through it. Still minimal by MySQL standards, not

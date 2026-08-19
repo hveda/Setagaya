@@ -28,12 +28,16 @@ spec:
       labels:
         {{- include "honryu.selectorLabels" (merge (dict "component" "mysql") .) | nindent 8 }}
     spec:
+      securityContext:
+        {{- toYaml .Values.mysql.podSecurityContext | nindent 8 }}
       nodeSelector:
         {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
       containers:
         - name: mysql
           image: "mysql:{{ .Values.image.mysql.tag }}"
           imagePullPolicy: IfNotPresent
+          securityContext:
+            {{- toYaml .Values.mysql.containerSecurityContext | nindent 12 }}
           ports:
             - containerPort: 3306
               protocol: TCP
@@ -62,6 +66,22 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/mysql
+            - name: run
+              mountPath: /var/run/mysqld
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Both are mandatory once readOnlyRootFilesystem is set -- they are
+        # not the optional hardening the honryu binaries needed. mysqld puts
+        # its unix socket and pid file in /var/run/mysqld and cannot start
+        # without writing them, and it spills temp tables to /tmp. Both live
+        # in the image layer, which the read-only root would freeze.
+        # Confirmed on the running pod: /var/run/mysqld is 999:999 and
+        # already populated at runtime.
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: data
