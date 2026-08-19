@@ -35,6 +35,16 @@ rules:
     min-spaces-inside: 0
     max-spaces-inside: 1
 
+  # Same allowance for flow mappings as the brackets rule above gives flow
+  # sequences -- the two were meant to match, but only brackets was set, so
+  # every `{ type: string }` in api/openapi.yaml counted as two errors
+  # (1088 in that file alone) and `npm run check` had never once passed.
+  # That style is deliberate and is what prettier produces here, so the
+  # config accommodates it rather than fighting it.
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
   # Document start is optional (prettier doesn't add ---)
   document-start:
     present: false
@@ -58,6 +68,18 @@ ignore: |
   .github/workflows/*.yml
   .github/workflows/*.yaml
   # Ignore Grafana dashboard files
-  grafana/metrics-dashboard/**
   grafana/dashboards/**
-  grafana/plugins/grafana-piechart-panel/**
+  # Golden fixtures: the exact bytes of Go's yaml.Marshal output, compared
+  # byte-for-byte by TestTaurus_Golden (`string(got) != string(want)`) and
+  # regenerated with `-update`. Their formatting is the marshaller's to
+  # decide, not a style choice -- reformatting them to satisfy a linter
+  # would fail the test suite and be overwritten on the next update run.
+  internal/domain/compile/testdata/**
+  # Local object-store output from a dev run: gitignored, machine-written,
+  # and the same marshaller output as the golden fixtures above.
+  storage-data/**
+  # Pinned upstream cluster manifests, vendored verbatim so the cluster is
+  # reproducible -- restyling them would defeat the point of pinning. They
+  # are also multi-document, where `---` is required YAML syntax rather than
+  # the optional leading marker the document-start rule above disallows.
+  deploy/cluster/**

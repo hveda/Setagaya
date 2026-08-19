@@ -66,7 +66,11 @@ config:
   # jmeter-only list (missing k6 entirely), which would have silently
   # broken k6 calibration. One shared value keeps api and calibrator from
   # drifting apart again.
-  engineImages: "jmeter=registry.pve.heri.life/honryu/engine-jmeter:5.6.3-2,k6=registry.pve.heri.life/honryu/engine-k6:0.57.0-2"
+  # Split with an escaped line break (not a folded scalar, which would join
+  # with a space and corrupt the comma-separated value HONRYU_ENGINE_IMAGES
+  # parses). Verified the parsed string is byte-identical to the one-liner.
+  engineImages: "jmeter=registry.pve.heri.life/honryu/engine-jmeter:5.6.3-2,\
+    k6=registry.pve.heri.life/honryu/engine-k6:0.57.0-2"
   deployContext: homelab
   logFormat: text
   storageRoot: /honryu-storage
