@@ -17,6 +17,8 @@ spec:
         {{- include "honryu.selectorLabels" (merge (dict "component" "api") .) | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       # Pinned to the control-plane node: it mounts the object-store PVC,
       # which a local-path volume binds to whichever node created it. A
       # Karpenter reschedule onto a different node would strand the volume.
@@ -28,6 +30,8 @@ spec:
         - name: api
           image: "{{ .Values.image.registry }}/honryu-api:{{ .Values.image.api.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           command: ["/honryu-api"]
           ports:
             - containerPort: 8080
@@ -64,7 +68,20 @@ spec:
           volumeMounts:
             - name: storage
               mountPath: /honryu-storage
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: storage
           persistentVolumeClaim:
             claimName: {{ include "honryu.fullname" . }}-object-store
+        # Writable /tmp, required because the root filesystem is read-only.
+        # Not speculative: parseUpload calls r.ParseMultipartForm
+        # (internal/adapters/httpapi/files_handlers.go:19), and Go's
+        # multipart reader spills parts to os.TempDir() once they exceed the
+        # in-memory budget. MaxBytesReader caps the body at the same
+        # maxUploadBytes, which *should* keep every part in memory -- but
+        # "should" is not what a JMX upload failing at 3am wants to rest on,
+        # and an emptyDir costs nothing.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

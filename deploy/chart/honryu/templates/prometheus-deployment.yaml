@@ -14,6 +14,20 @@ metadata:
     app.kubernetes.io/component: prometheus
 spec:
   replicas: 1
+  # Recreate, not the default RollingUpdate. Found live (2026-08-19): a
+  # rolling update deadlocks this pod against itself, because Prometheus
+  # takes an exclusive lock on its TSDB directory. The incoming pod dies
+  # with "opening storage failed: lock DB directory: resource temporarily
+  # unavailable" while the outgoing pod still holds it, and the outgoing pod
+  # is never retired because the incoming one never goes Ready --
+  # CrashLoopBackOff until someone deletes the old pod by hand.
+  #
+  # Latent since the component was added; it took the first change to this
+  # template since install to surface it. Recreate costs a few seconds of
+  # scrape gap on upgrade, which is the correct trade for a single-replica
+  # component on a ReadWriteOnce volume.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "honryu.selectorLabels" (merge (dict "component" "prometheus") .) | nindent 6 }}
@@ -26,10 +40,14 @@ spec:
       # Karpenter-eviction reasoning as mysql and the object store.
       nodeSelector:
         {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
+      securityContext:
+        {{- toYaml .Values.prometheus.podSecurityContext | nindent 8 }}
       containers:
         - name: prometheus
           image: "prom/prometheus:{{ .Values.image.prometheus.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.prometheus.containerSecurityContext | nindent 12 }}
           args:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus

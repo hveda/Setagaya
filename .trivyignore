@@ -16,3 +16,41 @@ DKL-DI-0002
 
 # Allow ADD instead of COPY for remote URLs in JMeter download
 DKL-DI-0010
+
+# ---------------------------------------------------------------------------
+# Kubernetes misconfiguration checks (deploy/chart/honryu)
+#
+# Everything below is a capability the platform cannot function without, so
+# these are accepted rather than fixed. The security-context findings that
+# *were* fixable (KSV-0118, KSV-0014, KSV-0012, KSV-0001, KSV-0104, and the
+# capability/seccomp set) are deliberately absent from this list -- they were
+# closed by adding real pod and container securityContexts, not silenced.
+# ---------------------------------------------------------------------------
+
+# RBAC: the scheduler adapter's Role is the platform's job description. It
+# creates and tears down engine workloads on demand, so each of these verbs
+# is exercised by internal/adapters/scheduler/k8s/k8s.go directly:
+#   KSV-0056 (services: delete)  -- engine Service teardown, k8s.go:594
+#   KSV-0048 (pods/statefulsets) -- engine pods are the product
+#   KSV-0049 (configmaps)        -- per-run engine config
+#   KSV-0113 (secrets)           -- BYOC cluster credentials
+# Narrowing any of them would break load generation. The Role is already
+# namespace-scoped; the only cluster-scoped grant is nodes:list.
+KSV-0056
+KSV-0048
+KSV-0049
+KSV-0113
+
+# Private registry: images come from registry.pve.heri.life, which is not in
+# Trivy's default trusted-registry allowlist and cannot be. Pulling honryu's
+# own builds from honryu's own registry is the intended design, and every
+# tag is pinned explicitly (values.yaml image.*) rather than floating.
+KSV-0125
+
+# MySQL runs as uid/gid 999, below the 10000 these two want. That is the uid
+# the mysql:8.4 image defines and the uid every file in the live datadir is
+# already owned by -- remapping a populated database to satisfy a numeric
+# range check would be real risk for no real gain. The honryu binaries, which
+# had no such constraint, use 10001 and do not trigger these.
+KSV-0020
+KSV-0021

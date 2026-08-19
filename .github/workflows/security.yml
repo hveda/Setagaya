@@ -77,6 +77,17 @@ jobs:
           format: sarif
           output: trivy.sarif
           exit-code: "0"
+          # Stated explicitly rather than relying on trivy's cwd default, so
+          # the accepted-findings list is visible here and not folded into
+          # action defaults that could change under a version bump.
+          trivyignores: .trivyignore
+          # Pinned upstream manifests (local-path-provisioner et al),
+          # vendored verbatim so the cluster is reproducible. Their security
+          # contexts are upstream's to set, and editing them would defeat the
+          # point of pinning -- the same reasoning .yamllint.yml already
+          # applies to this directory. The chart in deploy/chart, which *is*
+          # ours, stays fully scanned.
+          skip-dirs: deploy/cluster
       - name: Upload Trivy SARIF
         # Transient GitHub API 5xx outages (observed: run 32049432183, the
         # scan passed but the upload failed with "No server is currently
