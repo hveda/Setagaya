@@ -1,0 +1,20 @@
+# Replaces the live Deployment's hostPath (/var/lib/honryu-storage): a
+# hostPath survives only because there is currently one node. A PVC on
+# local-path storage has the same single-node binding today, but is at
+# least visible to Kubernetes as a claim rather than an implicit path on
+# whichever node the pod happens to land on -- and the api pod is pinned to
+# the control-plane node (see statefulNodeSelector) precisely so a Karpenter
+# node reschedule can never silently split or lose engine logs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "honryu.fullname" . }}-object-store
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.objectStore.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.objectStore.size }}

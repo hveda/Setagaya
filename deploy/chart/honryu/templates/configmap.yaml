@@ -1,0 +1,23 @@
+# Non-secret configuration shared by api, scheduler, and calibrator: all
+# three load config.Load(getenv) (cmd/api, cmd/scheduler, cmd/calibrator
+# all wire to internal/config), and this shape is common across them.
+# Component-specific env (auth mode, calibration tick interval) lives on
+# each Deployment directly, not here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "honryu.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+data:
+  HONRYU_DB_DRIVER: {{ .Values.config.dbDriver | quote }}
+  HONRYU_SCHEDULER: {{ .Values.config.scheduler | quote }}
+  HONRYU_K8S_NAMESPACE: {{ .Release.Namespace | quote }}
+  HONRYU_DEFAULT_ENGINE: {{ .Values.config.defaultEngine | quote }}
+  HONRYU_ENGINE_IMAGES: {{ .Values.config.engineImages | quote }}
+  HONRYU_DEPLOY_CONTEXT: {{ .Values.config.deployContext | quote }}
+  HONRYU_SIDECAR_IMAGE: {{ printf "%s/honryu-sidecar:%s" .Values.image.registry .Values.image.sidecar.tag | quote }}
+  HONRYU_INGEST_URL: {{ include "honryu.ingestUrl" . | quote }}
+  HONRYU_LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  HONRYU_STORAGE_ROOT: {{ .Values.config.storageRoot | quote }}

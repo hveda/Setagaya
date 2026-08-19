@@ -1,0 +1,20 @@
+{{- if .Values.ingress.enabled -}}
+# Deliberately no selector: a Service with no selector gets no Endpoints,
+# so ingress-nginx has nothing to proxy /metrics to and returns 503 -- the
+# "deny this one path" primitive, achieved with a native Kubernetes object
+# rather than a controller feature (see ingress.yaml for why snippet
+# annotations aren't a viable alternative here). Prometheus is unaffected:
+# it scrapes the real {{ include "honryu.fullname" . }}-api Service
+# directly, in-cluster, never through this Ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "honryu.fullname" . }}-metrics-block
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: 80
+      targetPort: 9
+{{- end -}}

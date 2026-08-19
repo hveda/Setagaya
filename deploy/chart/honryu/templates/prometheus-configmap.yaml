@@ -1,0 +1,21 @@
+{{- if .Values.prometheus.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "honryu.fullname" . }}-prometheus-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+    scrape_configs:
+      # /metrics is a real route (internal/adapters/httpapi/router.go:128,
+      # promhttp.Handler) -- scraped via the api Service's in-cluster DNS,
+      # never through the Ingress, which blocks this exact path
+      # (metrics-block-service.yaml).
+      - job_name: honryu-api
+        static_configs:
+          - targets: ["{{ include "honryu.fullname" . }}-api.{{ .Release.Namespace }}.svc.cluster.local:8080"]
+{{- end -}}

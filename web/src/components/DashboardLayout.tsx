@@ -16,6 +16,27 @@ function applyTheme(dark: boolean) {
   document.documentElement.classList.toggle('dark', dark);
 }
 
+/**
+ * Classes for the mobile nav drawer, exported so the layout invariant is
+ * testable without a layout engine (jsdom computes no geometry).
+ *
+ * The invariant: the drawer is `absolute` in BOTH states. A closed drawer
+ * that participates in normal flow still reserves its full height even when
+ * `invisible` -- that reserved band pushed <main> down ~306px on every page
+ * (nav measured 370px against h-16's 64px), which read on a phone as a
+ * screenful of empty space above the content. Positioning it out of flow is
+ * what fixes that, so `absolute` is the thing worth pinning down.
+ */
+export function mobileMenuClasses(isOpen: boolean): string {
+  const base =
+    'mobile-menu absolute top-full right-0 left-0 transform border-b border-slate-200 bg-white/95 shadow-lg backdrop-blur-md transition-all duration-300 ease-in-out dark:border-slate-800 dark:bg-slate-950/95 md:hidden';
+  // pointer-events-none/invisible: while closed the drawer still overlaps the
+  // nav bar, so without these its links swallow taps meant for the burger
+  // button. -translate-y-full (not -2) slides it fully behind the bar.
+  const state = isOpen ? 'translate-y-0 opacity-100' : 'pointer-events-none invisible -translate-y-full opacity-0';
+  return `${base} ${state}`;
+}
+
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [isDark, setIsDark] = useState(false);
@@ -36,6 +57,26 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     localStorage.setItem('honryu-theme', next ? 'dark' : 'light');
     applyTheme(next);
   };
+
+  // Tapping anywhere outside closes the open drawer. Without this the only
+  // way out is the X, since the drawer overlays the page rather than pushing
+  // it down -- tapping the content you can see underneath would otherwise do
+  // nothing. Matched on marker classes rather than refs so the burger button
+  // itself is excluded: it owns its own toggle, and letting this handler see
+  // it too would close-then-reopen on a single tap.
+  useEffect(() => {
+    if (!isMobileMenuOpen) {
+      return;
+    }
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (!target?.closest('.mobile-menu') && !target?.closest('.mobile-menu-button')) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMobileMenuOpen]);
 
   if (!mounted) {
     return null;
@@ -93,7 +134,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 onClick={() => setIsMobileMenuOpen((open) => !open)}
                 variant="ghost"
                 size="md"
-                className="min-h-[44px] min-w-[44px] p-2 text-slate-600 dark:text-slate-300"
+                className="mobile-menu-button min-h-[44px] min-w-[44px] p-2 text-slate-600 dark:text-slate-300"
                 title="Toggle menu"
               >
                 {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -102,11 +143,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <div
-          className={`transform border-b border-slate-200 bg-white/95 backdrop-blur-md transition-all duration-300 ease-in-out dark:border-slate-800 dark:bg-slate-950/95 md:hidden ${
-            isMobileMenuOpen ? 'translate-y-0 opacity-100' : 'pointer-events-none invisible -translate-y-2 opacity-0'
-          }`}
-        >
+        <div className={mobileMenuClasses(isMobileMenuOpen)}>
           <div className="space-y-2 px-4 py-4">
             {navItems.map((item) => (
               <Link

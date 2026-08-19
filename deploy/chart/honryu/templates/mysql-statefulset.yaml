@@ -1,0 +1,75 @@
+# Replaces the live honryu Deployment's emptyDir MySQL -- every project,
+# execution, report and registry row currently survives only because that
+# pod hasn't restarted. A StatefulSet with a volumeClaimTemplate is what
+# makes the parent spec's report-retention claim (results "outlive engines,
+# Prometheus retention, and the campaign itself") demonstrable rather than
+# assumed: `kubectl delete pod mysql-0` must not lose data.
+#
+# Pinned to the control-plane node: local-path binds a PV to the node that
+# created it, and Karpenter recycles the nodes it provisions -- a
+# rescheduled mysql pod on a fresh Karpenter node would come up with an
+# empty new volume, not its data.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "honryu.fullname" . }}-mysql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mysql
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "honryu.selectorLabels" (merge (dict "component" "mysql") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "honryu.selectorLabels" (merge (dict "component" "mysql") .) | nindent 8 }}
+    spec:
+      nodeSelector:
+        {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
+      containers:
+        - name: mysql
+          image: "mysql:{{ .Values.image.mysql.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+              protocol: TCP
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mysqlCredentials }}
+                  key: root-password
+            - name: MYSQL_DATABASE
+              value: honryu
+            - name: MYSQL_USER
+              value: honryu
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mysqlCredentials }}
+                  key: password
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$(MYSQL_ROOT_PASSWORD)"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.mysql.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "honryu.labels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.mysql.storageClassName }}
+        resources:
+          requests:
+            storage: {{ .Values.mysql.size }}

@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "honryu.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "honryu.selectorLabels" (merge (dict "component" "api") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "honryu.selectorLabels" (merge (dict "component" "api") .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      # Pinned to the control-plane node: it mounts the object-store PVC,
+      # which a local-path volume binds to whichever node created it. A
+      # Karpenter reschedule onto a different node would strand the volume.
+      nodeSelector:
+        {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
+      imagePullSecrets:
+        - name: {{ .Values.image.pullSecret }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.registry }}/honryu-api:{{ .Values.image.api.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/honryu-api"]
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "honryu.fullname" . }}-config
+          env:
+            - name: HONRYU_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mysqlCredentials }}
+                  key: dsn
+            - name: HONRYU_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.ingestToken }}
+                  key: token
+            - name: HONRYU_CLUSTER_CREDENTIAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.clusterCredentialKey }}
+                  key: credential-key
+            - name: HONRYU_AUTH_MODE
+              value: {{ .Values.api.authMode | quote }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /honryu-storage
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "honryu.fullname" . }}-object-store

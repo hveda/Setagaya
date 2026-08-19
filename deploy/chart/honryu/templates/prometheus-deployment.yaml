@@ -1,0 +1,60 @@
+{{- if .Values.prometheus.enabled -}}
+# A minimal Prometheus, not kube-prometheus-stack: one scrape target, so an
+# operator, CRDs, Alertmanager and node-exporter would be infrastructure to
+# operate for no corresponding value (spec Approach strand D, rejected
+# alternative). No HA -- single replica, matching every other platform
+# component in this chart (spec Non-goals).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "honryu.fullname" . }}-prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "honryu.selectorLabels" (merge (dict "component" "prometheus") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "honryu.selectorLabels" (merge (dict "component" "prometheus") .) | nindent 8 }}
+    spec:
+      # Shares the control-plane node with the PVC it mounts, for the same
+      # Karpenter-eviction reasoning as mysql and the object store.
+      nodeSelector:
+        {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
+      containers:
+        - name: prometheus
+          image: "prom/prometheus:{{ .Values.image.prometheus.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ .Values.prometheus.retention }}
+          ports:
+            - containerPort: 9090
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.prometheus.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "honryu.fullname" . }}-prometheus-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "honryu.fullname" . }}-prometheus
+{{- end -}}

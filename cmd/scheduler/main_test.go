@@ -21,6 +21,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/reservation"
+	runpkg "github.com/heridotlife/honryu/internal/domain/run" // aliased: this package's own run() is the local name
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/schedule"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
@@ -446,6 +447,100 @@ func TestFireOnce_DeployFailureDoesNotPanic(t *testing.T) {
 
 	if _, running, _ := store.CurrentRun(ctx, executionID); running {
 		t.Fatal("execution shows running despite Deploy failing (no test file)")
+	}
+}
+
+// Live finding, phase 16 task 170: fireOnce's first live fire against a real
+// cluster failed with "engines are not deployed" -- Deploy returning success
+// only means the StatefulSet was accepted, not that the pod is scheduled,
+// image-pulled, and running, and fireOnce called Trigger immediately after
+// with no wait at all. calibrationapp (triggerWhenReady, step.go) and the
+// HTTP trigger handler (phase 11 task 124) both already carry this exact
+// bounded wait; cmd/scheduler never got the same fix because honryu-scheduler
+// had never been deployed anywhere until this phase, so nothing had hit the
+// race in practice. Real cluster proof: both engine and sidecar images were
+// already cached (no pull needed) and Trigger still failed on the first
+// attempt -- this is not a rare edge case, it is the general case, since two
+// sequential Go calls will essentially always outrun pod scheduling.
+func TestTriggerWhenReady_RetriesOnlyTheReadinessRaceThenSucceeds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	executionID := seedDueExecution(t, store, obj, tenantID, 2)
+	now := time.Now()
+	_, lifecycle, sched := newTestServices(store, obj, now)
+
+	if err := lifecycle.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	// A just-deployed pod's startup, as a real cluster shows it (the fake's
+	// own doc comment) -- the first 2 readiness checks report not-yet-ready.
+	sched.NotReadyCalls = 2
+
+	if err := triggerWhenReady(ctx, lifecycle, executionID, time.Millisecond, 50*time.Millisecond); err != nil {
+		t.Fatalf("triggerWhenReady: %v, want it to retry past the readiness race", err)
+	}
+	if _, running, _ := store.CurrentRun(ctx, executionID); !running {
+		t.Fatal("execution not running after triggerWhenReady succeeded")
+	}
+}
+
+func TestTriggerWhenReady_TimesOutRatherThanRetryingForever(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	executionID := seedDueExecution(t, store, obj, tenantID, 2)
+	now := time.Now()
+	_, lifecycle, sched := newTestServices(store, obj, now)
+
+	if err := lifecycle.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	sched.NotReadyCalls = 1000 // never becomes ready within the bound below
+
+	err := triggerWhenReady(ctx, lifecycle, executionID, time.Millisecond, 20*time.Millisecond)
+	if !errors.Is(err, runpkg.ErrEnginesNotReady) && !errors.Is(err, runpkg.ErrNotDeployed) {
+		t.Fatalf("triggerWhenReady(never ready) = %v, want a readiness error surfaced at the deadline", err)
+	}
+}
+
+// Only the readiness-class conflicts are worth waiting out -- everything
+// else (already running, frozen campaign, quota, compile errors) must
+// return on the first attempt, exactly as a bare Trigger call already did.
+func TestTriggerWhenReady_NonReadinessErrorReturnsImmediately(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+	const tenantID = int64(7)
+	executionID := seedDueExecution(t, store, obj, tenantID, 2)
+	now := time.Now()
+	_, lifecycle, _ := newTestServices(store, obj, now)
+	// Deliberately not deployed and never will be within the tiny timeout --
+	// but the point is this returns on the FIRST attempt if the error is
+	// something other than the readiness pair. Not applicable here since
+	// ErrNotDeployed IS a readiness error; instead prove the fast path with
+	// a large timeout and a tiny elapsed-time budget: a non-readiness error
+	// (already running) must not consume any retry time at all.
+	if err := lifecycle.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if err := lifecycle.Trigger(ctx, executionID); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+
+	start := time.Now()
+	err := triggerWhenReady(ctx, lifecycle, executionID, time.Second, time.Minute)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("triggerWhenReady(already running) = nil, want the already-running error")
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("triggerWhenReady took %v for a non-readiness error, want an immediate return with no retry", elapsed)
 	}
 }
 

@@ -1,0 +1,21 @@
+{{- if .Values.grafana.enabled -}}
+# Lower-stakes than mysql/prometheus's PVCs -- dashboards, datasources, and
+# provisioning are all baked into the image and re-applied on every start
+# regardless of this volume's contents, and anonymous Viewer access (no real
+# user accounts) means little state actually depends on grafana.db surviving
+# a restart. Still pinned to the control-plane node for consistency with
+# every other stateful mount in this chart.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "honryu.fullname" . }}-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.grafana.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.size }}
+{{- end -}}

@@ -1,0 +1,63 @@
+{{- if .Values.grafana.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "honryu.fullname" . }}-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "honryu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "honryu.selectorLabels" (merge (dict "component" "grafana") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "honryu.selectorLabels" (merge (dict "component" "grafana") .) | nindent 8 }}
+    spec:
+      nodeSelector:
+        {{- toYaml .Values.statefulNodeSelector | nindent 8 }}
+      imagePullSecrets:
+        - name: {{ .Values.image.pullSecret }}
+      # fsGroup 472 matches the Dockerfile's own "chown -R 472:0" and the
+      # "grafana" user it runs as -- a freshly-provisioned PVC mounts
+      # root-owned otherwise, which the non-root grafana process can't
+      # write to.
+      securityContext:
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: "{{ .Values.image.registry }}/grafana:{{ .Values.image.grafana.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            # NOT /var/lib/grafana: the Dockerfile bakes dashboards into
+            # /var/lib/grafana/dashboards (grafana/provisioning/dashboards/
+            # all.yml's path:), and provisioning/{{ include "honryu.fullname" . }} into
+            # /etc/grafana/provisioning -- mounting a PVC at /var/lib/grafana
+            # itself would shadow the baked-in dashboards directory with an
+            # empty volume, and the provisioner would find nothing to load.
+            # A separate data directory keeps grafana.db (sessions, starred
+            # dashboards) persistent without hiding what the image ships.
+            - name: GF_PATHS_DATA
+              value: /var/lib/grafana-data
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.grafana.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana-data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "honryu.fullname" . }}-grafana
+{{- end -}}
