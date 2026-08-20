@@ -112,17 +112,22 @@ config:
   dbDriver: mysql
   scheduler: k8s
   defaultEngine: jmeter
-  # jmeter and k6 both pinned to their phase-11 "-2" tags (the KPI-reporter
-  # float-coercion fix); keeping both here is deliberate -- the live
-  # honryu-calibrator Deployment this chart replaces had drifted to a
-  # jmeter-only list (missing k6 entirely), which would have silently
-  # broken k6 calibration. One shared value keeps api and calibrator from
-  # drifting apart again.
+  # jmeter and k6 both on their "-3" tags: the "-2" builds carried setuptools
+  # 79.0.1 (CVE-2026-59890), which bzt pins exactly and which these rebuilds
+  # override to 84.0.0. A new tag rather than a rebuilt "-2" is the rule here,
+  # not caution -- phase 11's scar was a mutated image pushed under an
+  # unchanged tag serving a stale digest, because imagePullPolicy resolves by
+  # tag, not by content.
+  #
+  # Keeping both engines listed is deliberate -- the live honryu-calibrator
+  # Deployment this chart replaces had drifted to a jmeter-only list (missing
+  # k6 entirely), which would have silently broken k6 calibration. One shared
+  # value keeps api and calibrator from drifting apart again.
   # Split with an escaped line break (not a folded scalar, which would join
   # with a space and corrupt the comma-separated value HONRYU_ENGINE_IMAGES
   # parses). Verified the parsed string is byte-identical to the one-liner.
-  engineImages: "jmeter=registry.pve.heri.life/honryu/engine-jmeter:5.6.3-2,\
-    k6=registry.pve.heri.life/honryu/engine-k6:0.57.0-2"
+  engineImages: "jmeter=registry.pve.heri.life/honryu/engine-jmeter:5.6.3-3,\
+    k6=registry.pve.heri.life/honryu/engine-k6:0.57.0-3"
   deployContext: homelab
   logFormat: text
   storageRoot: /honryu-storage

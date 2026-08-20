@@ -13,6 +13,17 @@ spec:
       {{- include "honryu.selectorLabels" (merge (dict "component" "api") .) | nindent 6 }}
   template:
     metadata:
+      annotations:
+        # Roll the pods when the shared ConfigMap's contents change.
+        #
+        # Without this, `helm upgrade` updates the ConfigMap and stops there:
+        # envFrom injects values at pod start, so a running pod keeps the env
+        # it booted with and the change silently does not take effect. Found
+        # exactly that way on 2026-08-19 -- the ConfigMap read
+        # engine-jmeter:5.6.3-3 while the api process still had 5.6.3-2, so a
+        # new run would have deployed the old engine image while every pod
+        # reported healthy.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "honryu.selectorLabels" (merge (dict "component" "api") .) | nindent 8 }}
     spec:
