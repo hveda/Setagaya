@@ -218,6 +218,30 @@ components:
       type: object
       properties:
         message: { type: string }
+    Diagnostic:
+      type: object
+      description: |
+        One finding about a YAML document, anchored to the line it came from
+        where the parser could tell one. severity is error | warning | info.
+        line and col are 1-based positions, 0 when the finding has no
+        position (rendered as a document-level error). path names the field
+        for findings that have a field but no line.
+      properties:
+        severity: { type: string, enum: [error, warning, info] }
+        message: { type: string }
+        line: { type: integer }
+        col: { type: integer }
+        path: { type: string }
+    DiagnosticsError:
+      type: object
+      description: |
+        A rejected declarative-workload fragment: the same message contract
+        as Error, plus the reasons as line-anchored diagnostics.
+      properties:
+        message: { type: string }
+        diagnostics:
+          type: array
+          items: { $ref: '#/components/schemas/Diagnostic' }
     Project:
       type: object
       properties:
@@ -984,7 +1008,15 @@ paths:
                 type: object
                 properties:
                   message: { type: string }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400':
+          description: |
+            The fragment is invalid: malformed YAML, a type mismatch, or a
+            semantically broken document (no requests, a request with no
+            url). Carries line-anchored diagnostics so an editor can point
+            at the offending row.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiagnosticsError' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 

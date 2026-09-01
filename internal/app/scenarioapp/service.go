@@ -15,8 +15,6 @@ import (
 	"sort"
 	"strings"
 
-	yaml "gopkg.in/yaml.v3"
-
 	"github.com/heridotlife/honryu/internal/domain/jmx"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
@@ -253,6 +251,12 @@ func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename str
 //
 // raw is stored exactly as uploaded, not the re-marshaled struct: a caller's
 // YAML formatting, comments, and key order survive untouched.
+//
+// Validation is the one path in requestDiagnostics, shared with
+// ValidateRequests so validate and store cannot disagree. A rejected
+// fragment returns *InvalidRequestsError (wrapping ErrRequestsInvalid)
+// carrying line-anchored diagnostics; errors.Is against the sentinels is
+// unchanged for every existing caller.
 func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte) error {
 	sc, err := s.repo.GetScenario(ctx, scenarioID)
 	if err != nil {
@@ -261,19 +265,28 @@ func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte)
 	if sc.Kind != scenario.KindPortable {
 		return fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
 	}
-	var frag taurus.Scenario
-	if err := yaml.Unmarshal(raw, &frag); err != nil {
-		return fmt.Errorf("%w: %w", ErrRequestsInvalid, err)
-	}
-	if len(frag.Requests) == 0 {
-		return fmt.Errorf("%w: at least one request is required", ErrRequestsInvalid)
-	}
-	for i, req := range frag.Requests {
-		if req.URL == "" {
-			return fmt.Errorf("%w: request %d has no url", ErrRequestsInvalid, i)
-		}
+	if diags := requestDiagnostics(raw); diags != nil {
+		return &InvalidRequestsError{Diagnostics: diags, Err: ErrRequestsInvalid}
 	}
 	return s.repo.SetScenarioRequests(ctx, scenarioID, raw)
+}
+
+// ValidateRequests validates a fragment without storing it: the same checks
+// SetRequests runs, with the same results expressed as line-anchored
+// diagnostics instead of a wrapped yaml error. Scenario existence and kind
+// are checked first, exactly as SetRequests checks them, so a fragment this
+// method accepts is one SetRequests would store, and the errors it reports
+// match what the store path would report (ports.ErrNotFound,
+// ErrScenarioNotPortable).
+func (s *Service) ValidateRequests(ctx context.Context, scenarioID int64, raw []byte) ([]Diagnostic, error) {
+	sc, err := s.repo.GetScenario(ctx, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	if sc.Kind != scenario.KindPortable {
+		return nil, fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
+	}
+	return requestDiagnostics(raw), nil
 }
 
 // Requests returns a portable scenario's stored requests fragment exactly as

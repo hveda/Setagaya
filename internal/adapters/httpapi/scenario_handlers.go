@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"mime"
@@ -184,6 +185,14 @@ func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.deps.Scenarios.SetRequests(r.Context(), id, raw); err != nil {
+		// A rejected fragment carries line-anchored diagnostics so the
+		// editor can point at the broken row. Any other failure (unknown
+		// scenario, native scenario) keeps writeError's envelope.
+		var inv *scenarioapp.InvalidRequestsError
+		if errors.As(err, &inv) {
+			writeDiagnostics(w, http.StatusBadRequest, inv.Err.Error(), inv.Diagnostics)
+			return
+		}
 		respondError(w, err)
 		return
 	}
