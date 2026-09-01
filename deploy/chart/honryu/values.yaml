@@ -208,13 +208,33 @@ grafana:
     readOnlyRootFilesystem: true
     capabilities:
       drop: ["ALL"]
+  # Sized for what this Grafana build actually is, not for what a Grafana
+  # used to cost. The image runs Grafana 12's unified-storage stack -- an
+  # embedded apiserver, a resource server, bleve search indexes held in
+  # memory, an alerting scheduler and three concurrent job drivers -- and
+  # that baseline does not fit in 256Mi.
+  #
+  # It looked fine for eleven days because a *warm* process sat just under
+  # the ceiling. The 2026-08-30 node reboot forced a cold start, which has
+  # to rebuild every index at once, and the pod never got back out:
+  # memory.current pinned at 99.85% of the limit with memory.events "max"
+  # at 3.2 million, so the kernel reclaimed SQLite's page cache on every
+  # allocation and each grafana.db read went to disk; cpu.stat showed
+  # 2020818 of 2029006 periods throttled (99.6%) against the 500m limit.
+  # The tell was system_usec running 175x user_usec -- essentially all CPU
+  # spent in reclaim rather than in Grafana. The same bleve index that
+  # built in 431us before the reboot took 24m23s after it.
+  #
+  # Nothing had grown: grafana.db is 1.6MB and the dashboards 84K. Do not
+  # "reclaim" this memory on the grounds that the data is small -- the
+  # floor here is the server, not the data.
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
+      cpu: 100m
+      memory: 384Mi
     limits:
-      cpu: 500m
-      memory: 256Mi
+      cpu: "1"
+      memory: 1Gi
 
 prometheus:
   enabled: false
