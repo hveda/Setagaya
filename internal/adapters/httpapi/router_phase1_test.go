@@ -375,3 +375,83 @@ func TestGetScenarioRequests(t *testing.T) {
 		t.Fatalf("unknown scenario status = %d, want 404", rec.Code)
 	}
 }
+
+// TestSetScenarioRequestsRawYAML covers the raw text/yaml body on the PUT:
+// the bytes are stored verbatim, a G2 -> G3 -> G2 round trip returns them
+// byte-identical (comments, key order, unmodelled keys), and multipart
+// uploads keep working unchanged.
+func TestSetScenarioRequestsRawYAML(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project = %d (%s)", rec.Code, rec.Body.String())
+	}
+	rec = postForm(t, h, "/api/scenarios", url.Values{"name": {"checkout"}, "project_id": {"1"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create scenario = %d (%s)", rec.Code, rec.Body.String())
+	}
+	scenarioID := strconv.FormatInt(decodeID(t, rec), 10)
+	url := "/api/scenarios/" + scenarioID + "/requests"
+
+	// Raw body with every byte-preservation trap: leading comment, unusual
+	// key order, inline comment, unmodelled key, trailing newline.
+	fragment := "# operator notes: bump think-time after warmup\n" +
+		"think-time: 1.5s\n" +
+		"default-address: https://target.local\n" +
+		"requests:\n" +
+		"- url: /login\n" +
+		"  method: POST\n" +
+		"- url: /cart\n"
+	req := httptest.NewRequest(http.MethodPut, url, strings.NewReader(fragment))
+	req.Header.Set("Content-Type", "text/yaml; charset=utf-8")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("raw put = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Round trip through G2: byte-identical, including the trailing newline.
+	rec = do(t, h, http.MethodGet, url)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != fragment {
+		t.Fatalf("round trip not byte-identical:\n got: %q\nwant: %q", got, fragment)
+	}
+
+	// application/x-yaml is accepted too.
+	alt := "requests:\n- url: /alt\n"
+	req = httptest.NewRequest(http.MethodPut, url, strings.NewReader(alt))
+	req.Header.Set("Content-Type", "application/x-yaml")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("x-yaml put = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got := do(t, h, http.MethodGet, url).Body.String(); got != alt {
+		t.Fatalf("x-yaml round trip = %q, want %q", got, alt)
+	}
+
+	// Multipart still works unchanged (the pre-existing path).
+	mp := putMultipart(t, h, url, "requests.yaml", "requests:\n- url: /multipart\n")
+	if mp.Code != http.StatusOK {
+		t.Fatalf("multipart put = %d (%s)", mp.Code, mp.Body.String())
+	}
+	want := "requests:\n- url: /multipart\n"
+	if got := do(t, h, http.MethodGet, url).Body.String(); got != want {
+		t.Fatalf("multipart round trip = %q, want %q", got, want)
+	}
+
+	// Semantically invalid YAML via the raw path is rejected with the same
+	// error semantics as the multipart path.
+	bad := "requests: []"
+	req = httptest.NewRequest(http.MethodPut, url, strings.NewReader(bad))
+	req.Header.Set("Content-Type", "text/yaml")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty-requests put = %d (%s), want 400", rec.Code, rec.Body.String())
+	}
+}

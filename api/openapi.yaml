@@ -958,10 +958,16 @@ paths:
         engine-native scenario (pinned by an uploaded script) rejects this
         with a conflict, since it runs its script instead and would never
         read a stored fragment. Replaces whatever was uploaded before in
-        full -- there is no partial patch.
+        full -- there is no partial patch. Two body forms are accepted: a
+        raw text/yaml body, stored byte-for-byte (comments and key order
+        included), or the original multipart file upload, unchanged.
       requestBody:
         required: true
         content:
+          text/yaml:
+            schema: { type: string }
+          application/x-yaml:
+            schema: { type: string }
           multipart/form-data:
             schema:
               type: object

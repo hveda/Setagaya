@@ -3,6 +3,7 @@ package httpapi
 import (
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -161,9 +162,12 @@ func (h *handlers) uploadScenarioFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "uploaded"})
 }
 
-// setScenarioRequests uploads a portable scenario's declarative workload, as
-// the raw bytes of a Taurus `scenarios:` fragment -- scenarioapp.SetRequests
-// does the parsing and validation, so this handler only moves bytes.
+// setScenarioRequests uploads a portable scenario's declarative workload.
+// Two bodies are accepted: a raw text/yaml (or application/x-yaml) request
+// body -- the editor's path, byte-preserving by construction -- and the
+// original multipart file upload, which keeps working unchanged.
+// scenarioapp.SetRequests does the parsing and validation, so this handler
+// only moves bytes.
 func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
@@ -174,13 +178,7 @@ func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	file, _, err := parseUpload(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid file upload")
-		return
-	}
-	defer func() { _ = file.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(file, maxUploadBytes))
+	raw, err := readRequestsBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read requests")
 		return
@@ -190,6 +188,44 @@ func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "requests stored"})
+}
+
+// readRequestsBody extracts the fragment bytes from either a raw YAML body or
+// a multipart upload. The media type decides: text/yaml and
+// application/x-yaml read the body verbatim (byte-preserving by
+// construction); anything else goes through the multipart path. A body that
+// is neither is rejected by the multipart parse failing.
+func readRequestsBody(r *http.Request) ([]byte, error) {
+	switch ct := mediaType(r); ct {
+	case "text/yaml", "application/x-yaml", "text/x-yaml":
+		r.Body = http.MaxBytesReader(nil, r.Body, maxUploadBytes)
+		raw, err := io.ReadAll(r.Body) // #nosec G120 -- body bounded above
+		if err != nil {
+			return nil, err
+		}
+		return raw, nil
+	default:
+		file, _, err := parseUpload(r)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = file.Close() }()
+		return io.ReadAll(io.LimitReader(file, maxUploadBytes))
+	}
+}
+
+// mediaType parses the Content-Type header down to its bare type/subtype,
+// lower-cased, parameters stripped. Empty header yields "".
+func mediaType(r *http.Request) string {
+	ct := r.Header.Get("Content-Type")
+	if ct == "" {
+		return ""
+	}
+	base, _, err := mime.ParseMediaType(ct)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(base)
 }
 
 // getScenarioRequests returns a portable scenario's stored fragment exactly
