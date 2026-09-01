@@ -21,6 +21,12 @@ type ExecutionRepository interface {
 	// removable while it is generating load. An empty result means none.
 	ExecutionsWithActiveRunOnCluster(ctx context.Context, cluster string) ([]int64, error)
 
+	// ListExecutionsByProjects returns every execution belonging to any of
+	// projectIDs, newest first by creation time, so an operator's execution
+	// list reads like a history. An empty projectIDs slice returns an empty
+	// result and no error -- the same convention ListProjectsByOwners keeps.
+	ListExecutionsByProjects(ctx context.Context, projectIDs []int64) ([]execution.Execution, error)
+
 	AddExecutionFile(ctx context.Context, executionID int64, filename string) error
 	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
 	DeleteExecutionFile(ctx context.Context, executionID int64, filename string) error

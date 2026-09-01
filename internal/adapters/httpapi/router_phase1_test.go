@@ -216,3 +216,65 @@ func TestConfigUpload_EngineLimit_400(t *testing.T) {
 }
 
 func itoa(v int64) string { return strconv.FormatInt(v, 10) }
+
+// TestListExecutions covers GET /api/executions: only the caller's projects'
+// executions come back, newest first, and an operator with no projects sees
+// an empty list rather than every execution.
+func TestListExecutions(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	// One visible project with three executions; ordering is what the list
+	// contract pins here (scoping itself is pinned at the repository
+	// contract, which runs against the fake and real MySQL alike).
+	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	mkExec := func(name string) int64 {
+		rec := postForm(t, h, "/api/executions", url.Values{"name": {name}, "project_id": {"1"}})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create execution %q = %d (%s)", name, rec.Code, rec.Body.String())
+		}
+		return decodeID(t, rec)
+	}
+	first := mkExec("first")
+	mkExec("middle")
+	last := mkExec("last")
+
+	rec = do(t, h, http.MethodGet, "/api/executions")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got []struct {
+		ID        int64  `json:"id"`
+		Name      string `json:"name"`
+		ProjectID int64  `json:"project_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body: %v (%s)", err, rec.Body.String())
+	}
+	if len(got) != 3 {
+		t.Fatalf("executions = %+v, want all three in newest-first order", got)
+	}
+	if got[0].ID != last || got[2].ID != first {
+		t.Fatalf("order = [%d %d %d], want newest first (last, middle, first)", got[0].ID, got[1].ID, got[2].ID)
+	}
+
+	// Empty ownership: no visible projects, empty list -- never a 500 or a
+	// full dump. (Router built with a different owner set.)
+	emptyRouter := httpapi.NewRouter(httpapi.Deps{
+		Projects:      projectapp.NewService(fake.NewStore()),
+		Executions:    executionapp.NewService(fake.NewStore(), fake.NewObjectStore(), 100),
+		DefaultOwners: []string{"nobody"},
+	})
+	rec = do(t, emptyRouter, http.MethodGet, "/api/executions")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty status = %d", rec.Code)
+	}
+	var none []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &none); err != nil || len(none) != 0 {
+		t.Fatalf("empty list = %v err=%v, want []", none, err)
+	}
+}

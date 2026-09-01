@@ -328,6 +328,55 @@ func RunExecutionRepositoryContract(t *testing.T, newRepo NewRepo) {
 		}
 	})
 
+	// ListExecutionsByProjects is the operator listing: every execution of
+	// every visible project, newest first, regardless of which project any
+	// single execution belongs to. An empty project list must widen to
+	// nothing, not to everything -- that is the scoping guard.
+	t.Run("ListExecutionsByProjectsNewestFirst", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		first := mustCreateExecution(t, repo, "first", 10)
+		mustCreateExecution(t, repo, "other-project", 99)
+		last := mustCreateExecution(t, repo, "last", 10)
+
+		// One project: only that project's executions.
+		proj10, err := repo.ListExecutionsByProjects(ctx, []int64{10})
+		if err != nil {
+			t.Fatalf("ListExecutionsByProjects([10]): %v", err)
+		}
+		if len(proj10) != 2 || proj10[0].ID != last || proj10[1].ID != first {
+			t.Fatalf("ListExecutionsByProjects([10]) = %v, want [last first] newest-first", idsOf(proj10))
+		}
+
+		// Both projects, explicit: everything, still newest first.
+		both, err := repo.ListExecutionsByProjects(ctx, []int64{10, 99})
+		if err != nil {
+			t.Fatalf("ListExecutionsByProjects([10,99]): %v", err)
+		}
+		if len(both) != 3 || both[0].ID != last || both[2].ID != first {
+			t.Fatalf("ListExecutionsByProjects([10,99]) = %v, want [last other first]", idsOf(both))
+		}
+
+		// Unused project: empty result, not an error.
+		empty, err := repo.ListExecutionsByProjects(ctx, []int64{77})
+		if err != nil {
+			t.Fatalf("ListExecutionsByProjects([77]): %v", err)
+		}
+		if len(empty) != 0 {
+			t.Fatalf("ListExecutionsByProjects([77]) = %v, want empty", idsOf(empty))
+		}
+
+		// Empty project list widens to nothing, never to every execution.
+		none, err := repo.ListExecutionsByProjects(ctx, nil)
+		if err != nil {
+			t.Fatalf("ListExecutionsByProjects(nil): %v", err)
+		}
+		if len(none) != 0 {
+			t.Fatalf("ListExecutionsByProjects(nil) = %v, want empty", idsOf(none))
+		}
+	})
+
 	// A CalibrateEngine execution pins its pod size -- both round-trip
 	// exactly, distinct from a Normal execution's own empty defaults.
 	t.Run("CalibrateEngineKindAndPinnedResourcesRoundTrip", func(t *testing.T) {
@@ -660,6 +709,14 @@ func mustCreateScenario(t *testing.T, repo Repository, name string, projectID in
 		t.Fatalf("CreateScenario %q: %v", name, err)
 	}
 	return id
+}
+
+func idsOf(es []execution.Execution) []int64 {
+	out := make([]int64, len(es))
+	for i, e := range es {
+		out[i] = e.ID
+	}
+	return out
 }
 
 func mustCreateExecution(t *testing.T, repo Repository, name string, projectID int64) int64 {
