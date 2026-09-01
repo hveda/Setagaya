@@ -276,6 +276,26 @@ func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte)
 	return s.repo.SetScenarioRequests(ctx, scenarioID, raw)
 }
 
+// Requests returns a portable scenario's stored requests fragment exactly as
+// it was uploaded -- byte-for-byte, comments and key order included. It is
+// the load half of the editor round trip; SetRequests is the save half.
+// ports.ErrNotFound means nothing was ever uploaded. A native scenario is
+// ErrScenarioNotPortable -- the same stance SetRequests takes, so load and
+// save cannot disagree about what a scenario kind accepts.
+func (s *Service) Requests(ctx context.Context, scenarioID int64) ([]byte, error) {
+	// Scenario existence and kind are checked first: a native scenario must
+	// 409 (not 404) even though it also has no fragment, and an unknown
+	// scenario must 404 rather than leak whether a fragment exists.
+	sc, err := s.repo.GetScenario(ctx, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	if sc.Kind != scenario.KindPortable {
+		return nil, fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
+	}
+	return s.repo.GetScenarioRequests(ctx, scenarioID)
+}
+
 // ScenarioFingerprint returns a deterministic hash over a scenario's actual
 // content: its uploaded files (test file plus data, sorted by filename) and
 // its declarative requests fragment, if any. Identical content -- including

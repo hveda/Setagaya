@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -189,6 +190,32 @@ func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "requests stored"})
+}
+
+// getScenarioRequests returns a portable scenario's stored fragment exactly
+// as uploaded -- raw text/yaml, not JSON-wrapped -- so the editor can
+// round-trip what it edits. 404 when nothing has ever been uploaded; 409
+// for a non-portable scenario, matching SetRequests' own stance.
+func (h *handlers) getScenarioRequests(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "scenario_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
+		return
+	}
+	if err := h.authorizeScenario(r, id); err != nil {
+		respondError(w, err)
+		return
+	}
+	raw, err := h.deps.Scenarios.Requests(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(raw); err != nil {
+		slog.Error("httpapi: failed to write requests fragment", "error", err)
+	}
 }
 
 func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {

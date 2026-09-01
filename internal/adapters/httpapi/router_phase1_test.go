@@ -278,3 +278,100 @@ func TestListExecutions(t *testing.T) {
 		t.Fatalf("empty list = %v err=%v, want []", none, err)
 	}
 }
+
+// TestGetScenarioRequests covers GET /api/scenarios/{id}/requests: the
+// fragment comes back byte-for-byte as text/yaml, 404 when nothing was ever
+// uploaded, and 409 for a native scenario.
+func TestGetScenarioRequests(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	// Project + portable scenario.
+	rec := postForm(t, h, "/api/projects", url.Values{"name": {"web"}, "owner": {"honryu"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project = %d (%s)", rec.Code, rec.Body.String())
+	}
+	rec = postForm(t, h, "/api/scenarios", url.Values{"name": {"checkout"}, "project_id": {"1"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create scenario = %d (%s)", rec.Code, rec.Body.String())
+	}
+	scenarioID := decodeID(t, rec)
+
+	// Nothing uploaded yet -> 404.
+	if rec := do(t, h, http.MethodGet, "/api/scenarios/"+strconv.FormatInt(scenarioID, 10)+"/requests"); rec.Code != http.StatusNotFound {
+		t.Fatalf("no-upload status = %d (%s), want 404", rec.Code, rec.Body.String())
+	}
+
+	// Upload a fragment with a comment, unusual key order, and an unmodelled
+	// key -- exactly what a byte-preserving round trip must keep.
+	fragment := "# hand-written header comment\n" +
+		"think-time: 2s  # unmodelled key\n" +
+		"default-address: http://target.local\n" +
+		"requests:\n" +
+		"- url: /cart\n" +
+		"  method: POST\n"
+	if rec := putMultipart(t, h, "/api/scenarios/"+strconv.FormatInt(scenarioID, 10)+"/requests", "requests.yaml", fragment); rec.Code != http.StatusOK {
+		t.Fatalf("upload = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Fetch: byte-identical, text/yaml content type.
+	rec = do(t, h, http.MethodGet, "/api/scenarios/"+strconv.FormatInt(scenarioID, 10)+"/requests")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("fetch = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/yaml") {
+		t.Fatalf("Content-Type = %q, want text/yaml", ct)
+	}
+	if rec.Body.String() != fragment {
+		t.Fatalf("round trip not byte-identical:\n got: %q\nwant: %q", rec.Body.String(), fragment)
+	}
+
+	// Native scenario -> 409, same stance as the PUT (import is multipart).
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", "plan.jmx")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	plan := `<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Checkout journey" enabled="true"/>
+    <hashTree/>
+  </hashTree>
+</jmeterTestPlan>`
+	if _, err := fw.Write([]byte(plan)); err != nil {
+		t.Fatalf("write jmx: %v", err)
+	}
+	if err := mw.WriteField("project_id", "1"); err != nil {
+		t.Fatalf("write field: %v", err)
+	}
+	if err := mw.WriteField("name", "native-one"); err != nil {
+		t.Fatalf("write name: %v", err)
+	}
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/scenarios/import", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("import = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var importRes struct {
+		Scenario struct {
+			ID int64 `json:"id"`
+		} `json:"scenario"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &importRes); err != nil {
+		t.Fatalf("decode import response: %v (%s)", err, rec.Body.String())
+	}
+	nativeID := importRes.Scenario.ID
+	if rec := do(t, h, http.MethodGet, "/api/scenarios/"+strconv.FormatInt(nativeID, 10)+"/requests"); rec.Code != http.StatusConflict {
+		t.Fatalf("native fetch status = %d (%s), want 409", rec.Code, rec.Body.String())
+	}
+
+	// Unknown scenario -> 404.
+	if rec := do(t, h, http.MethodGet, "/api/scenarios/424242/requests"); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown scenario status = %d, want 404", rec.Code)
+	}
+}

@@ -931,6 +931,23 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/scenarios/{scenario_id}/requests:
+    get:
+      tags: [scenarios]
+      summary: Get a portable scenario's stored declarative workload
+      description: |
+        The stored Taurus `scenarios:` fragment, byte-for-byte as uploaded --
+        comments, key order and unmodelled keys included. Served as raw
+        text/yaml, not JSON-wrapped. 404 when nothing has ever been uploaded;
+        conflict for a non-portable (engine-native) scenario.
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: The stored fragment
+          content:
+            text/yaml:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
     put:
       tags: [scenarios]
       summary: Upload a portable scenario's declarative workload
