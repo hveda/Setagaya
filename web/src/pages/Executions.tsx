@@ -38,7 +38,12 @@ export default function Executions() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Executions</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Executions</h1>
+        <Link to="/executions/new" className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400">
+          + New test
+        </Link>
+      </div>
       {executions === null ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : executions.length === 0 ? (
