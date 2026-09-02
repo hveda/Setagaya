@@ -663,3 +663,86 @@ func TestScenarioFingerprint_RequestsLookupErrorPropagates(t *testing.T) {
 		t.Fatal("ScenarioFingerprint = nil error, want the GetScenarioRequests failure to propagate")
 	}
 }
+
+// G6: keys taurus.Scenario does not model (think-time is the canonical
+// example) must be reported as severity info -- stored but not compiled and
+// will not affect the run -- never as errors, and the document must still
+// validate and still store. compileScenario builds a fresh taurus.Scenario
+// from modelled fields only, so "passes through" would be the exact inverse
+// of the truth; the wording below is asserted.
+func TestUncompiledKeys_ReportAsInfoAndStillStore(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - url: /checkout\n")
+
+	// Validate: accepted, with an info diagnostic carrying the wording.
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a document with an uncompiled key: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 info", len(diags), diags)
+	}
+	d := diags[0]
+	if d.Severity != scenarioapp.SeverityInfo {
+		t.Errorf("severity = %q, want info (never an error)", d.Severity)
+	}
+	if d.Line != 1 {
+		t.Errorf("line = %d, want 1 (think-time is the first line)", d.Line)
+	}
+	if !strings.Contains(d.Message, "stored but not compiled and will not affect the run") {
+		t.Errorf("message %q must state the key is stored but not compiled and will not affect the run", d.Message)
+	}
+	if strings.Contains(d.Message, "pass") {
+		t.Errorf("message %q must not claim the key passes through", d.Message)
+	}
+
+	// Store: the document still stores, byte-for-byte, info diags or not.
+	if err := svc.SetRequests(ctx, p.ID, raw); err != nil {
+		t.Fatalf("SetRequests rejected a document with an uncompiled key: %v", err)
+	}
+	got, err := store.GetScenarioRequests(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetScenarioRequests: %v", err)
+	}
+	if string(got) != string(raw) {
+		t.Errorf("stored = %q, want %q byte-for-byte", got, raw)
+	}
+}
+
+// A fragment with only modelled keys validates with zero diagnostics -- the
+// info path must not invent findings.
+func TestUncompiledKeys_NoneWhenAllModelled(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Errorf("diagnostics = %v, want none for a fully-modelled fragment", diags)
+	}
+}
+
+// A fragment with BOTH an uncompiled key and a real error (no url) must be
+// rejected -- unknown-key info must never mask a genuine rejection.
+func TestUncompiledKeys_ErrorStillRejects(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - label: broken\n")
+	_, err := svc.ValidateRequests(ctx, p.ID, raw)
+	var inv *scenarioapp.InvalidRequestsError
+	if !errors.As(err, &inv) {
+		t.Fatalf("ValidateRequests = %v, want InvalidRequestsError (info must not mask the missing url)", err)
+	}
+}

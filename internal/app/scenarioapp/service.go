@@ -289,7 +289,10 @@ func (s *Service) ValidateRequests(ctx context.Context, scenarioID int64, raw []
 	if diags := requestDiagnostics(raw); diags != nil {
 		return nil, &InvalidRequestsError{Diagnostics: diags, Err: ErrRequestsInvalid}
 	}
-	return nil, nil
+	// G6: informational findings ride the 200 -- keys taurus.Scenario does
+	// not model are stored exactly as uploaded but never reach the engine.
+	// They never block storing and never appear on the store path.
+	return uncompiledKeyDiagnostics(raw), nil
 }
 
 // Requests returns a portable scenario's stored requests fragment exactly as

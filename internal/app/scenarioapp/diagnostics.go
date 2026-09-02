@@ -7,6 +7,7 @@ package scenarioapp
 // their document against the schema by hand.
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"regexp"
@@ -145,4 +146,80 @@ func requestDiagnostics(raw []byte) []Diagnostic {
 		}
 	}
 	return out
+}
+
+// uncompiledKeysMessage is G6's wording contract: the key is PERSISTED (the
+// fragment is stored byte-for-byte, think-time included) but compileScenario
+// (compile.go) builds a fresh taurus.Scenario from modelled fields only, so
+// an unmodelled key never reaches the engine. Earlier phrasing claimed the
+// opposite ("passes through to the run") -- a test asserts this wording.
+const uncompiledKeysMessage = "this key is stored but not compiled and will not affect the run"
+
+// uncompiledKeyDiagnostics reports top-level keys taurus.Scenario does not
+// model, as severity info. A second decode with KnownFields(true) does the
+// detection: unknown fields come back as TypeError entries with their line
+// numbers, which the same anchoring logic the error path uses can parse.
+// The fragment is NOT invalid -- ValidateRequests adds these to a 200 with
+// valid:true, and SetRequests stores the document unchanged.
+func uncompiledKeyDiagnostics(raw []byte) []Diagnostic {
+	var frag taurus.Scenario
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(&frag); err == nil {
+		return nil // every key is modelled
+	} else if !isUnknownFieldErr(err) {
+		return nil // a real parse/type error: the error path reports it
+	}
+	var typeErr *yaml.TypeError
+	_ = errors.As(isUnknownFieldErrSource(raw), &typeErr)
+	var out []Diagnostic
+	dec2 := yaml.NewDecoder(bytes.NewReader(raw))
+	dec2.KnownFields(true)
+	err2 := dec2.Decode(&frag)
+	if !errors.As(err2, &typeErr) {
+		return nil
+	}
+	for _, msg := range typeErr.Errors {
+		if !strings.Contains(msg, "field") {
+			continue
+		}
+		line, rest := 0, msg
+		if m := linePrefix.FindStringSubmatchIndex(msg); m != nil {
+			line, _ = strconv.Atoi(msg[m[2]:m[3]])
+			rest = strings.TrimSpace(msg[m[1]:])
+		}
+		rest = strings.TrimPrefix(rest, "field ")
+		rest = strings.TrimPrefix(rest, "not found in type ")
+		out = append(out, Diagnostic{
+			Severity: SeverityInfo,
+			Message:  rest + ": " + uncompiledKeysMessage,
+			Line:     line,
+		})
+	}
+	return out
+}
+
+// isUnknownFieldErr reports whether err is solely about unknown fields. If
+// the document ALSO has type errors, the strict decode fails for both
+// reasons and we let the ordinary error path handle the report; unknown-key
+// info must never mask, or be masked by, a real rejection.
+func isUnknownFieldErr(err error) bool {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return false
+	}
+	for _, msg := range typeErr.Errors {
+		if !strings.Contains(msg, "field") {
+			return false
+		}
+	}
+	return len(typeErr.Errors) > 0
+}
+
+// isUnknownFieldErrSource re-runs the strict decode and returns its error.
+func isUnknownFieldErrSource(raw []byte) error {
+	var frag taurus.Scenario
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	return dec.Decode(&frag)
 }
