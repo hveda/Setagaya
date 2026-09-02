@@ -40,6 +40,13 @@ type ScenarioInput struct {
 	DefaultAddress string
 	// Requests is the workload of a portable scenario.
 	Requests []taurus.Request
+	// Headers, Timeout and KeepAlive are a portable scenario's own fragment
+	// settings, carried through to the engine. They merge beneath the
+	// execution-level Input.Headers so telemetry's trace-context headers
+	// win on collision (see compileScenario).
+	Headers   map[string]string
+	Timeout   taurus.Duration
+	KeepAlive *bool
 	// DataPaths are CSV data files mounted for the scenario.
 	DataPaths []string
 }
@@ -145,11 +152,28 @@ func compileScenario(si ScenarioInput, headers map[string]string) (taurus.Scenar
 			reqs[i].Label = requestLabel(si.Scenario, reqs[i], i)
 		}
 	}
+	// The fragment's own headers merge BENEATH the execution-level headers:
+	// telemetry's traceparent and baggage must win on collision, or the
+	// fragment could silently break trace correlation for the whole run.
+	// Both sources empty -> nil, keeping the "no headers compile to none"
+	// invariant (and omitempty's clean YAML).
+	var merged map[string]string
+	if len(si.Headers)+len(headers) > 0 {
+		merged = make(map[string]string, len(si.Headers)+len(headers))
+		for k, v := range si.Headers {
+			merged[k] = v
+		}
+		for k, v := range headers {
+			merged[k] = v
+		}
+	}
 	return taurus.Scenario{
 		DefaultAddress: si.DefaultAddress,
-		Headers:        headers,
+		Headers:        merged,
 		Requests:       reqs,
 		DataSources:    dataSources(si.DataPaths),
+		Timeout:        si.Timeout,
+		KeepAlive:      si.KeepAlive,
 	}, nil
 }
 

@@ -49,6 +49,54 @@ func mustScenario(name string) scenario.Scenario {
 	return s
 }
 
+// TestTaurus_FragmentHeadersTelemetryWins is G8's focused collision test:
+// the compiled scenario's headers must carry the fragment's X-Auth, the
+// execution's traceparent and baggage, and NOT the fragment's traceparent.
+// The golden fixture pins the whole YAML; this pins the semantics in a
+// failure message a human can read.
+func TestTaurus_FragmentHeadersTelemetryWins(t *testing.T) {
+	t.Parallel()
+	in := portableInput()
+	in.Headers = map[string]string{
+		"traceparent": "00-telemetry-wins-01",
+		"baggage":     "run-id=7",
+	}
+	keepalive := false
+	si := in.Scenarios[11]
+	si.Headers = map[string]string{
+		"traceparent": "00-fragment-loses-01",
+		"X-Auth":      "fragment-token",
+	}
+	si.Timeout = taurus.Duration(90 * 1e9)
+	si.KeepAlive = &keepalive
+	in.Scenarios[11] = si
+
+	cfg, err := compile.Taurus(in)
+	if err != nil {
+		t.Fatalf("Taurus: %v", err)
+	}
+	key := "checkout-11"
+	ts, ok := cfg.Scenarios[key]
+	if !ok {
+		t.Fatalf("scenario %q missing from compiled config: %v", key, cfg.Scenarios)
+	}
+	if got := ts.Headers["traceparent"]; got != "00-telemetry-wins-01" {
+		t.Errorf("traceparent = %q, telemetry must win the collision", got)
+	}
+	if got := ts.Headers["baggage"]; got != "run-id=7" {
+		t.Errorf("baggage = %q, want the execution-level value", got)
+	}
+	if got := ts.Headers["X-Auth"]; got != "fragment-token" {
+		t.Errorf("X-Auth = %q, fragment headers must survive the merge", got)
+	}
+	if ts.Timeout != taurus.Duration(90*1e9) {
+		t.Errorf("timeout = %v, want the fragment's 90s", ts.Timeout)
+	}
+	if ts.KeepAlive == nil || *ts.KeepAlive != false {
+		t.Errorf("keepalive = %v, want the fragment's false", ts.KeepAlive)
+	}
+}
+
 func mustNativeScenario(name string, engine taurus.Executor) scenario.Scenario {
 	s, err := scenario.NewNative(name, 3, engine)
 	if err != nil {
@@ -103,6 +151,31 @@ func TestTaurus_Golden(t *testing.T) {
 				in.Profile.Tests = append(in.Profile.Tests, loadprofile.Entry{
 					ScenarioID: 12, Concurrency: 10, Rampup: 5, Duration: 60, Engines: 1,
 				})
+				return in
+			},
+		},
+		{
+			// G8: the fragment's own headers/timeout/keepalive must reach
+			// the engine, and the execution-level telemetry headers
+			// (traceparent, baggage) must win the collision with the
+			// fragment's traceparent while the rest of the fragment's
+			// headers survive.
+			"fragment_settings_telemetry_wins",
+			func() compile.Input {
+				in := portableInput()
+				in.Headers = map[string]string{
+					"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+					"baggage":     "run-id=7",
+				}
+				keepalive := true
+				si := in.Scenarios[11]
+				si.Headers = map[string]string{
+					"traceparent": "00-fragment-should-lose-this-collision-01",
+					"X-Auth":      "fragment-token",
+				}
+				si.Timeout = taurus.Duration(90 * 1e9)
+				si.KeepAlive = &keepalive
+				in.Scenarios[11] = si
 				return in
 			},
 		},
