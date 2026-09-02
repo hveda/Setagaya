@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { engineShortfall, phaseControls } from './Execution';
+import { engineShortfall, outcomeBadge, phaseControls, shortTime } from './Execution';
 
 // R2's control matrix: which actions the hub offers per phase, and when
 // trigger unlocks (only once every engine is reachable). This is the
@@ -36,5 +36,27 @@ describe('engineShortfall', () => {
     expect(engineShortfall({ engines: 3, engines_deployed: 3 })).toBe(0);
     expect(engineShortfall({ engines: 3, engines_deployed: 4 })).toBe(0);
     expect(engineShortfall({ engines: 3, engines_deployed: 1 })).toBe(2);
+  });
+});
+
+// R3: report rows and log tails.
+describe('outcomeBadge', () => {
+  it('maps every outcome to a non-empty class string', () => {
+    for (const outcome of ['passed', 'failed', 'aborted', 'error'] as const) {
+      expect(outcomeBadge(outcome)).toMatch(/bg-/);
+    }
+    // passed and failed must color differently -- the whole point of a badge.
+    expect(outcomeBadge('passed')).not.toBe(outcomeBadge('failed'));
+    expect(outcomeBadge('aborted')).not.toBe(outcomeBadge('error'));
+  });
+});
+
+describe('shortTime', () => {
+  it('formats an ISO timestamp as MM-DD HH:mm', () => {
+    expect(shortTime('2026-09-02T10:05:00Z')).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+
+  it('passes through garbage unchanged (no crash on odd server data)', () => {
+    expect(shortTime('not-a-date')).toBe('not-a-date');
   });
 });

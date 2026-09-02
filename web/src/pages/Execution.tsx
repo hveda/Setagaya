@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { ApiError } from '../api/client';
-import { getExecutionInfo, getExecutionStatus, streamExecutionMetrics } from '../api/status';
+import { getExecutionInfo, getExecutionStatus, getScenarioPodLog, streamExecutionMetrics } from '../api/status';
+import { listExecutionReports, type Report } from '../api/reports';
 import type { EngineMetric, ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
 import { deployExecution, purgeExecution, stopExecution, triggerExecution } from '../api/lifecycle';
 import ClusterBadge from '../components/ui/ClusterBadge';
@@ -114,6 +115,30 @@ export function phaseControls(phase: Phase | null, enginesReachable: boolean): A
   }
 }
 
+/** Outcome-to-color mapping for the report rows. */
+export function outcomeBadge(outcome: Report['outcome']): string {
+  switch (outcome) {
+    case 'passed':
+      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300';
+    case 'failed':
+      return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
+    case 'aborted':
+      return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300';
+    default:
+      return 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300';
+  }
+}
+
+/** UTC timestamp shortened to a locale-less "MM-DD HH:mm" for dense rows. */
+export function shortTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return iso;
+  }
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 /** A watched execution's live phase, deployment status, rolling metrics, and lifecycle controls. Deep-linkable: the execution id comes from the route. */
 export default function Execution() {
   const { id } = useParams<{ id: string }>();
@@ -126,6 +151,9 @@ export default function Execution() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [reports, setReports] = useState<Report[] | null>(null);
+  const [logsScenario, setLogsScenario] = useState<number | null>(null);
+  const [logText, setLogText] = useState<string>('');
   const eventsRef = useRef<ReceivedMetric[]>([]);
 
   useEffect(() => {
@@ -153,6 +181,15 @@ export default function Execution() {
     };
     loadStatus();
     const poll = setInterval(loadStatus, 10_000);
+    // Past runs: fetched once on entry (the list is bounded by the
+    // server's default limit; a finished run's report is immutable).
+    listExecutionReports(executionId)
+      .then((rows) => {
+        if (!cancelled) setReports(rows);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load reports.');
+      });
     eventsRef.current = [];
     setStats({ throughput: 0, errorRate: 0, latencySeconds: null });
     const prune = () => {
@@ -172,6 +209,31 @@ export default function Execution() {
       clearInterval(poll);
     };
   }, [executionId, validId]);
+
+  // Engine-log tail: re-fetched every 5s while a scenario is selected, and
+  // once on selection. The endpoint streams the pod's CURRENT output, so
+  // polling (not SSE) is the honest refresh model here.
+  useEffect(() => {
+    if (logsScenario === null || !validId) {
+      return;
+    }
+    let alive = true;
+    const load = () => {
+      getScenarioPodLog(executionId, logsScenario)
+        .then((text) => {
+          if (alive) setLogText(text);
+        })
+        .catch((err: unknown) => {
+          if (alive) setLogText(err instanceof ApiError ? err.message : 'failed to fetch logs');
+        });
+    };
+    load();
+    const t = setInterval(load, 5_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [executionId, logsScenario, validId]);
 
   const runAction = (action: 'deploy' | 'trigger' | 'stop' | 'purge') => {
     setBusyAction(action);
@@ -304,6 +366,68 @@ export default function Execution() {
                   </li>
                 ))}
               </ul>
+            )}
+          </Card>
+          <Card padding="none">
+            <CardHeader>
+              <CardTitle>Past runs</CardTitle>
+            </CardHeader>
+            {reports === null ? (
+              <p className="text-body-sm p-6 text-slate-500 dark:text-slate-400">Loading reports…</p>
+            ) : reports.length === 0 ? (
+              <p className="text-body-sm p-6 text-slate-500 dark:text-slate-400">No runs yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+                {reports.map((rep) => (
+                  <li key={rep.run_id} className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${outcomeBadge(rep.outcome)}`}
+                      >
+                        {rep.outcome}
+                      </span>
+                      <span className="text-caption text-slate-500 dark:text-slate-400">
+                        {shortTime(rep.started_at)}
+                      </span>
+                    </div>
+                    <Link
+                      to={`/reports/${rep.run_id}`}
+                      className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+                    >
+                      Report →
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          <Card padding="none">
+            <CardHeader>
+              <CardTitle>Engine logs</CardTitle>
+            </CardHeader>
+            {status.status.length === 0 ? (
+              <p className="text-body-sm p-6 text-slate-500 dark:text-slate-400">
+                No scenarios deployed yet.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
+                  {status.status.map((sc) => (
+                    <Button
+                      key={sc.scenario_id}
+                      variant={logsScenario === sc.scenario_id ? 'primary' : 'outline'}
+                      onClick={() => setLogsScenario(sc.scenario_id)}
+                    >
+                      Scenario {sc.scenario_id}
+                    </Button>
+                  ))}
+                </div>
+                {logsScenario !== null && (
+                  <pre className="max-h-80 overflow-auto bg-slate-950 p-4 text-xs leading-5 text-slate-200">
+                    {logText || '…'}
+                  </pre>
+                )}
+              </>
             )}
           </Card>
         </>
