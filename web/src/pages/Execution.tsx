@@ -6,6 +6,7 @@ import { ApiError } from '../api/client';
 import { getExecutionInfo, getExecutionStatus, getScenarioPodLog, streamExecutionMetrics } from '../api/status';
 import { listExecutionReports, type Report } from '../api/reports';
 import TaurusEditor from '../components/TaurusEditor';
+import CapacityPanel from '../components/CapacityPanel';
 import type { EngineMetric, ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
 import { deployExecution, purgeExecution, stopExecution, triggerExecution } from '../api/lifecycle';
 import ClusterBadge from '../components/ui/ClusterBadge';
@@ -369,6 +370,14 @@ export default function Execution() {
               </ul>
             )}
           </Card>
+          {info?.engine && (
+            <CapacityPanel
+              scenarioId={status.status[0]?.scenario_id ?? 0}
+              executionId={executionId}
+              keyInfo={{ engine: info.engine, cpu: '500m', memory: '512Mi' }}
+              targetQPS={100}
+            />
+          )}
           <Card padding="none">
             <CardHeader>
               <CardTitle>Past runs</CardTitle>
