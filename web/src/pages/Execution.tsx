@@ -5,6 +5,7 @@ import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { ApiError } from '../api/client';
 import { getExecutionInfo, getExecutionStatus, getScenarioPodLog, streamExecutionMetrics } from '../api/status';
 import { listExecutionReports, type Report } from '../api/reports';
+import TaurusEditor from '../components/TaurusEditor';
 import type { EngineMetric, ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
 import { deployExecution, purgeExecution, stopExecution, triggerExecution } from '../api/lifecycle';
 import ClusterBadge from '../components/ui/ClusterBadge';
@@ -400,6 +401,20 @@ export default function Execution() {
                 ))}
               </ul>
             )}
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Scenario editor</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {status.status.length === 0 ? (
+                <p className="text-body-sm text-slate-500 dark:text-slate-400">
+                  No scenarios deployed yet.
+                </p>
+              ) : (
+                <TaurusEditor key={status.status[0].scenario_id} scenarioId={status.status[0].scenario_id} />
+              )}
+            </CardContent>
           </Card>
           <Card padding="none">
             <CardHeader>

@@ -64,6 +64,21 @@ export class ApiClient {
   }
 
   /** Every mutating honryu route takes a form-encoded body (see e.g. campaign_handlers.go's r.ParseForm), not JSON. */
+  /**
+   * PUT with a caller-supplied content type and body string, no JSON
+   * wrapping (the G3 fragment endpoint stores text/yaml verbatim).
+   */
+  async putRaw(path: string, contentType: string, body: string): Promise<void> {
+    const headers = new Headers({ 'Content-Type': contentType });
+    const token = this.getToken();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    const res = await fetch(`${this.baseUrl}${path}`, { method: 'PUT', headers, body });
+    if (!res.ok) {
+      throw new ApiError(res.status, await extractErrorMessage(res));
+    }
+  }
   post<T>(path: string, form: URLSearchParams): Promise<T> {
     return this.request<T>(path, {
       method: 'POST',
