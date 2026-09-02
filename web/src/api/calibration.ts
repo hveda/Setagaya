@@ -1,7 +1,7 @@
 // Types and fetchers for the capacity panel (R7): the (engine, cpu, memory)
 // fan-out query and calibration job progress. Shapes mirror
 // calibration_handlers.go's response structs exactly.
-import { apiClient } from './client';
+import { apiClient, ApiError } from './client';
 
 /** One (scenario, engine, cpu, memory) fan-out key; engine pins the executor. */
 export interface CapacityKey {
@@ -75,6 +75,41 @@ export interface CalibrationJob {
   failure_reason?: string;
   created_time: string;
   steps: CalibrationStep[];
+}
+
+/** What the editor's save-guard needs to know about a scenario's profile. */
+export interface ProfileGuard {
+  /** A profile exists AND matches the scenario's current content. */
+  fresh: boolean;
+  perPodQPS?: number;
+  calibratedAt?: string;
+}
+
+/**
+ * The save-guard lookup (R8): fetches the profile and reports whether it
+ * is FRESH (exists + fingerprint matches the scenario's current content --
+ * the server computes the match, so the client never re-hashes). A 404
+ * means no profile: fresh=false with no numbers, and the editor stays
+ * silent (nothing to invalidate). Other errors propagate.
+ */
+export async function getProfileGuard(scenarioId: number, key: CapacityKey): Promise<ProfileGuard> {
+  try {
+    const p = await getCapacityProfile(scenarioId, key);
+    // The list endpoint embeds staleness via the fan-out status; the
+    // profile GET alone cannot say fresh vs stale -- so re-ask fan-out,
+    // whose status IS the staleness verdict for this exact key.
+    const fan = await fanOutCapacity(scenarioId, key, 1);
+    return {
+      fresh: fan.status === 'ok',
+      perPodQPS: p.per_pod_qps,
+      calibratedAt: p.calibrated_at,
+    };
+  } catch (err: unknown) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { fresh: false };
+    }
+    throw err;
+  }
 }
 
 export function getCalibrationJob(jobId: number): Promise<CalibrationJob> {

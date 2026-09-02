@@ -421,7 +421,11 @@ export default function Execution() {
                   No scenarios deployed yet.
                 </p>
               ) : (
-                <TaurusEditor key={status.status[0].scenario_id} scenarioId={status.status[0].scenario_id} />
+                <TaurusEditor
+                  key={status.status[0].scenario_id}
+                  scenarioId={status.status[0].scenario_id}
+                  capacityKey={info?.engine ? { engine: info.engine, cpu: '500m', memory: '512Mi' } : undefined}
+                />
               )}
             </CardContent>
           </Card>

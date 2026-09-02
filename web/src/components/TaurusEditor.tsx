@@ -6,9 +6,12 @@ import { ApiError } from '../api/client';
 import { getScenarioRequests, setScenarioRequests, validateScenarioRequests, type Diagnostic } from '../api/scenarios';
 import { parseDocument } from 'yaml';
 import { applyFields, readFields, type FragmentFields } from '../lib/taurusDoc';
+import { getProfileGuard, type ProfileGuard } from '../api/calibration';
 
 interface TaurusEditorProps {
   scenarioId: number;
+  /** Pod-size context for the capacity-profile guard (R8). */
+  capacityKey?: { engine: string; cpu: string; memory: string };
 }
 
 /**
@@ -18,7 +21,7 @@ interface TaurusEditorProps {
  * later feature (R5's form lens, R6's validation) reads and patches the
  * same text rather than a reserialized model.
  */
-export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
+export default function TaurusEditor({ scenarioId, capacityKey }: TaurusEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -35,6 +38,12 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
   const [serverDiags, setServerDiags] = useState<Diagnostic[]>([]);
   const [validating, setValidating] = useState(false);
   const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // R8: a FRESH capacity profile is invalidated by any fragment write.
+  // The guard is fetched once on mount (cached); Save against a fresh
+  // profile demands one explicit confirmation naming the profile.
+  const [profileGuard, setProfileGuard] = useState<ProfileGuard | null>(null);
+  const [confirmedOverwrite, setConfirmedOverwrite] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // One EditorView per mount; re-pointed at each scenario via dispatch.
   useEffect(() => {
@@ -59,6 +68,7 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
               v.update([tr]);
               if (tr.docChanged) {
                 setDirty(true);
+                setConfirmedOverwrite(false);
                 runValidation(v.state.doc.toString());
               }
             }
@@ -72,6 +82,19 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
       .finally(() => {
         if (alive) setLoading(false);
       });
+    // R8 guard: only meaningful when the caller supplied pod-size context.
+    if (capacityKey) {
+      getProfileGuard(scenarioId, capacityKey)
+        .then((g) => {
+          if (alive) setProfileGuard(g);
+        })
+        .catch(() => {
+          // Guard lookup is best-effort: a calibration outage must not
+          // block editing. Absence of a verdict = no warning, server-side
+          // validation still owns correctness.
+          if (alive) setProfileGuard(null);
+        });
+    }
     return () => {
       alive = false;
       if (validateTimerRef.current) {
@@ -176,6 +199,13 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
     if (!view || saving || parseError) {
       return;
     }
+    // R8: a fresh profile is about to be invalidated. Stop BEFORE the
+    // write and demand explicit confirmation; no warning when the profile
+    // is stale or absent (already invalid -- nothing to lose).
+    if (profileGuard?.fresh && !confirmedOverwrite) {
+      setConfirmOpen(true);
+      return;
+    }
     setSaving(true);
     setError(null);
     // The doc's string form is what goes on the wire -- no normalization,
@@ -269,6 +299,31 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
           onApply={() => applyForm(formFields)}
           onCancel={() => setFormOpen(false)}
         />
+      )}
+      {confirmOpen && profileGuard?.fresh && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200" role="alertdialog" aria-label="capacity profile warning">
+          <p className="font-medium">Saving will invalidate this scenario's capacity profile.</p>
+          <p className="mt-1">
+            Profile: {profileGuard.perPodQPS?.toFixed(0)} qps/pod, calibrated{' '}
+            {profileGuard.calibratedAt ? new Date(profileGuard.calibratedAt).toLocaleString() : 'at an unknown time'}.
+            Target QPS sizing will need a recalibration after this change.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button
+              onClick={() => {
+                setConfirmedOverwrite(true);
+                setConfirmOpen(false);
+                // Re-run save with the confirmation now recorded.
+                save();
+              }}
+            >
+              Save anyway
+            </Button>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
       )}
       <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700" ref={hostRef} />
     </div>
