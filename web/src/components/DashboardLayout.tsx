@@ -6,8 +6,8 @@ import Button from './ui/Button';
 
 const navItems = [
   { href: '/reports', label: 'Reports' },
+  { href: '/executions', label: 'Executions' },
   { href: '/reservations', label: 'Reservations' },
-  { href: '/status', label: 'Live Status' },
   { href: '/campaigns', label: 'Campaigns' },
   { href: '/clusters', label: 'Clusters' },
 ];
