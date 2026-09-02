@@ -272,12 +272,12 @@ func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte)
 }
 
 // ValidateRequests validates a fragment without storing it: the same checks
-// SetRequests runs, with the same results expressed as line-anchored
-// diagnostics instead of a wrapped yaml error. Scenario existence and kind
-// are checked first, exactly as SetRequests checks them, so a fragment this
-// method accepts is one SetRequests would store, and the errors it reports
-// match what the store path would report (ports.ErrNotFound,
-// ErrScenarioNotPortable).
+// SetRequests runs, with the same accept/reject verdict. Scenario existence
+// and kind are checked first, exactly as SetRequests checks them; a fragment
+// this method accepts is one SetRequests would store, and a fragment it
+// rejects comes back as the same *InvalidRequestsError SetRequests returns,
+// so validate and store cannot disagree. The handler turns the error into
+// the 400 diagnostics envelope; a nil error means the fragment would store.
 func (s *Service) ValidateRequests(ctx context.Context, scenarioID int64, raw []byte) ([]Diagnostic, error) {
 	sc, err := s.repo.GetScenario(ctx, scenarioID)
 	if err != nil {
@@ -286,7 +286,10 @@ func (s *Service) ValidateRequests(ctx context.Context, scenarioID int64, raw []
 	if sc.Kind != scenario.KindPortable {
 		return nil, fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
 	}
-	return requestDiagnostics(raw), nil
+	if diags := requestDiagnostics(raw); diags != nil {
+		return nil, &InvalidRequestsError{Diagnostics: diags, Err: ErrRequestsInvalid}
+	}
+	return nil, nil
 }
 
 // Requests returns a portable scenario's stored requests fragment exactly as

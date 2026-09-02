@@ -263,6 +263,49 @@ func (h *handlers) getScenarioRequests(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// validateScenarioRequests validates a submitted fragment without storing
+// it, returning G4's line-anchored diagnostics. It shares one code path
+// with setScenarioRequests -- same body reader, same service method
+// family -- so validate and deploy cannot disagree: any body this endpoint
+// accepts, SetRequests stores.
+func (h *handlers) validateScenarioRequests(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "scenario_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
+		return
+	}
+	if err := h.authorizeScenario(r, id); err != nil {
+		respondError(w, err)
+		return
+	}
+	raw, err := readRequestsBody(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read requests")
+		return
+	}
+	diags, err := h.deps.Scenarios.ValidateRequests(r.Context(), id, raw)
+	if err != nil {
+		// A rejected fragment carries line-anchored diagnostics so the
+		// editor can point at the broken row -- the same envelope the
+		// store path returns. Unknown scenario and native scenario keep
+		// the standard error mapping (404 / 409).
+		var inv *scenarioapp.InvalidRequestsError
+		if errors.As(err, &inv) {
+			writeDiagnostics(w, http.StatusBadRequest, inv.Err.Error(), inv.Diagnostics)
+			return
+		}
+		respondError(w, err)
+		return
+	}
+	// Success carries informational findings (G6 populates these later)
+	// alongside the verdict, per the OpenAPI contract: a valid fragment
+	// is one the store path would accept unchanged.
+	if diags == nil {
+		diags = []scenarioapp.Diagnostic{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true, "diagnostics": diags})
+}
+
 func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {

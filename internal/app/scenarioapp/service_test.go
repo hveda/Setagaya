@@ -132,6 +132,72 @@ func TestSetRequests_ValidFragmentPersists(t *testing.T) {
 	}
 }
 
+// ValidateRequests is the check-only twin of SetRequests: a fragment it
+// accepts must be one SetRequests stores, and validating must leave nothing
+// behind. Both go through the single requestDiagnostics path, so they cannot
+// diverge; this pins it.
+func TestValidateRequests_MatchesSetRequestsAndStoresNothing(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("requests:\n  - url: /checkout\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests(valid): %v", err)
+	}
+	if len(diags) != 0 {
+		t.Errorf("ValidateRequests(valid) diagnostics = %+v, want none", diags)
+	}
+	if _, err := store.GetScenarioRequests(ctx, p.ID); err == nil {
+		t.Error("ValidateRequests stored a fragment; it must validate without side effects")
+	}
+
+	// Whatever validate rejects, store rejects, with the same error: a
+	// *InvalidRequestsError wrapping ErrRequestsInvalid. Rejection is the
+	// ERROR, not diagnostics-with-nil-error -- the two paths share one
+	// verdict, or validate and store could disagree.
+	bad := []byte("requests:\n  - method: GET\n")
+	if _, verr := svc.ValidateRequests(ctx, p.ID, bad); !errors.Is(verr, scenarioapp.ErrRequestsInvalid) {
+		t.Fatalf("ValidateRequests(no url) = %v, want ErrRequestsInvalid", verr)
+	}
+	if serr := svc.SetRequests(ctx, p.ID, bad); !errors.Is(serr, scenarioapp.ErrRequestsInvalid) {
+		t.Fatalf("SetRequests(no url) = %v, want ErrRequestsInvalid (parity with validate)", serr)
+	}
+
+	// A later real store still works: validation touched no state that
+	// would block it.
+	if err := svc.SetRequests(ctx, p.ID, raw); err != nil {
+		t.Fatalf("SetRequests after validate: %v", err)
+	}
+}
+
+// A non-portable scenario is rejected by validate exactly as by store --
+// same sentinel, no diagnostics.
+func TestValidateRequests_RejectsNativeScenario(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "validate-native", 10)
+	if err := svc.UploadFile(ctx, p.ID, "scenario.jmx", strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	if _, err := svc.ValidateRequests(ctx, p.ID, []byte("requests:\n  - url: /a\n")); !errors.Is(err, scenarioapp.ErrScenarioNotPortable) {
+		t.Fatalf("ValidateRequests(native scenario) = %v, want ErrScenarioNotPortable", err)
+	}
+}
+
+// An unknown scenario is ports.ErrNotFound, before any body parsing --
+// identical to SetRequests' stance.
+func TestValidateRequests_UnknownScenario(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	if _, err := svc.ValidateRequests(context.Background(), 999, []byte("requests:\n  - url: /a\n")); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("ValidateRequests(unknown scenario) = %v, want ErrNotFound", err)
+	}
+}
+
 // A scenario pinned native by an uploaded script has nothing that ever reads
 // stored requests (compileShards only checks for a portable scenario), so
 // accepting an upload here would silently store data nothing will ever use.

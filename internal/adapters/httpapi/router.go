@@ -140,6 +140,7 @@ var routes = []Route{
 	{"PUT", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.uploadScenarioFile })},
 	{"DELETE", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.deleteScenarioFile })},
 	{"GET", "/api/scenarios/{scenario_id}/requests", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.getScenarioRequests })},
+	{"POST", "/api/scenarios/{scenario_id}/requests/validate", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.validateScenarioRequests })},
 	{"PUT", "/api/scenarios/{scenario_id}/requests", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.setScenarioRequests })},
 
 	{"POST", "/api/executions", "executions", hf(func(h *handlers) http.HandlerFunc { return h.createExecution })},

@@ -455,3 +455,86 @@ func TestSetScenarioRequestsRawYAML(t *testing.T) {
 		t.Fatalf("empty-requests put = %d (%s), want 400", rec.Code, rec.Body.String())
 	}
 }
+
+// TestValidateRequestsParity is the G5 acceptance test: any fragment the
+// validate endpoint accepts must be accepted by the store path, and any
+// fragment it rejects must be rejected there too. Both endpoints share
+// readRequestsBody and the scenarioapp validation path, so the pairs below
+// prove the seam.
+func TestValidateRequestsParity(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	rec := postForm(t, h, "/api/projects", url.Values{"name": {"parity"}, "owner": {"honryu"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project = %d (%s)", rec.Code, rec.Body.String())
+	}
+	rec = postForm(t, h, "/api/scenarios", url.Values{"name": {"parity"}, "project_id": {"1"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create scenario = %d (%s)", rec.Code, rec.Body.String())
+	}
+	scenarioID := strconv.FormatInt(decodeID(t, rec), 10)
+	storeURL := "/api/scenarios/" + scenarioID + "/requests"
+	validateURL := storeURL + "/validate"
+
+	fixtures := map[string]struct {
+		body  string
+		valid bool
+	}{
+		"valid fragment": {
+			body:  "requests:\n- url: /\n",
+			valid: true,
+		},
+		"empty requests list": {
+			body:  "requests: []\n",
+			valid: false,
+		},
+		"missing requests key": {
+			body:  "not_requests: true\n",
+			valid: false,
+		},
+		"broken yaml": {
+			body:  "requests: [unclosed\n",
+			valid: false,
+		},
+	}
+
+	for name, tc := range fixtures {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, validateURL, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "text/yaml")
+			vrec := httptest.NewRecorder()
+			h.ServeHTTP(vrec, req)
+
+			req = httptest.NewRequest(http.MethodPut, storeURL, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "text/yaml")
+			srec := httptest.NewRecorder()
+			h.ServeHTTP(srec, req)
+
+			if tc.valid {
+				if vrec.Code != http.StatusOK {
+					t.Fatalf("validate rejected valid fragment: %d (%s)", vrec.Code, vrec.Body.String())
+				}
+				if srec.Code != http.StatusOK {
+					t.Fatalf("validate accepted but store rejected: %d (%s)", srec.Code, srec.Body.String())
+				}
+				return
+			}
+			if vrec.Code != http.StatusBadRequest {
+				t.Fatalf("validate accepted invalid fragment: %d (%s)", vrec.Code, vrec.Body.String())
+			}
+			if srec.Code != http.StatusBadRequest {
+				t.Fatalf("validate rejected but store accepted: %d (%s)", srec.Code, srec.Body.String())
+			}
+			var vEnv struct {
+				Diagnostics []scenarioapp.Diagnostic `json:"diagnostics"`
+			}
+			if err := json.Unmarshal(vrec.Body.Bytes(), &vEnv); err != nil {
+				t.Fatalf("validate response not diagnostics envelope: %v (%s)", err, vrec.Body.String())
+			}
+			if len(vEnv.Diagnostics) == 0 {
+				t.Fatalf("validate rejection carried no diagnostics: %s", vrec.Body.String())
+			}
+		})
+	}
+}

@@ -32,7 +32,7 @@ func TestValidateRequestsMatchesSetRequests(t *testing.T) {
 		}
 		diags, vErr := svc.ValidateRequests(ctx, p.ID, []byte(frag))
 		sErr := svc.SetRequests(ctx, p.ID, []byte(frag))
-		acceptedByValidate := vErr == nil && len(diags) == 0
+		acceptedByValidate := vErr == nil
 		acceptedByStore := sErr == nil
 		if acceptedByValidate != acceptedByStore {
 			t.Fatalf("%s: validate accepted=%v (diags=%d, err=%v) but store accepted=%v (err=%v)",
@@ -134,8 +134,12 @@ func TestValidateRequestsScenarioChecks(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	diags, vErr := svc.ValidateRequests(ctx, p2.ID, []byte("requests: []"))
-	if vErr != nil || len(diags) == 0 {
-		t.Fatalf("ValidateRequests(empty requests) = diags %d, err %v, want diagnostics", len(diags), vErr)
+	if vErr == nil {
+		t.Fatalf("ValidateRequests(empty requests) = diags %d, err %v, want an invalid-fragment error", len(diags), vErr)
+	}
+	var inv *scenarioapp.InvalidRequestsError
+	if !errors.As(vErr, &inv) || len(inv.Diagnostics) == 0 {
+		t.Fatalf("ValidateRequests(empty requests) = %v, want *InvalidRequestsError with diagnostics", vErr)
 	}
 	if _, err := svc.Requests(ctx, p2.ID); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("Requests after rejected validate = %v, want ErrNotFound (nothing stored)", err)
