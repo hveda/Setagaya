@@ -3,7 +3,8 @@ import { EditorView, basicSetup } from 'codemirror';
 import { yaml } from '@codemirror/lang-yaml';
 import Button from './ui/Button';
 import { ApiError } from '../api/client';
-import { getScenarioRequests, setScenarioRequests } from '../api/scenarios';
+import { getScenarioRequests, setScenarioRequests, validateScenarioRequests, type Diagnostic } from '../api/scenarios';
+import { parseDocument } from 'yaml';
 import { applyFields, readFields, type FragmentFields } from '../lib/taurusDoc';
 
 interface TaurusEditorProps {
@@ -27,6 +28,13 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [formFields, setFormFields] = useState<FragmentFields | null>(null);
+  // Two validation layers (R6): parseError is client-side (no network),
+  // serverDiags carry G4 errors and G6 info notes from the debounced G5
+  // call. info notes never block saving; errors surface and Save disables.
+  const [parseError, setParseError] = useState<Diagnostic | null>(null);
+  const [serverDiags, setServerDiags] = useState<Diagnostic[]>([]);
+  const [validating, setValidating] = useState(false);
+  const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // One EditorView per mount; re-pointed at each scenario via dispatch.
   useEffect(() => {
@@ -51,6 +59,7 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
               v.update([tr]);
               if (tr.docChanged) {
                 setDirty(true);
+                runValidation(v.state.doc.toString());
               }
             }
           },
@@ -65,6 +74,9 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
       });
     return () => {
       alive = false;
+      if (validateTimerRef.current) {
+        clearTimeout(validateTimerRef.current);
+      }
       viewRef.current?.destroy();
       viewRef.current = null;
     };
@@ -94,14 +106,74 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
       setDirty(true);
       setFormOpen(false);
       setError(null);
+      runValidation(next);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Cannot apply form to this YAML.');
     }
   };
 
+  /**
+   * Layer 1 -- parse check, runs synchronously on every change with NO
+   * network call. yaml.parseDocument collects errors instead of throwing;
+   * the first one carries a line-anchored message (prettyErrors on by
+   * default embeds "line N" in the text).
+   */
+  const checkParse = (text: string): Diagnostic | null => {
+    const doc = parseDocument(text);
+    if (doc.errors.length === 0) {
+      return null;
+    }
+    const e = doc.errors[0];
+    const m = /line\s+(\d+)/i.exec(e.message);
+    return {
+      severity: 'error',
+      message: e.message.replace(/line \d+:\s*/i, ''),
+      line: m ? parseInt(m[1], 10) : 1,
+    };
+  };
+
+  /** Layer 2 -- G5 on a debounce. 800ms quiet-time; one in-flight timer. */
+  const validate = (text: string) => {
+    if (validateTimerRef.current) {
+      clearTimeout(validateTimerRef.current);
+    }
+    validateTimerRef.current = setTimeout(() => {
+      setValidating(true);
+      validateScenarioRequests(scenarioId, text)
+        .then((res) => {
+          setServerDiags(res.diagnostics);
+          if (res.valid) {
+            setError(null);
+          }
+        })
+        .catch((err: unknown) => {
+          // Transport-level failures (404 scenario, network): surfaced in
+          // the banner, never silently swallowed.
+          setError(err instanceof ApiError ? err.message : 'Validation failed.');
+        })
+        .finally(() => setValidating(false));
+    }, 800);
+  };
+
+  /** Runs both layers on the current doc; called from every mutation path. */
+  const runValidation = (text: string) => {
+    const pe = checkParse(text);
+    setParseError(pe);
+    if (pe) {
+      // Broken YAML: layer 2 is pointless -- clear stale server notes and
+      // cancel any pending debounce (no network call, per the contract).
+      setServerDiags([]);
+      if (validateTimerRef.current) {
+        clearTimeout(validateTimerRef.current);
+      }
+      return;
+    }
+    validate(text);
+  };
+
   const save = () => {
     const view = viewRef.current;
-    if (!view || saving) {
+    if (!view || saving || parseError) {
       return;
     }
     setSaving(true);
@@ -140,7 +212,7 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={save} disabled={!dirty || saving || loading}>
+        <Button onClick={save} disabled={!dirty || saving || loading || parseError !== null}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
         <Button variant="outline" onClick={reload} disabled={loading}>
@@ -157,6 +229,38 @@ export default function TaurusEditor({ scenarioId }: TaurusEditorProps) {
         <p className="text-sm text-red-600 dark:text-red-400" role="alert">
           {error}
         </p>
+      )}
+      {parseError && (
+        <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300" role="alert">
+          Parse error at line {parseError.line}: {parseError.message}
+        </p>
+      )}
+      {(serverDiags.length > 0 || validating) && !parseError && (
+        <div className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-800" role="status">
+          <p className="mb-1 font-medium text-slate-700 dark:text-slate-300">
+            Validation {validating ? 'checking…' : 'results'}
+          </p>
+          <ul className="space-y-1">
+            {serverDiags.map((d, i) => (
+              <li
+                key={i}
+                className={
+                  d.severity === 'error'
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-sky-700 dark:text-sky-400'
+                }
+              >
+                <span className="font-mono">{d.line > 0 ? `line ${d.line}` : 'doc'}</span>{' '}
+                {d.message}
+                {d.severity === 'info' && (
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {' '}(stored but not compiled — the key rides along; the engine ignores it)
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {formOpen && formFields && (
         <FormLens

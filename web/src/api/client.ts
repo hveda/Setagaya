@@ -5,11 +5,14 @@
 
 export class ApiError extends Error {
   status: number;
+  /** Parsed JSON body when the response carried one (e.g. DiagnosticsError). */
+  data?: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, data?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -41,7 +44,14 @@ export class ApiClient {
 
     const res = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
     if (!res.ok) {
-      throw new ApiError(res.status, await extractErrorMessage(res));
+      const bodyText = await res.text();
+      let data: unknown;
+      try {
+        data = JSON.parse(bodyText);
+      } catch {
+        data = undefined;
+      }
+      throw new ApiError(res.status, extractErrorMessageFromText(bodyText, res.statusText, res.status), data);
     }
     return res;
   }
@@ -76,7 +86,14 @@ export class ApiClient {
     }
     const res = await fetch(`${this.baseUrl}${path}`, { method: 'PUT', headers, body });
     if (!res.ok) {
-      throw new ApiError(res.status, await extractErrorMessage(res));
+      const bodyText = await res.text();
+      let data: unknown;
+      try {
+        data = JSON.parse(bodyText);
+      } catch {
+        data = undefined;
+      }
+      throw new ApiError(res.status, extractErrorMessageFromText(bodyText, res.statusText, res.status), data);
     }
   }
   post<T>(path: string, form: URLSearchParams): Promise<T> {
@@ -88,16 +105,16 @@ export class ApiClient {
   }
 }
 
-async function extractErrorMessage(res: Response): Promise<string> {
+function extractErrorMessageFromText(bodyText: string, statusText: string, status: number): string {
   try {
-    const body = (await res.json()) as { message?: unknown };
+    const body = JSON.parse(bodyText) as { message?: unknown };
     if (typeof body.message === 'string' && body.message !== '') {
       return body.message;
     }
   } catch {
     // Non-JSON or empty error body; fall through to statusText.
   }
-  return res.statusText || `request failed with status ${res.status}`;
+  return statusText || `request failed with status ${status}`;
 }
 
 /** The client every page uses; a fresh ApiClient() with custom options is only needed in tests. */
