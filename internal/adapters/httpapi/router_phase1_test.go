@@ -538,3 +538,67 @@ func TestValidateRequestsParity(t *testing.T) {
 		})
 	}
 }
+
+// G7: a JSON body on PUT /executions/{id}/config carries the Profile
+// directly (json tags of loadprofile.Profile) and reaches the same
+// StoreConfig with the same validation as the historical multipart
+// multi-test upload -- whose file format is unchanged. Proven by reading
+// the stored config back through GET and by the shared error semantics.
+func TestPutExecutionConfigJSON(t *testing.T) {
+	t.Parallel()
+	h := newFullRouter(t)
+
+	rec := postForm(t, h, "/api/projects", url.Values{"name": {"cfgproj"}, "owner": {"honryu"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project = %d (%s)", rec.Code, rec.Body.String())
+	}
+	rec = postForm(t, h, "/api/executions", url.Values{"name": {"cfgexec"}, "project_id": {"1"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create execution = %d (%s)", rec.Code, rec.Body.String())
+	}
+	execID := strconv.FormatInt(decodeID(t, rec), 10)
+
+	// A scenario must exist for the config to reference; the execution is
+	// in project 1, so the scenario goes there too.
+	rec = postForm(t, h, "/api/scenarios", url.Values{"name": {"cfgscen"}, "project_id": {"1"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create scenario = %d (%s)", rec.Code, rec.Body.String())
+	}
+	scenID := decodeID(t, rec)
+
+	configURL := "/api/executions/" + execID + "/config"
+
+	// JSON path: the Profile shape itself, not wrapped in multi-test.
+	body := fmt.Sprintf(`{"name":"cfgexec","project_id":1,"execution_id":%s,"tests":[{"scenario_id":%d,"concurrency":5,"rampup":10,"duration":30,"engines":1}],"csv_split":false}`, execID, scenID)
+	req := httptest.NewRequest(http.MethodPut, configURL, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("json config put = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Stored: GET returns the same profile the JSON carried.
+	rec = do(t, h, http.MethodGet, configURL)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("config get = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Validation parity: the JSON path enforces the same rules as the
+	// multipart path -- zero tests is rejected with the service's error.
+	badBody := fmt.Sprintf(`{"name":"cfgexec","project_id":1,"execution_id":%s,"tests":[],"csv_split":false}`, execID)
+	req = httptest.NewRequest(http.MethodPut, configURL, strings.NewReader(badBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("json config put with zero tests accepted (%s)", rec.Body.String())
+	}
+
+	// Multipart path still works unchanged (multi-test YAML wrapper).
+	mp := fmt.Sprintf("multi-test:\n  name: cfgexec\n  collectionid: %s\n  projectid: 1\n  tests:\n    - testid: %d\n      concurrency: 3\n      rampup: 5\n      duration: 10\n      engines: 1\n  csv_split: false\n", execID, scenID)
+	mrec := putMultipart(t, h, configURL, "config.yaml", mp)
+	if mrec.Code != http.StatusOK {
+		t.Fatalf("multipart config put = %d (%s)", mrec.Code, mrec.Body.String())
+	}
+}

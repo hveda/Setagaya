@@ -1198,18 +1198,52 @@ paths:
       tags: [executions]
       summary: Replace the execution's load profile
       description: |
-        Accepts the uploaded configuration file. This format is replaced by
-        Taurus YAML in a later phase.
+        Accepts the configuration either as an application/json body (the
+        Profile directly, via loadprofile.Profile's JSON tags) or as the
+        historical multipart multi-test YAML upload -- both reach the same
+        validation.
       parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
       requestBody:
         required: true
         content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                project_id: { type: integer, format: int64 }
+                execution_id: { type: integer, format: int64 }
+                csv_split: { type: boolean }
+                criteria:
+                  type: array
+                  items: { type: string }
+                tests:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      scenario_id: { type: integer, format: int64 }
+                      name: { type: string }
+                      concurrency: { type: integer }
+                      rampup: { type: integer }
+                      duration: { type: integer }
+                      engines: { type: integer }
+                      throughput: { type: integer }
+                      csv_split: { type: boolean }
+            description: |
+              The execution configuration directly, using loadprofile.Profile's
+              JSON tags. Reaches the same validation as the multipart upload.
           multipart/form-data:
             schema:
               type: object
               required: [file]
               properties:
-                file: { type: string, format: binary }
+                file:
+                  type: string
+                  format: binary
+                  description: |
+                    The historical multi-test YAML wrapper; its file format is
+                    unchanged.
       responses:
         '204': { $ref: '#/components/responses/NoContent' }
         '400': { $ref: '#/components/responses/BadRequest' }

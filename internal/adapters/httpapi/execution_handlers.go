@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -206,6 +207,24 @@ func (h *handlers) uploadExecutionConfig(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.authorizeExecution(r, id); err != nil {
 		respondError(w, err)
+		return
+	}
+	// Two body forms reach the same StoreConfig with the same validation:
+	// application/json carries the Profile directly (the editor's shape),
+	// anything else stays the historical multipart upload wrapping a
+	// multi-test YAML file -- that file format is unchanged.
+	if mediaType(r) == "application/json" {
+		var profile loadprofile.Profile
+		r.Body = http.MaxBytesReader(nil, r.Body, maxUploadBytes)
+		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		if err := h.deps.Executions.StoreConfig(r.Context(), id, profile); err != nil {
+			respondError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"message": "config stored"})
 		return
 	}
 	file, _, err := parseUpload(r)
