@@ -258,6 +258,10 @@ func (h *handlers) getScenarioRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- Content-Type is text/yaml (set above), so the browser does
+	// not interpret the stored fragment as HTML/JS; there is no XSS sink here.
+	// Same reasoning as report_handlers.go's runShardObject and
+	// lifecycle_handlers.go's pod-log handler, both already annotated this way.
 	if _, err := w.Write(raw); err != nil {
 		slog.Error("httpapi: failed to write requests fragment", "error", err)
 	}
