@@ -16,6 +16,7 @@ import (
 
 	auditmem "github.com/heridotlife/honryu/internal/adapters/audit/memory"
 	"github.com/heridotlife/honryu/internal/adapters/auth/token"
+	membus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
@@ -28,6 +29,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/scheduleapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
+	"github.com/heridotlife/honryu/internal/app/usageapp"
 	"github.com/heridotlife/honryu/internal/domain/account"
 	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
 	"github.com/heridotlife/honryu/internal/domain/rbac"
@@ -37,11 +39,13 @@ import (
 
 // rbacFixture wires a full RBAC-enabled router over one shared fake store.
 type rbacFixture struct {
-	router http.Handler
-	store  *fake.Store
-	sched  *fake.Scheduler
-	prov   *token.Provider
-	audit  *auditmem.Log
+	router  http.Handler
+	store   *fake.Store
+	sched   *fake.Scheduler
+	prov    *token.Provider
+	audit   *auditmem.Log
+	reports *fake.ReportStore
+	bus     *membus.Bus
 }
 
 func newRBACFixture(t *testing.T) *rbacFixture {
@@ -59,6 +63,8 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 	}
 	auth := authapp.NewService(prov, store, true)
 	audit := auditmem.New(nil)
+	reports := fake.NewReportStore()
+	bus := membus.New()
 	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
 	quota := quotaapp.NewService(store)
 	campaigns := campaignapp.NewService(store, sched)
@@ -68,19 +74,24 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		Projects:     projectapp.NewService(store),
 		Scenarios:    scenarios,
 		Executions:   executionapp.NewService(store, obj, 100),
+		Lifecycle:    lifecycle,
 		Tenants:      tenantapp.NewService(store, store, store),
 		Admin:        adminapp.NewService(store, sched, lifecycle).WithCampaigns(campaigns),
 		Schedules:    scheduleapp.NewService(store, quota),
 		Campaigns:    campaigns,
 		Calibrations: calibrations,
 		Store:        obj,
+		Reports:      reports,
+		Usage:        usageapp.NewService(store),
+		Events:       bus,
+		Reservations: store,
 		Auth:         auth,
 		Audit:        audit,
 		// A no-op stub so the platform-admin gate is reached (a nil dep would
 		// 404 before the RBAC check).
 		Clusters: &stubClusterService{list: func() ([]clusterregistry.Cluster, error) { return nil, nil }},
 	})
-	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit}
+	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit, reports: reports, bus: bus}
 }
 
 func (f *rbacFixture) req(t *testing.T, method, path, tok string, form url.Values) *httptest.ResponseRecorder {
