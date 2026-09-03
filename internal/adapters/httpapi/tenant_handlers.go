@@ -32,12 +32,22 @@ func toTenantResponse(t tenant.Tenant) tenantResponse {
 
 // tenantAdminGate rejects the request unless tenants are configured and the
 // caller may administer them. It returns true when the handler may proceed.
+// Routes keyed by a {tenant_id} path parameter scope the check to that
+// tenant (Phase 20): a tenant's own admin holds tenant:admin there, and the
+// previously unscoped check could never see it -- spec bug 3, where all 13
+// routes behind this gate admitted only service_provider_admin. Routes
+// without one (create/list tenants, global role grants) keep the unscoped
+// check: a tenant admin may not mint tenants or platform-wide admins.
 func (h *handlers) tenantAdminGate(w http.ResponseWriter, r *http.Request) bool {
 	if h.deps.Tenants == nil {
 		writeError(w, http.StatusNotFound, "tenants not configured")
 		return false
 	}
-	if err := h.authorizeAdmin(r.Context()); err != nil {
+	var tenantID *int64
+	if id, err := strconv.ParseInt(r.PathValue("tenant_id"), 10, 64); err == nil {
+		tenantID = &id
+	}
+	if err := h.authorizeAdmin(r.Context(), tenantID); err != nil {
 		respondError(w, err)
 		return false
 	}
@@ -59,12 +69,15 @@ func (h *handlers) audit(ctx context.Context, action, target, detail string) {
 }
 
 // authorizeAdmin permits tenant/role administration. Under RBAC it requires a
-// service-provider admin; in no-auth mode the operator has full access.
-func (h *handlers) authorizeAdmin(ctx context.Context) error {
+// service-provider admin; when tenantID is set -- the route itself names the
+// tenant being administered -- a tenant:admin grant scoped to that tenant
+// also qualifies, which is what a tenant's own RoleTenantAdmin holds.
+// In no-auth mode the operator has full access.
+func (h *handlers) authorizeAdmin(ctx context.Context, tenantID *int64) error {
 	if !h.rbacEnabled() {
 		return nil
 	}
-	dec := h.deps.Auth.Authorize(accountFrom(ctx), rbac.Request{Resource: rbac.ResourceTenant, Action: rbac.ActionAdmin})
+	dec := h.deps.Auth.Authorize(accountFrom(ctx), rbac.Request{Resource: rbac.ResourceTenant, Action: rbac.ActionAdmin, TenantID: tenantID})
 	if !dec.Allowed {
 		return errForbidden
 	}

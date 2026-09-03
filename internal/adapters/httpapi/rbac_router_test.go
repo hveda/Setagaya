@@ -695,6 +695,85 @@ func TestRBAC_CampaignManagerReadsOwnCampaignVerdict(t *testing.T) {
 	}
 }
 
+// Phase 20 Block B regression checkpoint (task 7): the spec's "three live
+// bugs", each with its own rbacFixture test in this file --
+//   bug 1: TestRBAC_Regression_ViewerIsReadOnlyNotLockedOut (below) and
+//          TestRBAC_ViewerCanReadButNotDeleteExecution (task 5)
+//   bug 2: TestRBAC_CampaignManagerReadsOwnCampaignVerdict (task 6)
+//   bug 3: TestRBAC_Regression_TenantAdminAdministersOwnTenant (below)
+// All three green is the gate block C builds on.
+
+// Bug 1 in full: a tenant_viewer is read-only on executions, not locked out
+// of them. Every read succeeds; every lifecycle mutation (deploy, trigger,
+// stop, purge), config write, and delete is a 403 -- the pre-Phase-20
+// alternative was an all-403 wall that looked exactly like enforcement.
+func TestRBAC_Regression_ViewerIsReadOnlyNotLockedOut(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+
+	executionID, _ := seedScheduledExecution(t, f, acme, "peak")
+	base := "/api/executions/" + strconv.FormatInt(executionID, 10)
+
+	// Reads succeed (bug 1's core: the viewer sees the execution).
+	if rec := f.req(t, http.MethodGet, base, "carol-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("viewer GET execution = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	// Every mutation 403s: lifecycle actions (ResourceRun), config write,
+	// file mutation, and delete (ResourceExecution).
+	for _, mut := range []struct{ method, path string }{
+		{http.MethodPost, base + "/deploy"},
+		{http.MethodPost, base + "/trigger"},
+		{http.MethodPost, base + "/stop"},
+		{http.MethodPost, base + "/purge"},
+		{http.MethodDelete, base},
+	} {
+		if rec := f.req(t, mut.method, mut.path, "carol-tok", nil); rec.Code != http.StatusForbidden {
+			t.Fatalf("viewer %s %s = %d, want 403 (%s)", mut.method, mut.path, rec.Code, rec.Body.String())
+		}
+	}
+	configYAML := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n", executionID, executionID)
+	if rec := putMultipartAuth(t, f, base+"/config", "carol-tok", "config.yaml", configYAML); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer PUT config = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// Bug 3: a tenant_admin could not administer its own tenant -- it held no
+// ResourceTenant permission and tenantAdminGate's check carried no tenant
+// scope, so all 13 routes behind it (including the reservation calendar the
+// Reservations page depends on) admitted only service_provider_admin. With
+// tenant:admin on the role and the gate scoped to the path's tenant, the
+// tenant's own admin reaches its quota; a foreign tenant's admin does not;
+// and tenant-global routes still require the service-provider admin.
+func TestRBAC_Regression_TenantAdminAdministersOwnTenant(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	globex := createTenant(t, f, "globex", "Globex")
+	f.prov.Register("ta-tok", account.Account{Subject: "ta"})
+	assignRole(t, f, globex, "ta", rbac.RoleTenantAdmin)
+
+	// The globex admin reaches globex's quota route (AC7).
+	globexQuota := "/api/tenants/" + strconv.FormatInt(globex, 10) + "/quota"
+	if rec := f.req(t, http.MethodGet, globexQuota, "ta-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("tenant_admin own-tenant quota = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	// Not acme's -- the grant is scoped to the tenant, never global.
+	acmeQuota := "/api/tenants/" + strconv.FormatInt(acme, 10) + "/quota"
+	if rec := f.req(t, http.MethodGet, acmeQuota, "ta-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("tenant_admin foreign-tenant quota = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+	// And not the platform-wide listing either: that stays with the
+	// service-provider admin.
+	if rec := f.req(t, http.MethodGet, "/api/tenants", "ta-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("tenant_admin list all tenants = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 // Calibration reuses ordinary project/execution authorization
 // (authorizeProject/authorizeExecution) rather than a dedicated resource --
 // this proves that reuse actually gates the new routes, the same way it
