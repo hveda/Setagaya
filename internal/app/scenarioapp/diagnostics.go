@@ -155,30 +155,57 @@ func requestDiagnostics(raw []byte) []Diagnostic {
 // opposite ("passes through to the run") -- a test asserts this wording.
 const uncompiledKeysMessage = "this key is stored but not compiled and will not affect the run"
 
-// uncompiledKeyDiagnostics reports top-level keys taurus.Scenario does not
-// model, as severity info. A second decode with KnownFields(true) does the
-// detection: unknown fields come back as TypeError entries with their line
-// numbers, which the same anchoring logic the error path uses can parse.
-// The fragment is NOT invalid -- ValidateRequests adds these to a 200 with
-// valid:true, and SetRequests stores the document unchanged.
+// modelledButUncompiled names taurus.Scenario fields that KnownFields(true)
+// cannot catch, because the type models them, and that a fragment's own
+// value never reaches the engine anyway: compileScenario (compile.go) reads
+// these from ScenarioInput's own fields, never from the fragment.
+//
+//   - data-sources: DataSources comes from ScenarioInput.DataPaths, resolved
+//     from uploaded scenario files -- never from frag.DataSources.
+//   - script: Script comes from ScenarioInput.ScriptPath, and only for a
+//     native scenario -- a portable fragment's own "script:" key is never
+//     read at all.
+//
+// This set is a fact about compileScenario, not derivable from the struct,
+// so phase 19b F3 pins it against compile.go with a test that fails the
+// moment a listed field starts being compiled from the fragment (or a newly
+// uncompiled field is not added here).
+var modelledButUncompiled = map[string]struct{}{
+	"data-sources": {},
+	"script":       {},
+}
+
+// uncompiledKeyDiagnostics reports every key a stored-but-not-compiled
+// fragment carries, as severity info: both keys taurus.Scenario does not
+// model at all (think-time, variables, ...), found via a KnownFields(true)
+// decode, and keys the type models but compileScenario never reads from the
+// fragment (modelledButUncompiled, above) -- KnownFields cannot see those,
+// since the type accepts them. The fragment is NOT invalid either way --
+// ValidateRequests adds these to a 200 with valid:true, and SetRequests
+// stores the document unchanged.
 func uncompiledKeyDiagnostics(raw []byte) []Diagnostic {
+	out := unknownFieldDiagnostics(raw)
+	out = append(out, modelledButUncompiledDiagnostics(raw)...)
+	return out
+}
+
+// unknownFieldDiagnostics finds top-level keys taurus.Scenario does not
+// model, via a single KnownFields(true) decode: unknown fields come back as
+// TypeError entries with their line numbers, which the same anchoring logic
+// the error path uses can parse.
+func unknownFieldDiagnostics(raw []byte) []Diagnostic {
 	var frag taurus.Scenario
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
-	if err := dec.Decode(&frag); err == nil {
+	err := dec.Decode(&frag)
+	if err == nil {
 		return nil // every key is modelled
-	} else if !isUnknownFieldErr(err) {
-		return nil // a real parse/type error: the error path reports it
 	}
 	var typeErr *yaml.TypeError
-	_ = errors.As(isUnknownFieldErrSource(raw), &typeErr)
-	var out []Diagnostic
-	dec2 := yaml.NewDecoder(bytes.NewReader(raw))
-	dec2.KnownFields(true)
-	err2 := dec2.Decode(&frag)
-	if !errors.As(err2, &typeErr) {
-		return nil
+	if !errors.As(err, &typeErr) || !isUnknownFieldErr(typeErr) {
+		return nil // a real parse/type error: the error path reports it
 	}
+	var out []Diagnostic
 	for _, msg := range typeErr.Errors {
 		if !strings.Contains(msg, "field") {
 			continue
@@ -199,27 +226,44 @@ func uncompiledKeyDiagnostics(raw []byte) []Diagnostic {
 	return out
 }
 
-// isUnknownFieldErr reports whether err is solely about unknown fields. If
-// the document ALSO has type errors, the strict decode fails for both
+// modelledButUncompiledDiagnostics finds top-level keys in modelledButUncompiled
+// present in the raw document, line-anchored via a lenient decode into a
+// generic node (not KnownFields -- these keys ARE known to taurus.Scenario,
+// so a strict decode would never flag them).
+func modelledButUncompiledDiagnostics(raw []byte) []Diagnostic {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 {
+		return nil // malformed or empty: the error path already reports it
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	var out []Diagnostic
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key := root.Content[i]
+		if _, ok := modelledButUncompiled[key.Value]; !ok {
+			continue
+		}
+		out = append(out, Diagnostic{
+			Severity: SeverityInfo,
+			Message:  key.Value + ": " + uncompiledKeysMessage,
+			Line:     key.Line,
+			Col:      key.Column,
+		})
+	}
+	return out
+}
+
+// isUnknownFieldErr reports whether typeErr is solely about unknown fields.
+// If the document ALSO has type errors, the strict decode fails for both
 // reasons and we let the ordinary error path handle the report; unknown-key
 // info must never mask, or be masked by, a real rejection.
-func isUnknownFieldErr(err error) bool {
-	var typeErr *yaml.TypeError
-	if !errors.As(err, &typeErr) {
-		return false
-	}
+func isUnknownFieldErr(typeErr *yaml.TypeError) bool {
 	for _, msg := range typeErr.Errors {
 		if !strings.Contains(msg, "field") {
 			return false
 		}
 	}
 	return len(typeErr.Errors) > 0
-}
-
-// isUnknownFieldErrSource re-runs the strict decode and returns its error.
-func isUnknownFieldErrSource(raw []byte) error {
-	var frag taurus.Scenario
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-	return dec.Decode(&frag)
 }

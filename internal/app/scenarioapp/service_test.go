@@ -746,3 +746,125 @@ func TestUncompiledKeys_ErrorStillRejects(t *testing.T) {
 		t.Fatalf("ValidateRequests = %v, want InvalidRequestsError (info must not mask the missing url)", err)
 	}
 }
+
+// Phase 19b F2 (review finding 2): KnownFields(true) only catches keys
+// taurus.Scenario does not model at all. data-sources and script ARE on the
+// struct, so a strict decode sees them as known and reports nothing -- yet
+// compileScenario never reads either from the fragment (DataSources comes
+// from ScenarioInput.DataPaths, resolved from uploaded files; Script from
+// ScenarioInput.ScriptPath, and only for a native scenario). Before this fix
+// a fragment carrying data-sources got zero diagnostics, live-verified
+// against the deployed API on 2026-09-01: an operator parameterising a test
+// would see no warning and get an unparameterised run.
+func TestUncompiledKeys_DataSourcesFlaggedThoughModelled(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("requests:\n  - url: /a\ndata-sources:\n  - path: users.csv\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a document with data-sources: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 info for data-sources", len(diags), diags)
+	}
+	d := diags[0]
+	if d.Severity != scenarioapp.SeverityInfo {
+		t.Errorf("severity = %q, want info", d.Severity)
+	}
+	if d.Line != 3 {
+		t.Errorf("line = %d, want 3 (data-sources is the third line)", d.Line)
+	}
+	if !strings.Contains(d.Message, "data-sources") {
+		t.Errorf("message %q must name data-sources", d.Message)
+	}
+	if !strings.Contains(d.Message, "stored but not compiled and will not affect the run") {
+		t.Errorf("message %q must state the key is stored but not compiled", d.Message)
+	}
+}
+
+// Same failure mode, for a portable fragment's own script: key. Modelled on
+// taurus.Scenario, but compileScenario only ever reads Script from
+// ScenarioInput.ScriptPath for a NATIVE scenario -- a portable fragment's
+// script: is never read at all.
+func TestUncompiledKeys_ScriptFlaggedThoughModelled(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("script: custom.jmx\nrequests:\n  - url: /a\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a document with script: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 info for script", len(diags), diags)
+	}
+	if diags[0].Severity != scenarioapp.SeverityInfo {
+		t.Errorf("severity = %q, want info", diags[0].Severity)
+	}
+	if !strings.Contains(diags[0].Message, "script") {
+		t.Errorf("message %q must name script", diags[0].Message)
+	}
+}
+
+// A fragment mixing all three uncompiled-key shapes -- think-time (unknown
+// to the type entirely), data-sources and script (modelled but never
+// compiled from the fragment) -- yields three independent diagnostics, each
+// anchored to its own line. Detection of the two shapes must not interfere.
+func TestUncompiledKeys_MixedSourcesAllReported(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - url: /a\ndata-sources:\n  - path: users.csv\nscript: custom.jmx\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a mixed uncompiled-key document: %v", err)
+	}
+	if len(diags) != 3 {
+		t.Fatalf("diagnostics = %d entries (%v), want 3 (think-time, data-sources, script)", len(diags), diags)
+	}
+	seen := map[string]bool{}
+	for _, d := range diags {
+		if d.Severity != scenarioapp.SeverityInfo {
+			t.Errorf("diagnostic %v: severity = %q, want info", d, d.Severity)
+		}
+		for _, key := range []string{"think-time", "data-sources", "script"} {
+			if strings.Contains(d.Message, key) {
+				seen[key] = true
+			}
+		}
+	}
+	for _, key := range []string{"think-time", "data-sources", "script"} {
+		if !seen[key] {
+			t.Errorf("no diagnostic mentioned %q", key)
+		}
+	}
+}
+
+// think-time keeps its existing single-diagnostic, line-1 behaviour
+// unchanged after the modelled-but-uncompiled detection was added --
+// regression guard for review finding 2's fix.
+func TestUncompiledKeys_ThinkTimeUnaffectedByModelledDetection(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - url: /checkout\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 (unchanged from before F2)", len(diags), diags)
+	}
+	if diags[0].Line != 1 {
+		t.Errorf("line = %d, want 1", diags[0].Line)
+	}
+}
