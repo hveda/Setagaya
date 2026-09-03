@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"errors"
 	"io"
+	"log/slog"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -160,9 +163,12 @@ func (h *handlers) uploadScenarioFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "uploaded"})
 }
 
-// setScenarioRequests uploads a portable scenario's declarative workload, as
-// the raw bytes of a Taurus `scenarios:` fragment -- scenarioapp.SetRequests
-// does the parsing and validation, so this handler only moves bytes.
+// setScenarioRequests uploads a portable scenario's declarative workload.
+// Two bodies are accepted: a raw text/yaml (or application/x-yaml) request
+// body -- the editor's path, byte-preserving by construction -- and the
+// original multipart file upload, which keeps working unchanged.
+// scenarioapp.SetRequests does the parsing and validation, so this handler
+// only moves bytes.
 func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
@@ -173,22 +179,135 @@ func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	file, _, err := parseUpload(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid file upload")
-		return
-	}
-	defer func() { _ = file.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(file, maxUploadBytes))
+	raw, err := readRequestsBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read requests")
 		return
 	}
 	if err := h.deps.Scenarios.SetRequests(r.Context(), id, raw); err != nil {
+		// A rejected fragment carries line-anchored diagnostics so the
+		// editor can point at the broken row. Any other failure (unknown
+		// scenario, native scenario) keeps writeError's envelope.
+		var inv *scenarioapp.InvalidRequestsError
+		if errors.As(err, &inv) {
+			writeDiagnostics(w, http.StatusBadRequest, inv.Err.Error(), inv.Diagnostics)
+			return
+		}
 		respondError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "requests stored"})
+}
+
+// readRequestsBody extracts the fragment bytes from either a raw YAML body or
+// a multipart upload. The media type decides: text/yaml and
+// application/x-yaml read the body verbatim (byte-preserving by
+// construction); anything else goes through the multipart path. A body that
+// is neither is rejected by the multipart parse failing.
+func readRequestsBody(r *http.Request) ([]byte, error) {
+	switch ct := mediaType(r); ct {
+	case "text/yaml", "application/x-yaml", "text/x-yaml":
+		r.Body = http.MaxBytesReader(nil, r.Body, maxUploadBytes)
+		raw, err := io.ReadAll(r.Body) // #nosec G120 -- body bounded above
+		if err != nil {
+			return nil, err
+		}
+		return raw, nil
+	default:
+		file, _, err := parseUpload(r)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = file.Close() }()
+		return io.ReadAll(io.LimitReader(file, maxUploadBytes))
+	}
+}
+
+// mediaType parses the Content-Type header down to its bare type/subtype,
+// lower-cased, parameters stripped. Empty header yields "".
+func mediaType(r *http.Request) string {
+	ct := r.Header.Get("Content-Type")
+	if ct == "" {
+		return ""
+	}
+	base, _, err := mime.ParseMediaType(ct)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(base)
+}
+
+// getScenarioRequests returns a portable scenario's stored fragment exactly
+// as uploaded -- raw text/yaml, not JSON-wrapped -- so the editor can
+// round-trip what it edits. 404 when nothing has ever been uploaded; 409
+// for a non-portable scenario, matching SetRequests' own stance.
+func (h *handlers) getScenarioRequests(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "scenario_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
+		return
+	}
+	if err := h.authorizeScenario(r, id); err != nil {
+		respondError(w, err)
+		return
+	}
+	raw, err := h.deps.Scenarios.Requests(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- Content-Type is text/yaml (set above), so the browser does
+	// not interpret the stored fragment as HTML/JS; there is no XSS sink here.
+	// Same reasoning as report_handlers.go's runShardObject and
+	// lifecycle_handlers.go's pod-log handler, both already annotated this way.
+	if _, err := w.Write(raw); err != nil {
+		slog.Error("httpapi: failed to write requests fragment", "error", err)
+	}
+}
+
+// validateScenarioRequests validates a submitted fragment without storing
+// it, returning G4's line-anchored diagnostics. It shares one code path
+// with setScenarioRequests -- same body reader, same service method
+// family -- so validate and deploy cannot disagree: any body this endpoint
+// accepts, SetRequests stores.
+func (h *handlers) validateScenarioRequests(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "scenario_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid scenario id")
+		return
+	}
+	if err := h.authorizeScenario(r, id); err != nil {
+		respondError(w, err)
+		return
+	}
+	raw, err := readRequestsBody(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read requests")
+		return
+	}
+	diags, err := h.deps.Scenarios.ValidateRequests(r.Context(), id, raw)
+	if err != nil {
+		// A rejected fragment carries line-anchored diagnostics so the
+		// editor can point at the broken row -- the same envelope the
+		// store path returns. Unknown scenario and native scenario keep
+		// the standard error mapping (404 / 409).
+		var inv *scenarioapp.InvalidRequestsError
+		if errors.As(err, &inv) {
+			writeDiagnostics(w, http.StatusBadRequest, inv.Err.Error(), inv.Diagnostics)
+			return
+		}
+		respondError(w, err)
+		return
+	}
+	// Success carries informational findings (G6 populates these later)
+	// alongside the verdict, per the OpenAPI contract: a valid fragment
+	// is one the store path would accept unchanged.
+	if diags == nil {
+		diags = []scenarioapp.Diagnostic{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true, "diagnostics": diags})
 }
 
 func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {

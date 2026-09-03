@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -24,6 +25,50 @@ type executionResponse struct {
 	CreatedTime time.Time              `json:"created_time"`
 	LoadProfile []loadprofile.Entry    `json:"load_profile"`
 	Data        []executionapp.FileRef `json:"data"`
+}
+
+// executionSummary is the list-item wire shape: identity and metadata only,
+// no load profile or file listing -- those belong to the single-execution
+// fetch, and embedding them here would turn the list into N config reads.
+type executionSummary struct {
+	ID          int64           `json:"id"`
+	Name        string          `json:"name"`
+	ProjectID   int64           `json:"project_id"`
+	Engine      taurus.Executor `json:"engine,omitempty"`
+	Cluster     string          `json:"cluster,omitempty"`
+	CreatedTime time.Time       `json:"created_time"`
+}
+
+// listExecutions returns the caller's executions, newest first -- every
+// execution of every project the caller may see, not only the ones currently
+// running (that narrower view remains GET /api/admin/executions).
+func (h *handlers) listExecutions(w http.ResponseWriter, r *http.Request) {
+	projects, err := h.visibleProjects(r)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	ids := make([]int64, 0, len(projects))
+	for _, p := range projects {
+		ids = append(ids, p.ID)
+	}
+	executions, err := h.deps.Executions.ListForProjects(r.Context(), ids)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	out := make([]executionSummary, 0, len(executions))
+	for _, c := range executions {
+		out = append(out, executionSummary{
+			ID:          c.ID,
+			Name:        c.Name,
+			ProjectID:   c.ProjectID,
+			Engine:      c.Engine,
+			Cluster:     c.Cluster,
+			CreatedTime: c.CreatedTime,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *handlers) getExecution(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +207,24 @@ func (h *handlers) uploadExecutionConfig(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.authorizeExecution(r, id); err != nil {
 		respondError(w, err)
+		return
+	}
+	// Two body forms reach the same StoreConfig with the same validation:
+	// application/json carries the Profile directly (the editor's shape),
+	// anything else stays the historical multipart upload wrapping a
+	// multi-test YAML file -- that file format is unchanged.
+	if mediaType(r) == "application/json" {
+		var profile loadprofile.Profile
+		r.Body = http.MaxBytesReader(nil, r.Body, maxUploadBytes)
+		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		if err := h.deps.Executions.StoreConfig(r.Context(), id, profile); err != nil {
+			respondError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"message": "config stored"})
 		return
 	}
 	file, _, err := parseUpload(r)

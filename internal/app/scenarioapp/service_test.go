@@ -132,6 +132,72 @@ func TestSetRequests_ValidFragmentPersists(t *testing.T) {
 	}
 }
 
+// ValidateRequests is the check-only twin of SetRequests: a fragment it
+// accepts must be one SetRequests stores, and validating must leave nothing
+// behind. Both go through the single requestDiagnostics path, so they cannot
+// diverge; this pins it.
+func TestValidateRequests_MatchesSetRequestsAndStoresNothing(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("requests:\n  - url: /checkout\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests(valid): %v", err)
+	}
+	if len(diags) != 0 {
+		t.Errorf("ValidateRequests(valid) diagnostics = %+v, want none", diags)
+	}
+	if _, err := store.GetScenarioRequests(ctx, p.ID); err == nil {
+		t.Error("ValidateRequests stored a fragment; it must validate without side effects")
+	}
+
+	// Whatever validate rejects, store rejects, with the same error: a
+	// *InvalidRequestsError wrapping ErrRequestsInvalid. Rejection is the
+	// ERROR, not diagnostics-with-nil-error -- the two paths share one
+	// verdict, or validate and store could disagree.
+	bad := []byte("requests:\n  - method: GET\n")
+	if _, verr := svc.ValidateRequests(ctx, p.ID, bad); !errors.Is(verr, scenarioapp.ErrRequestsInvalid) {
+		t.Fatalf("ValidateRequests(no url) = %v, want ErrRequestsInvalid", verr)
+	}
+	if serr := svc.SetRequests(ctx, p.ID, bad); !errors.Is(serr, scenarioapp.ErrRequestsInvalid) {
+		t.Fatalf("SetRequests(no url) = %v, want ErrRequestsInvalid (parity with validate)", serr)
+	}
+
+	// A later real store still works: validation touched no state that
+	// would block it.
+	if err := svc.SetRequests(ctx, p.ID, raw); err != nil {
+		t.Fatalf("SetRequests after validate: %v", err)
+	}
+}
+
+// A non-portable scenario is rejected by validate exactly as by store --
+// same sentinel, no diagnostics.
+func TestValidateRequests_RejectsNativeScenario(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "validate-native", 10)
+	if err := svc.UploadFile(ctx, p.ID, "scenario.jmx", strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	if _, err := svc.ValidateRequests(ctx, p.ID, []byte("requests:\n  - url: /a\n")); !errors.Is(err, scenarioapp.ErrScenarioNotPortable) {
+		t.Fatalf("ValidateRequests(native scenario) = %v, want ErrScenarioNotPortable", err)
+	}
+}
+
+// An unknown scenario is ports.ErrNotFound, before any body parsing --
+// identical to SetRequests' stance.
+func TestValidateRequests_UnknownScenario(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	if _, err := svc.ValidateRequests(context.Background(), 999, []byte("requests:\n  - url: /a\n")); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("ValidateRequests(unknown scenario) = %v, want ErrNotFound", err)
+	}
+}
+
 // A scenario pinned native by an uploaded script has nothing that ever reads
 // stored requests (compileShards only checks for a portable scenario), so
 // accepting an upload here would silently store data nothing will ever use.
@@ -595,5 +661,210 @@ func TestScenarioFingerprint_RequestsLookupErrorPropagates(t *testing.T) {
 	p, _ := svc.Create(ctx, "portable", 10)
 	if _, err := svc.ScenarioFingerprint(ctx, p.ID); err == nil {
 		t.Fatal("ScenarioFingerprint = nil error, want the GetScenarioRequests failure to propagate")
+	}
+}
+
+// G6: keys taurus.Scenario does not model (think-time is the canonical
+// example) must be reported as severity info -- stored but not compiled and
+// will not affect the run -- never as errors, and the document must still
+// validate and still store. compileScenario builds a fresh taurus.Scenario
+// from modelled fields only, so "passes through" would be the exact inverse
+// of the truth; the wording below is asserted.
+func TestUncompiledKeys_ReportAsInfoAndStillStore(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - url: /checkout\n")
+
+	// Validate: accepted, with an info diagnostic carrying the wording.
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a document with an uncompiled key: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 info", len(diags), diags)
+	}
+	d := diags[0]
+	if d.Severity != scenarioapp.SeverityInfo {
+		t.Errorf("severity = %q, want info (never an error)", d.Severity)
+	}
+	if d.Line != 1 {
+		t.Errorf("line = %d, want 1 (think-time is the first line)", d.Line)
+	}
+	if !strings.Contains(d.Message, "stored but not compiled and will not affect the run") {
+		t.Errorf("message %q must state the key is stored but not compiled and will not affect the run", d.Message)
+	}
+	if strings.Contains(d.Message, "pass") {
+		t.Errorf("message %q must not claim the key passes through", d.Message)
+	}
+
+	// Store: the document still stores, byte-for-byte, info diags or not.
+	if err := svc.SetRequests(ctx, p.ID, raw); err != nil {
+		t.Fatalf("SetRequests rejected a document with an uncompiled key: %v", err)
+	}
+	got, err := store.GetScenarioRequests(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetScenarioRequests: %v", err)
+	}
+	if string(got) != string(raw) {
+		t.Errorf("stored = %q, want %q byte-for-byte", got, raw)
+	}
+}
+
+// A fragment with only modelled keys validates with zero diagnostics -- the
+// info path must not invent findings.
+func TestUncompiledKeys_NoneWhenAllModelled(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("default-address: http://example.com\nrequests:\n  - url: /\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Errorf("diagnostics = %v, want none for a fully-modelled fragment", diags)
+	}
+}
+
+// A fragment with BOTH an uncompiled key and a real error (no url) must be
+// rejected -- unknown-key info must never mask a genuine rejection.
+func TestUncompiledKeys_ErrorStillRejects(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - label: broken\n")
+	_, err := svc.ValidateRequests(ctx, p.ID, raw)
+	var inv *scenarioapp.InvalidRequestsError
+	if !errors.As(err, &inv) {
+		t.Fatalf("ValidateRequests = %v, want InvalidRequestsError (info must not mask the missing url)", err)
+	}
+}
+
+// Phase 19b F2 (review finding 2): KnownFields(true) only catches keys
+// taurus.Scenario does not model at all. data-sources and script ARE on the
+// struct, so a strict decode sees them as known and reports nothing -- yet
+// compileScenario never reads either from the fragment (DataSources comes
+// from ScenarioInput.DataPaths, resolved from uploaded files; Script from
+// ScenarioInput.ScriptPath, and only for a native scenario). Before this fix
+// a fragment carrying data-sources got zero diagnostics, live-verified
+// against the deployed API on 2026-09-01: an operator parameterising a test
+// would see no warning and get an unparameterised run.
+func TestUncompiledKeys_DataSourcesFlaggedThoughModelled(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("requests:\n  - url: /a\ndata-sources:\n  - path: users.csv\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a document with data-sources: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 info for data-sources", len(diags), diags)
+	}
+	d := diags[0]
+	if d.Severity != scenarioapp.SeverityInfo {
+		t.Errorf("severity = %q, want info", d.Severity)
+	}
+	if d.Line != 3 {
+		t.Errorf("line = %d, want 3 (data-sources is the third line)", d.Line)
+	}
+	if !strings.Contains(d.Message, "data-sources") {
+		t.Errorf("message %q must name data-sources", d.Message)
+	}
+	if !strings.Contains(d.Message, "stored but not compiled and will not affect the run") {
+		t.Errorf("message %q must state the key is stored but not compiled", d.Message)
+	}
+}
+
+// Same failure mode, for a portable fragment's own script: key. Modelled on
+// taurus.Scenario, but compileScenario only ever reads Script from
+// ScenarioInput.ScriptPath for a NATIVE scenario -- a portable fragment's
+// script: is never read at all.
+func TestUncompiledKeys_ScriptFlaggedThoughModelled(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("script: custom.jmx\nrequests:\n  - url: /a\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a document with script: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 info for script", len(diags), diags)
+	}
+	if diags[0].Severity != scenarioapp.SeverityInfo {
+		t.Errorf("severity = %q, want info", diags[0].Severity)
+	}
+	if !strings.Contains(diags[0].Message, "script") {
+		t.Errorf("message %q must name script", diags[0].Message)
+	}
+}
+
+// A fragment mixing all three uncompiled-key shapes -- think-time (unknown
+// to the type entirely), data-sources and script (modelled but never
+// compiled from the fragment) -- yields three independent diagnostics, each
+// anchored to its own line. Detection of the two shapes must not interfere.
+func TestUncompiledKeys_MixedSourcesAllReported(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - url: /a\ndata-sources:\n  - path: users.csv\nscript: custom.jmx\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests rejected a mixed uncompiled-key document: %v", err)
+	}
+	if len(diags) != 3 {
+		t.Fatalf("diagnostics = %d entries (%v), want 3 (think-time, data-sources, script)", len(diags), diags)
+	}
+	seen := map[string]bool{}
+	for _, d := range diags {
+		if d.Severity != scenarioapp.SeverityInfo {
+			t.Errorf("diagnostic %v: severity = %q, want info", d, d.Severity)
+		}
+		for _, key := range []string{"think-time", "data-sources", "script"} {
+			if strings.Contains(d.Message, key) {
+				seen[key] = true
+			}
+		}
+	}
+	for _, key := range []string{"think-time", "data-sources", "script"} {
+		if !seen[key] {
+			t.Errorf("no diagnostic mentioned %q", key)
+		}
+	}
+}
+
+// think-time keeps its existing single-diagnostic, line-1 behaviour
+// unchanged after the modelled-but-uncompiled detection was added --
+// regression guard for review finding 2's fix.
+func TestUncompiledKeys_ThinkTimeUnaffectedByModelledDetection(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - url: /checkout\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d entries (%v), want exactly 1 (unchanged from before F2)", len(diags), diags)
+	}
+	if diags[0].Line != 1 {
+		t.Errorf("line = %d, want 1", diags[0].Line)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
@@ -54,6 +55,45 @@ func (r *Repository) ListExecutionsByProject(ctx context.Context, projectID int6
 	defer func() { _ = rows.Close() }()
 
 	out := []execution.Execution{}
+	for rows.Next() {
+		c, scanErr := scanExecution(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("mysql: scan execution: %w", scanErr)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterate executions: %w", err)
+	}
+	return out, nil
+}
+
+// ListExecutionsByProjects returns all executions belonging to any of
+// projectIDs, newest first (created_time desc, id desc tiebreak). An empty
+// project list returns an empty result without touching the database -- the
+// same guard ListProjectsByOwners keeps, so a scoping bug can never widen
+// into "every execution".
+func (r *Repository) ListExecutionsByProjects(ctx context.Context, projectIDs []int64) ([]execution.Execution, error) {
+	out := []execution.Execution{}
+	if len(projectIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(projectIDs))
+	args := make([]any, len(projectIDs))
+	for i, id := range projectIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	// #nosec G201 -- placeholders are fixed "?" tokens; projectIDs are bound params.
+	query := fmt.Sprintf(
+		"SELECT %s FROM execution WHERE project_id IN (%s) ORDER BY created_time DESC, id DESC",
+		executionColumns, strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: list executions by projects: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
 	for rows.Next() {
 		c, scanErr := scanExecution(rows)
 		if scanErr != nil {

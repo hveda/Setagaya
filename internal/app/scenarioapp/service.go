@@ -15,8 +15,6 @@ import (
 	"sort"
 	"strings"
 
-	yaml "gopkg.in/yaml.v3"
-
 	"github.com/heridotlife/honryu/internal/domain/jmx"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
@@ -253,6 +251,12 @@ func (s *Service) DeleteFile(ctx context.Context, scenarioID int64, filename str
 //
 // raw is stored exactly as uploaded, not the re-marshaled struct: a caller's
 // YAML formatting, comments, and key order survive untouched.
+//
+// Validation is the one path in requestDiagnostics, shared with
+// ValidateRequests so validate and store cannot disagree. A rejected
+// fragment returns *InvalidRequestsError (wrapping ErrRequestsInvalid)
+// carrying line-anchored diagnostics; errors.Is against the sentinels is
+// unchanged for every existing caller.
 func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte) error {
 	sc, err := s.repo.GetScenario(ctx, scenarioID)
 	if err != nil {
@@ -261,19 +265,54 @@ func (s *Service) SetRequests(ctx context.Context, scenarioID int64, raw []byte)
 	if sc.Kind != scenario.KindPortable {
 		return fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
 	}
-	var frag taurus.Scenario
-	if err := yaml.Unmarshal(raw, &frag); err != nil {
-		return fmt.Errorf("%w: %w", ErrRequestsInvalid, err)
-	}
-	if len(frag.Requests) == 0 {
-		return fmt.Errorf("%w: at least one request is required", ErrRequestsInvalid)
-	}
-	for i, req := range frag.Requests {
-		if req.URL == "" {
-			return fmt.Errorf("%w: request %d has no url", ErrRequestsInvalid, i)
-		}
+	if diags := requestDiagnostics(raw); diags != nil {
+		return &InvalidRequestsError{Diagnostics: diags, Err: ErrRequestsInvalid}
 	}
 	return s.repo.SetScenarioRequests(ctx, scenarioID, raw)
+}
+
+// ValidateRequests validates a fragment without storing it: the same checks
+// SetRequests runs, with the same accept/reject verdict. Scenario existence
+// and kind are checked first, exactly as SetRequests checks them; a fragment
+// this method accepts is one SetRequests would store, and a fragment it
+// rejects comes back as the same *InvalidRequestsError SetRequests returns,
+// so validate and store cannot disagree. The handler turns the error into
+// the 400 diagnostics envelope; a nil error means the fragment would store.
+func (s *Service) ValidateRequests(ctx context.Context, scenarioID int64, raw []byte) ([]Diagnostic, error) {
+	sc, err := s.repo.GetScenario(ctx, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	if sc.Kind != scenario.KindPortable {
+		return nil, fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
+	}
+	if diags := requestDiagnostics(raw); diags != nil {
+		return nil, &InvalidRequestsError{Diagnostics: diags, Err: ErrRequestsInvalid}
+	}
+	// G6: informational findings ride the 200 -- keys taurus.Scenario does
+	// not model are stored exactly as uploaded but never reach the engine.
+	// They never block storing and never appear on the store path.
+	return uncompiledKeyDiagnostics(raw), nil
+}
+
+// Requests returns a portable scenario's stored requests fragment exactly as
+// it was uploaded -- byte-for-byte, comments and key order included. It is
+// the load half of the editor round trip; SetRequests is the save half.
+// ports.ErrNotFound means nothing was ever uploaded. A native scenario is
+// ErrScenarioNotPortable -- the same stance SetRequests takes, so load and
+// save cannot disagree about what a scenario kind accepts.
+func (s *Service) Requests(ctx context.Context, scenarioID int64) ([]byte, error) {
+	// Scenario existence and kind are checked first: a native scenario must
+	// 409 (not 404) even though it also has no fragment, and an unknown
+	// scenario must 404 rather than leak whether a fragment exists.
+	sc, err := s.repo.GetScenario(ctx, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	if sc.Kind != scenario.KindPortable {
+		return nil, fmt.Errorf("%w: scenario %d is %s", ErrScenarioNotPortable, scenarioID, sc.Kind)
+	}
+	return s.repo.GetScenarioRequests(ctx, scenarioID)
 }
 
 // ScenarioFingerprint returns a deterministic hash over a scenario's actual

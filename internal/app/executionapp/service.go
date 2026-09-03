@@ -31,6 +31,8 @@ type Repo interface {
 	CreateExecution(ctx context.Context, c execution.Execution) (int64, error)
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
 	ListExecutionsByProject(ctx context.Context, projectID int64) ([]execution.Execution, error)
+	// ListExecutionsByProjects backs the cross-project operator listing.
+	ListExecutionsByProjects(ctx context.Context, projectIDs []int64) ([]execution.Execution, error)
 	DeleteExecution(ctx context.Context, id int64) error
 	AddExecutionFile(ctx context.Context, executionID int64, filename string) error
 	ExecutionFilesFor(ctx context.Context, executionID int64) ([]string, error)
@@ -92,6 +94,16 @@ func (s *Service) Get(ctx context.Context, id int64) (execution.Execution, error
 // ListByProject returns the executions of a project.
 func (s *Service) ListByProject(ctx context.Context, projectID int64) ([]execution.Execution, error) {
 	return s.repo.ListExecutionsByProject(ctx, projectID)
+}
+
+// ListForProjects returns every execution belonging to any of projectIDs,
+// newest first -- the operator's execution list. An empty project list yields
+// an empty result, never every execution.
+func (s *Service) ListForProjects(ctx context.Context, projectIDs []int64) ([]execution.Execution, error) {
+	if len(projectIDs) == 0 {
+		return []execution.Execution{}, nil
+	}
+	return s.repo.ListExecutionsByProjects(ctx, projectIDs)
 }
 
 // Delete removes an execution and its data files.

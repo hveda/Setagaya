@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/domain/compile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
@@ -1075,6 +1076,118 @@ func TestDeploy_PortableScenarioCompilesUploadedRequests(t *testing.T) {
 		}
 		if len(ts.Requests) != 1 || ts.Requests[0].URL != "/checkout" {
 			t.Errorf("requests = %+v, want one request to /checkout", ts.Requests)
+		}
+	}
+}
+
+// portableCompiledFields names the taurus.Scenario fields a portable
+// scenario's compileScenario branch actually populates from ScenarioInput
+// (compile.go:141-166): DefaultAddress, Headers, Requests, Timeout,
+// KeepAlive. Script is excluded deliberately -- it is only ever set in the
+// NATIVE branch, never for a portable scenario, regardless of what a
+// portable fragment's own script: key says.
+var portableCompiledFields = map[string]struct{}{
+	"default-address": {},
+	"headers":         {},
+	"requests":        {},
+	"timeout":         {},
+	"keepalive":       {},
+}
+
+// Phase 19b F3: pins scenarioapp.ModelledButUncompiled against the real
+// compile path, structurally and behaviourally, so the two cannot drift
+// apart the way they did before review finding 2 was fixed (F2).
+//
+// Structural half: every yaml-tagged field of taurus.Scenario must be
+// accounted for by exactly one of {portableCompiledFields,
+// scenarioapp.ModelledButUncompiled}, with no overlap and nothing left over.
+// A new field added to taurus.Scenario that is not wired into either list
+// fails here immediately, naming the field -- catching the review finding 2
+// class of bug (a modelled field silently uncompiled with no diagnostic) at
+// the type level, not only for the two fields known today.
+func TestModelledButUncompiled_AccountsForEveryScenarioField(t *testing.T) {
+	t.Parallel()
+	typ := reflect.TypeOf(taurus.Scenario{})
+	for i := 0; i < typ.NumField(); i++ {
+		tag := typ.Field(i).Tag.Get("yaml")
+		name, _, _ := strings.Cut(tag, ",")
+		_, compiled := portableCompiledFields[name]
+		_, uncompiled := scenarioapp.ModelledButUncompiled[name]
+		switch {
+		case compiled && uncompiled:
+			t.Errorf("field %q is in both portableCompiledFields and scenarioapp.ModelledButUncompiled", name)
+		case !compiled && !uncompiled:
+			t.Errorf("field %q (taurus.Scenario.%s) is in neither list -- if compileScenario now "+
+				"reads it from the fragment, add it to portableCompiledFields here; if not, add it to "+
+				"scenarioapp.ModelledButUncompiled (diagnostics.go) so the editor warns about it",
+				name, typ.Field(i).Name)
+		}
+	}
+	for name := range scenarioapp.ModelledButUncompiled {
+		if _, compiled := portableCompiledFields[name]; compiled {
+			t.Errorf("scenarioapp.ModelledButUncompiled names %q, but portableCompiledFields also claims it -- "+
+				"compileScenario must have started compiling it; remove it from ModelledButUncompiled "+
+				"(diagnostics.go) so the editor stops warning about a key that now works", name)
+		}
+	}
+}
+
+// Behavioural half of F3: deploys a portable scenario whose stored fragment
+// sets BOTH of today's modelled-but-uncompiled keys (data-sources, script)
+// alongside requests, and asserts the compiled shard config carries neither
+// -- the runtime proof behind the structural claim above. If compileScenario
+// is ever changed to honour one of these from the fragment, this test fails
+// with the fragment's own sentinel value, pointing at exactly what changed.
+func TestDeploy_ModelledButUncompiledKeysNeverReachCompiledConfig(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	obj := fake.NewObjectStore()
+
+	p, _ := project.New("web", "honryu", "")
+	projectID, _ := store.CreateProject(ctx, p)
+	coll, _ := execution.New("peak", projectID)
+	executionID, _ := store.CreateExecution(ctx, coll)
+
+	pl, _ := scenario.New("portable", projectID)
+	scenarioID, _ := store.CreateScenario(ctx, pl)
+	raw := []byte("requests:\n  - url: /checkout\n" +
+		"data-sources:\n  - path: sentinel-users.csv\n" +
+		"script: sentinel-custom.jmx\n")
+	if err := store.SetScenarioRequests(ctx, scenarioID, raw); err != nil {
+		t.Fatalf("SetScenarioRequests: %v", err)
+	}
+
+	tests := []loadprofile.Entry{{Name: "p", ScenarioID: scenarioID, Concurrency: 1, Rampup: 1, Engines: 1, Duration: 30}}
+	if err := store.StoreLoadProfile(ctx, executionID, false, tests); err != nil {
+		t.Fatalf("StoreLoadProfile: %v", err)
+	}
+
+	sched := fake.NewScheduler()
+	svc := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage(image))
+	if err := svc.Deploy(ctx, executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	spec, ok := sched.LastDeploy(executionID, scenarioID)
+	if !ok {
+		t.Fatal("nothing was deployed")
+	}
+	var cfg taurus.Config
+	if err := yaml.Unmarshal(spec.Shards[0].Config, &cfg); err != nil {
+		t.Fatalf("shard config is not valid YAML: %v", err)
+	}
+	for _, ts := range cfg.Scenarios {
+		if len(ts.DataSources) != 0 {
+			t.Errorf("compiled DataSources = %+v, want empty -- data-sources must not reach the "+
+				"engine from a fragment (only from uploaded scenario files)", ts.DataSources)
+		}
+		if ts.Script != "" {
+			t.Errorf("compiled Script = %q, want empty -- a portable scenario's fragment script: "+
+				"must never reach the engine", ts.Script)
+		}
+		if len(ts.Requests) != 1 || ts.Requests[0].URL != "/checkout" {
+			t.Errorf("requests = %+v, want one request to /checkout (the compiled fields must still work)", ts.Requests)
 		}
 	}
 }

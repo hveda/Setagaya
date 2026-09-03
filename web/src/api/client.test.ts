@@ -143,3 +143,31 @@ describe('ApiClient', () => {
     });
   });
 });
+
+describe('putRaw', () => {
+  it('PUTs the raw body with the given content type and bearer token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient({ baseUrl: 'http://x', getToken: () => 'tok' });
+    await client.putRaw('/scenarios/1/requests', 'text/yaml', 'a: 1\n');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://x/scenarios/1/requests');
+    expect(init.method).toBe('PUT');
+    expect(init.headers.get('Content-Type')).toBe('text/yaml');
+    expect(init.headers.get('Authorization')).toBe('Bearer tok');
+    expect(init.body).toBe('a: 1\n');
+  });
+
+  it('throws ApiError with the server message on failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { message: 'invalid fragment' } }), { status: 422 }),
+      ),
+    );
+    const client = new ApiClient({ baseUrl: 'http://x', getToken: () => null });
+    const err = await client.putRaw('/scenarios/1/requests', 'text/yaml', 'a: 1\n').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(422);
+  });
+});

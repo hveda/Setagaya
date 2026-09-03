@@ -139,9 +139,12 @@ var routes = []Route{
 	{"GET", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.listScenarioFiles })},
 	{"PUT", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.uploadScenarioFile })},
 	{"DELETE", "/api/scenarios/{scenario_id}/files", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.deleteScenarioFile })},
+	{"GET", "/api/scenarios/{scenario_id}/requests", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.getScenarioRequests })},
+	{"POST", "/api/scenarios/{scenario_id}/requests/validate", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.validateScenarioRequests })},
 	{"PUT", "/api/scenarios/{scenario_id}/requests", "scenarios", hf(func(h *handlers) http.HandlerFunc { return h.setScenarioRequests })},
 
 	{"POST", "/api/executions", "executions", hf(func(h *handlers) http.HandlerFunc { return h.createExecution })},
+	{"GET", "/api/executions", "executions", hf(func(h *handlers) http.HandlerFunc { return h.listExecutions })},
 	{"GET", "/api/executions/{execution_id}", "executions", hf(func(h *handlers) http.HandlerFunc { return h.getExecution })},
 	{"DELETE", "/api/executions/{execution_id}", "executions", hf(func(h *handlers) http.HandlerFunc { return h.deleteExecution })},
 	{"GET", "/api/executions/{execution_id}/files", "executions", hf(func(h *handlers) http.HandlerFunc { return h.listExecutionFiles })},

@@ -89,6 +89,14 @@ export interface ExecutionInfo {
   data: FileRef[];
 }
 
+/**
+ * The current output of a scenario's engine pod (text/plain). This is the
+ * LIVE stream -- the durable, after-the-fact copy lives in the object store
+ * (see reports.ts getShardLog). The hub polls this for the tail view.
+ */
+export function getScenarioPodLog(executionId: number, scenarioId: number): Promise<string> {
+  return apiClient.text(`/executions/${executionId}/scenarios/${scenarioId}/logs`);
+}
 export function getExecutionInfo(executionId: number): Promise<ExecutionInfo> {
   return apiClient.get<ExecutionInfo>(`/executions/${executionId}`);
 }
