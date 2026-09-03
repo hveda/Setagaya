@@ -155,7 +155,7 @@ func requestDiagnostics(raw []byte) []Diagnostic {
 // opposite ("passes through to the run") -- a test asserts this wording.
 const uncompiledKeysMessage = "this key is stored but not compiled and will not affect the run"
 
-// modelledButUncompiled names taurus.Scenario fields that KnownFields(true)
+// ModelledButUncompiled names taurus.Scenario fields that KnownFields(true)
 // cannot catch, because the type models them, and that a fragment's own
 // value never reaches the engine anyway: compileScenario (compile.go) reads
 // these from ScenarioInput's own fields, never from the fragment.
@@ -167,10 +167,11 @@ const uncompiledKeysMessage = "this key is stored but not compiled and will not 
 //     read at all.
 //
 // This set is a fact about compileScenario, not derivable from the struct,
-// so phase 19b F3 pins it against compile.go with a test that fails the
-// moment a listed field starts being compiled from the fragment (or a newly
-// uncompiled field is not added here).
-var modelledButUncompiled = map[string]struct{}{
+// so it is exported for phase 19b F3's guard test
+// (internal/app/lifecycleapp/service_test.go), which pins it against the
+// real compile path and fails the moment a listed field starts being
+// compiled from the fragment, or a newly-uncompiled field is not added here.
+var ModelledButUncompiled = map[string]struct{}{
 	"data-sources": {},
 	"script":       {},
 }
@@ -179,7 +180,7 @@ var modelledButUncompiled = map[string]struct{}{
 // fragment carries, as severity info: both keys taurus.Scenario does not
 // model at all (think-time, variables, ...), found via a KnownFields(true)
 // decode, and keys the type models but compileScenario never reads from the
-// fragment (modelledButUncompiled, above) -- KnownFields cannot see those,
+// fragment (ModelledButUncompiled, above) -- KnownFields cannot see those,
 // since the type accepts them. The fragment is NOT invalid either way --
 // ValidateRequests adds these to a 200 with valid:true, and SetRequests
 // stores the document unchanged.
@@ -226,7 +227,7 @@ func unknownFieldDiagnostics(raw []byte) []Diagnostic {
 	return out
 }
 
-// modelledButUncompiledDiagnostics finds top-level keys in modelledButUncompiled
+// modelledButUncompiledDiagnostics finds top-level keys in ModelledButUncompiled
 // present in the raw document, line-anchored via a lenient decode into a
 // generic node (not KnownFields -- these keys ARE known to taurus.Scenario,
 // so a strict decode would never flag them).
@@ -242,7 +243,7 @@ func modelledButUncompiledDiagnostics(raw []byte) []Diagnostic {
 	var out []Diagnostic
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		key := root.Content[i]
-		if _, ok := modelledButUncompiled[key.Value]; !ok {
+		if _, ok := ModelledButUncompiled[key.Value]; !ok {
 			continue
 		}
 		out = append(out, Diagnostic{
