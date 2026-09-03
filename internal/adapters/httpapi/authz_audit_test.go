@@ -123,7 +123,7 @@ var authzAuditTable = []authzEntry{
 	{method: "GET", pattern: "/api/executions/{execution_id}/status", decision: "execution:read"},
 	{method: "GET", pattern: "/api/executions/{execution_id}/engines", decision: "execution:read"},
 	{method: "GET", pattern: "/api/executions/{execution_id}/scenarios/{scenario_id}/logs", decision: "execution:read"},
-	{method: "GET", pattern: "/api/executions/{execution_id}/stream", decision: "execution:read", pending: "task 11"},
+	{method: "GET", pattern: "/api/executions/{execution_id}/stream", decision: "execution:read"},
 
 	{method: "POST", pattern: "/api/executions/{execution_id}/schedules", decision: "schedule:create"},
 	{method: "GET", pattern: "/api/executions/{execution_id}/schedules", decision: "execution:read"},
@@ -136,11 +136,11 @@ var authzAuditTable = []authzEntry{
 	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", decision: "report:read"},
 	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", decision: "report:read"},
 
-	{method: "GET", pattern: "/api/usage/history", decision: decisionSystemAdmin, pending: "task 11"},
-	{method: "GET", pattern: "/api/usage/summary", decision: decisionSystemAdmin, pending: "task 11"},
+	{method: "GET", pattern: "/api/usage/history", decision: decisionSystemAdmin},
+	{method: "GET", pattern: "/api/usage/summary", decision: decisionSystemAdmin},
 
-	{method: "GET", pattern: "/api/admin/executions", decision: decisionSystemAdmin, pending: "task 11"},
-	{method: "GET", pattern: "/api/admin/nodes", decision: decisionSystemAdmin, pending: "task 11"},
+	{method: "GET", pattern: "/api/admin/executions", decision: decisionSystemAdmin},
+	{method: "GET", pattern: "/api/admin/nodes", decision: decisionSystemAdmin},
 	{method: "POST", pattern: "/api/admin/abort", decision: decisionSystemAdmin},
 
 	{method: "POST", pattern: "/api/tenants", decision: "tenant:admin"},
@@ -180,7 +180,7 @@ var authzAuditTable = []authzEntry{
 	{method: "GET", pattern: "/api/scenarios/{scenario_id}/capacity-profile", decision: "scenario:read"},
 	{method: "GET", pattern: "/api/scenarios/{scenario_id}/capacity-profile/fanout", decision: "scenario:read"},
 
-	{method: "GET", pattern: "/api/files/{kind}/{id}/{name}", decision: "scenario:read|execution:read", pending: "task 11"},
+	{method: "GET", pattern: "/api/files/{kind}/{id}/{name}", decision: "scenario:read|execution:read"},
 
 	{method: "POST", pattern: "/api/ingest", decision: decisionPublic},
 }

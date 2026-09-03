@@ -961,3 +961,131 @@ func TestRBAC_ReportRoutesRequireReportRead(t *testing.T) {
 		}
 	}
 }
+
+// The remaining bucket (task 11): platform-wide surfaces are system:admin,
+// the file download dispatches on kind, and the SSE stream authorizes once
+// at open. AC4: Alice (service_provider_admin) reads the cluster registry
+// and usage; Bob/Carol/Dave -- every tenant role -- are 403 on both.
+func TestRBAC_PlatformSurfacesRequireSystemAdmin(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("bob-tok", account.Account{Subject: "bob"})
+	assignRole(t, f, acme, "bob", rbac.RoleTenantEditor)
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+	f.prov.Register("dave-tok", account.Account{Subject: "dave"})
+	assignRole(t, f, acme, "dave", rbac.RoleCampaignManager)
+
+	for _, path := range []string{"/api/clusters", "/api/usage/history", "/api/usage/summary", "/api/admin/executions", "/api/admin/nodes"} {
+		if rec := f.req(t, http.MethodGet, path, "admin-tok", nil); rec.Code != http.StatusOK {
+			t.Fatalf("alice GET %s = %d, want 200 (%s)", path, rec.Code, rec.Body.String())
+		}
+		for _, tok := range []string{"bob-tok", "carol-tok", "dave-tok"} {
+			if rec := f.req(t, http.MethodGet, path, tok, nil); rec.Code != http.StatusForbidden {
+				t.Fatalf("%s GET %s = %d, want 403 (%s)", tok, path, rec.Code, rec.Body.String())
+			}
+		}
+	}
+}
+
+// AC8: the reservation calendar is schedule:list on the path's tenant --
+// Dave (campaign_manager in tenants 1 and 2, nothing in 3) reads the plan
+// of every tenant he coordinates and is denied in the one he holds no
+// grant in; Carol (tenant_viewer, schedule:read+list) reads her own
+// tenant's calendar.
+func TestRBAC_ReservationsFollowScheduleList(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	globex := createTenant(t, f, "globex", "Globex")
+	initech := createTenant(t, f, "initech", "Initech")
+	f.prov.Register("dave-tok", account.Account{Subject: "dave"})
+	assignRole(t, f, acme, "dave", rbac.RoleCampaignManager)
+	assignRole(t, f, globex, "dave", rbac.RoleCampaignManager)
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+
+	for _, tenant := range []int64{acme, globex} {
+		path := "/api/tenants/" + strconv.FormatInt(tenant, 10) + "/reservations"
+		if rec := f.req(t, http.MethodGet, path, "dave-tok", nil); rec.Code != http.StatusOK {
+			t.Fatalf("dave GET reservations (coordinated tenant %d) = %d, want 200 (%s)", tenant, rec.Code, rec.Body.String())
+		}
+	}
+	// Tenant 3: no grant, no calendar.
+	outsider := "/api/tenants/" + strconv.FormatInt(initech, 10) + "/reservations"
+	if rec := f.req(t, http.MethodGet, outsider, "dave-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave GET reservations (tenant he holds nothing in) = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+	// The viewer reads her own tenant's calendar (schedule:read+list).
+	own := "/api/tenants/" + strconv.FormatInt(acme, 10) + "/reservations"
+	if rec := f.req(t, http.MethodGet, own, "carol-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("carol GET own-tenant reservations = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := f.req(t, http.MethodGet, outsider, "carol-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("carol GET foreign-tenant reservations = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// /api/files/{kind}/{id}/{name} dispatches on kind to the scenario or
+// execution read check, and the SSE stream authorizes once at open before
+// upgrading -- EventSource cannot carry a header, so the decision must not
+// depend on one.
+func TestRBAC_FilesAndStreamDispatchByResource(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+	f.prov.Register("outsider-tok", account.Account{Subject: "outsider"})
+
+	projectID := createProjectInTenantReturningID(t, f, "acme-web", "team-a", acme)
+	scenarioID := decodeID(t, f.req(t, http.MethodPost, "/api/scenarios", "admin-tok",
+		url.Values{"name": {"smoke"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+	executionID := decodeID(t, f.req(t, http.MethodPost, "/api/executions", "admin-tok",
+		url.Values{"name": {"peak"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+
+	// A stored scenario artifact: the viewer downloads it, the outsider is
+	// denied before the object store is consulted.
+	key := fmt.Sprintf("scenario/%d/plan.jmx", scenarioID)
+	if err := f.obj.Upload(context.Background(), key, strings.NewReader("<jmx/>")); err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	scenarioFile := "/api/files/scenario/" + strconv.FormatInt(scenarioID, 10) + "/plan.jmx"
+	if rec := f.req(t, http.MethodGet, scenarioFile, "carol-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("viewer GET scenario file = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := f.req(t, http.MethodGet, scenarioFile, "outsider-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("outsider GET scenario file = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+	// Execution-kind dispatch: no object stored, so the authorized viewer
+	// reaches the store (404) while the outsider is stopped at 403.
+	execFile := "/api/files/execution/" + strconv.FormatInt(executionID, 10) + "/data.csv"
+	if rec := f.req(t, http.MethodGet, execFile, "carol-tok", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("viewer GET execution file = %d, want 404 (authorized, object absent)", rec.Code)
+	}
+	if rec := f.req(t, http.MethodGet, execFile, "outsider-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("outsider GET execution file = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// The stream: the viewer's request is accepted as SSE (200 +
+	// text/event-stream before any event), the outsider's rejected at open.
+	// The request context is cancelled shortly after the open so the
+	// handler's select returns instead of streaming forever.
+	stream := "/api/executions/" + strconv.FormatInt(executionID, 10) + "/stream"
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+	r := httptest.NewRequest(http.MethodGet, stream, nil).WithContext(ctx)
+	r.Header.Set("Authorization", "Bearer carol-tok")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("viewer stream = %d %q, want 200 text/event-stream", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if rec := f.req(t, http.MethodGet, stream, "outsider-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("outsider stream = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+}

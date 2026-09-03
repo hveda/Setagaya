@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 )
 
 // streamExecution serves a Server-Sent Events stream of a execution's live
@@ -13,6 +15,16 @@ func (h *handlers) streamExecution(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
+	}
+	// Authorized once at open, before the SSE upgrade writes anything --
+	// EventSource cannot send an Authorization header, which is exactly why
+	// the session is a cookie (spec constraint). Legacy (no-RBAC)
+	// deployments keep the always-open stream they have today.
+	if h.rbacEnabled() {
+		if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+			respondError(w, err)
+			return
+		}
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {

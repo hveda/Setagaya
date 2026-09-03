@@ -57,7 +57,8 @@ func toReservationResponse(r reservation.Reservation) reservationResponse {
 // "" (the implicit default cluster, until Phase 8's registry exists) when
 // the query omits it.
 func (h *handlers) tenantReservations(w http.ResponseWriter, r *http.Request) {
-	if !h.tenantAdminGate(w, r) {
+	if h.deps.Tenants == nil {
+		writeError(w, http.StatusNotFound, "tenants not configured")
 		return
 	}
 	tenantID, ok := pathInt(r, "tenant_id")
@@ -65,9 +66,17 @@ func (h *handlers) tenantReservations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid tenant id")
 		return
 	}
+	if err := h.authorizeScheduleList(r.Context(), tenantID); err != nil {
+		respondError(w, err)
+		return
+	}
 	from, to, err := reservationWindow(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.deps.Reservations == nil {
+		writeError(w, http.StatusNotFound, "reservations not configured")
 		return
 	}
 	cluster := r.URL.Query().Get("cluster")

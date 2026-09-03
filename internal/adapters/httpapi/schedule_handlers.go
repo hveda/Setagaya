@@ -158,6 +158,26 @@ func (h *handlers) authorizeSchedule(r *http.Request, scheduleID int64) error {
 	return h.authorizeExecution(r, sc.ExecutionID, rbac.ActionDelete)
 }
 
+// authorizeScheduleList checks the caller may read tenantID's schedule
+// surface -- the reservation calendar. A reservation is scheduled
+// capacity, materialized (Approach B), so reading it is
+// ResourceSchedule/ActionList on the path's tenant: a campaign_manager
+// holds schedule:read+list in each tenant they coordinate (AC8 -- the
+// cross-tenant view the coordination meeting needs), and every tenant
+// role holds the read pair in its own tenant. It previously sat behind
+// tenantAdminGate's tenant:admin, which locked the calendar to admins and
+// the service provider. In no-auth mode the operator has full access.
+func (h *handlers) authorizeScheduleList(ctx context.Context, tenantID int64) error {
+	if !h.rbacEnabled() {
+		return nil
+	}
+	dec := h.deps.Auth.Authorize(accountFrom(ctx), rbac.Request{Resource: rbac.ResourceSchedule, Action: rbac.ActionList, TenantID: &tenantID})
+	if !dec.Allowed {
+		return errForbidden
+	}
+	return nil
+}
+
 // authorizeScheduleTenant checks the caller may attribute a schedule's
 // occurrences -- and the quota they reserve -- to tenantID. Under RBAC this
 // requires a role, global or scoped to tenantID specifically, granting
