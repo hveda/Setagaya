@@ -156,6 +156,10 @@ func (h *handlers) listExecutionFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	files, err := h.deps.Executions.Files(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
@@ -259,6 +263,10 @@ func (h *handlers) getExecutionConfig(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
 		return
 	}
 	cfg, err := h.deps.Executions.GetConfig(r.Context(), id)

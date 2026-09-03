@@ -125,6 +125,10 @@ func (h *handlers) executionStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	status, err := h.deps.Lifecycle.Status(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
@@ -138,6 +142,10 @@ func (h *handlers) executionEngines(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
 		return
 	}
 	c, err := h.deps.Executions.Get(r.Context(), id)
@@ -158,6 +166,10 @@ func (h *handlers) scenarioPodLog(w http.ResponseWriter, r *http.Request) {
 	executionID, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	if err := h.authorizeExecution(r, executionID, rbac.ActionRead); err != nil {
+		respondError(w, err)
 		return
 	}
 	scenarioID, ok := pathInt(r, "scenario_id")

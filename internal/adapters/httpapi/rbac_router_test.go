@@ -853,3 +853,42 @@ func TestRBAC_CalibrationRoutesRequireProjectAuthorization(t *testing.T) {
 		t.Fatalf("create calibration by an outsider = %d, want 403 (%s)", rec.Code, rec.Body.String())
 	}
 }
+
+// The read-your-own-resource bucket (task 9): every previously ungated GET
+// now asks <resource>:read against the row's tenant. The negative is the
+// audit's job; this is the positive -- a tenant_viewer reads all of them
+// (200), while a caller with no relationship to the tenant is denied on
+// each. Without the positive half, a 403-wall would look exactly like
+// enforcement (spec bug 1's lesson).
+func TestRBAC_ViewerReadsOwnResourceBucket(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+	f.prov.Register("outsider-tok", account.Account{Subject: "outsider"})
+
+	executionID, _ := seedScheduledExecution(t, f, acme, "peak")
+	scenarioID := decodeID(t, f.req(t, http.MethodPost, "/api/scenarios", "admin-tok",
+		url.Values{"name": {"smoke"}, "project_id": {"1"}}))
+	projectPath := "/api/projects/1"
+	scenarioPath := "/api/scenarios/" + strconv.FormatInt(scenarioID, 10)
+	execPath := "/api/executions/" + strconv.FormatInt(executionID, 10)
+
+	reads := []string{
+		projectPath, scenarioPath, scenarioPath + "/files",
+		execPath, execPath + "/files", execPath + "/config",
+		execPath + "/status", execPath + "/engines",
+	}
+	for _, path := range reads {
+		if rec := f.req(t, http.MethodGet, path, "carol-tok", nil); rec.Code != http.StatusOK {
+			t.Fatalf("viewer GET %s = %d, want 200 (%s)", path, rec.Code, rec.Body.String())
+		}
+	}
+	for _, path := range reads {
+		if rec := f.req(t, http.MethodGet, path, "outsider-tok", nil); rec.Code != http.StatusForbidden {
+			t.Fatalf("outsider GET %s = %d, want 403 (%s)", path, rec.Code, rec.Body.String())
+		}
+	}
+}

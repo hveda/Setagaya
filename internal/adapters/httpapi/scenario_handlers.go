@@ -30,6 +30,10 @@ func (h *handlers) getScenario(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
+	if err := h.authorizeScenario(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	p, err := h.deps.Scenarios.Get(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
@@ -131,6 +135,10 @@ func (h *handlers) listScenarioFiles(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "scenario_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
+		return
+	}
+	if err := h.authorizeScenario(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
 		return
 	}
 	files, err := h.deps.Scenarios.Files(r.Context(), id)
