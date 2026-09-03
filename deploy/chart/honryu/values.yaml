@@ -13,11 +13,11 @@ image:
   # digest, because imagePullPolicy is Always/IfNotPresent by tag, not by
   # content. A new build always gets a new tag.
   api:
-    tag: phase16c
+    tag: phase19
   calibrator:
-    tag: phase16
+    tag: phase19
   scheduler:
-    tag: phase16b
+    tag: phase19
   sidecar:
     tag: phase16
   # Already a real tag, not a floating one -- pinned here for consistency
