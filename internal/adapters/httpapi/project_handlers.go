@@ -124,7 +124,7 @@ func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid project id")
 		return
 	}
-	if err := h.authorizeProject(r.Context(), id); err != nil {
+	if err := h.authorizeProject(r.Context(), id, rbac.ActionDelete); err != nil {
 		respondError(w, err)
 		return
 	}

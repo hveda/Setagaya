@@ -350,7 +350,7 @@ func (h *handlers) getCampaignComparison(w http.ResponseWriter, r *http.Request)
 // authorized for at least one of the campaign's participating projects.
 func (h *handlers) authorizeAnyParticipatingProject(ctx context.Context, c campaign.Campaign) error {
 	for _, svc := range c.Services {
-		if err := h.authorizeProject(ctx, svc.ProjectID); err == nil {
+		if err := h.authorizeProject(ctx, svc.ProjectID, rbac.ActionRead); err == nil {
 			return nil
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 )
 
@@ -59,7 +60,7 @@ func (h *handlers) createScenario(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid project_id")
 		return
 	}
-	if err := h.authorizeProject(r.Context(), projectID); err != nil {
+	if err := h.authorizeCreateScenario(r.Context(), projectID); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -88,7 +89,7 @@ func (h *handlers) importScenario(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid project_id")
 		return
 	}
-	if err := h.authorizeProject(r.Context(), projectID); err != nil {
+	if err := h.authorizeCreateScenario(r.Context(), projectID); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -115,7 +116,7 @@ func (h *handlers) deleteScenario(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, id); err != nil {
+	if err := h.authorizeScenario(r, id, rbac.ActionDelete); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -146,7 +147,7 @@ func (h *handlers) uploadScenarioFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, id); err != nil {
+	if err := h.authorizeScenario(r, id, rbac.ActionUpdate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -175,7 +176,7 @@ func (h *handlers) setScenarioRequests(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, id); err != nil {
+	if err := h.authorizeScenario(r, id, rbac.ActionUpdate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -247,7 +248,7 @@ func (h *handlers) getScenarioRequests(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, id); err != nil {
+	if err := h.authorizeScenario(r, id, rbac.ActionRead); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -278,7 +279,7 @@ func (h *handlers) validateScenarioRequests(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, id); err != nil {
+	if err := h.authorizeScenario(r, id, rbac.ActionUpdate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -316,7 +317,7 @@ func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, id); err != nil {
+	if err := h.authorizeScenario(r, id, rbac.ActionDelete); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -327,13 +328,19 @@ func (h *handlers) deleteScenarioFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "deleted"})
 }
 
-// authorizeScenario loads a scenario and verifies the caller owns its project.
-func (h *handlers) authorizeScenario(r *http.Request, scenarioID int64) error {
+// authorizeScenario loads a scenario and verifies the caller may perform
+// action on it: ResourceScenario, scoped to the scenario's own tenant (which
+// Block A guarantees equals its project's). In legacy mode the project-owner
+// check remains the whole decision, exactly as before.
+func (h *handlers) authorizeScenario(r *http.Request, scenarioID int64, action rbac.Action) error {
 	p, err := h.deps.Scenarios.Get(r.Context(), scenarioID)
 	if err != nil {
 		return err
 	}
-	return h.authorizeProject(r.Context(), p.ProjectID)
+	if !h.rbacEnabled() {
+		return h.authorizeProject(r.Context(), p.ProjectID, action)
+	}
+	return h.authorize(r.Context(), "", p.TenantID, rbac.ResourceScenario, action)
 }
 
 func toScenarioResponse(p scenario.Scenario) planResponse {

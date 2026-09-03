@@ -63,7 +63,7 @@ func (h *handlers) createSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, executionID); err != nil {
+	if err := h.authorizeExecution(r, executionID, rbac.ActionCreate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -111,7 +111,7 @@ func (h *handlers) listSchedules(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, executionID); err != nil {
+	if err := h.authorizeExecution(r, executionID, rbac.ActionRead); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -155,7 +155,7 @@ func (h *handlers) authorizeSchedule(r *http.Request, scheduleID int64) error {
 	if err != nil {
 		return err
 	}
-	return h.authorizeExecution(r, sc.ExecutionID)
+	return h.authorizeExecution(r, sc.ExecutionID, rbac.ActionDelete)
 }
 
 // authorizeScheduleTenant checks the caller may attribute a schedule's

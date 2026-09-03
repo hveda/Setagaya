@@ -442,6 +442,44 @@ func putMultipartAuth(t *testing.T, f *rbacFixture, path, tok, filename, content
 	return rec
 }
 
+// Bug 1 of the spec's "three live bugs": tenant_viewer holds
+// project/execution/scenario:read+list and no update -- before Phase 20 every
+// gated execution route demanded project:update, so a viewer was locked out
+// of executions entirely rather than read-only on them (the ungated reads
+// were the only thing keeping the role usable at all). With
+// authorizeExecution parameterized by action, GET /api/executions/{id} asks
+// ResourceExecution/read and admits the viewer, while DELETE still demands
+// an action only editors hold. The editor's 200 proves the 403 is the role,
+// not a broken route.
+func TestRBAC_ViewerCanReadButNotDeleteExecution(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+	f.prov.Register("bob-tok", account.Account{Subject: "bob"})
+	assignRole(t, f, acme, "bob", rbac.RoleTenantEditor)
+
+	projectID := createProjectInTenantReturningID(t, f, "acme-web", "team-a", acme)
+	executionID := decodeID(t, f.req(t, http.MethodPost, "/api/executions", "admin-tok",
+		url.Values{"name": {"peak"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+	path := "/api/executions/" + strconv.FormatInt(executionID, 10)
+
+	// The viewer reads the execution (200), not a 403 dressed as security.
+	if rec := f.req(t, http.MethodGet, path, "carol-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("viewer GET execution = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	// But cannot delete it.
+	if rec := f.req(t, http.MethodDelete, path, "carol-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer DELETE execution = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+	// An editor still can -- the route works; only the role differs.
+	if rec := f.req(t, http.MethodDelete, path, "bob-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("editor DELETE execution = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 // createSchedule's tenant_id is a client-declared value, not derived from
 // anything already authorized by authorizeExecution -- authorizeScheduleTenant
 // must independently verify the caller is authorized for the specific
