@@ -8,11 +8,11 @@
 image:
   registry: registry.pve.heri.life/honryu
   api:
-    tag: phase19
+    tag: phase19b
   calibrator:
-    tag: phase19
+    tag: phase19b
   scheduler:
-    tag: phase19
+    tag: phase19b
   sidecar:
     tag: phase16
   pullSecret: registry-pve-heri-life
