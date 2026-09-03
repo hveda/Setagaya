@@ -466,6 +466,31 @@ func (s *Store) ListExecutionsByProject(_ context.Context, projectID int64) ([]e
 	return out, nil
 }
 
+// ListExecutionsByProjects returns every execution belonging to any of
+// projectIDs, newest first (created time desc, id desc as the tiebreak so the
+// order is total and matches MySQL's ORDER BY).
+func (s *Store) ListExecutionsByProjects(_ context.Context, projectIDs []int64) ([]execution.Execution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want := make(map[int64]struct{}, len(projectIDs))
+	for _, id := range projectIDs {
+		want[id] = struct{}{}
+	}
+	out := []execution.Execution{}
+	for _, c := range s.executions {
+		if _, ok := want[c.ProjectID]; ok {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedTime.Equal(out[j].CreatedTime) {
+			return out[i].CreatedTime.After(out[j].CreatedTime)
+		}
+		return out[i].ID > out[j].ID
+	})
+	return out, nil
+}
+
 // ExecutionsWithActiveRunOnCluster returns the ids of executions on cluster
 // that have an active run, ordered by id.
 func (s *Store) ExecutionsWithActiveRunOnCluster(_ context.Context, cluster string) ([]int64, error) {

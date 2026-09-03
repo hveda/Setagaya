@@ -794,6 +794,12 @@ func (s *Service) compileShards(
 			}
 			si.Requests = frag.Requests
 			si.DefaultAddress = frag.DefaultAddress
+			// The fragment's own headers, timeout and keepalive ride along
+			// to the engine; compileScenario merges the headers beneath the
+			// execution's telemetry headers so trace context wins.
+			si.Headers = frag.Headers
+			si.Timeout = frag.Timeout
+			si.KeepAlive = frag.KeepAlive
 		}
 	}
 	for _, name := range pf.Data {

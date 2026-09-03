@@ -218,6 +218,30 @@ components:
       type: object
       properties:
         message: { type: string }
+    Diagnostic:
+      type: object
+      description: |
+        One finding about a YAML document, anchored to the line it came from
+        where the parser could tell one. severity is error | warning | info.
+        line and col are 1-based positions, 0 when the finding has no
+        position (rendered as a document-level error). path names the field
+        for findings that have a field but no line.
+      properties:
+        severity: { type: string, enum: [error, warning, info] }
+        message: { type: string }
+        line: { type: integer }
+        col: { type: integer }
+        path: { type: string }
+    DiagnosticsError:
+      type: object
+      description: |
+        A rejected declarative-workload fragment: the same message contract
+        as Error, plus the reasons as line-anchored diagnostics.
+      properties:
+        message: { type: string }
+        diagnostics:
+          type: array
+          items: { $ref: '#/components/schemas/Diagnostic' }
     Project:
       type: object
       properties:
@@ -245,6 +269,17 @@ components:
         engines: { type: integer }
         duration: { type: integer }
         csv_split: { type: boolean }
+    ExecutionSummary:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        project_id: { type: integer, format: int64 }
+        engine:
+          type: string
+          description: Engine the execution runs on; absent means the deployment default.
+        cluster: { type: string }
+        created_time: { type: string, format: date-time }
     Execution:
       type: object
       properties:
@@ -920,6 +955,23 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/scenarios/{scenario_id}/requests:
+    get:
+      tags: [scenarios]
+      summary: Get a portable scenario's stored declarative workload
+      description: |
+        The stored Taurus `scenarios:` fragment, byte-for-byte as uploaded --
+        comments, key order and unmodelled keys included. Served as raw
+        text/yaml, not JSON-wrapped. 404 when nothing has ever been uploaded;
+        conflict for a non-portable (engine-native) scenario.
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: The stored fragment
+          content:
+            text/yaml:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
     put:
       tags: [scenarios]
       summary: Upload a portable scenario's declarative workload
@@ -930,10 +982,16 @@ paths:
         engine-native scenario (pinned by an uploaded script) rejects this
         with a conflict, since it runs its script instead and would never
         read a stored fragment. Replaces whatever was uploaded before in
-        full -- there is no partial patch.
+        full -- there is no partial patch. Two body forms are accepted: a
+        raw text/yaml body, stored byte-for-byte (comments and key order
+        included), or the original multipart file upload, unchanged.
       requestBody:
         required: true
         content:
+          text/yaml:
+            schema: { type: string }
+          application/x-yaml:
+            schema: { type: string }
           multipart/form-data:
             schema:
               type: object
@@ -950,7 +1008,68 @@ paths:
                 type: object
                 properties:
                   message: { type: string }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400':
+          description: |
+            The fragment is invalid: malformed YAML, a type mismatch, or a
+            semantically broken document (no requests, a request with no
+            url). Carries line-anchored diagnostics so an editor can point
+            at the offending row.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiagnosticsError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/scenarios/{scenario_id}/requests/validate:
+    post:
+      tags: [scenarios]
+      summary: Validate a declarative workload fragment without storing it
+      description: |
+        Runs exactly the validation the PUT on `/api/scenarios/{scenario_id}/requests`
+        applies, against the submitted fragment, and stores nothing. The editor
+        calls this on a debounce while the user types; the store path calls the
+        same service validation, so an accepted fragment is one a save accepts
+        and a rejected one is one a save rejects. Responds 200 with any
+        informational findings (information never blocks a save), 400 with
+        line-anchored diagnostics for an invalid fragment, conflict for a
+        non-portable (engine-native) scenario. Same body forms as the PUT.
+      requestBody:
+        required: true
+        content:
+          text/yaml:
+            schema: { type: string }
+          application/x-yaml:
+            schema: { type: string }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      parameters: [{ $ref: '#/components/parameters/ScenarioID' }]
+      responses:
+        '200':
+          description: |
+            Valid: stored-able as-is. diagnostics carries any informational
+            findings and is empty when there is nothing to note.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  diagnostics:
+                    type: array
+                    items: { $ref: '#/components/schemas/Diagnostic' }
+        '400':
+          description: |
+            The fragment is invalid: malformed YAML, a type mismatch, or a
+            semantically broken document (no requests, a request with no
+            url). Carries line-anchored diagnostics so an editor can point
+            at the offending row.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiagnosticsError' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -983,7 +1102,23 @@ paths:
               schema: { $ref: '#/components/schemas/Execution' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
-
+    get:
+      tags: [executions]
+      summary: List the caller's executions
+      description: |
+        Every execution belonging to a project the caller may see, newest
+        first. This is the operator's execution history; the currently-running
+        subset remains GET /api/admin/executions. Items carry identity fields
+        only -- fetch a single execution for its load profile and files.
+      responses:
+        '200':
+          description: Executions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ExecutionSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/executions/{execution_id}:
     get:
       tags: [executions]
@@ -1063,18 +1198,52 @@ paths:
       tags: [executions]
       summary: Replace the execution's load profile
       description: |
-        Accepts the uploaded configuration file. This format is replaced by
-        Taurus YAML in a later phase.
+        Accepts the configuration either as an application/json body (the
+        Profile directly, via loadprofile.Profile's JSON tags) or as the
+        historical multipart multi-test YAML upload -- both reach the same
+        validation.
       parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
       requestBody:
         required: true
         content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                project_id: { type: integer, format: int64 }
+                execution_id: { type: integer, format: int64 }
+                csv_split: { type: boolean }
+                criteria:
+                  type: array
+                  items: { type: string }
+                tests:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      scenario_id: { type: integer, format: int64 }
+                      name: { type: string }
+                      concurrency: { type: integer }
+                      rampup: { type: integer }
+                      duration: { type: integer }
+                      engines: { type: integer }
+                      throughput: { type: integer }
+                      csv_split: { type: boolean }
+            description: |
+              The execution configuration directly, using loadprofile.Profile's
+              JSON tags. Reaches the same validation as the multipart upload.
           multipart/form-data:
             schema:
               type: object
               required: [file]
               properties:
-                file: { type: string, format: binary }
+                file:
+                  type: string
+                  format: binary
+                  description: |
+                    The historical multi-test YAML wrapper; its file format is
+                    unchanged.
       responses:
         '204': { $ref: '#/components/responses/NoContent' }
         '400': { $ref: '#/components/responses/BadRequest' }
