@@ -1,0 +1,13 @@
+-- 0049_default_tenant: the adoption tenant for Phase 20 tenant backfill.
+--
+-- Nothing before Phase 20 ever set project.tenant_id, scenario.tenant_id, or
+-- execution.tenant_id -- the column existed since 0001-0003 but no use-case
+-- ever wrote it (see spec .cortex/2026-09-03-phase20-profiles-rbac). Turning
+-- RBAC's tenant-scoped roles on requires every row to actually have a
+-- tenant, so 0050-0052 backfill the three tables from this one.
+--
+-- INSERT IGNORE, not INSERT ... WHERE NOT EXISTS: tenant.name is UNIQUE
+-- (0013_tenant.sql), so a second run of this file (a fresh database that
+-- happens to already carry a "default" tenant from elsewhere, or a manual
+-- re-apply) is a silent no-op rather than a duplicate-key failure.
+INSERT IGNORE INTO tenant (name, display_name) VALUES ('default', 'Default');
