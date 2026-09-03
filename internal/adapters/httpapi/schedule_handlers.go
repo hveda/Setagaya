@@ -161,19 +161,21 @@ func (h *handlers) authorizeSchedule(r *http.Request, scheduleID int64) error {
 // authorizeScheduleTenant checks the caller may attribute a schedule's
 // occurrences -- and the quota they reserve -- to tenantID. Under RBAC this
 // requires a role, global or scoped to tenantID specifically, granting
-// rbac.ResourceProject/ActionUpdate: the same permission authorizeExecution
-// already requires for the execution's own project, and the same pattern
-// createProject already applies to its own client-declared tenant_id.
-// Without this, authorizeExecution alone only proves the caller may manage
-// the execution -- not that tenantID is a tenant they have any relationship
-// to. In no-auth mode authorizeExecution has already fully vetted the
-// caller, so tenant_id is accepted as given, matching every other no-auth
-// route.
+// rbac.ResourceSchedule/ActionCreate -- the schedule's own resource since
+// Phase 20 split it out of the project bundle. It previously demanded
+// project:update, which made the permission model unable to express "may
+// reserve this tenant's capacity" separately from "may edit its projects"
+// (and once ResourceSchedule existed, left tenant_admin/editor grants of it
+// unused here). Without this, authorizeExecution alone only proves the
+// caller may manage the execution -- not that tenantID is a tenant they have
+// any relationship to. In no-auth mode authorizeExecution has already fully
+// vetted the caller, so tenant_id is accepted as given, matching every other
+// no-auth route.
 func (h *handlers) authorizeScheduleTenant(ctx context.Context, tenantID int64) error {
 	if !h.rbacEnabled() {
 		return nil
 	}
-	dec := h.deps.Auth.Authorize(accountFrom(ctx), rbac.Request{Resource: rbac.ResourceProject, Action: rbac.ActionUpdate, TenantID: &tenantID})
+	dec := h.deps.Auth.Authorize(accountFrom(ctx), rbac.Request{Resource: rbac.ResourceSchedule, Action: rbac.ActionCreate, TenantID: &tenantID})
 	if !dec.Allowed {
 		return errForbidden
 	}

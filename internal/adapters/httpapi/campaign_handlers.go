@@ -238,12 +238,11 @@ func toVerdictResponse(v campaignapp.CampaignVerdict) campaignVerdictResponse {
 // outcome (and, for a failed service, its named failing criteria), plus
 // one overall go/no-go.
 //
-// Unlike create/list/get, read access here does not require
-// RoleCampaignManager -- a service owner should be able to see their own
-// campaign's verdict without a PM-level grant. The caller must be
-// authorized to view at least one of the campaign's participating
-// projects (authorizeProject, the same check every other project-scoped
-// read already uses).
+// Read access accepts either campaign:read on the campaign's own tenant (a
+// campaign_manager can read the verdict of the event they run without
+// holding edit rights on any participating project -- spec bug 2) or read
+// on at least one participating project (a service owner can see their own
+// campaign's result without a PM-level grant).
 func (h *handlers) getCampaignVerdict(w http.ResponseWriter, r *http.Request) {
 	if !h.campaignsConfigured(w) {
 		return
@@ -346,9 +345,23 @@ func (h *handlers) getCampaignComparison(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, toComparisonResponse(comparison))
 }
 
-// authorizeAnyParticipatingProject allows the caller through if they are
-// authorized for at least one of the campaign's participating projects.
+// authorizeAnyParticipatingProject allows the caller through if they may
+// read the campaign itself -- campaign:read on the campaign's own tenant,
+// the same check authorizeCampaignTenant applies -- or, failing that, at
+// least one of its participating projects. The campaign:read branch is the
+// Phase 20 fix for spec bug 2: a campaign_manager used to be able to create
+// an event and then got 403 on its verdict, because this check demanded
+// project:update on a participating project and the PM deliberately holds
+// no project edit rights anywhere. The participating-project fallback keeps
+// the pre-existing path for service owners, now asking project:read -- a
+// verdict is a read, and demanding update locked out every read-only role
+// that could otherwise see the campaign's projects.
 func (h *handlers) authorizeAnyParticipatingProject(ctx context.Context, c campaign.Campaign) error {
+	if h.rbacEnabled() {
+		if err := h.authorizeCampaignTenant(ctx, c.TenantID, rbac.ActionRead); err == nil {
+			return nil
+		}
+	}
 	for _, svc := range c.Services {
 		if err := h.authorizeProject(ctx, svc.ProjectID, rbac.ActionRead); err == nil {
 			return nil

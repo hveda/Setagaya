@@ -589,6 +589,112 @@ func TestRBAC_CreateCampaignRequiresCampaignManagerForTheDeclaredTenant(t *testi
 	}
 }
 
+// authorizeScheduleTenant now asks ResourceSchedule/create (Phase 20): the
+// permission model can finally express "may reserve this tenant's capacity"
+// separately from "may edit its projects". A viewer (schedule:read+list
+// only) is denied; an editor (schedule:write) is admitted; an outsider
+// stays denied.
+func TestRBAC_CreateScheduleRequiresScheduleCreate(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+	f.prov.Register("bob-tok", account.Account{Subject: "bob"})
+	assignRole(t, f, acme, "bob", rbac.RoleTenantEditor)
+
+	executionID, schedulePath := seedScheduledExecution(t, f, acme, "peak")
+	_ = executionID
+	fireAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	form := url.Values{
+		"tenant_id": {strconv.FormatInt(acme, 10)}, "kind": {"one_shot"}, "fire_at": {fireAt},
+	}
+
+	// The viewer holds schedule:read+list, not schedule:create.
+	if rec := f.req(t, http.MethodPost, schedulePath, "carol-tok", form); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer create schedule = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+	// The editor holds schedule:write.
+	if rec := f.req(t, http.MethodPost, schedulePath, "bob-tok", form); rec.Code != http.StatusCreated {
+		t.Fatalf("editor create schedule = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// seedScheduledExecution provisions the project/scenario/execution/config
+// chain a schedule needs (scheduleapp.Create reads the load profile to
+// reserve quota), as the admin, and returns the execution id and its
+// schedules path.
+func seedScheduledExecution(t *testing.T, f *rbacFixture, tenantID int64, name string) (int64, string) {
+	t.Helper()
+	projectID := createProjectInTenantReturningID(t, f, "sched-web", "team-a", tenantID)
+	scenarioID := decodeID(t, f.req(t, http.MethodPost, "/api/scenarios", "admin-tok",
+		url.Values{"name": {"smoke"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+	executionID := decodeID(t, f.req(t, http.MethodPost, "/api/executions", "admin-tok",
+		url.Values{"name": {name}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+	configYAML := fmt.Sprintf(`multi-test:
+  collectionid: %d
+  tests:
+    - testid: %d
+      concurrency: 10
+      rampup: 1
+      engines: 2
+      duration: 30
+`, executionID, scenarioID)
+	path := "/api/executions/" + strconv.FormatInt(executionID, 10) + "/config"
+	if rec := putMultipartAuth(t, f, path, "admin-tok", "config.yaml", configYAML); rec.Code != http.StatusOK {
+		t.Fatalf("upload config = %d (%s)", rec.Code, rec.Body.String())
+	}
+	return executionID, "/api/executions/" + strconv.FormatInt(executionID, 10) + "/schedules"
+}
+
+// Bug 2 of the spec's "three live bugs": campaign_manager gets 403 on its own
+// campaign's verdict, because authorizeAnyParticipatingProject demanded
+// project:update on a participating project and the PM holds project:read
+// only -- the PM could create the event and could not read its result. The
+// check now accepts campaign:read on the campaign's own tenant first, while
+// the participating-project fallback (now project:read) still serves a
+// service owner with no PM grant.
+func TestRBAC_CampaignManagerReadsOwnCampaignVerdict(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("dave-tok", account.Account{Subject: "dave"})
+	assignRole(t, f, acme, "dave", rbac.RoleCampaignManager)
+	f.prov.Register("bob-tok", account.Account{Subject: "bob"})
+	assignRole(t, f, acme, "bob", rbac.RoleTenantEditor)
+	f.prov.Register("outsider-tok", account.Account{Subject: "outsider"})
+
+	projectID := createProjectInTenantReturningID(t, f, "acme-web", "team-a", acme)
+	executionID := decodeID(t, f.req(t, http.MethodPost, "/api/executions", "admin-tok",
+		url.Values{"name": {"readiness"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+
+	start := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	end := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	created := decodeID(t, f.req(t, http.MethodPost, "/api/tenants/"+strconv.FormatInt(acme, 10)+"/campaigns", "dave-tok",
+		url.Values{
+			"name": {"Supersale"}, "window_start": {start}, "window_end": {end},
+			"service_project_id":   {strconv.FormatInt(projectID, 10)},
+			"service_execution_id": {strconv.FormatInt(executionID, 10)},
+		}))
+	verdictPath := "/api/campaigns/" + strconv.FormatInt(created, 10) + "/verdict"
+
+	// The PM reads the verdict of the event they run (bug 2 fixed).
+	if rec := f.req(t, http.MethodGet, verdictPath, "dave-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("campaign manager verdict = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	// The participating-project fallback still admits a service owner.
+	if rec := f.req(t, http.MethodGet, verdictPath, "bob-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("editor (participating project) verdict = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	// Someone with no relationship to the campaign or its projects is still
+	// denied.
+	if rec := f.req(t, http.MethodGet, verdictPath, "outsider-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("outsider verdict = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 // Calibration reuses ordinary project/execution authorization
 // (authorizeProject/authorizeExecution) rather than a dedicated resource --
 // this proves that reuse actually gates the new routes, the same way it
