@@ -129,12 +129,12 @@ var authzAuditTable = []authzEntry{
 	{method: "GET", pattern: "/api/executions/{execution_id}/schedules", decision: "execution:read"},
 	{method: "DELETE", pattern: "/api/executions/{execution_id}/schedules/{schedule_id}", decision: "execution:delete"},
 
-	{method: "GET", pattern: "/api/executions/{execution_id}/reports", decision: "report:read", pending: "task 10"},
-	{method: "GET", pattern: "/api/executions/{execution_id}/trend", decision: "report:read", pending: "task 10"},
-	{method: "GET", pattern: "/api/executions/{execution_id}/error-signatures", decision: "report:read", pending: "task 10"},
-	{method: "GET", pattern: "/api/runs/{run_id}/report", decision: "report:read", pending: "task 10"},
-	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", decision: "report:read", pending: "task 10"},
-	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", decision: "report:read", pending: "task 10"},
+	{method: "GET", pattern: "/api/executions/{execution_id}/reports", decision: "report:read"},
+	{method: "GET", pattern: "/api/executions/{execution_id}/trend", decision: "report:read"},
+	{method: "GET", pattern: "/api/executions/{execution_id}/error-signatures", decision: "report:read"},
+	{method: "GET", pattern: "/api/runs/{run_id}/report", decision: "report:read"},
+	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", decision: "report:read"},
+	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", decision: "report:read"},
 
 	{method: "GET", pattern: "/api/usage/history", decision: decisionSystemAdmin, pending: "task 11"},
 	{method: "GET", pattern: "/api/usage/summary", decision: decisionSystemAdmin, pending: "task 11"},

@@ -33,6 +33,8 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/account"
 	"github.com/heridotlife/honryu/internal/domain/clusterregistry"
 	"github.com/heridotlife/honryu/internal/domain/rbac"
+	"github.com/heridotlife/honryu/internal/domain/report"
+	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
 	"github.com/heridotlife/honryu/internal/ports/fake"
 )
@@ -46,6 +48,7 @@ type rbacFixture struct {
 	audit   *auditmem.Log
 	reports *fake.ReportStore
 	bus     *membus.Bus
+	obj     *fake.ObjectStore
 }
 
 func newRBACFixture(t *testing.T) *rbacFixture {
@@ -91,7 +94,7 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		// 404 before the RBAC check).
 		Clusters: &stubClusterService{list: func() ([]clusterregistry.Cluster, error) { return nil, nil }},
 	})
-	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit, reports: reports, bus: bus}
+	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit, reports: reports, bus: bus, obj: obj}
 }
 
 func (f *rbacFixture) req(t *testing.T, method, path, tok string, form url.Values) *httptest.ResponseRecorder {
@@ -887,6 +890,72 @@ func TestRBAC_ViewerReadsOwnResourceBucket(t *testing.T) {
 		}
 	}
 	for _, path := range reads {
+		if rec := f.req(t, http.MethodGet, path, "outsider-tok", nil); rec.Code != http.StatusForbidden {
+			t.Fatalf("outsider GET %s = %d, want 403 (%s)", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// The run/report bucket (task 10): all six report routes authorize
+// rbac.ResourceReport/ActionRead against the owning execution's tenant --
+// execution-keyed routes directly, run-keyed routes (run report, shard
+// log/config) by resolving the run's execution first. tenant_viewer and
+// campaign_manager both hold report:read; a caller with no relationship to
+// the tenant is denied on every one.
+func TestRBAC_ReportRoutesRequireReportRead(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+	f.prov.Register("dave-tok", account.Account{Subject: "dave"})
+	assignRole(t, f, acme, "dave", rbac.RoleCampaignManager)
+	f.prov.Register("outsider-tok", account.Account{Subject: "outsider"})
+
+	executionID, _ := seedScheduledExecution(t, f, acme, "peak")
+	scenarioID := decodeID(t, f.req(t, http.MethodPost, "/api/scenarios", "admin-tok",
+		url.Values{"name": {"smoke"}, "project_id": {"1"}}))
+
+	ctx := context.Background()
+	runID, err := f.store.StartRun(ctx, executionID, "trace-1")
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := f.reports.SaveReport(ctx, report.Report{
+		ExecutionID: executionID, RunID: runID, ScenarioID: scenarioID,
+		Outcome: taurus.OutcomePassed, StartedAt: now, EndedAt: now,
+	}); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	if err := f.obj.Upload(ctx, lifecycleapp.RunShardKey(runID, scenarioID, 0, "log"), strings.NewReader("engine output")); err != nil {
+		t.Fatalf("Upload shard log: %v", err)
+	}
+
+	exec := "/api/executions/" + strconv.FormatInt(executionID, 10)
+	runBase := "/api/runs/" + strconv.FormatInt(runID, 10) + "/scenarios/" + strconv.FormatInt(scenarioID, 10)
+	reads := []string{
+		exec + "/reports", exec + "/trend", exec + "/error-signatures",
+		"/api/runs/" + strconv.FormatInt(runID, 10) + "/report",
+		runBase + "/shards/0/log",
+	}
+	// The viewer and the campaign manager both hold report:read in acme.
+	for _, tok := range []string{"carol-tok", "dave-tok"} {
+		for _, path := range reads {
+			if rec := f.req(t, http.MethodGet, path, tok, nil); rec.Code != http.StatusOK {
+				t.Fatalf("%s GET %s = %d, want 200 (%s)", tok, path, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	// Shard config has no stored object (only the log was uploaded), so an
+	// authorized reader reaches the store and gets a 404 -- proof the route
+	// was reached, not blocked -- while the outsider is stopped at 403
+	// before the store is ever consulted.
+	if rec := f.req(t, http.MethodGet, runBase+"/shards/0/config", "carol-tok", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("viewer GET shard config = %d, want 404 (authorized, object absent)", rec.Code)
+	}
+	for _, path := range append(reads, runBase+"/shards/0/config") {
 		if rec := f.req(t, http.MethodGet, path, "outsider-tok", nil); rec.Code != http.StatusForbidden {
 			t.Fatalf("outsider GET %s = %d, want 403 (%s)", path, rec.Code, rec.Body.String())
 		}

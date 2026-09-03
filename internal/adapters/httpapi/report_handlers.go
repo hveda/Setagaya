@@ -6,11 +6,47 @@ import (
 	"strconv"
 
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/report"
 )
 
+// authorizeReport verifies the caller may read reports derived from
+// executionID: rbac.ResourceReport/ActionRead against the execution's own
+// tenant (Phase 20 -- report surfaces follow an execution's ownership
+// without being its CRUD). In legacy mode there is no account to scope
+// by, and report-only deployments need not wire the execution service at
+// all, so the route stays open exactly as before -- the campaign/schedule
+// gates' precedent.
+func (h *handlers) authorizeReport(r *http.Request, executionID int64) error {
+	if !h.rbacEnabled() {
+		return nil
+	}
+	c, err := h.deps.Executions.Get(r.Context(), executionID)
+	if err != nil {
+		return err
+	}
+	return h.authorize(r.Context(), "", c.TenantID, rbac.ResourceReport, rbac.ActionRead)
+}
+
+// authorizeRunShard resolves a run's owning execution and authorizes the
+// report read against its tenant. The run row itself carries no tenant,
+// so the resolution is part of the authorization. Legacy mode skips both,
+// like authorizeReport.
+func (h *handlers) authorizeRunShard(r *http.Request, runID int64) error {
+	if !h.rbacEnabled() {
+		return nil
+	}
+	executionID, err := h.deps.Lifecycle.RunExecutionID(r.Context(), runID)
+	if err != nil {
+		return err
+	}
+	return h.authorizeReport(r, executionID)
+}
+
 // runReport returns a run's stored report -- the durable record of what it
 // produced, retrievable after the engines and their pods are gone.
+// Authorized via the report's own recorded ExecutionID, resolved before
+// anything is written back (Phase 20).
 func (h *handlers) runReport(w http.ResponseWriter, r *http.Request) {
 	runID, ok := pathInt(r, "run_id")
 	if !ok {
@@ -19,6 +55,10 @@ func (h *handlers) runReport(w http.ResponseWriter, r *http.Request) {
 	}
 	rep, err := h.deps.Reports.GetReport(r.Context(), runID)
 	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeReport(r, rep.ExecutionID); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -31,6 +71,10 @@ func (h *handlers) executionReports(w http.ResponseWriter, r *http.Request) {
 	executionID, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	if err := h.authorizeReport(r, executionID); err != nil {
+		respondError(w, err)
 		return
 	}
 	reps, err := h.deps.Reports.ListReports(r.Context(), executionID, queryInt(r, "limit"))
@@ -84,6 +128,10 @@ func (h *handlers) executionTrend(w http.ResponseWriter, r *http.Request) {
 	executionID, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	if err := h.authorizeReport(r, executionID); err != nil {
+		respondError(w, err)
 		return
 	}
 	reps, err := h.deps.Reports.ListReports(r.Context(), executionID, queryInt(r, "limit"))
@@ -142,6 +190,10 @@ func (h *handlers) executionErrorSignatureHistory(w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
+	if err := h.authorizeReport(r, executionID); err != nil {
+		respondError(w, err)
+		return
+	}
 	by := report.GroupByLabel
 	if r.URL.Query().Get("by") == "code" {
 		by = report.GroupByResponseCode
@@ -193,6 +245,13 @@ func (h *handlers) runShardObject(w http.ResponseWriter, r *http.Request, kind, 
 	shard, ok := pathInt(r, "shard")
 	if !ok || shard < 0 || shard > math.MaxInt32 {
 		writeError(w, http.StatusBadRequest, "invalid shard")
+		return
+	}
+	// A shard object is run-keyed but owned by the run's execution:
+	// authorize report:read against that execution's tenant (Phase 20) --
+	// before touching the object store.
+	if err := h.authorizeRunShard(r, runID); err != nil {
+		respondError(w, err)
 		return
 	}
 	key := lifecycleapp.RunShardKey(runID, scenarioID, int(shard), kind)

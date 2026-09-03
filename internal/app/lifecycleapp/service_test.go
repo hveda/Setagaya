@@ -1400,3 +1400,29 @@ func TestDeploy_UnknownScenarioFails(t *testing.T) {
 		t.Fatal("Deploy referencing a missing scenario succeeded")
 	}
 }
+
+// RunExecutionID is the HTTP layer's run->execution resolution for the
+// run-keyed report routes: it must map a run to the execution that owns it
+// and surface ErrNotFound for anything else.
+func TestRunExecutionID(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 1)
+
+	ctx := context.Background()
+	runID, err := e.store.StartRun(ctx, e.executionID, "trace-1")
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	svc := lifecycleapp.NewService(e.store, e.sched, e.obj, lifecycleapp.StaticImage(image))
+
+	got, err := svc.RunExecutionID(ctx, runID)
+	if err != nil {
+		t.Fatalf("RunExecutionID: %v", err)
+	}
+	if got != e.executionID {
+		t.Fatalf("RunExecutionID = %d, want %d", got, e.executionID)
+	}
+	if _, err := svc.RunExecutionID(ctx, 9999); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("unknown run error = %v, want ErrNotFound", err)
+	}
+}
