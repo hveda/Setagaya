@@ -1089,3 +1089,140 @@ func TestRBAC_FilesAndStreamDispatchByResource(t *testing.T) {
 		t.Fatalf("outsider stream = %d, want 403 (%s)", rec.Code, rec.Body.String())
 	}
 }
+
+// seedExecutionInTenant is seedScheduledExecution plus the scenario id, for
+// tests that need to author a valid config body against the seeded rows.
+func seedExecutionInTenant(t *testing.T, f *rbacFixture, tenantID int64, name string) (executionID, scenarioID int64, schedPath string) {
+	t.Helper()
+	executionID, schedPath = seedScheduledExecution(t, f, tenantID, name)
+	// seedScheduledExecution created its scenario as the tenant's only one;
+	// resolve it through the project's listing rather than duplicating the
+	// chain. The project is the tenant's only project (id order).
+	rec := f.req(t, http.MethodGet, "/api/projects", "admin-tok", nil)
+	var projects []struct {
+		ID       int64  `json:"id"`
+		Name     string `json:"name"`
+		TenantID *int64 `json:"tenant_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &projects); err != nil {
+		t.Fatalf("decode projects: %v", err)
+	}
+	for _, p := range projects {
+		if p.TenantID != nil && *p.TenantID == tenantID {
+			scenarioID = decodeID(t, f.req(t, http.MethodPost, "/api/scenarios", "admin-tok",
+				url.Values{"name": {"extra"}, "project_id": {strconv.FormatInt(p.ID, 10)}}))
+			return executionID, scenarioID, schedPath
+		}
+	}
+	t.Fatalf("no project found in tenant %d", tenantID)
+	return 0, 0, ""
+}
+
+// The four-persona proof (task 12 -- the A→B→C gate): Alice
+// (service_provider_admin) administers the platform; Bob (tenant_editor)
+// runs load tests in tenant 1; Carol (tenant_viewer) reads his results and
+// mutates nothing; Dave (campaign_manager in tenants 1 and 2) coordinates
+// both calendars without edit rights anywhere -- until composition grants
+// him tenant_editor in his own tenant, which flips exactly the writes
+// there (AC10's second half) and leaves tenant 1 untouched. AC4, AC5, AC7,
+// AC8, and AC10 in one place.
+func TestRBAC_FourPersonas_AuditMatrix(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	globex := createTenant(t, f, "globex", "Globex")
+	initech := createTenant(t, f, "initech", "Initech")
+
+	// Personas: Alice is the fixture's admin-tok.
+	const aliceTok = "admin-tok"
+	f.prov.Register("bob-tok", account.Account{Subject: "bob"})
+	assignRole(t, f, acme, "bob", rbac.RoleTenantEditor)
+	f.prov.Register("carol-tok", account.Account{Subject: "carol"})
+	assignRole(t, f, acme, "carol", rbac.RoleTenantViewer)
+	f.prov.Register("dave-tok", account.Account{Subject: "dave"})
+	assignRole(t, f, acme, "dave", rbac.RoleCampaignManager)
+	assignRole(t, f, globex, "dave", rbac.RoleCampaignManager)
+	// AC7's subject: a tenant's own admin.
+	f.prov.Register("erin-tok", account.Account{Subject: "erin"})
+	assignRole(t, f, acme, "erin", rbac.RoleTenantAdmin)
+
+	acmeExec, _, acmeSched := seedExecutionInTenant(t, f, acme, "peak")
+	globexExec, globexScenario, globexSched := seedExecutionInTenant(t, f, globex, "pm-own")
+
+	// AC4: platform surfaces are Alice's alone.
+	for _, path := range []string{"/api/clusters", "/api/usage/summary"} {
+		if rec := f.req(t, http.MethodGet, path, aliceTok, nil); rec.Code != http.StatusOK {
+			t.Fatalf("alice GET %s = %d, want 200 (%s)", path, rec.Code, rec.Body.String())
+		}
+		for _, tok := range []string{"bob-tok", "carol-tok", "dave-tok"} {
+			if rec := f.req(t, http.MethodGet, path, tok, nil); rec.Code != http.StatusForbidden {
+				t.Fatalf("%s GET %s = %d, want 403 (%s)", tok, path, rec.Code, rec.Body.String())
+			}
+		}
+	}
+
+	// AC5: Carol reads Bob's execution, and cannot delete it.
+	acmePath := "/api/executions/" + strconv.FormatInt(acmeExec, 10)
+	if rec := f.req(t, http.MethodGet, acmePath, "carol-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("carol GET execution = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := f.req(t, http.MethodDelete, acmePath, "carol-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("carol DELETE execution = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// AC7: tenant_admin reaches its own tenant's quota.
+	quota := "/api/tenants/" + strconv.FormatInt(acme, 10) + "/quota"
+	if rec := f.req(t, http.MethodGet, quota, "erin-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("tenant_admin GET own quota = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// AC8: Dave reads the calendar of every tenant he coordinates, not the
+	// one he holds nothing in.
+	for _, tenant := range []int64{acme, globex} {
+		path := "/api/tenants/" + strconv.FormatInt(tenant, 10) + "/reservations"
+		if rec := f.req(t, http.MethodGet, path, "dave-tok", nil); rec.Code != http.StatusOK {
+			t.Fatalf("dave GET tenant %d reservations = %d, want 200 (%s)", tenant, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := f.req(t, http.MethodGet, "/api/tenants/"+strconv.FormatInt(initech, 10)+"/reservations", "dave-tok", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave GET tenant 3 reservations = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// AC10, first half: in a tenant Dave oversees but does not own, he sees
+	// the plan and can change nothing.
+	fireAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	if rec := f.req(t, http.MethodGet, acmeSched, "dave-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("dave GET acme schedules = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := f.req(t, http.MethodPost, acmeSched, "dave-tok", url.Values{
+		"tenant_id": {strconv.FormatInt(acme, 10)}, "kind": {"one_shot"}, "fire_at": {fireAt},
+	}); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave POST acme schedules = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+	acmeConfig := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n", acmeExec, acmeExec)
+	if rec := putMultipartAuth(t, f, acmePath+"/config", "dave-tok", "config.yaml", acmeConfig); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave PUT acme config = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// AC10, second half: composition. Grant Dave tenant_editor in his own
+	// tenant (globex) -- the same subject, a second grant -- and exactly the
+	// writes flip there, while tenant 1 stays read-only for him.
+	assignRole(t, f, globex, "dave", rbac.RoleTenantEditor)
+	if rec := f.req(t, http.MethodPost, globexSched, "dave-tok", url.Values{
+		"tenant_id": {strconv.FormatInt(globex, 10)}, "kind": {"one_shot"}, "fire_at": {fireAt},
+	}); rec.Code != http.StatusCreated {
+		t.Fatalf("composed dave POST globex schedules = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+	globexPath := "/api/executions/" + strconv.FormatInt(globexExec, 10)
+	globexConfig := fmt.Sprintf("multi-test:\n  collectionid: %d\n  tests:\n    - testid: %d\n      concurrency: 10\n      rampup: 1\n      engines: 2\n      duration: 30\n", globexExec, globexScenario)
+	if rec := putMultipartAuth(t, f, globexPath+"/config", "dave-tok", "config.yaml", globexConfig); rec.Code != http.StatusOK {
+		t.Fatalf("composed dave PUT globex config = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	// And acme is unchanged: the grant is scoped, never global.
+	if rec := f.req(t, http.MethodPost, acmeSched, "dave-tok", url.Values{
+		"tenant_id": {strconv.FormatInt(acme, 10)}, "kind": {"one_shot"}, "fire_at": {fireAt},
+	}); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave POST acme schedules after composition = %d, want still 403 (%s)", rec.Code, rec.Body.String())
+	}
+}
