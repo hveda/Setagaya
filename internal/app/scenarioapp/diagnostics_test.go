@@ -145,3 +145,86 @@ func TestValidateRequestsScenarioChecks(t *testing.T) {
 		t.Fatalf("Requests after rejected validate = %v, want ErrNotFound (nothing stored)", err)
 	}
 }
+
+// Phase 19b F4 (review finding 4): InvalidRequestsError.Error() had no
+// direct test -- both HTTP call sites (scenario_handlers.go) render
+// inv.Err.Error() plus the structured Diagnostics separately via
+// writeDiagnostics, so the joined-string Error() method itself, which any
+// other caller relies on to satisfy the error interface (a log line, a
+// %w-wrap elsewhere), had never executed. Covers all three shapes: no
+// diagnostics (falls back to the wrapped sentinel), a line-anchored
+// diagnostic, and an unanchored one (Line == 0, rendered without "line N:").
+func TestInvalidRequestsError_ErrorString(t *testing.T) {
+	t.Parallel()
+
+	bare := &scenarioapp.InvalidRequestsError{Err: scenarioapp.ErrRequestsInvalid}
+	if got := bare.Error(); got != scenarioapp.ErrRequestsInvalid.Error() {
+		t.Errorf("Error() with no diagnostics = %q, want the bare wrapped error %q",
+			got, scenarioapp.ErrRequestsInvalid.Error())
+	}
+
+	anchored := &scenarioapp.InvalidRequestsError{
+		Err: scenarioapp.ErrRequestsInvalid,
+		Diagnostics: []scenarioapp.Diagnostic{
+			{Severity: scenarioapp.SeverityError, Message: "bad method", Line: 3},
+		},
+	}
+	want := scenarioapp.ErrRequestsInvalid.Error() + ": line 3: bad method"
+	if got := anchored.Error(); got != want {
+		t.Errorf("Error() with a line-anchored diagnostic = %q, want %q", got, want)
+	}
+
+	unanchored := &scenarioapp.InvalidRequestsError{
+		Err: scenarioapp.ErrRequestsInvalid,
+		Diagnostics: []scenarioapp.Diagnostic{
+			{Severity: scenarioapp.SeverityError, Message: "at least one request is required", Path: "requests"},
+		},
+	}
+	want = scenarioapp.ErrRequestsInvalid.Error() + ": at least one request is required"
+	if got := unanchored.Error(); got != want {
+		t.Errorf("Error() with an unanchored diagnostic = %q, want %q (no \"line 0:\" prefix)", got, want)
+	}
+
+	mixed := &scenarioapp.InvalidRequestsError{
+		Err: scenarioapp.ErrRequestsInvalid,
+		Diagnostics: []scenarioapp.Diagnostic{
+			{Severity: scenarioapp.SeverityError, Message: "bad method", Line: 3},
+			{Severity: scenarioapp.SeverityError, Message: "no url", Path: "requests[0].url"},
+		},
+	}
+	want = scenarioapp.ErrRequestsInvalid.Error() + ": line 3: bad method; no url"
+	if got := mixed.Error(); got != want {
+		t.Errorf("Error() with mixed diagnostics = %q, want %q", got, want)
+	}
+}
+
+// Phase 19b F4 (review finding 5): an uncompiled-key diagnostic must name
+// the key, never the Go type behind it -- "taurus.Scenario" leaking into
+// operator-facing text was the exact inverse of what a person needs to read.
+// yaml.v3's raw message is "field think-time not found in type
+// taurus.Scenario"; a TrimPrefix on "not found in type " is a no-op against
+// that (it is a suffix), which is how the leak survived once already.
+func TestUncompiledKeys_MessageNamesTheKeyNotTheGoType(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newScenarioService(t)
+	ctx := context.Background()
+	p, _ := svc.Create(ctx, "portable", 10)
+
+	raw := []byte("think-time: 1.5s\nrequests:\n  - url: /checkout\n")
+	diags, err := svc.ValidateRequests(ctx, p.ID, raw)
+	if err != nil {
+		t.Fatalf("ValidateRequests: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %v, want exactly 1", diags)
+	}
+	if strings.Contains(diags[0].Message, "taurus.") {
+		t.Errorf("message %q leaks a Go type name", diags[0].Message)
+	}
+	if strings.Contains(diags[0].Message, "not found in type") {
+		t.Errorf("message %q leaks yaml.v3's raw error shape", diags[0].Message)
+	}
+	if !strings.HasPrefix(diags[0].Message, "think-time:") {
+		t.Errorf("message %q should be the bare key followed by the explanation", diags[0].Message)
+	}
+}

@@ -216,8 +216,18 @@ func unknownFieldDiagnostics(raw []byte) []Diagnostic {
 			line, _ = strconv.Atoi(msg[m[2]:m[3]])
 			rest = strings.TrimSpace(msg[m[1]:])
 		}
+		// yaml.v3's unknown-field message reads e.g. "field think-time not
+		// found in type taurus.Scenario" -- strip the "field " prefix and
+		// everything from " not found in type " onward, so the diagnostic
+		// names the key ("think-time") without leaking the Go type behind
+		// it to a person reading the editor. A TrimPrefix on "not found in
+		// type " here would be a no-op (it is a suffix, not a prefix) and
+		// was the review-finding-5 bug: the type name leaked into every
+		// info diagnostic.
 		rest = strings.TrimPrefix(rest, "field ")
-		rest = strings.TrimPrefix(rest, "not found in type ")
+		if i := strings.Index(rest, " not found in type "); i >= 0 {
+			rest = rest[:i]
+		}
 		out = append(out, Diagnostic{
 			Severity: SeverityInfo,
 			Message:  rest + ": " + uncompiledKeysMessage,
