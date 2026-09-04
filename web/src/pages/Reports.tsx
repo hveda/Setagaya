@@ -8,6 +8,7 @@ import CopyButton from '../components/ui/CopyButton';
 import EngineBadge from '../components/ui/EngineBadge';
 import Input from '../components/ui/Input';
 import OutcomeBadge from '../components/ui/OutcomeBadge';
+import LabelsTable from '../components/LabelsTable';
 import { ApiError } from '../api/client';
 import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from '../api/reports';
 import type { Load, Report } from '../api/reports';
@@ -629,6 +630,9 @@ function ReportDetail({ runId }: { runId: string }) {
           </Card>
 
           <TimeSeriesSection runId={report.run_id} requested={report.requested} />
+
+          {/* Hides itself when the report carries no labels (task 8's hide rule). */}
+          <LabelsTable labels={report.labels} />
 
           <Card>
             <CardHeader>
