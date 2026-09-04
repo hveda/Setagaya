@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseShard, requestedLine, default as Reports } from './Reports';
 import type { Report } from '../api/reports';
 import type { SeriesPoint } from '../api/series';
+import { SessionProvider } from '../hooks/useSession';
+import { can as canOn } from '../api/session';
 
 describe('parseShard', () => {
   it('parses 0-indexed shard numbers', () => {
@@ -237,5 +239,131 @@ describe('ReportDetail requested-vs-achieved overlay (mounted)', () => {
     );
 
     expect(container!.querySelector('[data-testid="chart-requested"]')).toBeNull();
+  });
+});
+
+// Task 10: the "Compare runs" nav surface. It lives on the Reports page
+// header (an execution-scoped route cannot be a top-nav item), gated by
+// the same report:read grant that shows the Reports nav item. Persona maps
+// copied from DashboardLayout.test.tsx -- permissions exactly as authapp
+// emits them; the nav is a pure function of this map.
+const navPersonas: Record<string, Record<string, string[]>> = {
+  alice: { '*': ['*'] },
+  bob: {
+    project: ['create', 'delete', 'list', 'read', 'update'],
+    execution: ['create', 'delete', 'list', 'read', 'update'],
+    scenario: ['create', 'delete', 'list', 'read', 'update'],
+    run: ['create', 'delete', 'list', 'read', 'update'],
+    schedule: ['create', 'delete', 'list', 'read', 'update'],
+    report: ['list', 'read'],
+  },
+  carol: {
+    project: ['list', 'read'],
+    execution: ['list', 'read'],
+    scenario: ['list', 'read'],
+    run: ['list', 'read'],
+    schedule: ['list', 'read'],
+    report: ['list', 'read'],
+  },
+  dave: {
+    campaign: ['admin', 'create', 'delete', 'list', 'read', 'update'],
+    project: ['list', 'read'],
+    execution: ['list', 'read'],
+    schedule: ['list', 'read'],
+    report: ['list', 'read'],
+  },
+};
+
+/** Two reports so the compare link's >= 2 runs condition holds. */
+const listFixture: Report[] = [
+  reportFixture,
+  { ...reportFixture, run_id: 7, started_at: '2026-09-03T10:00:00Z' },
+];
+
+async function renderReportsList(permissions: Record<string, string[]> | null, reports: Report[] = listFixture) {
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/me')) {
+        return permissions
+          ? json({ subject: 'demo:x', name: 'x', email: '', global_roles: [], tenants: {}, permissions, demo: true })
+          : json({ message: 'unauthenticated' }, 401);
+      }
+      if (url.endsWith('/api/executions/1/reports')) {
+        return json(reports);
+      }
+      return json({ message: `no stub for ${url}` }, 500);
+    })
+  );
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <MemoryRouter initialEntries={['/reports']}>
+        <SessionProvider>
+          <Routes>
+            <Route path="/reports" element={<Reports />} />
+          </Routes>
+        </SessionProvider>
+      </MemoryRouter>
+    );
+  });
+  await act(async () => {});
+}
+
+/** Fills the execution-id form and submits it, flushing the load. */
+async function loadExecution() {
+  const input = container!.querySelector('input[type="number"]') as HTMLInputElement;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  await act(async () => {
+    setter.call(input, '1');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => {
+    container!.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  await act(async () => {});
+}
+
+describe('ReportsList compare link (mounted)', () => {
+  it('appears for every persona that can read reports, deep-linking the loaded execution', async () => {
+    for (const who of ['alice', 'bob', 'carol', 'dave']) {
+      expect(canOn(navPersonas[who], 'report', 'read'), `persona ${who} precondition`).toBe(true);
+      await renderReportsList(navPersonas[who]);
+      await loadExecution();
+
+      const link = container!.querySelector('[data-testid="compare-runs-link"]') as HTMLAnchorElement;
+      expect(link, `persona ${who}`).not.toBeNull();
+      expect(link.getAttribute('href'), `persona ${who}`).toBe('/executions/1/compare');
+    }
+  });
+
+  it('stays hidden from a caller without report:read -- same grant as the Reports nav item', async () => {
+    // A synthetic map that can see executions but not reports: the Reports
+    // NAV item would drop out for this caller too.
+    await renderReportsList({ execution: ['list', 'read'] });
+    await loadExecution();
+
+    expect(container!.querySelector('[data-testid="compare-runs-link"]')).toBeNull();
+  });
+
+  it('stays hidden until an execution with at least two runs is loaded', async () => {
+    await renderReportsList(navPersonas.carol);
+
+    // Nothing loaded yet: no execution to compare.
+    expect(container!.querySelector('[data-testid="compare-runs-link"]')).toBeNull();
+
+    // Once two runs are on screen the deep-link appears.
+    await loadExecution();
+    expect(container!.querySelector('[data-testid="compare-runs-link"]')).not.toBeNull();
+  });
+
+  it('keeps the link hidden for a single-run execution', async () => {
+    await renderReportsList(navPersonas.carol, [reportFixture]);
+    await loadExecution();
+
+    expect(container!.querySelector('[data-testid="compare-runs-link"]')).toBeNull();
   });
 });

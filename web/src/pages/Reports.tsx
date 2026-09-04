@@ -15,6 +15,7 @@ import type { Load, Report } from '../api/reports';
 import { fetchSeries } from '../api/series';
 import type { SeriesPoint } from '../api/series';
 import TimeSeriesChart from '../components/charts/TimeSeriesChart';
+import { useSession } from '../hooks/useSession';
 import { formatApmLink, loadApmTemplate, saveApmTemplate } from '../api/apm';
 import { SignatureSection, TrendSection } from './ReportsTrend';
 
@@ -46,6 +47,7 @@ export default function Reports() {
 }
 
 function ReportsList() {
+  const { can } = useSession();
   const [executionId, setExecutionId] = useState('');
   const [reports, setReports] = useState<Report[] | null>(null);
   const [loadedExecutionId, setLoadedExecutionId] = useState<number | null>(null);
@@ -73,13 +75,32 @@ function ReportsList() {
     }
   };
 
+  // The compare deep-link: only meaningful once an execution with at
+  // least two runs is on screen, and only for callers who may read
+  // reports -- the same grant that shows the Reports nav item (task 10).
+  const compareHref =
+    loadedExecutionId !== null && reports !== null && reports.length >= 2 && can('report', 'read')
+      ? `/executions/${loadedExecutionId}/compare`
+      : null;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-display-sm text-slate-900 dark:text-white">Reports</h1>
-        <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
-          An execution's run history, most recent first.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-display-sm text-slate-900 dark:text-white">Reports</h1>
+          <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
+            An execution&apos;s run history, most recent first.
+          </p>
+        </div>
+        {compareHref && (
+          <Link
+            to={compareHref}
+            data-testid="compare-runs-link"
+            className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+          >
+            Compare runs →
+          </Link>
+        )}
       </div>
 
       <Card>
