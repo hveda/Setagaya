@@ -1226,3 +1226,157 @@ func TestRBAC_FourPersonas_AuditMatrix(t *testing.T) {
 		t.Fatalf("dave POST acme schedules after composition = %d, want still 403 (%s)", rec.Code, rec.Body.String())
 	}
 }
+
+// Task 16 / AC9 (Block D): campaign CRUD end to end. Dave, the
+// campaign_manager, edits his own campaign's preparation definition -- 200
+// while the window is future, 409 the moment it has opened -- and can abort
+// it himself without the platform kill-switch. The cross-tenant list
+// (GET /api/campaigns) shows him every tenant he coordinates and no tenant
+// he doesn't. AC6 is re-confirmed on the *edited* campaign now that CRUD
+// exists: the PM reads the verdict of the event he runs.
+func TestRBAC_CampaignManagerEditsAbortsAndListsAcrossTenants(t *testing.T) {
+	t.Parallel()
+	f := newRBACFixture(t)
+
+	acme := createTenant(t, f, "acme", "Acme")
+	globex := createTenant(t, f, "globex", "Globex")
+	initech := createTenant(t, f, "initech", "Initech")
+	f.prov.Register("dave-tok", account.Account{Subject: "dave"})
+	assignRole(t, f, acme, "dave", rbac.RoleCampaignManager)
+	assignRole(t, f, globex, "dave", rbac.RoleCampaignManager)
+	f.prov.Register("bob-tok", account.Account{Subject: "bob"})
+	assignRole(t, f, acme, "bob", rbac.RoleTenantEditor)
+	f.prov.Register("nobody-tok", account.Account{Subject: "nobody"})
+
+	// A project + designated execution per tenant, so each tenant can host
+	// a real campaign.
+	seed := func(tenant int64, projectName string) (int64, int64) {
+		projectID := createProjectInTenantReturningID(t, f, projectName, "team-a", tenant)
+		executionID := decodeID(t, f.req(t, http.MethodPost, "/api/executions", "admin-tok",
+			url.Values{"name": {projectName + "-exec"}, "project_id": {strconv.FormatInt(projectID, 10)}}))
+		return projectID, executionID
+	}
+	acmeProject, acmeExec := seed(acme, "acme-web")
+	globexProject, globexExec := seed(globex, "globex-web")
+	initechProject, initechExec := seed(initech, "initech-web")
+
+	createCampaign := func(tok string, tenant int64, projectID, executionID int64, name string, startOffset, endOffset time.Duration) int64 {
+		start := time.Now().Add(startOffset).UTC().Format(time.RFC3339)
+		end := time.Now().Add(endOffset).UTC().Format(time.RFC3339)
+		return decodeID(t, f.req(t, http.MethodPost, "/api/tenants/"+strconv.FormatInt(tenant, 10)+"/campaigns", tok,
+			url.Values{
+				"name": {name}, "window_start": {start}, "window_end": {end},
+				"service_project_id":   {strconv.FormatInt(projectID, 10)},
+				"service_execution_id": {strconv.FormatInt(executionID, 10)},
+			}))
+	}
+
+	// AC9's two sides: a campaign still in preparation (window +1h..+2h)
+	// and a live one (window -1h..+1h).
+	future := createCampaign("dave-tok", acme, acmeProject, acmeExec, "Future-event", time.Hour, 2*time.Hour)
+	live := createCampaign("dave-tok", acme, acmeProject, acmeExec, "Live-event", -time.Hour, time.Hour)
+
+	editForm := url.Values{
+		"name":                 {"Future-event-v2"},
+		"window_start":         {time.Now().Add(90 * time.Minute).UTC().Format(time.RFC3339)},
+		"window_end":           {time.Now().Add(3 * time.Hour).UTC().Format(time.RFC3339)},
+		"service_project_id":   {strconv.FormatInt(acmeProject, 10)},
+		"service_execution_id": {strconv.FormatInt(acmeExec, 10)},
+	}
+
+	// AC9: 200 while the window is future.
+	path := func(id int64) string { return "/api/campaigns/" + strconv.FormatInt(id, 10) }
+	rec := f.req(t, http.MethodPut, path(future), "dave-tok", editForm)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dave PUT future campaign = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var edited struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &edited); err != nil || edited.Name != "Future-event-v2" {
+		t.Fatalf("PUT response = %q (%v), want the edited name", rec.Body.String(), err)
+	}
+
+	// AC9: 409 once the window has opened -- a live campaign's definition
+	// is what freeze and the verdict key off, so it is frozen.
+	rec = f.req(t, http.MethodPut, path(live), "dave-tok", editForm)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("dave PUT live campaign = %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Editing demands campaign:update on the campaign's own tenant: a
+	// tenant editor of that same tenant is still denied.
+	rec = f.req(t, http.MethodPut, path(future), "bob-tok", editForm)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("editor PUT campaign = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// AC6, re-confirmed end to end on the edited campaign: the PM reads
+	// the verdict of the event he runs.
+	if rec := f.req(t, http.MethodGet, path(future)+"/verdict", "dave-tok", nil); rec.Code != http.StatusOK {
+		t.Fatalf("dave GET edited campaign verdict = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Abort is the PM's own control (campaign:delete): Dave closes his own
+	// campaign without the platform kill-switch...
+	rec = f.req(t, http.MethodPost, path(future)+"/abort", "dave-tok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dave abort own campaign = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	rec = f.req(t, http.MethodGet, path(future), "dave-tok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dave GET aborted campaign = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Active    bool       `json:"active"`
+		AbortedAt *time.Time `json:"aborted_at"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode aborted campaign: %v", err)
+	}
+	if got.Active || got.AbortedAt == nil {
+		t.Fatalf("aborted campaign = active:%v aborted_at:%v, want active:false with a timestamp", got.Active, got.AbortedAt)
+	}
+
+	// ...and an editor of the same tenant cannot abort it either.
+	rec = f.req(t, http.MethodPost, path(live)+"/abort", "bob-tok", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("editor abort campaign = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// The cross-tenant view: Dave coordinates acme and globex, so both
+	// tenants' campaigns appear; initech, where he holds nothing, does not.
+	globexCampaign := createCampaign("admin-tok", globex, globexProject, globexExec, "Globex-event", time.Hour, 2*time.Hour)
+	initechCampaign := createCampaign("admin-tok", initech, initechProject, initechExec, "Initech-event", time.Hour, 2*time.Hour)
+	_ = globexCampaign
+
+	rec = f.req(t, http.MethodGet, "/api/campaigns", "dave-tok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dave GET /api/campaigns = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Future-event-v2", "Live-event", "Globex-event"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("dave GET /api/campaigns missing %q (a tenant he coordinates): %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Initech-event") {
+		t.Fatalf("dave GET /api/campaigns leaked a campaign of a tenant he holds nothing in: %s", body)
+	}
+	_ = initechCampaign
+
+	// An account with no tenant role sees an empty list, never a leak.
+	rec = f.req(t, http.MethodGet, "/api/campaigns", "nobody-tok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nobody GET /api/campaigns = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var listed []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("nobody GET /api/campaigns decode: %v (%s)", err, rec.Body.String())
+	}
+	if len(listed) != 0 {
+		t.Fatalf("nobody GET /api/campaigns = %d campaigns, want 0", len(listed))
+	}
+}
