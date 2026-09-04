@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/adapters/auth/session"
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	"github.com/heridotlife/honryu/internal/domain/account"
 	"github.com/heridotlife/honryu/internal/domain/report"
@@ -35,6 +36,9 @@ import (
 //	system:admin  rule 4: platform-wide surfaces (/api/admin/*,
 //	              /api/clusters/*, /api/usage/*) demand ResourceSystem/
 //	              ActionAdmin -- the service provider's admin only.
+//	authenticated  rule 0.5: any authenticated account may call it; the
+//	              caller only ever sees itself (GET /api/me). The probe
+//	              asserts a granted-nothing account still gets 200.
 //	scoped-list   rule 1: any authenticated account may call it; the result
 //	              set is scoped down by acct.TenantIDs() (precedent:
 //	              listProjects). The probe asserts no cross-tenant leak.
@@ -45,6 +49,7 @@ const (
 	decisionPublic      = "public"
 	decisionSystemAdmin = "system:admin"
 	decisionScopedList  = "scoped-list"
+	decisionAuthed      = "authenticated"
 )
 
 // authzEntry is one route's required decision plus everything the
@@ -83,6 +88,14 @@ type authzEntry struct {
 var authzAuditTable = []authzEntry{
 	{method: "GET", pattern: "/healthz", decision: decisionPublic},
 	{method: "GET", pattern: "/metrics", decision: decisionPublic},
+
+	// The session endpoints are public because selecting a persona IS the
+	// authentication (spec Approach E); /api/me merely reflects the
+	// authenticated caller back.
+	{method: "GET", pattern: "/api/session/profiles", decision: decisionPublic},
+	{method: "POST", pattern: "/api/session", decision: decisionPublic},
+	{method: "DELETE", pattern: "/api/session", decision: decisionPublic},
+	{method: "GET", pattern: "/api/me", decision: decisionAuthed},
 
 	{method: "GET", pattern: "/api/projects", decision: decisionScopedList},
 	{method: "POST", pattern: "/api/projects", decision: "project:create",
@@ -313,7 +326,7 @@ func TestAuthzAuditCoversRoutes(t *testing.T) {
 			continue
 		}
 		switch e.decision {
-		case decisionPublic, decisionSystemAdmin, decisionScopedList:
+		case decisionPublic, decisionSystemAdmin, decisionScopedList, decisionAuthed:
 			// vocabulary constants
 		default:
 			if !validResourceAction(e.decision) {
@@ -393,6 +406,13 @@ func TestAuthzAuditRejectsUngrantedCaller(t *testing.T) {
 				probePublic(t, f, e, path, seed)
 			case decisionScopedList:
 				probeScopedList(t, f, e, path, seed)
+			case decisionAuthed:
+				// Any authenticated account may call it -- even one holding
+				// no grant anywhere.
+				rec := probeRequest(t, f, e, path, "nobody-tok", seed)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("authenticated-but-ungranted caller got %d, want 200 (%s)", rec.Code, rec.Body.String())
+				}
 			default:
 				rec := probeRequest(t, f, e, path, "nobody-tok", seed)
 				if rec.Code != http.StatusForbidden {
@@ -468,9 +488,12 @@ func probeRequest(t *testing.T, f *rbacFixture, e authzEntry, path, tok string, 
 }
 
 // probePublic asserts the route answers without user credentials:
-// /healthz and /metrics with 200, /api/ingest with its own credential
+// /healthz and /metrics with 200; /api/ingest with its own credential
 // rejection -- proving the user middleware exempted it (its 401 says
-// "invalid ingest credentials", the middleware's says "unauthenticated").
+// "invalid ingest credentials", the middleware's says "unauthenticated");
+// the demo-session endpoints with a minted/expired cookie. POST /api/session
+// additionally proves the security-critical cookie attributes: HttpOnly,
+// SameSite=Strict, Secure, Max-Age=8h (spec Approach E).
 func probePublic(t *testing.T, f *rbacFixture, e authzEntry, path string, seed auditSeed) {
 	t.Helper()
 	switch e.pattern {
@@ -491,8 +514,63 @@ func probePublic(t *testing.T, f *rbacFixture, e authzEntry, path string, seed a
 		if strings.Contains(rec.Body.String(), "unauthenticated") {
 			t.Fatalf("ingest was rejected by the user middleware, not its own credential check: %s", rec.Body.String())
 		}
+	case "/api/session":
+		if e.method == http.MethodPost {
+			r := httptest.NewRequest(http.MethodPost, path,
+				strings.NewReader(`{"profile":"auditor"}`))
+			r.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			f.router.ServeHTTP(rec, r)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("POST /api/session got %d, want 204 (%s)", rec.Code, rec.Body.String())
+			}
+			assertSessionCookie(t, rec.Header().Values("Set-Cookie"), int(session.TTL.Seconds()))
+		} else {
+			r := httptest.NewRequest(http.MethodDelete, path, nil)
+			rec := httptest.NewRecorder()
+			f.router.ServeHTTP(rec, r)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("DELETE /api/session got %d, want 204 (%s)", rec.Code, rec.Body.String())
+			}
+			// Expired: Max-Age=0, so the browser drops it immediately.
+			assertSessionCookie(t, rec.Header().Values("Set-Cookie"), 0)
+		}
+	case "/api/session/profiles":
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		f.router.ServeHTTP(rec, r)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /api/session/profiles got %d, want 200 (%s)", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "auditor") {
+			t.Fatalf("profiles list missing the configured persona: %s", rec.Body.String())
+		}
 	default:
 		t.Fatalf("no public probe defined for %q", e.pattern)
+	}
+}
+
+// assertSessionCookie pins the security-critical Set-Cookie attributes:
+// HttpOnly, SameSite=Strict, Secure, and the wanted Max-Age. These are the
+// constraint the spec states verbatim (Approach E), so the audit asserts
+// them, not just a 2xx.
+func assertSessionCookie(t *testing.T, cookies []string, wantMaxAge int) {
+	t.Helper()
+	if len(cookies) == 0 {
+		t.Fatal("no Set-Cookie header")
+	}
+	c := cookies[0]
+	for _, want := range []string{
+		session.CookieName + "=",
+		"Path=/",
+		"HttpOnly",
+		"SameSite=Strict",
+		"Secure",
+		"Max-Age=" + strconv.Itoa(wantMaxAge),
+	} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("Set-Cookie %q missing %q", c, want)
+		}
 	}
 }
 

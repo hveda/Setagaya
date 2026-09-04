@@ -15,6 +15,7 @@ import (
 	"time"
 
 	auditmem "github.com/heridotlife/honryu/internal/adapters/audit/memory"
+	"github.com/heridotlife/honryu/internal/adapters/auth/session"
 	"github.com/heridotlife/honryu/internal/adapters/auth/token"
 	membus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
@@ -41,14 +42,15 @@ import (
 
 // rbacFixture wires a full RBAC-enabled router over one shared fake store.
 type rbacFixture struct {
-	router  http.Handler
-	store   *fake.Store
-	sched   *fake.Scheduler
-	prov    *token.Provider
-	audit   *auditmem.Log
-	reports *fake.ReportStore
-	bus     *membus.Bus
-	obj     *fake.ObjectStore
+	router   http.Handler
+	store    *fake.Store
+	sched    *fake.Scheduler
+	prov     *token.Provider
+	sessions *session.Provider
+	audit    *auditmem.Log
+	reports  *fake.ReportStore
+	bus      *membus.Bus
+	obj      *fake.ObjectStore
 }
 
 func newRBACFixture(t *testing.T) *rbacFixture {
@@ -65,6 +67,15 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		t.Fatalf("seed admin grant: %v", err)
 	}
 	auth := authapp.NewService(prov, store, true)
+	// The demo-session surface, as a deployment with demo mode on would wire
+	// it. Deps.Auth still uses the token provider: the session endpoints are
+	// public, so both coexist in the audit fixture.
+	sessions, err := session.New([]byte("rbac-fixture-session-key"), []session.Profile{
+		{ID: "auditor", Name: "Auditor", Subject: "auditor"},
+	})
+	if err != nil {
+		t.Fatalf("session provider: %v", err)
+	}
 	audit := auditmem.New(nil)
 	reports := fake.NewReportStore()
 	bus := membus.New()
@@ -93,8 +104,9 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		// A no-op stub so the platform-admin gate is reached (a nil dep would
 		// 404 before the RBAC check).
 		Clusters: &stubClusterService{list: func() ([]clusterregistry.Cluster, error) { return nil, nil }},
+		Sessions: sessions,
 	})
-	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, audit: audit, reports: reports, bus: bus, obj: obj}
+	return &rbacFixture{router: router, store: store, sched: sched, prov: prov, sessions: sessions, audit: audit, reports: reports, bus: bus, obj: obj}
 }
 
 func (f *rbacFixture) req(t *testing.T, method, path, tok string, form url.Values) *httptest.ResponseRecorder {

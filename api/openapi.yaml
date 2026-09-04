@@ -23,6 +23,11 @@ servers:
 tags:
   - name: health
     description: Liveness and metrics
+  - name: session
+    description: >-
+      Demo persona sessions: pick a profile, get an HMAC-signed HttpOnly
+      cookie, see who you are and what you may do. Only present when the
+      deployment enables demo mode
   - name: projects
     description: Projects, the ownership root
   - name: scenarios
@@ -739,6 +744,91 @@ paths:
           description: Metrics in Prometheus text format
           content:
             text/plain: {}
+
+  /api/session/profiles:
+    get:
+      tags: [session]
+      summary: List the demo personas the picker may offer
+      description: >-
+        404 when demo mode is off -- the picker is simply not there.
+      responses:
+        '200':
+          description: Personas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/session:
+    post:
+      tags: [session]
+      summary: Authenticate as a demo persona
+      description: >-
+        Mints the HMAC-signed honryu_session cookie (HttpOnly; SameSite=Strict;
+        Secure; Max-Age=8h). Selecting a persona IS the authentication -- the
+        route is public, and the whole surface ships behind demo.enabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profile]
+              properties:
+                profile: { type: string }
+      responses:
+        '204': { description: Session cookie set }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [session]
+      summary: Log out (expire the session cookie)
+      responses:
+        '204': { description: Session cookie expired }
+
+  /api/me:
+    get:
+      tags: [session]
+      summary: The authenticated caller's identity and permission map
+      description: >-
+        Subject, name, roles, tenants, and the computed resource-to-actions
+        map the SPA shapes its UI from. Any authenticated caller may see
+        itself; 401 otherwise.
+      responses:
+        '200':
+          description: The caller
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subject: { type: string }
+                  name: { type: string }
+                  email: { type: string }
+                  global_roles:
+                    type: array
+                    items: { type: string }
+                  tenants:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: { type: string }
+                  permissions:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: { type: string }
+                  demo: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/projects:
     get:

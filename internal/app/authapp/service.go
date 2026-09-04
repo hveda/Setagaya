@@ -63,6 +63,57 @@ func (s *Service) Authorize(acct account.Account, req rbac.Request) rbac.Decisio
 	return rbac.Authorize(acct, s.catalog, req)
 }
 
+// Permissions returns the actions acct may perform on each resource: the
+// union of its roles' grants, keyed by resource name. A wildcard grant
+// (service_provider_admin) appears as the literal "*". The SPA shapes its
+// UI from this map, so it must agree with Authorize's decisions. With RBAC
+// disabled every catalog action is allowed, mirroring Authorize's
+// allow-all.
+func (s *Service) Permissions(acct account.Account) map[string][]string {
+	out := make(map[string][]string, len(s.catalog))
+	if !s.enabled {
+		for _, role := range s.catalog {
+			mergePermissions(out, role)
+		}
+		return out
+	}
+	seen := make(map[string]bool)
+	for _, name := range append(slices.Clone(acct.Global), flattenTenants(acct)...) {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if role, ok := s.catalog[name]; ok {
+			mergePermissions(out, role)
+		}
+	}
+	return out
+}
+
+// mergePermissions folds role's permissions into out, deduplicating actions
+// and keeping them sorted so the JSON wire shape is stable.
+func mergePermissions(out map[string][]string, role rbac.Role) {
+	for _, p := range role.Permissions {
+		for _, a := range p.Actions {
+			if !slices.Contains(out[p.Resource], string(a)) {
+				out[p.Resource] = append(out[p.Resource], string(a))
+			}
+		}
+	}
+	for res := range out {
+		slices.Sort(out[res])
+	}
+}
+
+// flattenTenants lists every role name the account holds in any tenant.
+func flattenTenants(acct account.Account) []string {
+	var names []string
+	for _, roles := range acct.Tenants {
+		names = append(names, roles...)
+	}
+	return names
+}
+
 // mergeGrants folds persisted grants into an account, deduplicating role names.
 func mergeGrants(acct account.Account, g ports.RoleGrants) account.Account {
 	acct.Global = dedupAppend(acct.Global, g.Global...)
