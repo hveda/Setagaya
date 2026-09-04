@@ -68,6 +68,21 @@ spec:
                   key: credential-key
             - name: HONRYU_AUTH_MODE
               value: {{ .Values.api.authMode | quote }}
+            {{- if .Values.demo.enabled }}
+            # Demo persona sessions. Gated so a default install never
+            # requires the session-key Secret to exist: secretKeyRef with a
+            # missing Secret blocks pod startup, and every deployment that
+            # has not opted into demo mode must stay installable as-is.
+            - name: HONRYU_DEMO_ENABLED
+              value: "true"
+            - name: HONRYU_DEMO_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.demoSessionKey }}
+                  key: signing-key
+            - name: HONRYU_DEMO_PROFILES
+              value: {{ .Values.demo.profiles | toJson | quote }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /healthz

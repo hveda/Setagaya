@@ -27,6 +27,7 @@ import (
 	auditmem "github.com/heridotlife/honryu/internal/adapters/audit/memory"
 	"github.com/heridotlife/honryu/internal/adapters/auth/noauth"
 	"github.com/heridotlife/honryu/internal/adapters/auth/oidc"
+	"github.com/heridotlife/honryu/internal/adapters/auth/session"
 	eventbus "github.com/heridotlife/honryu/internal/adapters/eventbus/memory"
 	"github.com/heridotlife/honryu/internal/adapters/httpapi"
 	promsink "github.com/heridotlife/honryu/internal/adapters/metrics/prometheus"
@@ -145,6 +146,15 @@ func run(ctx context.Context, getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
+	// The demo session surface rides on the same provider: when it is the
+	// session provider, the /api/session endpoints get it directly.
+	var sessions httpapi.SessionService
+	if sp, ok := authProvider.(*session.Provider); ok {
+		sessions = sp
+	}
+	if cfg.Auth.Demo.Enabled {
+		slog.Warn("DEMO SESSION MODE ENABLED: anyone who can reach this deployment can select any persona, including the service provider admin")
+	}
 	audit := auditmem.New(slog.Default())
 	slog.Info("auth configured", "mode", cfg.Auth.Mode, "rbac_enabled", cfg.Auth.EnableRBAC)
 
@@ -179,6 +189,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Clusters:         clusterSvc,
 		Audit:            audit,
 		DefaultOwners:    []string{"honryu"},
+		Sessions:         sessions,
 		StaticAssets:     webAssets,
 		// The trigger endpoint's bounded readiness wait (Phase 11): a
 		// client may fire deploy->trigger back-to-back without owning the
@@ -325,8 +336,9 @@ func newClusterService(cfg config.ClusterConfig, repo repository) (httpapi.Clust
 }
 
 // newAuthProvider selects the authentication adapter. "none" authenticates
-// every request as the fixed service-provider admin (local dev); "oidc" verifies
-// bearer ID tokens against the issuer's JWKS, fetched once at startup.
+// every request as the fixed service-provider admin (local dev); "oidc"
+// verifies bearer ID tokens against the issuer's JWKS, fetched once at
+// startup; "demo" verifies the HMAC-signed persona cookie.
 func newAuthProvider(ctx context.Context, cfg config.AuthConfig) (ports.AuthProvider, error) {
 	switch cfg.Mode {
 	case "none":
@@ -337,6 +349,15 @@ func newAuthProvider(ctx context.Context, cfg config.AuthConfig) (ports.AuthProv
 			return nil, fmt.Errorf("oidc jwks: %w", err)
 		}
 		return oidc.New(keys, cfg.OIDC.Issuer, oidc.WithAudience(cfg.OIDC.Audience)), nil
+	case "demo":
+		profiles := make([]session.Profile, 0, len(cfg.Demo.Profiles))
+		for _, p := range cfg.Demo.Profiles {
+			profiles = append(profiles, session.Profile{
+				ID: p.ID, Name: p.Name, Subject: p.Subject, Email: p.Email,
+				Global: p.Global, Tenants: p.Tenants,
+			})
+		}
+		return session.New([]byte(cfg.Demo.SigningKey), profiles)
 	default:
 		return nil, fmt.Errorf("auth mode %q not supported", cfg.Mode)
 	}
