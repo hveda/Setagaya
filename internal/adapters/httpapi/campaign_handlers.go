@@ -234,16 +234,130 @@ func toVerdictResponse(v campaignapp.CampaignVerdict) campaignVerdictResponse {
 	return campaignVerdictResponse{CampaignID: v.CampaignID, Services: services, Go: v.Go, OtherLoad: otherLoad}
 }
 
+// updateCampaign edits a campaign's preparation-time definition: name,
+// window, and participating services. Authorization is derived from the
+// campaign's own recorded TenantID (like getCampaign), not any caller
+// input, and the edit itself is rejected with 409 once the stored window
+// has opened (campaignapp.ErrCampaignStarted): a live campaign's
+// definition is what freeze, the drain sweep, and the verdict key off, so
+// it is frozen the moment it starts (spec Phase 20: preparation-only
+// editing).
+func (h *handlers) updateCampaign(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	id, ok := pathInt(r, "campaign_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid campaign id")
+		return
+	}
+	c, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeCampaignTenant(r.Context(), c.TenantID, rbac.ActionUpdate); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeError(w, http.StatusBadRequest, "failed to parse form")
+		return
+	}
+	start, err := time.Parse(time.RFC3339, r.PostForm.Get("window_start"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid window_start: "+err.Error())
+		return
+	}
+	end, err := time.Parse(time.RFC3339, r.PostForm.Get("window_end"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid window_end: "+err.Error())
+		return
+	}
+	services, err := parseCampaignServices(r.PostForm)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := h.deps.Campaigns.Update(r.Context(), id, campaign.Campaign{
+		Name:     r.PostForm.Get("name"),
+		Window:   campaign.Window{Start: start, End: end},
+		Services: services,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toCampaignResponse(updated, time.Now()))
+}
+
+// abortCampaign closes the campaign now, lifting freeze immediately --
+// the PM's own control over the event they run, exposing the existing
+// campaignapp.Abort which was previously reachable only through the
+// platform kill-switch (POST /api/admin/abort, which additionally tears
+// executions down). Gated campaign:delete on the campaign's own tenant.
+func (h *handlers) abortCampaign(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	id, ok := pathInt(r, "campaign_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid campaign id")
+		return
+	}
+	c, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeCampaignTenant(r.Context(), c.TenantID, rbac.ActionDelete); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.deps.Campaigns.Abort(r.Context(), id); err != nil {
+		respondError(w, err)
+		return
+	}
+	aborted, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	h.audit(r.Context(), "campaign.abort", "campaign", strconv.FormatInt(id, 10))
+	writeJSON(w, http.StatusOK, toCampaignResponse(aborted, time.Now()))
+}
+
+// listAllCampaigns is the PM's cross-tenant view: every campaign of every
+// tenant the caller holds any role in, scoped down by acct.TenantIDs()
+// (audit rule C1, mirroring listProjects). A caller with no tenant role
+// sees an empty list, never another tenant's campaigns.
+func (h *handlers) listAllCampaigns(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	acct := accountFrom(r.Context())
+	campaigns, err := h.deps.Campaigns.ListByTenants(r.Context(), acct.TenantIDs())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	now := time.Now()
+	out := make([]campaignResponse, len(campaigns))
+	for i, c := range campaigns {
+		out[i] = toCampaignResponse(c, now)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // getCampaignVerdict returns the campaign's rolled-up verdict: per-service
 // outcome (and, for a failed service, its named failing criteria), plus
 // one overall go/no-go.
 //
-// Unlike create/list/get, read access here does not require
-// RoleCampaignManager -- a service owner should be able to see their own
-// campaign's verdict without a PM-level grant. The caller must be
-// authorized to view at least one of the campaign's participating
-// projects (authorizeProject, the same check every other project-scoped
-// read already uses).
+// Read access accepts either campaign:read on the campaign's own tenant (a
+// campaign_manager can read the verdict of the event they run without
+// holding edit rights on any participating project -- spec bug 2) or read
+// on at least one participating project (a service owner can see their own
+// campaign's result without a PM-level grant).
 func (h *handlers) getCampaignVerdict(w http.ResponseWriter, r *http.Request) {
 	if !h.campaignsConfigured(w) {
 		return
@@ -346,11 +460,25 @@ func (h *handlers) getCampaignComparison(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, toComparisonResponse(comparison))
 }
 
-// authorizeAnyParticipatingProject allows the caller through if they are
-// authorized for at least one of the campaign's participating projects.
+// authorizeAnyParticipatingProject allows the caller through if they may
+// read the campaign itself -- campaign:read on the campaign's own tenant,
+// the same check authorizeCampaignTenant applies -- or, failing that, at
+// least one of its participating projects. The campaign:read branch is the
+// Phase 20 fix for spec bug 2: a campaign_manager used to be able to create
+// an event and then got 403 on its verdict, because this check demanded
+// project:update on a participating project and the PM deliberately holds
+// no project edit rights anywhere. The participating-project fallback keeps
+// the pre-existing path for service owners, now asking project:read -- a
+// verdict is a read, and demanding update locked out every read-only role
+// that could otherwise see the campaign's projects.
 func (h *handlers) authorizeAnyParticipatingProject(ctx context.Context, c campaign.Campaign) error {
+	if h.rbacEnabled() {
+		if err := h.authorizeCampaignTenant(ctx, c.TenantID, rbac.ActionRead); err == nil {
+			return nil
+		}
+	}
 	for _, svc := range c.Services {
-		if err := h.authorizeProject(ctx, svc.ProjectID); err == nil {
+		if err := h.authorizeProject(ctx, svc.ProjectID, rbac.ActionRead); err == nil {
 			return nil
 		}
 	}

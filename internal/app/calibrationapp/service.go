@@ -15,6 +15,7 @@ import (
 	"github.com/heridotlife/honryu/internal/domain/capacityprofile"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -52,6 +53,10 @@ var ErrFingerprintNotConfigured = errors.New("calibrationapp: FanOut requires Wi
 type Repo interface {
 	ports.CalibrationJobRepository
 	ports.CapacityProfileRepository
+	// GetProject resolves the project's tenant for tenant stamping, the
+	// same Phase 20 rule executionapp/scenarioapp already follow: an
+	// execution's tenant always equals its project's.
+	GetProject(ctx context.Context, id int64) (project.Project, error)
 	CreateExecution(ctx context.Context, c execution.Execution) (int64, error)
 	GetExecution(ctx context.Context, id int64) (execution.Execution, error)
 	SetExecutionCriteria(ctx context.Context, executionID int64, criteria []string) error
@@ -135,6 +140,15 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64, engi
 	exe.Kind = execution.KindCalibrateEngine
 	exe.Engine = engine
 	exe.CPU, exe.Memory = spec.CPU, spec.Memory
+	// Tenant stamping mirrors executionapp.Create: the CalibrateEngine
+	// execution this creates is an execution like any other, so its tenant
+	// equals its project's (Phase 20 block A). A missing project is
+	// tolerated the same way -- the HTTP layer 404s unknown projects first.
+	if p, err := s.repo.GetProject(ctx, projectID); err == nil {
+		exe.TenantID = p.TenantID
+	} else if !errors.Is(err, ports.ErrNotFound) {
+		return 0, err
+	}
 	if err := exe.Validate(); err != nil {
 		return 0, err
 	}

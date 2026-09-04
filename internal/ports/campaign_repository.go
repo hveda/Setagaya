@@ -20,10 +20,24 @@ type CampaignRepository interface {
 	// ListCampaignsByTenant returns every campaign belonging to tenantID,
 	// ordered by window start.
 	ListCampaignsByTenant(ctx context.Context, tenantID int64) ([]campaign.Campaign, error)
+	// ListCampaignsByTenants returns every campaign belonging to any of
+	// tenantIDs, ordered by window start -- the cross-tenant view behind
+	// GET /api/campaigns, where a campaign manager coordinates several
+	// tenants and needs one list, not one request per tenant. An empty
+	// tenantIDs yields an empty list.
+	ListCampaignsByTenants(ctx context.Context, tenantIDs []int64) ([]campaign.Campaign, error)
 	// ListActiveCampaigns returns every campaign whose window contains now
 	// and which has not been aborted -- what both lifecycleapp's freeze
 	// check and cmd/scheduler's drain sweep scan.
 	ListActiveCampaigns(ctx context.Context, now time.Time) ([]campaign.Campaign, error)
+	// UpdateCampaign replaces the stored definition of the campaign with
+	// c.ID -- name, window, and participating services -- atomically: stale
+	// campaign_service rows are dropped and the new set inserted in the
+	// same transaction, so an orphaned service row can never survive an
+	// edit. The campaign's identity (id, tenant) and AbortedAt are not
+	// editable here (AbortCampaign owns the latter). Returns ErrNotFound
+	// when no campaign has c.ID.
+	UpdateCampaign(ctx context.Context, c campaign.Campaign) error
 	// AbortCampaign records that the campaign with id was aborted at t, or
 	// ErrNotFound. Idempotent in effect (aborting an already-aborted
 	// campaign again just overwrites AbortedAt), since Abort's caller

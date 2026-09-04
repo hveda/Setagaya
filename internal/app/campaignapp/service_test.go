@@ -239,6 +239,181 @@ func TestAbort_SetsAbortedAt(t *testing.T) {
 	}
 }
 
+// Task 16 / AC9: preparation-only editing. While Window.Start is still in
+// the future, Update replaces the definition -- name, window, services --
+// drops stale service rows, and preserves identity (tenant) and AbortedAt.
+func TestUpdate_ReplacesDefinitionWhileInPreparation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	// now = at(50): the stored window [100, 200) has not opened yet.
+	now := at(50)
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return now })
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectB, execB := seedProjectAndExecution(t, store, "service-b", 7)
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "Supersale 11.11", TenantID: 7,
+		Window: campaign.Window{Start: at(100), End: at(200)},
+		Services: []campaign.Service{
+			{ProjectID: projectA, ExecutionID: execA},
+			{ProjectID: projectB, ExecutionID: execB},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Abort(ctx, created.ID); err != nil {
+		t.Fatalf("Abort: %v", err)
+	}
+
+	updated, err := svc.Update(ctx, created.ID, campaign.Campaign{
+		Name:     "Supersale 12.12",
+		TenantID: 99, // ignored: a campaign never changes tenants by being edited
+		Window:   campaign.Window{Start: at(300), End: at(400)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Update (preparation): %v", err)
+	}
+	if updated.Name != "Supersale 12.12" || !updated.Window.Start.Equal(at(300)) || !updated.Window.End.Equal(at(400)) {
+		t.Fatalf("Update returned %+v, want the new name and window", updated)
+	}
+	if len(updated.Services) != 1 || updated.Services[0].ProjectID != projectA {
+		t.Fatalf("Update services = %+v, want exactly [service-a] (stale rows dropped)", updated.Services)
+	}
+	if updated.TenantID != 7 {
+		t.Fatalf("Update tenant_id = %d, want 7 preserved", updated.TenantID)
+	}
+	if updated.AbortedAt == nil || !updated.AbortedAt.Equal(now) {
+		t.Fatalf("Update AbortedAt = %v, want the pre-update value preserved", updated.AbortedAt)
+	}
+
+	got, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get after Update: %v", err)
+	}
+	if got.Name != "Supersale 12.12" || len(got.Services) != 1 {
+		t.Fatalf("Get after Update = %+v, want the updated definition persisted", got)
+	}
+}
+
+// The AC9 boundary itself: the half-open window [Start, End) contains its
+// own start instant, so editing is frozen from the exact moment Start is
+// reached -- one nanosecond before it is still preparation.
+func TestUpdate_FrozenOnceWindowHasStarted(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	var now time.Time
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return now })
+
+	projectID, execID := seedProjectAndExecution(t, store, "service-a", 7)
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "Supersale 11.11", TenantID: 7,
+		Window:   campaign.Window{Start: at(100), End: at(200)},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: execID}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	edit := campaign.Campaign{
+		Name:     "Supersale 12.12",
+		Window:   campaign.Window{Start: at(100), End: at(200)},
+		Services: []campaign.Service{{ProjectID: projectID, ExecutionID: execID}},
+	}
+
+	// One nanosecond before the window opens: still preparation.
+	now = at(100).Add(-1)
+	if _, err := svc.Update(ctx, created.ID, edit); err != nil {
+		t.Fatalf("Update (start-1ns) = %v, want allowed", err)
+	}
+
+	// The exact start instant: the window is open ([Start, End)), frozen.
+	now = at(100)
+	if _, err := svc.Update(ctx, created.ID, edit); !errors.Is(err, campaignapp.ErrCampaignStarted) {
+		t.Fatalf("Update (start) = %v, want ErrCampaignStarted", err)
+	}
+
+	// Mid-window (a live campaign) and after the window has closed: both
+	// frozen -- editing would change what freeze and the verdict applied to,
+	// even retroactively.
+	now = at(150)
+	if _, err := svc.Update(ctx, created.ID, edit); !errors.Is(err, campaignapp.ErrCampaignStarted) {
+		t.Fatalf("Update (mid-window) = %v, want ErrCampaignStarted", err)
+	}
+	now = at(300)
+	if _, err := svc.Update(ctx, created.ID, edit); !errors.Is(err, campaignapp.ErrCampaignStarted) {
+		t.Fatalf("Update (after window) = %v, want ErrCampaignStarted", err)
+	}
+
+	// And the rejections mutated nothing.
+	got, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Name != "Supersale 12.12" || !got.Window.Start.Equal(at(100)) {
+		t.Fatalf("Get after frozen-edit attempts = %+v, want only the one allowed edit applied", got)
+	}
+}
+
+func TestUpdate_UnknownCampaignPropagatesNotFound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	svc := campaignapp.NewService(store, fake.NewScheduler())
+
+	if _, err := svc.Update(ctx, 999, campaign.Campaign{
+		Name: "x", Window: campaign.Window{Start: at(100), End: at(200)},
+		Services: []campaign.Service{{ProjectID: 1, ExecutionID: 1}},
+	}); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Update(missing) = %v, want ErrNotFound", err)
+	}
+}
+
+// An edit re-runs every check a creation ran: a service smuggled in by
+// update, naming an execution that belongs to a different project, must be
+// rejected exactly as Create would -- otherwise PUT would be a bypass of
+// Create's invariants.
+func TestUpdate_RerunsCreateServiceChecks(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := fake.NewStore()
+	now := at(50)
+	svc := campaignapp.NewService(store, fake.NewScheduler()).WithNow(func() time.Time { return now })
+
+	projectA, execA := seedProjectAndExecution(t, store, "service-a", 7)
+	projectB, _ := seedProjectAndExecution(t, store, "service-b", 7)
+	created, err := svc.Create(ctx, campaign.Campaign{
+		Name: "Supersale 11.11", TenantID: 7,
+		Window:   campaign.Window{Start: at(100), End: at(200)},
+		Services: []campaign.Service{{ProjectID: projectA, ExecutionID: execA}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// execA belongs to projectA, not projectB.
+	if _, err := svc.Update(ctx, created.ID, campaign.Campaign{
+		Name: "smuggled", TenantID: 7,
+		Window:   campaign.Window{Start: at(100), End: at(200)},
+		Services: []campaign.Service{{ProjectID: projectB, ExecutionID: execA}},
+	}); !errors.Is(err, campaignapp.ErrServiceExecutionMismatch) {
+		t.Fatalf("Update (mismatched execution/project) = %v, want ErrServiceExecutionMismatch", err)
+	}
+
+	// A project from another tenant, equally rejected on Create, is
+	// rejected on Update too.
+	foreignProject, _ := seedProjectAndExecution(t, store, "foreign", 9)
+	if _, err := svc.Update(ctx, created.ID, campaign.Campaign{
+		Name: "smuggled", TenantID: 7,
+		Window:   campaign.Window{Start: at(100), End: at(200)},
+		Services: []campaign.Service{{ProjectID: foreignProject, ExecutionID: execA}},
+	}); !errors.Is(err, campaignapp.ErrServiceExecutionMismatch) && !errors.Is(err, campaignapp.ErrServiceProjectTenantMismatch) {
+		t.Fatalf("Update (foreign-tenant project) = %v, want a mismatch error", err)
+	}
+}
+
 func deploy(t *testing.T, sched *fake.Scheduler, executionID, scenarioID int64) {
 	t.Helper()
 	if err := sched.DeployScenario(context.Background(), ports.DeploySpec{ExecutionID: executionID, ScenarioID: scenarioID}); err != nil {

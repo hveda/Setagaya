@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/campaign"
@@ -82,6 +83,35 @@ func (r *Repository) ListCampaignsByTenant(ctx context.Context, tenantID int64) 
 	return r.withServices(ctx, out)
 }
 
+// ListCampaignsByTenants returns every campaign belonging to any of
+// tenantIDs, ordered by window start, each with its services included. An
+// empty tenantIDs yields an empty list -- the shape GET /api/campaigns
+// relies on for an account that holds no tenant role at all.
+func (r *Repository) ListCampaignsByTenants(ctx context.Context, tenantIDs []int64) ([]campaign.Campaign, error) {
+	out := []campaign.Campaign{}
+	if len(tenantIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(tenantIDs))
+	args := make([]any, len(tenantIDs))
+	for i, id := range tenantIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	// #nosec G201 -- placeholders are fixed "?" tokens; tenant ids are bound params.
+	query := fmt.Sprintf("SELECT "+campaignColumns+" FROM campaign WHERE tenant_id IN (%s) ORDER BY window_start",
+		strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: list campaigns by tenants: %w", err)
+	}
+	out, err = scanCampaigns(rows)
+	if err != nil {
+		return nil, err
+	}
+	return r.withServices(ctx, out)
+}
+
 // ListActiveCampaigns returns every campaign whose window contains now and
 // which has not been aborted, each with its services included.
 func (r *Repository) ListActiveCampaigns(ctx context.Context, now time.Time) ([]campaign.Campaign, error) {
@@ -125,6 +155,64 @@ func (r *Repository) AbortCampaign(ctx context.Context, id int64, t time.Time) e
 	}
 	if err != nil {
 		return fmt.Errorf("mysql: abort campaign existence check: %w", err)
+	}
+	return nil
+}
+
+// UpdateCampaign replaces the stored definition of the campaign with c.ID
+// -- name, window, and participating services -- in one transaction,
+// mirroring CreateCampaign's shape: the campaign row is updated, the
+// existing campaign_service rows are deleted, and the new set inserted,
+// so a stale service row can never survive an edit. AbortedAt and
+// tenant_id are deliberately not written: AbortCampaign owns the former,
+// and a campaign never changes tenants.
+//
+// RowsAffected on the UPDATE cannot distinguish "no such campaign" from
+// "nothing changed" (MySQL does not count a no-op SET as an affected
+// row) -- the same ambiguity AbortCampaign resolves with a supplementary
+// existence check, paid only on the zero-rows path.
+func (r *Repository) UpdateCampaign(ctx context.Context, c campaign.Campaign) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("mysql: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		"UPDATE campaign SET name = ?, window_start = ?, window_end = ? WHERE id = ?",
+		c.Name, c.Window.Start, c.Window.End, c.ID)
+	if err != nil {
+		return fmt.Errorf("mysql: update campaign: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mysql: update campaign rows affected: %w", err)
+	}
+	if n == 0 {
+		var exists int
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM campaign WHERE id = ?", c.ID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ports.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("mysql: update campaign existence check: %w", err)
+		}
+		// The row exists and the UPDATE was a no-op; the service set is
+		// still replaced below, exactly as it would be after a real change.
+	}
+	if _, err := tx.ExecContext(ctx,
+		"DELETE FROM campaign_service WHERE campaign_id = ?", c.ID); err != nil {
+		return fmt.Errorf("mysql: delete campaign services: %w", err)
+	}
+	for _, svc := range c.Services {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO campaign_service (campaign_id, project_id, execution_id) VALUES (?, ?, ?)",
+			c.ID, svc.ProjectID, svc.ExecutionID); err != nil {
+			return fmt.Errorf("mysql: update campaign service: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("mysql: commit update campaign: %w", err)
 	}
 	return nil
 }

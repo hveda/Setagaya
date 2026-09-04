@@ -4,6 +4,7 @@ import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { apiClient, ApiError } from '../api/client';
 import { setScenarioRequests } from '../api/scenarios';
+import { useSession } from '../hooks/useSession';
 import {
   buildConfig,
   buildFragment,
@@ -28,6 +29,8 @@ const inputCls =
  */
 export default function NewTest() {
   const navigate = useNavigate();
+  const { can } = useSession();
+  const canCreate = can('execution', 'create');
   const [form, setForm] = useState<NewTestForm>({
     name: '',
     targetUrl: '',
@@ -200,9 +203,15 @@ export default function NewTest() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Button onClick={submit} disabled={busy}>
-              {busy ? `Working — ${step ?? '…'}` : 'Create test'}
-            </Button>
+            {canCreate ? (
+              <Button onClick={submit} disabled={busy}>
+                {busy ? `Working — ${step ?? '…'}` : 'Create test'}
+              </Button>
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="no-create-permission">
+                Your role cannot create executions.
+              </p>
+            )}
             {busy && step && <span className="text-caption text-slate-500 dark:text-slate-400">step: {step}</span>}
           </div>
           {error && (

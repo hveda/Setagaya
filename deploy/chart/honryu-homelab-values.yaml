@@ -2,8 +2,8 @@
 #   helm upgrade --install honryu deploy/chart/honryu -n honryu -f deploy/chart/honryu-homelab-values.yaml
 #
 # Secrets referenced below (mysql-credentials, honryu-ingest,
-# honryu-cluster-credential-key) must already exist in the honryu namespace
-# -- this file names them, it does not create them.
+# honryu-cluster-credential-key, honryu-session-key) must already exist in
+# the honryu namespace -- this file names them, it does not create them.
 
 image:
   registry: registry.pve.heri.life/honryu
@@ -18,7 +18,38 @@ image:
   pullSecret: registry-pve-heri-life
 
 api:
-  authMode: none
+  # Demo persona sessions (phase 20): selecting a persona IS the
+  # authentication -- accepted and documented: the ingress carries no auth
+  # annotation and no source-range restriction, so the only thing limiting
+  # reach is DNS and network position.
+  authMode: demo
+
+# The four personas (phase 20 spec). Alice administers the fleet; Bob and
+# Carol live in tenant 1; Dave coordinates campaigns across tenants 1 and 2
+# and deliberately holds nothing in tenant 3 (AC8). Tenant ids reference the
+# live fixtures created over POST /api/tenants.
+demo:
+  enabled: true
+  profiles:
+    - id: alice
+      name: Alice (service provider admin)
+      global: [service_provider_admin]
+    - id: bob
+      name: Bob (tenant editor)
+      tenants:
+        "1": [tenant_editor]
+    - id: carol
+      name: Carol (tenant viewer)
+      tenants:
+        "1": [tenant_viewer]
+    - id: dave
+      name: Dave (campaign manager)
+      tenants:
+        "1": [campaign_manager]
+        "2": [campaign_manager]
+
+config:
+  enableRbac: true
 
 statefulNodeSelector:
   node-role.kubernetes.io/control-plane: ""

@@ -10,6 +10,10 @@ import (
 
 // adminExecutions lists the executions currently holding engines.
 func (h *handlers) adminExecutions(w http.ResponseWriter, r *http.Request) {
+	if err := h.authorizeSystemAdmin(r.Context()); err != nil {
+		respondError(w, err)
+		return
+	}
 	running, err := h.deps.Admin.RunningExecutions(r.Context())
 	if err != nil {
 		respondError(w, err)
@@ -20,6 +24,10 @@ func (h *handlers) adminExecutions(w http.ResponseWriter, r *http.Request) {
 
 // adminNodes reports the cluster node pools.
 func (h *handlers) adminNodes(w http.ResponseWriter, r *http.Request) {
+	if err := h.authorizeSystemAdmin(r.Context()); err != nil {
+		respondError(w, err)
+		return
+	}
 	pools, err := h.deps.Admin.NodePools(r.Context())
 	if err != nil {
 		respondError(w, err)
@@ -52,10 +60,13 @@ func (h *handlers) abortExecutions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"aborted": aborted})
 }
 
-// authorizeKillSwitch permits the kill-switch. Under RBAC it requires a
-// service-provider admin (rbac.ResourceSystem/ActionAdmin); in no-auth mode
-// the operator has full access, matching every other admin route today.
-func (h *handlers) authorizeKillSwitch(ctx context.Context) error {
+// authorizeSystemAdmin permits platform-wide surfaces -- /api/admin/*,
+// /api/clusters/*, /api/usage/* (spec Approach C rule 4):
+// rbac.ResourceSystem/ActionAdmin, the service provider's admin only.
+// VUH usage is billing with no tenant dimension in ports.LaunchRecord, so
+// it cannot be scoped per tenant. In no-auth mode the operator has full
+// access.
+func (h *handlers) authorizeSystemAdmin(ctx context.Context) error {
 	if !h.rbacEnabled() {
 		return nil
 	}
@@ -64,4 +75,11 @@ func (h *handlers) authorizeKillSwitch(ctx context.Context) error {
 		return errForbidden
 	}
 	return nil
+}
+
+// authorizeKillSwitch permits the kill-switch: a service-provider admin
+// (rbac.ResourceSystem/ActionAdmin); in no-auth mode the operator has full
+// access, matching every other admin route today.
+func (h *handlers) authorizeKillSwitch(ctx context.Context) error {
+	return h.authorizeSystemAdmin(ctx)
 }

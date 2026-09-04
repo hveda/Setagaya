@@ -1,16 +1,42 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Menu, Moon, Sun, X } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import Button from './ui/Button';
+import { useSession } from '../hooks/useSession';
 
-const navItems = [
-  { href: '/reports', label: 'Reports' },
-  { href: '/executions', label: 'Executions' },
-  { href: '/reservations', label: 'Reservations' },
-  { href: '/campaigns', label: 'Campaigns' },
-  { href: '/clusters', label: 'Clusters' },
+export interface NavItem {
+  href: string;
+  label: string;
+  /** The permission whose absence removes this item from the nav. */
+  resource: string;
+  action: string;
+}
+
+/** Every nav surface, in order; visibility is the session's call. */
+const allNavItems: NavItem[] = [
+  // report:read -- the Reports page's primary fetches are report reads.
+  { href: '/reports', label: 'Reports', resource: 'report', action: 'read' },
+  // execution:list -- GET /api/executions is the caller-scoped list.
+  { href: '/executions', label: 'Executions', resource: 'execution', action: 'list' },
+  // schedule:list -- reservations ARE schedules (phase 20's resource fold).
+  { href: '/reservations', label: 'Reservations', resource: 'schedule', action: 'list' },
+  // campaign:list -- only campaign_manager and the admin hold any campaign grant.
+  { href: '/campaigns', label: 'Campaigns', resource: 'campaign', action: 'list' },
+  // system:admin -- clusters are the service provider's fleet (AC4).
+  { href: '/clusters', label: 'Clusters', resource: 'system', action: 'admin' },
 ];
+
+/**
+ * navItems as a function of the session's permission map (phase 20): each
+ * entry survives only if the server said this caller may use that surface.
+ * Unauthenticated sessions hold nothing, so the nav renders just the logo
+ * until a persona is picked. The resource:action pairs mirror the HTTP
+ * audit table (authz_audit_test.go), so nav and routes cannot drift.
+ */
+export function navItemsFor(can: (resource: string, action: string) => boolean): NavItem[] {
+  return allNavItems.filter((item) => can(item.resource, item.action));
+}
 
 function applyTheme(dark: boolean) {
   document.documentElement.classList.toggle('dark', dark);
@@ -39,6 +65,9 @@ export function mobileMenuClasses(isOpen: boolean): string {
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { session, can, logout } = useSession();
+  const navItems = navItemsFor(can);
   const [isDark, setIsDark] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -56,6 +85,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     setIsDark(next);
     localStorage.setItem('honryu-theme', next ? 'dark' : 'light');
     applyTheme(next);
+  };
+
+  // Logout expires the cookie, re-resolves identity (the hook's refresh),
+  // and sends the SPA back to the picker (AC13).
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
   };
 
   // Tapping anywhere outside closes the open drawer. Without this the only
@@ -91,7 +127,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <Link to="/" className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
                 Honryu<span className="text-sky-500">.</span>
               </Link>
-              <div className="hidden space-x-2 md:flex">
+              <div data-testid="nav-links" className="hidden space-x-2 md:flex">
                 {navItems.map((item) => (
                   <Link
                     key={item.href}
@@ -163,7 +199,33 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      <main className="relative z-10 mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">{children}</main>
+      <main className="relative z-10 mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        {/* Persistent demo banner, INSIDE main so the nav-height and
+            main-under-nav layout invariants are unaffected. Demo mode is a
+            credential-free front door -- the banner must never go away. */}
+        {session?.demo === true && (
+          <div
+            data-testid="demo-banner"
+            role="status"
+            className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-900/30"
+          >
+            <p className="text-sm text-amber-900 dark:text-amber-200">
+              Demo mode — signed in as <strong>{session.name}</strong>. Selecting a persona is the authentication; anyone
+              who can reach this page can select any profile.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleLogout()}
+              className="min-h-[44px] border-amber-400 text-amber-900 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-200 dark:hover:bg-amber-900/50"
+            >
+              <LogOut className="mr-1 h-4 w-4" aria-hidden />
+              Log out
+            </Button>
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

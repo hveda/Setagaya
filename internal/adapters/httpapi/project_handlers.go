@@ -74,6 +74,12 @@ func (h *handlers) getProject(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
+	// Rule C2: a read asks project:read against the row's own tenant, not
+	// the write permission every gated route used to demand (Phase 20).
+	if err := h.authorize(r.Context(), p.Owner, p.TenantID, rbac.ResourceProject, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, toProjectResponse(p))
 }
 
@@ -124,7 +130,7 @@ func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid project id")
 		return
 	}
-	if err := h.authorizeProject(r.Context(), id); err != nil {
+	if err := h.authorizeProject(r.Context(), id, rbac.ActionDelete); err != nil {
 		respondError(w, err)
 		return
 	}

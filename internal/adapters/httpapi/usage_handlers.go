@@ -9,7 +9,13 @@ import (
 const defaultUsageWindow = 30 * 24 * time.Hour
 
 // usageHistory returns finished launch records over [from, to].
+// Platform-wide (rule C4): VUH accounting is billing, a service-provider
+// concern -- ports.LaunchRecord has no tenant dimension to scope by.
 func (h *handlers) usageHistory(w http.ResponseWriter, r *http.Request) {
+	if err := h.authorizeSystemAdmin(r.Context()); err != nil {
+		respondError(w, err)
+		return
+	}
 	from, to, err := usageWindow(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -23,8 +29,13 @@ func (h *handlers) usageHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, history)
 }
 
-// usageSummary returns the VUH rollup over [from, to].
+// usageSummary returns the VUH rollup over [from, to]. Gated like
+// usageHistory: system:admin only.
 func (h *handlers) usageSummary(w http.ResponseWriter, r *http.Request) {
+	if err := h.authorizeSystemAdmin(r.Context()); err != nil {
+		respondError(w, err)
+		return
+	}
 	from, to, err := usageWindow(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

@@ -25,3 +25,23 @@ describe('App routes (R1)', () => {
     expect(statusRoute).not.toContain('LiveStatus');
   });
 });
+
+// Phase 20's route contract: / is the profile picker (its own redirect to
+// /reports happens only once a session exists), and the whole app sits
+// inside SessionProvider so the picker, nav, and action buttons read one
+// /api/me. Same ?raw approach as R1 above.
+describe('App routes (phase 20)', () => {
+  it('mounts the profile picker at / instead of an unconditional redirect', () => {
+    const rootRoute = appSource.split('\n').find((l) => l.includes('path="/"'));
+    expect(rootRoute).toBeDefined();
+    expect(rootRoute).toContain('ProfilePicker');
+    expect(rootRoute).not.toContain('Navigate');
+  });
+
+  it('wraps the routed app in SessionProvider', () => {
+    expect(appSource).toContain('<SessionProvider>');
+    // Inside the router (the picker uses Navigate), around the layout
+    // (DashboardLayout reads the session too, task 23).
+    expect(appSource.indexOf('<SessionProvider>')).toBeLessThan(appSource.indexOf('<DashboardLayout'));
+  });
+});

@@ -15,6 +15,7 @@ data:
   HONRYU_SCHEDULER: {{ .Values.config.scheduler | quote }}
   HONRYU_K8S_NAMESPACE: {{ .Release.Namespace | quote }}
   HONRYU_DEFAULT_ENGINE: {{ .Values.config.defaultEngine | quote }}
+  HONRYU_ENABLE_RBAC: {{ .Values.config.enableRbac | quote }}
   HONRYU_ENGINE_IMAGES: {{ .Values.config.engineImages | quote }}
   HONRYU_DEPLOY_CONTEXT: {{ .Values.config.deployContext | quote }}
   HONRYU_SIDECAR_IMAGE: {{ printf "%s/honryu-sidecar:%s" .Values.image.registry .Values.image.sidecar.tag | quote }}

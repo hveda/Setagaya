@@ -12,6 +12,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/executionapp"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
@@ -77,6 +78,10 @@ func (h *handlers) getExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	c, err := h.deps.Executions.Get(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
@@ -115,7 +120,7 @@ func (h *handlers) createExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid project_id")
 		return
 	}
-	if err := h.authorizeProject(r.Context(), projectID); err != nil {
+	if err := h.authorizeCreateExecution(r.Context(), projectID); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -134,7 +139,7 @@ func (h *handlers) deleteExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, id); err != nil {
+	if err := h.authorizeExecution(r, id, rbac.ActionDelete); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -151,6 +156,10 @@ func (h *handlers) listExecutionFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	files, err := h.deps.Executions.Files(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
@@ -165,7 +174,7 @@ func (h *handlers) uploadExecutionFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, id); err != nil {
+	if err := h.authorizeExecution(r, id, rbac.ActionUpdate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -188,7 +197,7 @@ func (h *handlers) deleteExecutionFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, id); err != nil {
+	if err := h.authorizeExecution(r, id, rbac.ActionDelete); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -205,7 +214,7 @@ func (h *handlers) uploadExecutionConfig(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, id); err != nil {
+	if err := h.authorizeExecution(r, id, rbac.ActionUpdate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -256,6 +265,10 @@ func (h *handlers) getExecutionConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	cfg, err := h.deps.Executions.GetConfig(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
@@ -264,14 +277,21 @@ func (h *handlers) getExecutionConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cfg)
 }
 
-// authorizeExecution loads a execution and verifies the caller owns its
-// project.
-func (h *handlers) authorizeExecution(r *http.Request, executionID int64) error {
+// authorizeExecution loads an execution and verifies the caller may perform
+// action on it: ResourceExecution -- the resource Phase 20 finally puts to
+// work, where every route previously funneled through authorizeProject's
+// project:update -- scoped to the execution's own tenant, which Block A
+// guarantees equals its project's. In legacy mode there is no account to
+// scope by, so the project-owner check remains the whole decision.
+func (h *handlers) authorizeExecution(r *http.Request, executionID int64, action rbac.Action) error {
 	c, err := h.deps.Executions.Get(r.Context(), executionID)
 	if err != nil {
 		return err
 	}
-	return h.authorizeProject(r.Context(), c.ProjectID)
+	if !h.rbacEnabled() {
+		return h.authorizeProject(r.Context(), c.ProjectID, action)
+	}
+	return h.authorize(r.Context(), "", c.TenantID, rbac.ResourceExecution, action)
 }
 
 func toExecutionResponse(c execution.Execution) executionResponse {
