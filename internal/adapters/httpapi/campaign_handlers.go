@@ -234,6 +234,121 @@ func toVerdictResponse(v campaignapp.CampaignVerdict) campaignVerdictResponse {
 	return campaignVerdictResponse{CampaignID: v.CampaignID, Services: services, Go: v.Go, OtherLoad: otherLoad}
 }
 
+// updateCampaign edits a campaign's preparation-time definition: name,
+// window, and participating services. Authorization is derived from the
+// campaign's own recorded TenantID (like getCampaign), not any caller
+// input, and the edit itself is rejected with 409 once the stored window
+// has opened (campaignapp.ErrCampaignStarted): a live campaign's
+// definition is what freeze, the drain sweep, and the verdict key off, so
+// it is frozen the moment it starts (spec Phase 20: preparation-only
+// editing).
+func (h *handlers) updateCampaign(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	id, ok := pathInt(r, "campaign_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid campaign id")
+		return
+	}
+	c, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeCampaignTenant(r.Context(), c.TenantID, rbac.ActionUpdate); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeError(w, http.StatusBadRequest, "failed to parse form")
+		return
+	}
+	start, err := time.Parse(time.RFC3339, r.PostForm.Get("window_start"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid window_start: "+err.Error())
+		return
+	}
+	end, err := time.Parse(time.RFC3339, r.PostForm.Get("window_end"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid window_end: "+err.Error())
+		return
+	}
+	services, err := parseCampaignServices(r.PostForm)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := h.deps.Campaigns.Update(r.Context(), id, campaign.Campaign{
+		Name:     r.PostForm.Get("name"),
+		Window:   campaign.Window{Start: start, End: end},
+		Services: services,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toCampaignResponse(updated, time.Now()))
+}
+
+// abortCampaign closes the campaign now, lifting freeze immediately --
+// the PM's own control over the event they run, exposing the existing
+// campaignapp.Abort which was previously reachable only through the
+// platform kill-switch (POST /api/admin/abort, which additionally tears
+// executions down). Gated campaign:delete on the campaign's own tenant.
+func (h *handlers) abortCampaign(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	id, ok := pathInt(r, "campaign_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid campaign id")
+		return
+	}
+	c, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeCampaignTenant(r.Context(), c.TenantID, rbac.ActionDelete); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.deps.Campaigns.Abort(r.Context(), id); err != nil {
+		respondError(w, err)
+		return
+	}
+	aborted, err := h.deps.Campaigns.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	h.audit(r.Context(), "campaign.abort", "campaign", strconv.FormatInt(id, 10))
+	writeJSON(w, http.StatusOK, toCampaignResponse(aborted, time.Now()))
+}
+
+// listAllCampaigns is the PM's cross-tenant view: every campaign of every
+// tenant the caller holds any role in, scoped down by acct.TenantIDs()
+// (audit rule C1, mirroring listProjects). A caller with no tenant role
+// sees an empty list, never another tenant's campaigns.
+func (h *handlers) listAllCampaigns(w http.ResponseWriter, r *http.Request) {
+	if !h.campaignsConfigured(w) {
+		return
+	}
+	acct := accountFrom(r.Context())
+	campaigns, err := h.deps.Campaigns.ListByTenants(r.Context(), acct.TenantIDs())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	now := time.Now()
+	out := make([]campaignResponse, len(campaigns))
+	for i, c := range campaigns {
+		out[i] = toCampaignResponse(c, now)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // getCampaignVerdict returns the campaign's rolled-up verdict: per-service
 // outcome (and, for a failed service, its named failing criteria), plus
 // one overall go/no-go.

@@ -201,7 +201,10 @@ var routes = []Route{
 
 	{"POST", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.createCampaign })},
 	{"GET", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listCampaigns })},
+	{"GET", "/api/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listAllCampaigns })},
 	{"GET", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaign })},
+	{"PUT", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.updateCampaign })},
+	{"POST", "/api/campaigns/{campaign_id}/abort", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.abortCampaign })},
 	{"GET", "/api/campaigns/{campaign_id}/verdict", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignVerdict })},
 	{"GET", "/api/campaigns/{campaign_id}/comparison", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignComparison })},
 

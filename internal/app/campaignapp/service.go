@@ -31,6 +31,13 @@ var ErrServiceExecutionMismatch = errors.New("campaignapp: designated execution 
 // ownership from anywhere else, since they key purely off project id.
 var ErrServiceProjectTenantMismatch = errors.New("campaignapp: project does not belong to the campaign's tenant")
 
+// ErrCampaignStarted means the campaign's window has already opened, so
+// its definition is frozen: freeze, the drain sweep, and the verdict all
+// key off the window and the service set, and editing a live campaign
+// would change what they apply to mid-flight. Editing is
+// preparation-only (spec Phase 20, Approach D).
+var ErrCampaignStarted = errors.New("campaignapp: campaign window has started; definition is frozen")
+
 // Repo is the persistence campaignapp needs: the campaign ledger, enough of
 // a project and execution to verify a service's designated execution
 // actually belongs to the project it's registered under and that project
@@ -87,6 +94,36 @@ func (s *Service) WithNow(now func() time.Time) *Service {
 	return s
 }
 
+// verifyServices checks every participating service's invariants against
+// the rest of the store: the designated execution must actually belong to
+// the project it's registered under (a typo'd execution id would let one
+// project's execution silently decide a completely different service's
+// verdict), and that project must actually belong to the campaign's own
+// declared tenant (a campaign manager in one tenant must not be able to
+// freeze, drain, and kill-switch another tenant's project). Shared by
+// Create and Update -- an edit re-runs every check a creation ran.
+func (s *Service) verifyServices(ctx context.Context, c campaign.Campaign) error {
+	for _, svc := range c.Services {
+		exe, err := s.repo.GetExecution(ctx, svc.ExecutionID)
+		if err != nil {
+			return err
+		}
+		if exe.ProjectID != svc.ProjectID {
+			return fmt.Errorf("%w: execution %d belongs to project %d, not %d",
+				ErrServiceExecutionMismatch, svc.ExecutionID, exe.ProjectID, svc.ProjectID)
+		}
+		proj, err := s.repo.GetProject(ctx, svc.ProjectID)
+		if err != nil {
+			return err
+		}
+		if proj.TenantID == nil || *proj.TenantID != c.TenantID {
+			return fmt.Errorf("%w: project %d does not belong to tenant %d",
+				ErrServiceProjectTenantMismatch, svc.ProjectID, c.TenantID)
+		}
+	}
+	return nil
+}
+
 // Create validates c and persists it. Each service's designated execution
 // must actually belong to the project it's registered under -- without this
 // check, a typo'd execution id would let one project's execution silently
@@ -97,23 +134,8 @@ func (s *Service) Create(ctx context.Context, c campaign.Campaign) (campaign.Cam
 	if err := c.Validate(); err != nil {
 		return campaign.Campaign{}, err
 	}
-	for _, svc := range c.Services {
-		exe, err := s.repo.GetExecution(ctx, svc.ExecutionID)
-		if err != nil {
-			return campaign.Campaign{}, err
-		}
-		if exe.ProjectID != svc.ProjectID {
-			return campaign.Campaign{}, fmt.Errorf("%w: execution %d belongs to project %d, not %d",
-				ErrServiceExecutionMismatch, svc.ExecutionID, exe.ProjectID, svc.ProjectID)
-		}
-		proj, err := s.repo.GetProject(ctx, svc.ProjectID)
-		if err != nil {
-			return campaign.Campaign{}, err
-		}
-		if proj.TenantID == nil || *proj.TenantID != c.TenantID {
-			return campaign.Campaign{}, fmt.Errorf("%w: project %d does not belong to tenant %d",
-				ErrServiceProjectTenantMismatch, svc.ProjectID, c.TenantID)
-		}
+	if err := s.verifyServices(ctx, c); err != nil {
+		return campaign.Campaign{}, err
 	}
 	id, err := s.repo.CreateCampaign(ctx, c)
 	if err != nil {
@@ -133,6 +155,14 @@ func (s *Service) List(ctx context.Context, tenantID int64) ([]campaign.Campaign
 	return s.repo.ListCampaignsByTenant(ctx, tenantID)
 }
 
+// ListByTenants returns every campaign belonging to any of tenantIDs --
+// the cross-tenant view behind GET /api/campaigns, where a campaign
+// manager coordinating several tenants needs one list, not one request
+// per tenant.
+func (s *Service) ListByTenants(ctx context.Context, tenantIDs []int64) ([]campaign.Campaign, error) {
+	return s.repo.ListCampaignsByTenants(ctx, tenantIDs)
+}
+
 // ActiveCampaigns returns every campaign currently active (per
 // Campaign.IsActive) across every tenant -- what cmd/scheduler's drain
 // sweep iterates, one InScopeExecutions call per campaign.
@@ -146,6 +176,39 @@ func (s *Service) ActiveCampaigns(ctx context.Context) ([]campaign.Campaign, err
 // (Campaign.IsActive is derived from AbortedAt, not a separate flag).
 func (s *Service) Abort(ctx context.Context, id int64) error {
 	return s.repo.AbortCampaign(ctx, id, s.now())
+}
+
+// Update replaces the campaign's editable definition -- name, window, and
+// participating services -- while it is still in preparation, i.e. while
+// Window.Start is still in the future. Once the window has opened the
+// definition is frozen (ErrCampaignStarted): freeze, the drain sweep, and
+// the verdict all key off the window and the service set, and editing a
+// live campaign would change what they apply to mid-flight. The identity
+// fields (id, tenant) and AbortedAt come from the stored campaign, not
+// from next -- a campaign never changes tenants by being edited, and
+// AbortCampaign owns AbortedAt.
+func (s *Service) Update(ctx context.Context, id int64, next campaign.Campaign) (campaign.Campaign, error) {
+	existing, err := s.repo.GetCampaign(ctx, id)
+	if err != nil {
+		return campaign.Campaign{}, err
+	}
+	if !s.now().Before(existing.Window.Start) {
+		return campaign.Campaign{}, fmt.Errorf("%w: window opened at %s", ErrCampaignStarted,
+			existing.Window.Start.UTC().Format(time.RFC3339))
+	}
+	next.ID = existing.ID
+	next.TenantID = existing.TenantID
+	next.AbortedAt = existing.AbortedAt
+	if err := next.Validate(); err != nil {
+		return campaign.Campaign{}, err
+	}
+	if err := s.verifyServices(ctx, next); err != nil {
+		return campaign.Campaign{}, err
+	}
+	if err := s.repo.UpdateCampaign(ctx, next); err != nil {
+		return campaign.Campaign{}, err
+	}
+	return s.repo.GetCampaign(ctx, id)
 }
 
 // InScopeExecutions returns every currently-deployed execution belonging to

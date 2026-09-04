@@ -1490,10 +1490,91 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/campaigns:
+    get:
+      tags: [campaigns]
+      summary: List the caller's campaigns across every tenant they hold a role in
+      description: |
+        The campaign manager's cross-tenant view: every campaign of every
+        tenant the caller holds any role in, ordered by window start. A
+        caller with no tenant role sees an empty list, never another
+        tenant's campaigns.
+      responses:
+        '200':
+          description: Campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Campaign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /api/campaigns/{campaign_id}:
     get:
       tags: [campaigns]
       summary: Get one campaign
+      parameters: [{ $ref: '#/components/parameters/CampaignID' }]
+      responses:
+        '200':
+          description: Campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [campaigns]
+      summary: Edit a campaign's preparation-time definition
+      description: |
+        Replaces the campaign's name, window, and participating services
+        while it is still in preparation. Once the stored window has
+        opened, the definition is frozen: 409, because a live campaign's
+        definition is what freeze, the drain sweep, and the verdict key
+        off. Requires campaign update on the campaign's own tenant (the
+        campaign-manager grant), and every edit re-runs the checks a
+        creation ran (each designated execution belongs to its stated
+        project, each project to the campaign's tenant).
+      parameters: [{ $ref: '#/components/parameters/CampaignID' }]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, window_start, window_end, service_project_id, service_execution_id]
+              properties:
+                name: { type: string }
+                window_start: { type: string, format: date-time }
+                window_end: { type: string, format: date-time }
+                service_project_id:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Index-paired with service_execution_id.
+                service_execution_id:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Index-paired with service_project_id.
+      responses:
+        '200':
+          description: Campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/campaigns/{campaign_id}/abort:
+    post:
+      tags: [campaigns]
+      summary: Abort a campaign
+      description: |
+        Closes the campaign now, lifting freeze immediately. The PM's own
+        control over the event they run, distinct from the platform
+        kill-switch (`POST /api/admin/abort`, which additionally tears
+        executions down). Idempotent in effect. Requires campaign delete
+        on the campaign's own tenant.
       parameters: [{ $ref: '#/components/parameters/CampaignID' }]
       responses:
         '200':

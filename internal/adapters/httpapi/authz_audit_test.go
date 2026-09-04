@@ -168,7 +168,14 @@ var authzAuditTable = []authzEntry{
 
 	{method: "POST", pattern: "/api/tenants/{tenant_id}/campaigns", decision: "campaign:create"},
 	{method: "GET", pattern: "/api/tenants/{tenant_id}/campaigns", decision: "campaign:list"},
+	{method: "GET", pattern: "/api/campaigns", decision: decisionScopedList},
 	{method: "GET", pattern: "/api/campaigns/{campaign_id}", decision: "campaign:read"},
+	{method: "PUT", pattern: "/api/campaigns/{campaign_id}", decision: "campaign:update",
+		form: url.Values{"name": {"Supersale 12.12"}, "window_start": {"2030-01-01T00:00:00Z"},
+			"window_end":           {"2030-01-02T00:00:00Z"},
+			"service_project_id":   {"{project_id}"},
+			"service_execution_id": {"{execution_id}"}}},
+	{method: "POST", pattern: "/api/campaigns/{campaign_id}/abort", decision: "campaign:delete"},
 	{method: "GET", pattern: "/api/campaigns/{campaign_id}/verdict", decision: "campaign:read|project:read"},
 	{method: "GET", pattern: "/api/campaigns/{campaign_id}/comparison", decision: "campaign:read|project:read"},
 
@@ -497,7 +504,7 @@ func probeScopedList(t *testing.T, f *rbacFixture, e authzEntry, path string, se
 	if rec.Code != http.StatusOK {
 		t.Fatalf("scoped list got %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
-	for _, leak := range []string{"acme-web", "peak"} {
+	for _, leak := range []string{"acme-web", "peak", "Supersale"} {
 		if strings.Contains(rec.Body.String(), leak) {
 			t.Fatalf("scoped list leaked %q to an ungranted caller: %s", leak, rec.Body.String())
 		}
