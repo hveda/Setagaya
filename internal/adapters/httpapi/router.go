@@ -13,6 +13,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/heridotlife/honryu/internal/adapters/auth/session"
 	"github.com/heridotlife/honryu/internal/app/adminapp"
 	"github.com/heridotlife/honryu/internal/app/authapp"
 	"github.com/heridotlife/honryu/internal/app/calibrationapp"
@@ -87,6 +88,10 @@ type Deps struct {
 	Audit ports.AuditLog
 	// DefaultOwners is the owner set used when RBAC is disabled (no-auth mode).
 	DefaultOwners []string
+	// Sessions mints and lists demo persona sessions (AUTH_MODE=demo).
+	// Optional; nil disables the /api/session endpoints (404), which is what
+	// every non-demo deployment wants.
+	Sessions SessionService
 	// TriggerReadyPoll is how often POST /trigger retries while a just-deployed
 	// execution's engine pods are still starting up. Zero means the default
 	// (2s, matching calibrationapp's own readiness loop).
@@ -102,10 +107,37 @@ type Deps struct {
 	StaticAssets fs.FS
 }
 
+// SessionService is the demo-session surface the /api/session endpoints
+// need: mint a signed cookie for a named persona, and list the personas the
+// picker may offer. Implemented by the session provider
+// (adapters/auth/session.Provider).
+type SessionService interface {
+	// Issue signs a session cookie value for the named persona.
+	Issue(profileID string) (string, error)
+	// Profiles returns the configured personas in configuration order.
+	Profiles() []session.Profile
+}
+
 // ingestPath is the engine-pod push endpoint. It authenticates with its own
 // credential rather than the user provider, so the router exempts it from user
 // authentication.
 const ingestPath = "/api/ingest"
+
+// sessionPath and sessionProfilesPath are how a caller authenticates in demo
+// mode: the middleware cannot demand authentication for the endpoints whose
+// whole job is to establish it. Expiry (DELETE) rides along: clearing a
+// session never needs to prove one.
+const (
+	sessionPath         = "/api/session"
+	sessionProfilesPath = "/api/session/profiles"
+)
+
+// publicAPIPath reports whether an API path is exempt from the user auth
+// middleware: it either carries its own credential (ingest) or is itself the
+// authentication (demo session endpoints).
+func publicAPIPath(path string) bool {
+	return path == ingestPath || path == sessionPath || path == sessionProfilesPath
+}
 
 // Route is one registered endpoint. The route table is the single source of
 // truth for the API surface: NewRouter registers from it, and a test asserts
@@ -126,6 +158,11 @@ func hf(f func(*handlers) http.HandlerFunc) func(*handlers) http.Handler {
 var routes = []Route{
 	{"GET", "/healthz", "health", hf(func(h *handlers) http.HandlerFunc { return h.health })},
 	{"GET", "/metrics", "health", func(*handlers) http.Handler { return promhttp.Handler() }},
+
+	{"GET", "/api/session/profiles", "session", hf(func(h *handlers) http.HandlerFunc { return h.listSessionProfiles })},
+	{"POST", "/api/session", "session", hf(func(h *handlers) http.HandlerFunc { return h.createSession })},
+	{"DELETE", "/api/session", "session", hf(func(h *handlers) http.HandlerFunc { return h.deleteSession })},
+	{"GET", "/api/me", "session", hf(func(h *handlers) http.HandlerFunc { return h.me })},
 
 	{"GET", "/api/projects", "projects", hf(func(h *handlers) http.HandlerFunc { return h.listProjects })},
 	{"POST", "/api/projects", "projects", hf(func(h *handlers) http.HandlerFunc { return h.createProject })},
@@ -201,7 +238,10 @@ var routes = []Route{
 
 	{"POST", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.createCampaign })},
 	{"GET", "/api/tenants/{tenant_id}/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listCampaigns })},
+	{"GET", "/api/campaigns", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.listAllCampaigns })},
 	{"GET", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaign })},
+	{"PUT", "/api/campaigns/{campaign_id}", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.updateCampaign })},
+	{"POST", "/api/campaigns/{campaign_id}/abort", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.abortCampaign })},
 	{"GET", "/api/campaigns/{campaign_id}/verdict", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignVerdict })},
 	{"GET", "/api/campaigns/{campaign_id}/comparison", "campaigns", hf(func(h *handlers) http.HandlerFunc { return h.getCampaignComparison })},
 
@@ -248,12 +288,14 @@ func NewRouter(d Deps) http.Handler {
 // every /api/ request (rejecting unauthenticated callers with 401) and stashes
 // the account on the request context for downstream authorization. When RBAC is
 // disabled it is a pass-through and the legacy owner checks apply.
+// Endpoints that carry their own credential or are themselves the
+// authentication (ingest, demo session) are exempt: publicAPIPath.
 func (h *handlers) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Engine pods carry a deployment credential, not a user account, and
 		// authenticate in the ingest handler itself. Sending them through the
 		// user provider would reject every push the moment RBAC was enabled.
-		if r.URL.Path == ingestPath {
+		if publicAPIPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

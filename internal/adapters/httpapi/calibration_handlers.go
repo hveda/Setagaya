@@ -10,6 +10,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/calibrationapp"
 	"github.com/heridotlife/honryu/internal/domain/calibration"
 	"github.com/heridotlife/honryu/internal/domain/capacityprofile"
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
@@ -116,7 +117,7 @@ func (h *handlers) createCalibration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid project_id")
 		return
 	}
-	if err := h.authorizeProject(r.Context(), projectID); err != nil {
+	if err := h.authorizeCreateExecution(r.Context(), projectID); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -185,7 +186,7 @@ func (h *handlers) triggerCalibration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, executionID); err != nil {
+	if err := h.authorizeExecution(r, executionID, rbac.ActionCreate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -218,7 +219,7 @@ func (h *handlers) getCalibrationJob(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	if err := h.authorizeExecution(r, job.ExecutionID); err != nil {
+	if err := h.authorizeExecution(r, job.ExecutionID, rbac.ActionRead); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -247,7 +248,7 @@ func (h *handlers) getCapacityProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, scenarioID); err != nil {
+	if err := h.authorizeScenario(r, scenarioID, rbac.ActionRead); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -277,7 +278,7 @@ func (h *handlers) fanOutCapacity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid scenario id")
 		return
 	}
-	if err := h.authorizeScenario(r, scenarioID); err != nil {
+	if err := h.authorizeScenario(r, scenarioID, rbac.ActionRead); err != nil {
 		respondError(w, err)
 		return
 	}

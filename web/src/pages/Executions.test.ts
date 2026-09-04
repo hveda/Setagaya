@@ -10,3 +10,13 @@ describe('Executions page contract', () => {
     expect(hrefFor(7)).toBe('/executions/7');
   });
 });
+
+// Phase 20 wiring gate (?raw, App.test.ts's pattern): the "+ New test"
+// entry point hides for callers without execution:create (AC14 -- the
+// viewer sees no way to start a deploy anywhere, list page included).
+describe('Executions gating (phase 20)', () => {
+  it('gates the + New test link on the session permission map', async () => {
+    const executionsSource = (await import('./Executions.tsx?raw')).default;
+    expect(executionsSource).toContain("can('execution', 'create')");
+  });
+});

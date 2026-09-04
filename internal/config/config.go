@@ -7,11 +7,13 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 )
 
@@ -59,12 +61,14 @@ type CalibratorConfig struct {
 //
 // Mode "none" authenticates every request as a fixed service-provider admin
 // (local dev); "oidc" verifies bearer ID tokens against the configured issuer's
-// JWKS. EnableRBAC turns on tenant-scoped authorization; when false the legacy
+// JWKS; "demo" authenticates via the HMAC-signed persona cookie (Demo).
+// EnableRBAC turns on tenant-scoped authorization; when false the legacy
 // owner-based checks apply. This replaces v2's hardcoded enableRBAC=true.
 type AuthConfig struct {
-	Mode       string // none|oidc
+	Mode       string // none|oidc|demo
 	EnableRBAC bool
 	OIDC       OIDCConfig
+	Demo       DemoConfig
 }
 
 // OIDCConfig configures the OIDC ID-token verifier (used when Mode is "oidc").
@@ -72,6 +76,31 @@ type OIDCConfig struct {
 	Issuer   string
 	Audience string
 	JWKSURL  string
+}
+
+// DemoConfig configures the demo session provider (AUTH_MODE=demo).
+// Personas are deployment fixtures, not domain data: selecting one IS the
+// authentication, by explicit decision -- which is why Enabled defaults to
+// false and validation refuses demo.enabled under any other auth mode (a
+// picker that appears to work while the real provider ignores it).
+type DemoConfig struct {
+	Enabled    bool
+	SigningKey string
+	Profiles   []DemoProfile
+}
+
+// DemoProfile is one persona in HONRYU_DEMO_PROFILES (JSON array). Global
+// lists globally-granted role names; Tenants maps a tenant id to the role
+// names granted within it. Role names must exist in the RBAC catalog, so a
+// typo'd role in Helm values fails startup instead of yielding an inert
+// persona.
+type DemoProfile struct {
+	ID      string             `json:"id"`
+	Name    string             `json:"name"`
+	Subject string             `json:"subject,omitempty"`
+	Email   string             `json:"email,omitempty"`
+	Global  []string           `json:"global,omitempty"`
+	Tenants map[int64][]string `json:"tenants,omitempty"`
 }
 
 // ClusterConfig selects and configures the scheduler and executor used to run
@@ -282,6 +311,17 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.Auth.OIDC.Issuer = strEnv(getenv, "OIDC_ISSUER", cfg.Auth.OIDC.Issuer)
 	cfg.Auth.OIDC.Audience = strEnv(getenv, "OIDC_AUDIENCE", cfg.Auth.OIDC.Audience)
 	cfg.Auth.OIDC.JWKSURL = strEnv(getenv, "OIDC_JWKS_URL", cfg.Auth.OIDC.JWKSURL)
+	if cfg.Auth.Demo.Enabled, err = boolEnv(getenv, "DEMO_ENABLED", cfg.Auth.Demo.Enabled); err != nil {
+		return Config{}, err
+	}
+	cfg.Auth.Demo.SigningKey = strEnv(getenv, "DEMO_SIGNING_KEY", cfg.Auth.Demo.SigningKey)
+	if raw := strEnv(getenv, "DEMO_PROFILES", ""); raw != "" {
+		var profiles []DemoProfile
+		if err := json.Unmarshal([]byte(raw), &profiles); err != nil {
+			return Config{}, fmt.Errorf("config: %sDEMO_PROFILES must be a JSON array of profiles: %w", envPrefix, err)
+		}
+		cfg.Auth.Demo.Profiles = profiles
+	}
 	if cfg.Scheduler.TickInterval, err = durEnv(getenv, "SCHEDULER_TICK_INTERVAL", cfg.Scheduler.TickInterval); err != nil {
 		return Config{}, err
 	}
@@ -348,7 +388,7 @@ func (c Config) validate() error {
 	if c.Cluster.EnginePort < 1 || c.Cluster.EnginePort > 65535 {
 		return fmt.Errorf("config: %sENGINE_PORT %d out of range 1-65535", envPrefix, c.Cluster.EnginePort)
 	}
-	if !oneOf(c.Auth.Mode, "none", "oidc") {
+	if !oneOf(c.Auth.Mode, "none", "oidc", "demo") {
 		return fmt.Errorf("config: invalid auth mode %q", c.Auth.Mode)
 	}
 	if c.Auth.Mode == "oidc" {
@@ -358,6 +398,29 @@ func (c Config) validate() error {
 		if c.Auth.OIDC.JWKSURL == "" {
 			return fmt.Errorf("config: auth mode oidc requires %sOIDC_JWKS_URL", envPrefix)
 		}
+	}
+	// The demo session is a credential-free front door; the checks below make
+	// the dangerous combinations refuse to start rather than silently no-op
+	// (spec Phase 20, Approach E).
+	if c.Auth.Demo.Enabled && c.Auth.Mode != "demo" {
+		return fmt.Errorf("config: demo.enabled requires %sAUTH_MODE=demo (mode %q would ignore the picker's cookie and authenticate every request as the service-provider admin)", envPrefix, c.Auth.Mode)
+	}
+	if c.Auth.Mode == "demo" {
+		if !c.Auth.Demo.Enabled {
+			return fmt.Errorf("config: auth mode demo requires %sDEMO_ENABLED=true", envPrefix)
+		}
+		if !c.Auth.EnableRBAC {
+			return fmt.Errorf("config: auth mode demo requires %sENABLE_RBAC=true -- a picker over unenforced RBAC is a costume, not enforcement", envPrefix)
+		}
+		if c.Auth.Demo.SigningKey == "" {
+			return fmt.Errorf("config: auth mode demo requires %sDEMO_SIGNING_KEY (the operator-created secret's key, shared by every API replica)", envPrefix)
+		}
+		if len(c.Auth.Demo.Profiles) == 0 {
+			return fmt.Errorf("config: auth mode demo requires %sDEMO_PROFILES with at least one persona", envPrefix)
+		}
+	}
+	if err := c.Auth.Demo.validateProfiles(); err != nil {
+		return err
 	}
 	if c.Scheduler.TickInterval <= 0 {
 		return fmt.Errorf("config: %sSCHEDULER_TICK_INTERVAL must be positive", envPrefix)
@@ -412,6 +475,43 @@ func boolEnv(getenv func(string) string, key string, def bool) (bool, error) {
 		return false, fmt.Errorf("config: %s%s must be a boolean: %w", envPrefix, key, err)
 	}
 	return b, nil
+}
+
+// validateProfiles checks the persona list when demo mode is configured:
+// ids and tenant ids must be present, and every role name must exist in the
+// RBAC catalog, so a typo in Helm values fails startup here instead of
+// surfacing as a persona that can do nothing.
+func (d DemoConfig) validateProfiles() error {
+	if !d.Enabled {
+		return nil
+	}
+	catalog := rbac.DefaultCatalog()
+	seen := make(map[string]bool, len(d.Profiles))
+	for i, p := range d.Profiles {
+		if p.ID == "" {
+			return fmt.Errorf("config: demo profile %d has an empty id", i)
+		}
+		if seen[p.ID] {
+			return fmt.Errorf("config: duplicate demo profile id %q", p.ID)
+		}
+		seen[p.ID] = true
+		for _, role := range p.Global {
+			if _, ok := catalog[role]; !ok {
+				return fmt.Errorf("config: demo profile %q grants unknown global role %q", p.ID, role)
+			}
+		}
+		for tenantID, roles := range p.Tenants {
+			if tenantID < 1 {
+				return fmt.Errorf("config: demo profile %q grants a role in tenant %d (ids are positive)", p.ID, tenantID)
+			}
+			for _, role := range roles {
+				if _, ok := catalog[role]; !ok {
+					return fmt.Errorf("config: demo profile %q grants unknown role %q in tenant %d", p.ID, role, tenantID)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func oneOf(v string, allowed ...string) bool {

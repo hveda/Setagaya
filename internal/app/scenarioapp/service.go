@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/heridotlife/honryu/internal/domain/jmx"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -45,6 +46,9 @@ type Repo interface {
 	// scenario's declarative workload. ErrNotFound means none was ever
 	// uploaded -- not an error for a fingerprint, just an empty contribution.
 	GetScenarioRequests(ctx context.Context, scenarioID int64) ([]byte, error)
+	// GetProject resolves the owning project's tenant so Create can stamp it
+	// onto the scenario (Phase 20 tenant propagation).
+	GetProject(ctx context.Context, id int64) (project.Project, error)
 }
 
 // Service provides scenario use-cases.
@@ -76,6 +80,11 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64) (sce
 	if err != nil {
 		return scenario.Scenario{}, err
 	}
+	tenantID, err := s.resolveTenant(ctx, projectID)
+	if err != nil {
+		return scenario.Scenario{}, err
+	}
+	p.TenantID = tenantID
 	id, err := s.repo.CreateScenario(ctx, p)
 	if err != nil {
 		return scenario.Scenario{}, err
@@ -154,6 +163,11 @@ func (s *Service) ImportJMX(ctx context.Context, name string, projectID int64, f
 	if err != nil {
 		return ImportResult{}, err
 	}
+	tenantID, err := s.resolveTenant(ctx, projectID)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	sc.TenantID = tenantID
 	id, err := s.repo.CreateScenario(ctx, sc)
 	if err != nil {
 		return ImportResult{}, err
@@ -369,6 +383,25 @@ func (s *Service) ScenarioFingerprint(ctx context.Context, scenarioID int64) (st
 	h.Write(requests)
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// resolveTenant returns the tenant a new scenario under projectID should be
+// stamped with: its project's tenant (Phase 20 -- a scenario's tenant always
+// equals its project's). A missing project is tolerated as nil rather than
+// failing the caller: the HTTP layer already 404s on an unknown project
+// before reaching either Create or ImportJMX (authorizeProject fetches it
+// first), so ErrNotFound here means only a test or future caller that
+// skipped that check, and it should get the same untenanted scenario this
+// package always produced, not a new failure mode.
+func (s *Service) resolveTenant(ctx context.Context, projectID int64) (*int64, error) {
+	p, err := s.repo.GetProject(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return p.TenantID, nil
 }
 
 func scenarioKey(scenarioID int64, filename string) string {

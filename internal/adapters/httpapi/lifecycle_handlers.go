@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/run"
 )
 
 // deployExecution provisions the engines for a execution.
 func (h *handlers) deployExecution(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMutation(w, r, "engines deploying", h.deps.Lifecycle.Deploy)
+	h.lifecycleMutation(w, r, "engines deploying", rbac.ActionCreate, h.deps.Lifecycle.Deploy)
 }
 
 // triggerExecution starts a run across the deployed engines.
@@ -29,7 +30,7 @@ func (h *handlers) triggerExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, id); err != nil {
+	if err := h.authorizeRun(r.Context(), id, rbac.ActionCreate); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -72,23 +73,41 @@ func (h *handlers) triggerExecution(w http.ResponseWriter, r *http.Request) {
 
 // stopExecution halts the in-progress run.
 func (h *handlers) stopExecution(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMutation(w, r, "run stopped", h.deps.Lifecycle.Stop)
+	h.lifecycleMutation(w, r, "run stopped", rbac.ActionUpdate, h.deps.Lifecycle.Stop)
 }
 
 // purgeExecution stops any run and removes the engines.
 func (h *handlers) purgeExecution(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMutation(w, r, "execution purged", h.deps.Lifecycle.Purge)
+	h.lifecycleMutation(w, r, "execution purged", rbac.ActionDelete, h.deps.Lifecycle.Purge)
+}
+
+// authorizeRun authorizes a lifecycle action -- deploy, trigger, stop, purge
+// -- against rbac.ResourceRun, the resource the domain reserves for exactly
+// these actions and that Phase 20 finally puts to work (it was previously
+// referenced by zero handlers; every lifecycle route funneled through
+// authorizeProject's project:update). Scoped to the execution's own tenant,
+// like authorizeExecution.
+func (h *handlers) authorizeRun(ctx context.Context, executionID int64, action rbac.Action) error {
+	c, err := h.deps.Executions.Get(ctx, executionID)
+	if err != nil {
+		return err
+	}
+	if !h.rbacEnabled() {
+		return h.authorizeProject(ctx, c.ProjectID, action)
+	}
+	return h.authorize(ctx, "", c.TenantID, rbac.ResourceRun, action)
 }
 
 // lifecycleMutation runs an owner-checked execution operation of the shape
-// func(ctx, executionID) error and reports a JSON message on success.
-func (h *handlers) lifecycleMutation(w http.ResponseWriter, r *http.Request, msg string, op func(context.Context, int64) error) {
+// func(ctx, executionID) error and reports a JSON message on success. action
+// is the ResourceRun action the operation maps to (see authorizeRun).
+func (h *handlers) lifecycleMutation(w http.ResponseWriter, r *http.Request, msg string, action rbac.Action, op func(context.Context, int64) error) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
-	if err := h.authorizeExecution(r, id); err != nil {
+	if err := h.authorizeRun(r.Context(), id, action); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -106,6 +125,10 @@ func (h *handlers) executionStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
 		return
 	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
+		return
+	}
 	status, err := h.deps.Lifecycle.Status(r.Context(), id)
 	if err != nil {
 		respondError(w, err)
@@ -119,6 +142,10 @@ func (h *handlers) executionEngines(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	if err := h.authorizeExecution(r, id, rbac.ActionRead); err != nil {
+		respondError(w, err)
 		return
 	}
 	c, err := h.deps.Executions.Get(r.Context(), id)
@@ -139,6 +166,10 @@ func (h *handlers) scenarioPodLog(w http.ResponseWriter, r *http.Request) {
 	executionID, ok := pathInt(r, "execution_id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution id")
+		return
+	}
+	if err := h.authorizeExecution(r, executionID, rbac.ActionRead); err != nil {
+		respondError(w, err)
 		return
 	}
 	scenarioID, ok := pathInt(r, "scenario_id")

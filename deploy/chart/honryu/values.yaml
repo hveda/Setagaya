@@ -103,6 +103,31 @@ secrets:
   #   curl -X PUT -u <user>:<current> -H 'Content-Type: application/json' \
   #     -d '{"password":"<new>"}' http://localhost:3000/api/admin/users/1/password
   grafanaAdmin: grafana-admin
+  # keys: signing-key. Only referenced when demo.enabled -- the HMAC key
+  # behind the demo session cookie. Bring-your-own like every secret here:
+  # the chart never creates it, and every API replica must share it or a
+  # pod restart behind a rolling upgrade would silently log everyone out.
+  demoSessionKey: honryu-session-key
+
+# Demo persona sessions (AUTH_MODE=demo). OFF by default, and that is the
+# point: enabling it puts a credential-free front door on the API --
+# selecting a persona IS the authentication. A deployment opts in
+# deliberately (the homelab does, accepted and documented in the phase 20
+# spec: the ingress carries no auth annotation, so only DNS and network
+# position limit reach). demo.enabled without api.authMode: demo fails
+# startup validation rather than trust the operator.
+demo:
+  enabled: false
+  # Personas are deployment fixtures, not domain data -- changing them is a
+  # helm upgrade, not a screen. Rendered into HONRYU_DEMO_PROFILES as JSON:
+  #   - id:      what POST /api/session names
+  #     name:    what the picker shows
+  #     subject: the account subject (defaults to id)
+  #     global:  globally-granted roles (e.g. service_provider_admin)
+  #     tenants: '"<tenant id>": [role, ...]' grants within tenants
+  # Role names are validated against the RBAC catalog at startup, so a
+  # typo here fails the pod, not the persona's first request.
+  profiles: []
 
 # Non-secret configuration shared by every component that embeds
 # cmd.config.Load (api, scheduler, calibrator all read a near-identical
@@ -112,6 +137,10 @@ config:
   dbDriver: mysql
   scheduler: k8s
   defaultEngine: jmeter
+  # Tenant-scoped authorization. Demo mode refuses to start without it
+  # (a picker over unenforced RBAC is a costume, not enforcement); other
+  # modes keep it off for the legacy owner-based checks.
+  enableRbac: false
   # jmeter and k6 both on their "-3" tags: the "-2" builds carried setuptools
   # 79.0.1 (CVE-2026-59890), which bzt pins exactly and which these rebuilds
   # override to 84.0.0. A new tag rather than a rebuilt "-2" is the rule here,

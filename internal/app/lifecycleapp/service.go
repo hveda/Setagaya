@@ -916,6 +916,19 @@ type Status struct {
 	Scenarios []ScenarioStatus `json:"status"`
 }
 
+// RunExecutionID resolves which execution a run belongs to, via its
+// history row. It is how the HTTP layer scopes a run-keyed report route
+// (run report, shard log/config) to the owning execution's tenant -- the
+// run row itself carries no tenant. Returns ports.ErrNotFound for an
+// unknown run.
+func (s *Service) RunExecutionID(ctx context.Context, runID int64) (int64, error) {
+	rec, err := s.repo.RunHistory(ctx, runID)
+	if err != nil {
+		return 0, err
+	}
+	return rec.ExecutionID, nil
+}
+
 // Status reports the deployment/run status of an execution.
 func (s *Service) Status(ctx context.Context, executionID int64) (Status, error) {
 	cluster, err := s.clusterFor(ctx, executionID)

@@ -108,6 +108,121 @@ func TestAuthorize_CampaignManager(t *testing.T) {
 	}
 }
 
+// Phase 20 resource-model surgery: tenant_admin gains ResourceTenant/admin
+// (bug 3 in the spec -- without this a tenant admin cannot reach its own
+// tenant:admin-gated routes, including the Reservations page's calendar).
+func TestAuthorize_TenantAdminCanAdministerOwnTenant(t *testing.T) {
+	t.Parallel()
+	catalog := rbac.DefaultCatalog()
+	admin := account.Account{Subject: "a", Tenants: map[int64][]string{5: {rbac.RoleTenantAdmin}}}
+
+	if d := rbac.Authorize(admin, catalog, rbac.Request{Resource: rbac.ResourceTenant, Action: rbac.ActionAdmin, TenantID: ptr(5)}); !d.Allowed {
+		t.Fatalf("tenant admin denied admin on its own tenant: %+v", d)
+	}
+	// Not a different tenant -- the grant is scoped, not global.
+	if d := rbac.Authorize(admin, catalog, rbac.Request{Resource: rbac.ResourceTenant, Action: rbac.ActionAdmin, TenantID: ptr(9)}); d.Allowed {
+		t.Fatalf("tenant admin should not administer a tenant it holds no grant in: %+v", d)
+	}
+}
+
+// Phase 20: ResourceSchedule and ResourceReport give tenant_viewer read
+// access without granting write -- the two new resources close the gap that
+// left ResourceExecution/Run/Scenario asked about by zero handlers.
+func TestAuthorize_ScheduleAndReport(t *testing.T) {
+	t.Parallel()
+	catalog := rbac.DefaultCatalog()
+	viewer := account.Account{Subject: "v", Tenants: map[int64][]string{1: {rbac.RoleTenantViewer}}}
+	editor := account.Account{Subject: "e", Tenants: map[int64][]string{1: {rbac.RoleTenantEditor}}}
+
+	if d := rbac.Authorize(viewer, catalog, rbac.Request{Resource: rbac.ResourceSchedule, Action: rbac.ActionRead, TenantID: ptr(1)}); !d.Allowed {
+		t.Fatalf("viewer schedule read denied: %+v", d)
+	}
+	if d := rbac.Authorize(viewer, catalog, rbac.Request{Resource: rbac.ResourceSchedule, Action: rbac.ActionCreate, TenantID: ptr(1)}); d.Allowed {
+		t.Fatalf("viewer should not create a schedule: %+v", d)
+	}
+	if d := rbac.Authorize(viewer, catalog, rbac.Request{Resource: rbac.ResourceReport, Action: rbac.ActionRead, TenantID: ptr(1)}); !d.Allowed {
+		t.Fatalf("viewer report read denied: %+v", d)
+	}
+	if d := rbac.Authorize(editor, catalog, rbac.Request{Resource: rbac.ResourceSchedule, Action: rbac.ActionCreate, TenantID: ptr(1)}); !d.Allowed {
+		t.Fatalf("editor schedule create denied: %+v", d)
+	}
+}
+
+// Phase 20's binding decision: the PM gets no write access anywhere except
+// campaigns, even after gaining ResourceSchedule/ResourceReport read. Write
+// arrives only by composition with a separate tenant grant (covered by
+// TestAuthorize_CampaignManager above for project/execution).
+func TestAuthorize_CampaignManagerScheduleReadOnly(t *testing.T) {
+	t.Parallel()
+	catalog := rbac.DefaultCatalog()
+	pm := account.Account{Subject: "pm", Tenants: map[int64][]string{5: {rbac.RoleCampaignManager}}}
+
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceSchedule, Action: rbac.ActionRead, TenantID: ptr(5)}); !d.Allowed {
+		t.Fatalf("campaign manager schedule read denied: %+v", d)
+	}
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceSchedule, Action: rbac.ActionCreate, TenantID: ptr(5)}); d.Allowed {
+		t.Fatalf("campaign manager should not create a schedule: %+v", d)
+	}
+	if d := rbac.Authorize(pm, catalog, rbac.Request{Resource: rbac.ResourceReport, Action: rbac.ActionRead, TenantID: ptr(5)}); !d.Allowed {
+		t.Fatalf("campaign manager report read denied: %+v", d)
+	}
+}
+
+// Phase 20's catalog table, one case per added or changed
+// Role.Can(resource, action) combination (spec Approach B), including the
+// negatives: campaign_manager gains no write anywhere outside campaign, and
+// report stays read+list for every role but admin.
+func TestDefaultCatalog_Phase20Grants(t *testing.T) {
+	t.Parallel()
+	catalog := rbac.DefaultCatalog()
+	cases := []struct {
+		role     string
+		resource string
+		action   rbac.Action
+		want     bool
+	}{
+		// tenant_admin += tenant:admin (bug 3), plus the two new resources
+		// at full strength -- extracting schedule/report into their own
+		// resources must not demote the tenant's admin below its editor.
+		{rbac.RoleTenantAdmin, rbac.ResourceTenant, rbac.ActionAdmin, true},
+		{rbac.RoleTenantAdmin, rbac.ResourceTenant, rbac.ActionUpdate, false},
+		{rbac.RoleTenantAdmin, rbac.ResourceSchedule, rbac.ActionCreate, true},
+		{rbac.RoleTenantAdmin, rbac.ResourceReport, rbac.ActionRead, true},
+		// tenant_editor += schedule:write, report:read+list.
+		{rbac.RoleTenantEditor, rbac.ResourceSchedule, rbac.ActionCreate, true},
+		{rbac.RoleTenantEditor, rbac.ResourceSchedule, rbac.ActionDelete, true},
+		{rbac.RoleTenantEditor, rbac.ResourceReport, rbac.ActionRead, true},
+		{rbac.RoleTenantEditor, rbac.ResourceReport, rbac.ActionList, true},
+		{rbac.RoleTenantEditor, rbac.ResourceReport, rbac.ActionUpdate, false},
+		// tenant_viewer += schedule:read+list, report:read+list.
+		{rbac.RoleTenantViewer, rbac.ResourceSchedule, rbac.ActionRead, true},
+		{rbac.RoleTenantViewer, rbac.ResourceSchedule, rbac.ActionList, true},
+		{rbac.RoleTenantViewer, rbac.ResourceSchedule, rbac.ActionCreate, false},
+		{rbac.RoleTenantViewer, rbac.ResourceReport, rbac.ActionRead, true},
+		{rbac.RoleTenantViewer, rbac.ResourceReport, rbac.ActionList, true},
+		{rbac.RoleTenantViewer, rbac.ResourceReport, rbac.ActionDelete, false},
+		// campaign_manager += schedule:read+list, report:read+list -- and
+		// no write outside campaign, the phase's binding decision.
+		{rbac.RoleCampaignManager, rbac.ResourceSchedule, rbac.ActionRead, true},
+		{rbac.RoleCampaignManager, rbac.ResourceSchedule, rbac.ActionList, true},
+		{rbac.RoleCampaignManager, rbac.ResourceSchedule, rbac.ActionCreate, false},
+		{rbac.RoleCampaignManager, rbac.ResourceSchedule, rbac.ActionUpdate, false},
+		{rbac.RoleCampaignManager, rbac.ResourceReport, rbac.ActionRead, true},
+		{rbac.RoleCampaignManager, rbac.ResourceReport, rbac.ActionDelete, false},
+		{rbac.RoleCampaignManager, rbac.ResourceCampaign, rbac.ActionUpdate, true},
+		{rbac.RoleCampaignManager, rbac.ResourceExecution, rbac.ActionUpdate, false},
+	}
+	for _, c := range cases {
+		role, ok := catalog[c.role]
+		if !ok {
+			t.Fatalf("role %q missing from catalog", c.role)
+		}
+		if got := role.Can(c.resource, c.action); got != c.want {
+			t.Errorf("%s.Can(%s, %s) = %v, want %v", c.role, c.resource, c.action, got, c.want)
+		}
+	}
+}
+
 func TestAuthorize_UnknownRoleIgnored(t *testing.T) {
 	t.Parallel()
 	acct := account.Account{Subject: "u", Global: []string{"ghost"}}

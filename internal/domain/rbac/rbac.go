@@ -34,6 +34,16 @@ const (
 	// manager can register any project in their tenant into a campaign
 	// without holding edit rights on that project itself.
 	ResourceCampaign = "campaign"
+	// ResourceSchedule guards an execution's schedule -- and a reservation,
+	// which is scheduled capacity, materialized, so it does not earn a
+	// separate resource. Split from ResourceExecution so a campaign manager
+	// can see every participating tenant's plan (to run the coordination
+	// meeting) without holding write on the executions themselves.
+	ResourceSchedule = "schedule"
+	// ResourceReport guards execution/run reports, trend, error-signature
+	// history, and shard log/config -- read surfaces that follow an
+	// execution's ownership but are not the execution CRUD itself.
+	ResourceReport = "report"
 )
 
 // Wildcard matches any resource or action.
@@ -148,6 +158,16 @@ func DefaultCatalog() map[string]Role {
 				{Resource: ResourceExecution, Actions: all},
 				{Resource: ResourceScenario, Actions: all},
 				{Resource: ResourceRun, Actions: all},
+				{Resource: ResourceSchedule, Actions: all},
+				{Resource: ResourceReport, Actions: all},
+				// Scoped to the request's own tenant like every other
+				// permission on this role -- Authorize only ever consults
+				// this grant when req.TenantID matches a tenant the account
+				// holds RoleTenantAdmin in, never globally. Without this a
+				// tenant admin cannot reach its own tenant:admin-gated
+				// routes (tenantAdminGate), including the reservation
+				// calendar the Reservations page depends on.
+				{Resource: ResourceTenant, Actions: []Action{ActionAdmin}},
 			},
 		},
 		RoleTenantEditor: {
@@ -158,6 +178,8 @@ func DefaultCatalog() map[string]Role {
 				{Resource: ResourceExecution, Actions: write},
 				{Resource: ResourceScenario, Actions: write},
 				{Resource: ResourceRun, Actions: write},
+				{Resource: ResourceSchedule, Actions: write},
+				{Resource: ResourceReport, Actions: read},
 			},
 		},
 		RoleTenantViewer: {
@@ -168,6 +190,8 @@ func DefaultCatalog() map[string]Role {
 				{Resource: ResourceExecution, Actions: read},
 				{Resource: ResourceScenario, Actions: read},
 				{Resource: ResourceRun, Actions: read},
+				{Resource: ResourceSchedule, Actions: read},
+				{Resource: ResourceReport, Actions: read},
 			},
 		},
 		RoleCampaignManager: {
@@ -177,6 +201,13 @@ func DefaultCatalog() map[string]Role {
 				{Resource: ResourceCampaign, Actions: all},
 				{Resource: ResourceProject, Actions: read},
 				{Resource: ResourceExecution, Actions: read},
+				// Coordination happens in a meeting, outside Honryu -- a PM
+				// needs to SEE every participating tenant's plan to run
+				// that meeting and pull its report, never to change it.
+				// Write arrives only by composition: a separate
+				// RoleTenantEditor grant in a tenant this PM owns.
+				{Resource: ResourceSchedule, Actions: read},
+				{Resource: ResourceReport, Actions: read},
 			},
 		},
 	}

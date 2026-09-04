@@ -13,6 +13,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/quotaapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/domain/calibration"
@@ -101,6 +102,10 @@ var conflictErrors = []error{
 	// state conflict, not a client input error -- the same call would
 	// succeed once the campaign's window closes.
 	lifecycleapp.ErrCampaignFrozen,
+	// Editing a campaign whose window has already opened: preparation-only
+	// editing means the definition is frozen once live, and retrying the
+	// same PUT will not make the window future again.
+	campaignapp.ErrCampaignStarted,
 	// Registering a duplicate cluster, or deleting one with an active run, are
 	// state conflicts.
 	ports.ErrClusterExists, clusterapp.ErrClusterInUse,
@@ -119,6 +124,13 @@ func respondError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnprocessableEntity, probeErr.Error())
 	case errors.Is(err, errForbidden):
 		writeError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, quotaapp.ErrOverQuota):
+		// An over-quota reservation (Trigger under the tenant's ceiling) is a
+		// well-formed request the ceiling refuses, not a server fault -- 429
+		// with the quota condition named. The fixed message deliberately
+		// replaces err.Error(), whose wrapped detail (tenant/cluster/ceiling)
+		// is diagnostics, not a stable API contract.
+		writeError(w, http.StatusTooManyRequests, "reservation would exceed tenant quota")
 	case matchesAny(err, conflictErrors):
 		writeError(w, http.StatusConflict, err.Error())
 	case matchesAny(err, badRequestErrors):

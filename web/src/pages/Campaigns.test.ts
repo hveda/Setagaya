@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import campaignsSource from './Campaigns.tsx?raw';
 import {
   campaignStatus,
   comparisonStatusClasses,
@@ -134,5 +135,15 @@ describe('parseBaselineId', () => {
     expect(parseBaselineId('-3')).toBe('invalid');
     expect(parseBaselineId('1.5')).toBe('invalid');
     expect(parseBaselineId('abc')).toBe('invalid');
+  });
+});
+
+// Phase 20 wiring gate (?raw, App.test.ts's pattern): the create control
+// must not render for a caller without campaign:create -- mounting the page
+// drags tenant listing and verdicts with it, and the gate is one line.
+describe('Campaigns gating (phase 20)', () => {
+  it('gates the create control on the session permission map', () => {
+    expect(campaignsSource).toContain("can('campaign', 'create')");
+    expect(campaignsSource).toContain('no-create-permission');
   });
 });

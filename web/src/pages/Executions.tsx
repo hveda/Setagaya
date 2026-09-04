@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Card, { CardContent } from '../components/ui/Card';
 import { ApiError } from '../api/client';
 import { listExecutions, type ExecutionSummary } from '../api/executions';
+import { useSession } from '../hooks/useSession';
 
 /**
  * /executions -- the caller-scoped execution list (phase 19 R1, over G1's
@@ -10,6 +11,7 @@ import { listExecutions, type ExecutionSummary } from '../api/executions';
  * Newest first is the server's contract, not this page's job.
  */
 export default function Executions() {
+  const { can } = useSession();
   const [executions, setExecutions] = useState<ExecutionSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,9 +42,14 @@ export default function Executions() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Executions</h1>
-        <Link to="/executions/new" className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400">
-          + New test
-        </Link>
+        {can('execution', 'create') && (
+          <Link
+            to="/executions/new"
+            className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+          >
+            + New test
+          </Link>
+        )}
       </div>
       {executions === null ? (
         <p className="text-sm text-slate-500">Loading…</p>

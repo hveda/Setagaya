@@ -293,3 +293,102 @@ func TestConfig_HTTPAddr(t *testing.T) {
 		t.Errorf("HTTP.Addr() = %q, want %q", got, want)
 	}
 }
+
+// demoEnv is the minimal valid demo-mode environment; each case mutates it.
+func demoEnv() map[string]string {
+	return map[string]string{
+		"HONRYU_AUTH_MODE":        "demo",
+		"HONRYU_ENABLE_RBAC":      "true",
+		"HONRYU_DEMO_ENABLED":     "true",
+		"HONRYU_DEMO_SIGNING_KEY": "shared-secret",
+		"HONRYU_DEMO_PROFILES":    `[{"id":"alice","name":"Alice","global":["service_provider_admin"]}]`,
+	}
+}
+
+// TestLoad_DemoModeValidation pins AC12 and the rest of the demo-mode
+// contract: the dangerous combinations refuse to start rather than silently
+// no-op. demo.enabled under auth mode none is the exact trap the spec calls
+// out -- noauth would authenticate everyone as the service provider admin
+// while the picker looks like it works.
+func TestLoad_DemoModeValidation(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]func(map[string]string){
+		"ac12: demo enabled with mode none": func(env map[string]string) {
+			env["HONRYU_AUTH_MODE"] = "none"
+		},
+		"ac12: demo enabled with mode oidc": func(env map[string]string) {
+			env["HONRYU_AUTH_MODE"] = "oidc"
+		},
+		"mode demo but demo not enabled": func(env map[string]string) {
+			env["HONRYU_DEMO_ENABLED"] = "false"
+		},
+		"mode demo without rbac": func(env map[string]string) {
+			env["HONRYU_ENABLE_RBAC"] = "false"
+		},
+		"mode demo without signing key": func(env map[string]string) {
+			env["HONRYU_DEMO_SIGNING_KEY"] = ""
+		},
+		"mode demo without profiles": func(env map[string]string) {
+			env["HONRYU_DEMO_PROFILES"] = ""
+		},
+		"profile with empty id": func(env map[string]string) {
+			env["HONRYU_DEMO_PROFILES"] = `[{"id":"","name":"X"}]`
+		},
+		"duplicate profile ids": func(env map[string]string) {
+			env["HONRYU_DEMO_PROFILES"] = `[{"id":"a","name":"A"},{"id":"a","name":"A2"}]`
+		},
+		"unknown global role": func(env map[string]string) {
+			env["HONRYU_DEMO_PROFILES"] = `[{"id":"a","name":"A","global":["space_lord"]}]`
+		},
+		"unknown tenant role": func(env map[string]string) {
+			env["HONRYU_DEMO_PROFILES"] = `[{"id":"a","name":"A","tenants":{"1":["space_lord"]}}]`
+		},
+		"tenant id zero": func(env map[string]string) {
+			env["HONRYU_DEMO_PROFILES"] = `[{"id":"a","name":"A","tenants":{"0":["tenant_editor"]}}]`
+		},
+		"profiles not json": func(env map[string]string) {
+			env["HONRYU_DEMO_PROFILES"] = `alice`
+		},
+	}
+
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			env := demoEnv()
+			mutate(env)
+			if _, err := Load(envMap(env)); err == nil {
+				t.Fatalf("Load(%v): expected error, got nil", env)
+			}
+		})
+	}
+}
+
+// TestLoad_DemoModeHappyPath proves the homelab's actual shape starts: demo
+// on, RBAC on, the four personas from the Helm values (which is where
+// HONRYU_DEMO_PROFILES is rendered from).
+func TestLoad_DemoModeHappyPath(t *testing.T) {
+	t.Parallel()
+
+	env := demoEnv()
+	env["HONRYU_DEMO_PROFILES"] = `[
+		{"id":"alice","name":"Alice (service provider admin)","global":["service_provider_admin"]},
+		{"id":"bob","name":"Bob (tenant editor)","tenants":{"1":["tenant_editor"]}},
+		{"id":"carol","name":"Carol (tenant viewer)","tenants":{"1":["tenant_viewer"]}},
+		{"id":"dave","name":"Dave (campaign manager)","tenants":{"1":["campaign_manager"],"2":["campaign_manager"]}}
+	]`
+	cfg, err := Load(envMap(env))
+	if err != nil {
+		t.Fatalf("Load(demo env): %v", err)
+	}
+	if !cfg.Auth.Demo.Enabled || cfg.Auth.Mode != "demo" || !cfg.Auth.EnableRBAC {
+		t.Fatalf("demo config = %+v", cfg.Auth)
+	}
+	if len(cfg.Auth.Demo.Profiles) != 4 {
+		t.Fatalf("profiles = %d, want 4", len(cfg.Auth.Demo.Profiles))
+	}
+	dave := cfg.Auth.Demo.Profiles[3]
+	if len(dave.Tenants) != 2 || len(dave.Tenants[2]) != 1 {
+		t.Fatalf("dave tenants = %v, want campaign_manager in 1 and 2", dave.Tenants)
+	}
+}

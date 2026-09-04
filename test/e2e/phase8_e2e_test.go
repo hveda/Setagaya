@@ -92,8 +92,9 @@ func TestPhase8_MultiCluster(t *testing.T) {
 		scenarioID := postForm(t, e.client, e.url+"/api/scenarios", url.Values{"name": {"checkout"}, "project_id": {itoa(projectID)}})
 		putMultipart(t, e.client, e.url+"/api/scenarios/"+itoa(scenarioID)+"/files", "s.jmx", "<jmx/>")
 
-		// Repo-seed the execution with a tenant + cluster (the create API does
-		// not populate a tenant, which quota needs), then drive the rest over HTTP.
+		// Repo-seed the execution with a tenant + cluster, pinning the exact
+		// tenant id (the create API has stamped the project's tenant since
+		// Phase 20 Block A), then drive the rest over HTTP.
 		tenantID := int64(42)
 		exe, _ := execution.New("on-b", projectID)
 		exe.TenantID = &tenantID
@@ -137,6 +138,17 @@ func TestPhase8_MultiCluster(t *testing.T) {
 	// A campaign whose two designated executions run on different clusters
 	// still rolls up into one verdict -- the rollup is cluster-agnostic.
 	t.Run("CampaignSpansClustersYieldsOneVerdict", func(t *testing.T) {
+		// Phase 20 Block A stamps an HTTP-created execution with its
+		// project's tenant, so triggering these tenant-9 executions consults
+		// quota -- and a tenant with no configured ceiling reserves nothing
+		// (0028's contract: "never an accidental unlimited default"). Set a
+		// ceiling on each cluster, as the sibling subtest does for its own.
+		if err := e.repo.SetCeiling(ctx, 9, "cluster-a", 5); err != nil {
+			t.Fatalf("SetCeiling(cluster-a): %v", err)
+		}
+		if err := e.repo.SetCeiling(ctx, 9, "cluster-b", 5); err != nil {
+			t.Fatalf("SetCeiling(cluster-b): %v", err)
+		}
 		projectA := postForm(t, e.client, e.url+"/api/projects", url.Values{"name": {"span-a"}, "owner": {"honryu"}, "tenant_id": {"9"}})
 		scenarioA := postForm(t, e.client, e.url+"/api/scenarios", url.Values{"name": {"checkout"}, "project_id": {itoa(projectA)}})
 		putMultipart(t, e.client, e.url+"/api/scenarios/"+itoa(scenarioA)+"/files", "s.jmx", "<jmx/>")

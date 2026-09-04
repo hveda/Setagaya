@@ -14,6 +14,14 @@
  *   LAYOUT_CHECK_URL=https://honryu.pve.heri.life bun run layout-check
  *   bun run layout-check -- --screenshots      # also write PNGs to .layout-check/
  *
+ * Phase 20 added a per-persona pass: at `/` it selects each demo profile
+ * and asserts the nav that persona renders matches its permission map
+ * (inline links everywhere, drawer links at mobile). A target that offers
+ * no demo profiles -- `vite preview` has no API, non-demo deployments have
+ * no picker -- skips that section honestly; the layout invariants still
+ * run. Against the served SPA (`go run ./cmd/api` embeds web/dist) the
+ * persona section runs for real.
+ *
  * Needs a Chromium binary. Playwright's cache is found automatically; set
  * CHROMIUM_PATH to point elsewhere. Provision with:
  *   bunx playwright install chromium
@@ -29,8 +37,25 @@ const BASE_URL = (process.env.LAYOUT_CHECK_URL || 'http://localhost:4173').repla
 const WANT_SCREENSHOTS = process.argv.includes('--screenshots');
 const SHOT_DIR = '.layout-check';
 
-/** Routes the nav exposes -- every one carries the shared DashboardLayout. */
-const ROUTES = ['/reports', '/reservations', '/status', '/campaigns', '/clusters'];
+/** Routes the nav exposes -- every one carries the shared DashboardLayout.
+ * `/` is the picker (also under the layout: the nav renders, empty, until
+ * a persona is selected). */
+const ROUTES = ['/', '/reports', '/reservations', '/status', '/campaigns', '/clusters'];
+
+/**
+ * The demo personas (deploy/chart/honryu-homelab-values.yaml) and the exact
+ * nav each must see. Derived from DefaultCatalog the same way navItemsFor
+ * is: an entry survives only if the persona's permission map grants it --
+ * Alice everything, Bob/Carol the three read surfaces, Dave plus campaigns
+ * but never clusters (AC4). Nav visibility is a function of the session
+ * now, so one constant cannot assert it for everyone (task 24).
+ */
+const PERSONAS = [
+  { id: 'alice', hrefs: ['/reports', '/executions', '/reservations', '/campaigns', '/clusters'] },
+  { id: 'bob', hrefs: ['/reports', '/executions', '/reservations'] },
+  { id: 'carol', hrefs: ['/reports', '/executions', '/reservations'] },
+  { id: 'dave', hrefs: ['/reports', '/executions', '/reservations', '/campaigns'] },
+];
 
 /**
  * Widths worth checking: below Tailwind's `md` (768px) the drawer is the only
@@ -113,8 +138,16 @@ function readDrawer() {
     visibility: style.visibility,
     opacity: style.opacity,
     linkCount: drawer.querySelectorAll('a').length,
+    hrefs: Array.from(drawer.querySelectorAll('a')).map((a) => a.getAttribute('href')),
     mainTop: Math.round(document.querySelector('main').getBoundingClientRect().top),
   };
+}
+
+/** The picker's offered profile ids, in card order. */
+function readPickerIds() {
+  return Array.from(document.querySelectorAll('[data-testid="profile-card"]'))
+    .map((b) => b.querySelector('.font-mono')?.textContent?.trim() ?? '')
+    .filter(Boolean);
 }
 
 const executablePath = findChromium();
@@ -186,7 +219,10 @@ try {
     // Drawer behaviour is mobile-only: at md+ it is `md:hidden` and the
     // inline links take over, so there is no burger button to click.
     if (viewport.isMobile) {
-      await page.goto(BASE_URL + ROUTES[0], { waitUntil: 'networkidle', timeout: 20000 });
+      // /reports while unauthenticated: the nav chrome is there but the
+      // permission-filtered nav holds NOTHING -- the picker is what
+      // unauthenticated looks like.
+      await page.goto(BASE_URL + '/reports', { waitUntil: 'networkidle', timeout: 20000 });
 
       // A missing marker is itself a failure -- an older build, or a refactor
       // that dropped the class the click-outside handler matches on -- but it
@@ -211,7 +247,10 @@ try {
         const open = await page.evaluate(readDrawer);
         check('drawer becomes visible when opened', open?.visibility === 'visible', `got ${open?.visibility}`);
         check('drawer is still absolutely positioned when open', open?.position === 'absolute', `got ${open?.position}`);
-        check(`drawer shows all ${ROUTES.length} nav links`, open?.linkCount === ROUTES.length, `got ${open?.linkCount}`);
+        // Nav visibility is a function of the session: unauthenticated is
+        // zero links. The per-persona counts are asserted below, after a
+        // persona is actually selected.
+        check('unauthenticated drawer holds no links', open?.linkCount === 0, `got ${open?.linkCount} (${(open?.hrefs ?? []).join(', ')})`);
         // Overlay, not push: opening must not move the page underneath.
         check(
           'opening the drawer does not shift main',
@@ -229,6 +268,66 @@ try {
         await page.waitForTimeout(500);
         const reclosed = await page.evaluate(readDrawer);
         check('tapping outside closes the drawer', reclosed?.visibility === 'hidden', `got ${reclosed?.visibility}`);
+      }
+    }
+
+    // Per-persona nav counts (task 24): select each demo profile at `/`, then
+    // assert the nav each renders matches that persona's permission map --
+    // inline links at every width, drawer links at mobile. Needs a demo
+    // deployment; a target without one (vite preview with no API, a
+    // non-demo deployment) skips honestly instead of failing.
+    await page.goto(BASE_URL + '/', { waitUntil: 'networkidle', timeout: 20000 });
+    let pickerIds = [];
+    try {
+      await page.waitForSelector('[data-testid="profile-card"]', { timeout: 5000 });
+      pickerIds = await page.evaluate(readPickerIds);
+    } catch {
+      // No cards: either unauthenticated with demo off, or the API is
+      // unreachable and /api/me stayed in its error state.
+    }
+    if (pickerIds.length === 0) {
+      console.log('  skip persona nav checks: no demo profiles offered (demo off, or the API is unreachable)');
+    } else {
+      for (const persona of PERSONAS) {
+        if (!pickerIds.includes(persona.id)) {
+          check(`${persona.id} profile is offered`, false, `picker has: ${pickerIds.join(', ')}`);
+          continue;
+        }
+        await page.evaluate((pid) => {
+          const card = Array.from(document.querySelectorAll('[data-testid="profile-card"]')).find(
+            (b) => b.querySelector('.font-mono')?.textContent?.trim() === pid
+          );
+          card?.click();
+        }, persona.id);
+        await page.waitForSelector('[data-testid="demo-banner"]', { timeout: 10000 });
+
+        const inlineHrefs = await page.$$eval('[data-testid="nav-links"] a', (as) => as.map((a) => a.getAttribute('href')));
+        check(
+          `${persona.id} nav matches the permission map`,
+          JSON.stringify(inlineHrefs) === JSON.stringify(persona.hrefs),
+          `got ${JSON.stringify(inlineHrefs)}`
+        );
+
+        if (viewport.isMobile) {
+          await page.click('.mobile-menu-button');
+          await page.waitForTimeout(500);
+          const open = await page.evaluate(readDrawer);
+          check(
+            `${persona.id} drawer matches the permission map`,
+            JSON.stringify(open?.hrefs) === JSON.stringify(persona.hrefs),
+            `got ${JSON.stringify(open?.hrefs)}`
+          );
+          await page.mouse.click(Math.round(viewport.width / 2), viewport.height - 80);
+          await page.waitForTimeout(500);
+        }
+
+        // Logout returns to the picker so the next persona can be selected.
+        await page.click('[data-testid="demo-banner"] button');
+        await page.waitForSelector('[data-testid="profile-card"]', { timeout: 10000 });
+      }
+      const uncovered = pickerIds.filter((pid) => !PERSONAS.some((p) => p.id === pid));
+      for (const extra of uncovered) {
+        console.log(`  note: profile "${extra}" has no expected-nav entry; not asserted`);
       }
     }
 

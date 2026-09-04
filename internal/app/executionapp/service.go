@@ -12,6 +12,7 @@ import (
 
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -44,6 +45,9 @@ type Repo interface {
 	// never see it partially applied.
 	StoreExecutionConfig(ctx context.Context, executionID int64, csvSplit bool, entries []loadprofile.Entry, criteria []string) error
 	GetScenario(ctx context.Context, id int64) (scenario.Scenario, error)
+	// GetProject resolves the owning project's tenant so Create can stamp it
+	// onto the execution (Phase 20 tenant propagation).
+	GetProject(ctx context.Context, id int64) (project.Project, error)
 }
 
 // Service provides execution use-cases.
@@ -75,6 +79,18 @@ func (s *Service) Create(ctx context.Context, name string, projectID int64, engi
 	}
 	c.Engine = engine
 	c.Cluster = strings.TrimSpace(cluster)
+	// The execution's tenant always equals its project's tenant (Phase 20).
+	// A missing project is tolerated here rather than failing Create: the
+	// HTTP layer already 404s on an unknown project before ever reaching
+	// this call (authorizeProject fetches it first), so ErrNotFound here
+	// means only a test or future caller that skipped that check -- and it
+	// should get the same untenanted execution Create always produced, not
+	// a new failure mode.
+	if p, err := s.repo.GetProject(ctx, projectID); err == nil {
+		c.TenantID = p.TenantID
+	} else if !errors.Is(err, ports.ErrNotFound) {
+		return execution.Execution{}, err
+	}
 	if err := c.Validate(); err != nil {
 		return execution.Execution{}, err
 	}

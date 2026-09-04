@@ -10,6 +10,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/domain/execution"
 	"github.com/heridotlife/honryu/internal/domain/loadprofile"
+	"github.com/heridotlife/honryu/internal/domain/project"
 	"github.com/heridotlife/honryu/internal/domain/scenario"
 	"github.com/heridotlife/honryu/internal/domain/taurus"
 	"github.com/heridotlife/honryu/internal/ports"
@@ -21,6 +22,22 @@ func newScenarioService(t *testing.T) (*scenarioapp.Service, *fake.Store, *fake.
 	store := fake.NewStore()
 	obj := fake.NewObjectStore()
 	return scenarioapp.NewService(store, obj), store, obj
+}
+
+// seedProject creates a project directly in the store with the given tenant
+// (nil for none) and returns its ID.
+func seedProject(t *testing.T, store *fake.Store, tenantID *int64) int64 {
+	t.Helper()
+	p, err := project.New("proj", "owner", "123")
+	if err != nil {
+		t.Fatalf("project.New: %v", err)
+	}
+	p.TenantID = tenantID
+	id, err := store.CreateProject(context.Background(), p)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	return id
 }
 
 func TestCreate_Get_List(t *testing.T) {
@@ -48,6 +65,49 @@ func TestCreate_Get_List(t *testing.T) {
 	}
 	if len(list) != 1 {
 		t.Fatalf("ListByProject len = %d, want 1", len(list))
+	}
+}
+
+// TestCreate_StampsTenantFromProject is Phase 20 tenant propagation (spec
+// Approach A): a scenario's tenant always equals its project's tenant.
+func TestCreate_StampsTenantFromProject(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+	tenantID := int64(7)
+
+	projectID := seedProject(t, store, &tenantID)
+	p, err := svc.Create(ctx, "smoke", projectID)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if p.TenantID == nil || *p.TenantID != tenantID {
+		t.Fatalf("Create TenantID = %v, want %d", p.TenantID, tenantID)
+	}
+	got, err := svc.Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.TenantID == nil || *got.TenantID != tenantID {
+		t.Fatalf("stored TenantID = %v, want %d", got.TenantID, tenantID)
+	}
+}
+
+// TestCreate_NilTenantProjectStampsNilTenant covers a project with no
+// tenant -- the scenario must inherit nil, not silently pick up a stray
+// value.
+func TestCreate_NilTenantProjectStampsNilTenant(t *testing.T) {
+	t.Parallel()
+	svc, store, _ := newScenarioService(t)
+	ctx := context.Background()
+
+	projectID := seedProject(t, store, nil)
+	p, err := svc.Create(ctx, "smoke", projectID)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if p.TenantID != nil {
+		t.Fatalf("Create TenantID = %v, want nil", p.TenantID)
 	}
 }
 
