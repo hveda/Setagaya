@@ -129,6 +129,64 @@ func (r *Repository) AbortCampaign(ctx context.Context, id int64, t time.Time) e
 	return nil
 }
 
+// UpdateCampaign replaces the stored definition of the campaign with c.ID
+// -- name, window, and participating services -- in one transaction,
+// mirroring CreateCampaign's shape: the campaign row is updated, the
+// existing campaign_service rows are deleted, and the new set inserted,
+// so a stale service row can never survive an edit. AbortedAt and
+// tenant_id are deliberately not written: AbortCampaign owns the former,
+// and a campaign never changes tenants.
+//
+// RowsAffected on the UPDATE cannot distinguish "no such campaign" from
+// "nothing changed" (MySQL does not count a no-op SET as an affected
+// row) -- the same ambiguity AbortCampaign resolves with a supplementary
+// existence check, paid only on the zero-rows path.
+func (r *Repository) UpdateCampaign(ctx context.Context, c campaign.Campaign) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("mysql: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		"UPDATE campaign SET name = ?, window_start = ?, window_end = ? WHERE id = ?",
+		c.Name, c.Window.Start, c.Window.End, c.ID)
+	if err != nil {
+		return fmt.Errorf("mysql: update campaign: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mysql: update campaign rows affected: %w", err)
+	}
+	if n == 0 {
+		var exists int
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM campaign WHERE id = ?", c.ID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ports.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("mysql: update campaign existence check: %w", err)
+		}
+		// The row exists and the UPDATE was a no-op; the service set is
+		// still replaced below, exactly as it would be after a real change.
+	}
+	if _, err := tx.ExecContext(ctx,
+		"DELETE FROM campaign_service WHERE campaign_id = ?", c.ID); err != nil {
+		return fmt.Errorf("mysql: delete campaign services: %w", err)
+	}
+	for _, svc := range c.Services {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO campaign_service (campaign_id, project_id, execution_id) VALUES (?, ?, ?)",
+			c.ID, svc.ProjectID, svc.ExecutionID); err != nil {
+			return fmt.Errorf("mysql: update campaign service: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("mysql: commit update campaign: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) withServices(ctx context.Context, campaigns []campaign.Campaign) ([]campaign.Campaign, error) {
 	for i := range campaigns {
 		services, err := r.servicesForCampaign(ctx, campaigns[i].ID)

@@ -78,3 +78,23 @@ func (s *Store) AbortCampaign(_ context.Context, id int64, t time.Time) error {
 	s.campaigns[id] = c
 	return nil
 }
+
+// UpdateCampaign replaces the stored definition of the campaign with
+// c.ID -- name, window, participating services -- or returns
+// ports.ErrNotFound. The campaign's identity (id, tenant) and AbortedAt
+// are preserved from the stored row, not taken from c. c.Services is
+// copied so a later mutation of the caller's slice cannot alias stored
+// state.
+func (s *Store) UpdateCampaign(_ context.Context, c campaign.Campaign) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.campaigns[c.ID]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	existing.Name = c.Name
+	existing.Window = c.Window
+	existing.Services = append([]campaign.Service(nil), c.Services...)
+	s.campaigns[c.ID] = existing
+	return nil
+}

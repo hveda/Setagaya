@@ -24,6 +24,14 @@ type CampaignRepository interface {
 	// and which has not been aborted -- what both lifecycleapp's freeze
 	// check and cmd/scheduler's drain sweep scan.
 	ListActiveCampaigns(ctx context.Context, now time.Time) ([]campaign.Campaign, error)
+	// UpdateCampaign replaces the stored definition of the campaign with
+	// c.ID -- name, window, and participating services -- atomically: stale
+	// campaign_service rows are dropped and the new set inserted in the
+	// same transaction, so an orphaned service row can never survive an
+	// edit. The campaign's identity (id, tenant) and AbortedAt are not
+	// editable here (AbortCampaign owns the latter). Returns ErrNotFound
+	// when no campaign has c.ID.
+	UpdateCampaign(ctx context.Context, c campaign.Campaign) error
 	// AbortCampaign records that the campaign with id was aborted at t, or
 	// ErrNotFound. Idempotent in effect (aborting an already-aborted
 	// campaign again just overwrites AbortedAt), since Abort's caller

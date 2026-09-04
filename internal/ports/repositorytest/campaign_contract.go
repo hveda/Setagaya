@@ -164,4 +164,81 @@ func RunCampaignRepositoryContract(t *testing.T, newRepo NewCampaignRepo) {
 			t.Fatalf("AbortCampaign(missing) = %v, want ErrNotFound", err)
 		}
 	})
+
+	// The orphan-row risk of a naive UPDATE: campaign_service is multi-row
+	// per campaign, so replacing the service set must drop stale rows, not
+	// merely append the new ones -- and identity (tenant) and AbortedAt
+	// must survive an edit untouched.
+	t.Run("UpdateCampaignReplacesDefinitionAndDropsStaleServices", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		id, err := repo.CreateCampaign(ctx, testCampaign(7, at(0), at(100)))
+		if err != nil {
+			t.Fatalf("CreateCampaign: %v", err)
+		}
+		if err := repo.AbortCampaign(ctx, id, at(50)); err != nil {
+			t.Fatalf("AbortCampaign: %v", err)
+		}
+
+		if err := repo.UpdateCampaign(ctx, campaign.Campaign{
+			ID:       id,
+			Name:     "Supersale 12.12",
+			TenantID: 99, // must be ignored: a campaign never changes tenants
+			Window:   campaign.Window{Start: at(500), End: at(600)},
+			Services: []campaign.Service{
+				{ProjectID: 3, ExecutionID: 30},
+			},
+		}); err != nil {
+			t.Fatalf("UpdateCampaign: %v", err)
+		}
+
+		got, err := repo.GetCampaign(ctx, id)
+		if err != nil {
+			t.Fatalf("GetCampaign after update: %v", err)
+		}
+		if got.Name != "Supersale 12.12" {
+			t.Fatalf("name = %q, want updated", got.Name)
+		}
+		if !got.Window.Start.Equal(at(500)) || !got.Window.End.Equal(at(600)) {
+			t.Fatalf("window = %+v, want [500, 600)", got.Window)
+		}
+		if len(got.Services) != 1 || got.Services[0].ProjectID != 3 || got.Services[0].ExecutionID != 30 {
+			t.Fatalf("services = %+v, want exactly the new [3->30] entry (stale rows dropped)", got.Services)
+		}
+		if got.TenantID != 7 {
+			t.Fatalf("tenant_id = %d, want 7 preserved (identity is not editable)", got.TenantID)
+		}
+		if got.AbortedAt == nil || !got.AbortedAt.Equal(at(50)) {
+			t.Fatalf("AbortedAt = %v, want the pre-update value preserved (AbortCampaign owns it)", got.AbortedAt)
+		}
+	})
+
+	// Updating to the exact same definition must not read as "not found"
+	// on a RowsAffected-based adapter (MySQL counts only changed rows),
+	// and updating an empty service list must survive as a legitimate
+	// intermediate state at the repository layer (Validate is the
+	// use-case's business, not the port's).
+	t.Run("UpdateCampaignIdempotentAndMissingNotFound", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		id, err := repo.CreateCampaign(ctx, testCampaign(7, at(0), at(100)))
+		if err != nil {
+			t.Fatalf("CreateCampaign: %v", err)
+		}
+		for pass := range 2 {
+			if err := repo.UpdateCampaign(ctx, campaign.Campaign{
+				ID: id, Name: "Supersale 11.11", TenantID: 7,
+				Window:   campaign.Window{Start: at(0), End: at(100)},
+				Services: []campaign.Service{{ProjectID: 1, ExecutionID: 10}, {ProjectID: 2, ExecutionID: 20}},
+			}); err != nil {
+				t.Fatalf("UpdateCampaign (identical values, pass %d): %v", pass, err)
+			}
+		}
+
+		if err := repo.UpdateCampaign(ctx, campaign.Campaign{ID: 999}); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("UpdateCampaign(missing) = %v, want ErrNotFound", err)
+		}
+	})
 }
