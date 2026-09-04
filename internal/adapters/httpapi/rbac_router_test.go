@@ -1392,3 +1392,154 @@ func TestRBAC_CampaignManagerEditsAbortsAndListsAcrossTenants(t *testing.T) {
 		t.Fatalf("nobody GET /api/campaigns = %d campaigns, want 0", len(listed))
 	}
 }
+
+// demoRouter wires the router exactly as a demo-mode deployment does: the
+// session provider is BOTH the auth provider (cookie verification) and the
+// session issuer (minting), with RBAC on.
+func demoRouter(t *testing.T) http.Handler {
+	t.Helper()
+	prov, err := session.New([]byte("demo-test-signing-key"), []session.Profile{
+		{
+			ID: "dave", Name: "Dave", Subject: "dave",
+			Tenants: map[int64][]string{1: {rbac.RoleCampaignManager}, 2: {rbac.RoleCampaignManager}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("session provider: %v", err)
+	}
+	store := fake.NewStore()
+	return httpapi.NewRouter(httpapi.Deps{
+		Projects: projectapp.NewService(store),
+		Auth:     authapp.NewService(prov, store, true),
+		Sessions: prov,
+	})
+}
+
+// cookieValue extracts the cookie's value from a Set-Cookie header line.
+func cookieValue(t *testing.T, setCookie string) string {
+	t.Helper()
+	raw := strings.SplitN(setCookie, ";", 2)[0]
+	_, value, ok := strings.Cut(raw, "=")
+	if !ok || value == "" {
+		t.Fatalf("Set-Cookie %q has no value", setCookie)
+	}
+	return value
+}
+
+// TestRBAC_DemoSessionLifecycle is AC13 end to end: POST /api/session mints
+// the HttpOnly cookie, a subsequent authenticated request succeeds (both
+// /api/me and a real API route), DELETE /api/session expires it, and the
+// next /api/me -- now cookieless, as the browser obeyed Max-Age=0 -- is 401.
+func TestRBAC_DemoSessionLifecycle(t *testing.T) {
+	t.Parallel()
+	router := demoRouter(t)
+
+	serve := func(method, path, cookie, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		if body != "" {
+			r.Header.Set("Content-Type", "application/json")
+		}
+		if cookie != "" {
+			r.AddCookie(&http.Cookie{Name: session.CookieName, Value: cookie})
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, r)
+		return rec
+	}
+
+	// Before any session: /api/me is 401, unauthenticated.
+	if rec := serve(http.MethodGet, "/api/me", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated /api/me = %d, want 401", rec.Code)
+	}
+
+	// Mint: the cookie carries every security attribute the spec demands.
+	rec := serve(http.MethodPost, "/api/session", "", `{"profile":"dave"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("POST /api/session = %d (%s), want 204", rec.Code, rec.Body.String())
+	}
+	setCookie := rec.Header().Get("Set-Cookie")
+	for _, want := range []string{
+		session.CookieName + "=", "Path=/", "HttpOnly", "SameSite=Strict", "Secure", "Max-Age=28800",
+	} {
+		if !strings.Contains(setCookie, want) {
+			t.Fatalf("Set-Cookie %q missing %q", setCookie, want)
+		}
+	}
+	value := cookieValue(t, setCookie)
+
+	// Authenticated: /api/me reflects Dave, and a real gated route admits
+	// the cookie -- the same credential EventSource will carry (AC11's
+	// mechanism, proven at the HTTP boundary).
+	rec = serve(http.MethodGet, "/api/me", value, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated /api/me = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var me struct {
+		Subject     string              `json:"subject"`
+		Tenants     map[string][]string `json:"tenants"`
+		Permissions map[string][]string `json:"permissions"`
+		Demo        bool                `json:"demo"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatalf("decode /api/me: %v", err)
+	}
+	if me.Subject != "dave" || !me.Demo {
+		t.Fatalf("/api/me = %+v, want dave with demo=true", me)
+	}
+	if len(me.Tenants) != 2 || len(me.Tenants["1"]) != 1 {
+		t.Fatalf("/api/me tenants = %v, want campaign_manager in 1 and 2", me.Tenants)
+	}
+	if len(me.Permissions["campaign"]) == 0 {
+		t.Fatalf("/api/me permissions missing campaign: %v", me.Permissions)
+	}
+	if rec := serve(http.MethodGet, "/api/projects", value, ""); rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/projects with session cookie = %d, want 200", rec.Code)
+	}
+
+	// Logout: the cookie expires (Max-Age=0).
+	rec = serve(http.MethodDelete, "/api/session", value, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE /api/session = %d, want 204", rec.Code)
+	}
+	if setCookie = rec.Header().Get("Set-Cookie"); !strings.Contains(setCookie, "Max-Age=0") {
+		t.Fatalf("logout Set-Cookie %q does not expire", setCookie)
+	}
+
+	// The next request carries no cookie -- the SPA shows the picker.
+	if rec := serve(http.MethodGet, "/api/me", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("post-logout /api/me = %d, want 401", rec.Code)
+	}
+}
+
+// TestRBAC_DemoSessionUnknownProfile pins the mint failure modes: an unknown
+// persona 404s, and the endpoints 404 outright when demo mode is off (the
+// audit fixture's Sessions-less twin, i.e. every non-demo deployment).
+func TestRBAC_DemoSessionUnknownProfile(t *testing.T) {
+	t.Parallel()
+	router := demoRouter(t)
+	r := httptest.NewRequest(http.MethodPost, "/api/session", strings.NewReader(`{"profile":"mallory"}`))
+	r.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, r)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /api/session unknown profile = %d, want 404", rec.Code)
+	}
+	if rec.Header().Get("Set-Cookie") != "" {
+		t.Fatal("failed mint set a cookie")
+	}
+
+	// Demo off: no Sessions dep, the endpoints are simply not there.
+	store := fake.NewStore()
+	off := httpapi.NewRouter(httpapi.Deps{Auth: authapp.NewService(token.New(), store, true)})
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/session"},
+		{http.MethodGet, "/api/session/profiles"},
+	} {
+		r := httptest.NewRequest(tc.method, tc.path, nil)
+		rec := httptest.NewRecorder()
+		off.ServeHTTP(rec, r)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s %s with demo off = %d, want 404", tc.method, tc.path, rec.Code)
+		}
+	}
+}
