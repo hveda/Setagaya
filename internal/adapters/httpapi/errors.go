@@ -13,6 +13,7 @@ import (
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/metricsapp"
 	"github.com/heridotlife/honryu/internal/app/projectapp"
+	"github.com/heridotlife/honryu/internal/app/quotaapp"
 	"github.com/heridotlife/honryu/internal/app/scenarioapp"
 	"github.com/heridotlife/honryu/internal/app/tenantapp"
 	"github.com/heridotlife/honryu/internal/domain/calibration"
@@ -123,6 +124,13 @@ func respondError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnprocessableEntity, probeErr.Error())
 	case errors.Is(err, errForbidden):
 		writeError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, quotaapp.ErrOverQuota):
+		// An over-quota reservation (Trigger under the tenant's ceiling) is a
+		// well-formed request the ceiling refuses, not a server fault -- 429
+		// with the quota condition named. The fixed message deliberately
+		// replaces err.Error(), whose wrapped detail (tenant/cluster/ceiling)
+		// is diagnostics, not a stable API contract.
+		writeError(w, http.StatusTooManyRequests, "reservation would exceed tenant quota")
 	case matchesAny(err, conflictErrors):
 		writeError(w, http.StatusConflict, err.Error())
 	case matchesAny(err, badRequestErrors):

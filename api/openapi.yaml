@@ -724,6 +724,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: The tenant's engine quota ceiling would be exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     NoContent:
       description: Success, no body
 
@@ -1358,12 +1363,15 @@ paths:
         Requires every engine to be deployed and reachable. Engines still
         starting up after a just-returned deploy are waited for, bounded by
         HONRYU_HTTP_TRIGGER_READY_TIMEOUT (default 2m, polled every 2s); a
-        timeout or a genuinely untriggerable execution surfaces as 409.
+        timeout or a genuinely untriggerable execution surfaces as 409. A
+        tenant-scoped execution whose engines would exceed the tenant's
+        quota ceiling surfaces as 429.
       parameters: [{ $ref: '#/components/parameters/ExecutionID' }]
       responses:
         '204': { $ref: '#/components/responses/NoContent' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/executions/{execution_id}/stop:
     post:
