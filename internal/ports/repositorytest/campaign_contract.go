@@ -98,6 +98,52 @@ func RunCampaignRepositoryContract(t *testing.T, newRepo NewCampaignRepo) {
 		}
 	})
 
+	t.Run("ListCampaignsByTenantsUnionsTenantsOrderedByWindowStart", func(t *testing.T) {
+		repo := newRepo(t)
+		ctx := context.Background()
+
+		second, err := repo.CreateCampaign(ctx, testCampaign(7, at(200), at(300)))
+		if err != nil {
+			t.Fatalf("CreateCampaign (second, tenant 7): %v", err)
+		}
+		first, err := repo.CreateCampaign(ctx, testCampaign(7, at(0), at(100)))
+		if err != nil {
+			t.Fatalf("CreateCampaign (first, tenant 7): %v", err)
+		}
+		other, err := repo.CreateCampaign(ctx, testCampaign(9, at(50), at(150)))
+		if err != nil {
+			t.Fatalf("CreateCampaign (tenant 9): %v", err)
+		}
+		if _, err := repo.CreateCampaign(ctx, testCampaign(11, at(0), at(100))); err != nil {
+			t.Fatalf("CreateCampaign (tenant 11, not asked for): %v", err)
+		}
+
+		// Queried out of tenant order on purpose: the result is ordered by
+		// window start across the union, not grouped or ordered by tenant.
+		got, err := repo.ListCampaignsByTenants(ctx, []int64{9, 7})
+		if err != nil {
+			t.Fatalf("ListCampaignsByTenants: %v", err)
+		}
+		wantIDs := []int64{first, other, second} // starts at(0), at(50), at(200)
+		if len(got) != len(wantIDs) {
+			t.Fatalf("ListCampaignsByTenants = %d campaigns, want %d (tenants 7 and 9 only, not 11)", len(got), len(wantIDs))
+		}
+		for i, want := range wantIDs {
+			if got[i].ID != want {
+				t.Fatalf("ListCampaignsByTenants[%d] = campaign %d, want %d (ordered by window start across the union)", i, got[i].ID, want)
+			}
+		}
+		if len(got[0].Services) != 2 {
+			t.Fatalf("campaign %d services = %+v, want the created pair round-tripped", got[0].ID, got[0].Services)
+		}
+
+		if got, err := repo.ListCampaignsByTenants(ctx, nil); err != nil {
+			t.Fatalf("ListCampaignsByTenants(nil): %v", err)
+		} else if len(got) != 0 {
+			t.Fatalf("ListCampaignsByTenants(nil) = %d campaigns, want 0", len(got))
+		}
+	})
+
 	// The exact case both lifecycleapp's freeze check and cmd/scheduler's
 	// drain sweep rely on: a campaign not yet started, one already ended,
 	// and one aborted mid-window must all be excluded, even though an

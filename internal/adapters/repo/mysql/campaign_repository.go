@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/heridotlife/honryu/internal/domain/campaign"
@@ -76,6 +77,35 @@ func (r *Repository) ListCampaignsByTenant(ctx context.Context, tenantID int64) 
 		return nil, fmt.Errorf("mysql: list campaigns: %w", err)
 	}
 	out, err := scanCampaigns(rows)
+	if err != nil {
+		return nil, err
+	}
+	return r.withServices(ctx, out)
+}
+
+// ListCampaignsByTenants returns every campaign belonging to any of
+// tenantIDs, ordered by window start, each with its services included. An
+// empty tenantIDs yields an empty list -- the shape GET /api/campaigns
+// relies on for an account that holds no tenant role at all.
+func (r *Repository) ListCampaignsByTenants(ctx context.Context, tenantIDs []int64) ([]campaign.Campaign, error) {
+	out := []campaign.Campaign{}
+	if len(tenantIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(tenantIDs))
+	args := make([]any, len(tenantIDs))
+	for i, id := range tenantIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	// #nosec G201 -- placeholders are fixed "?" tokens; tenant ids are bound params.
+	query := fmt.Sprintf("SELECT "+campaignColumns+" FROM campaign WHERE tenant_id IN (%s) ORDER BY window_start",
+		strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: list campaigns by tenants: %w", err)
+	}
+	out, err = scanCampaigns(rows)
 	if err != nil {
 		return nil, err
 	}

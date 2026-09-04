@@ -20,6 +20,12 @@ type CampaignRepository interface {
 	// ListCampaignsByTenant returns every campaign belonging to tenantID,
 	// ordered by window start.
 	ListCampaignsByTenant(ctx context.Context, tenantID int64) ([]campaign.Campaign, error)
+	// ListCampaignsByTenants returns every campaign belonging to any of
+	// tenantIDs, ordered by window start -- the cross-tenant view behind
+	// GET /api/campaigns, where a campaign manager coordinates several
+	// tenants and needs one list, not one request per tenant. An empty
+	// tenantIDs yields an empty list.
+	ListCampaignsByTenants(ctx context.Context, tenantIDs []int64) ([]campaign.Campaign, error)
 	// ListActiveCampaigns returns every campaign whose window contains now
 	// and which has not been aborted -- what both lifecycleapp's freeze
 	// check and cmd/scheduler's drain sweep scan.

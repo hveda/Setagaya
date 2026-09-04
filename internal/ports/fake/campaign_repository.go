@@ -50,6 +50,27 @@ func (s *Store) ListCampaignsByTenant(_ context.Context, tenantID int64) ([]camp
 	return out, nil
 }
 
+// ListCampaignsByTenants returns every campaign belonging to any of
+// tenantIDs, ordered by window start. An empty tenantIDs yields an empty
+// list.
+func (s *Store) ListCampaignsByTenants(_ context.Context, tenantIDs []int64) ([]campaign.Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wanted := make(map[int64]struct{}, len(tenantIDs))
+	for _, id := range tenantIDs {
+		wanted[id] = struct{}{}
+	}
+	out := []campaign.Campaign{}
+	for _, c := range s.campaigns {
+		if _, ok := wanted[c.TenantID]; ok {
+			c.Services = append([]campaign.Service(nil), c.Services...)
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Window.Start.Before(out[j].Window.Start) })
+	return out, nil
+}
+
 // ListActiveCampaigns returns every campaign whose window contains now and
 // which has not been aborted.
 func (s *Store) ListActiveCampaigns(_ context.Context, now time.Time) ([]campaign.Campaign, error) {
