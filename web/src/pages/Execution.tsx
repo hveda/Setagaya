@@ -9,6 +9,7 @@ import TaurusEditor from '../components/TaurusEditor';
 import CapacityPanel from '../components/CapacityPanel';
 import type { EngineMetric, ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
 import { deployExecution, purgeExecution, stopExecution, triggerExecution } from '../api/lifecycle';
+import { useSession } from '../hooks/useSession';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import EngineBadge from '../components/ui/EngineBadge';
 
@@ -117,6 +118,30 @@ export function phaseControls(phase: Phase | null, enginesReachable: boolean): A
   }
 }
 
+/** What each lifecycle action costs in RBAC terms — the audit table's row. */
+const controlPermission = {
+  deploy: { resource: 'run', action: 'create' },
+  trigger: { resource: 'run', action: 'create' },
+  stop: { resource: 'run', action: 'update' },
+  purge: { resource: 'run', action: 'delete' },
+} as const;
+
+/**
+ * Phase says WHEN a control is offered; the session says WHETHER this
+ * caller may have it at all (phase 20, AC14). A tenant_viewer holds
+ * run:read/list only, so every control drops out — the UI must not render
+ * a Deploy/Trigger/Stop/Delete button the server would 403.
+ */
+export function gateControls(
+  controls: Array<{ action: 'deploy' | 'trigger' | 'stop' | 'purge'; enabled: boolean }>,
+  can: (resource: string, action: string) => boolean
+): Array<{ action: 'deploy' | 'trigger' | 'stop' | 'purge'; enabled: boolean }> {
+  return controls.filter(({ action }) => {
+    const perm = controlPermission[action];
+    return can(perm.resource, perm.action);
+  });
+}
+
 /** Outcome-to-color mapping for the report rows. */
 export function outcomeBadge(outcome: Report['outcome']): string {
   switch (outcome) {
@@ -144,6 +169,7 @@ export function shortTime(iso: string): string {
 /** A watched execution's live phase, deployment status, rolling metrics, and lifecycle controls. Deep-linkable: the execution id comes from the route. */
 export default function Execution() {
   const { id } = useParams<{ id: string }>();
+  const { can } = useSession();
   const executionId = Number(id);
   const validId = Number.isInteger(executionId) && executionId > 0;
 
@@ -271,7 +297,7 @@ export default function Execution() {
   }
 
   const enginesReachable = status?.status.every((s) => s.engines_reachable) ?? false;
-  const controls = phaseControls(status?.phase ?? null, enginesReachable);
+  const controls = gateControls(phaseControls(status?.phase ?? null, enginesReachable), can);
 
   return (
     <div className="space-y-6">
@@ -326,6 +352,11 @@ export default function Execution() {
                     {busyAction === action ? 'Working…' : action.charAt(0).toUpperCase() + action.slice(1)}
                   </Button>
                 ))}
+                {controls.length === 0 && (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Your role is read-only here: no lifecycle controls.
+                  </p>
+                )}
               </div>
               {actionError && (
                 <p className="text-sm text-red-600 dark:text-red-400" role="alert">

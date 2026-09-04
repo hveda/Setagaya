@@ -7,6 +7,7 @@ import { createCampaign, getCampaignVerdict, listTenantCampaigns } from '../api/
 import type { Campaign, CampaignVerdict, Outcome, ServiceVerdict } from '../api/campaigns';
 import { getCampaignComparison } from '../api/comparison';
 import type { CampaignComparison, ComparisonStatus } from '../api/comparison';
+import { useSession } from '../hooks/useSession';
 
 type CampaignStatus = 'upcoming' | 'active' | 'ended' | 'aborted';
 
@@ -266,6 +267,8 @@ function ComparisonPanel({ campaignId }: { campaignId: number }) {
 
 /** Create a campaign, browse a tenant's campaigns, and view a campaign's rolled-up verdict. */
 export default function Campaigns() {
+  const { can } = useSession();
+  const canCreate = can('campaign', 'create');
   const [tenantId, setTenantId] = useState('');
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -453,15 +456,21 @@ export default function Campaigns() {
             </Button>
           </div>
 
-          <Button
-            type="button"
-            disabled={creating}
-            onClick={() => {
-              void handleCreate();
-            }}
-          >
-            {creating ? 'Creating…' : 'Create campaign'}
-          </Button>
+          {canCreate ? (
+            <Button
+              type="button"
+              disabled={creating}
+              onClick={() => {
+                void handleCreate();
+              }}
+            >
+              {creating ? 'Creating…' : 'Create campaign'}
+            </Button>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="no-create-permission">
+              Your role cannot create campaigns.
+            </p>
+          )}
           {createError && (
             <p className="text-sm text-red-600 dark:text-red-400" role="alert">
               {createError}
