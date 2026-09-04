@@ -10,7 +10,7 @@ import Input from '../components/ui/Input';
 import OutcomeBadge from '../components/ui/OutcomeBadge';
 import { ApiError } from '../api/client';
 import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from '../api/reports';
-import type { Report } from '../api/reports';
+import type { Load, Report } from '../api/reports';
 import { fetchSeries } from '../api/series';
 import type { SeriesPoint } from '../api/series';
 import TimeSeriesChart from '../components/charts/TimeSeriesChart';
@@ -387,11 +387,36 @@ function TimeSeriesCharts({ points, pct, onPct }: { points: SeriesPoint[]; pct: 
 }
 
 /**
+ * Expands the report's requested load into the constant line the overlay
+ * charts. Load carries no stages -- just concurrency and an optional
+ * duration_seconds -- so the requested profile is flat: concurrency held
+ * from the run's first measured second to last+duration when the duration
+ * is known (an early exit shows requested running past achieved, an overrun
+ * the reverse), and to the last sample when it is not. No series or no
+ * requested concurrency yields nothing, which is the card's hide rule.
+ */
+export function requestedLine(requested: Load, points: { x: number }[]): { x: number; y: number }[] {
+  if (points.length === 0 || !Number.isFinite(requested.concurrency) || requested.concurrency <= 0) {
+    return [];
+  }
+  const firstTs = points[0].x;
+  const lastTs = points[points.length - 1].x;
+  const end =
+    requested.duration_seconds && requested.duration_seconds > 0 ? firstTs + requested.duration_seconds : lastTs;
+  return [
+    { x: firstTs, y: requested.concurrency },
+    { x: Math.max(end, firstTs), y: requested.concurrency },
+  ];
+}
+
+/**
  * The "Time series" card: loads the run's per-second series alongside the
  * report, with loading, error (retry), and empty states -- runs finalised
- * before the series store existed have a report but no series.
+ * before the series store existed have a report but no series. When the
+ * series and a requested load both exist, the requested-vs-achieved overlay
+ * follows as its own card (hidden otherwise, per its own hide rule).
  */
-function TimeSeriesSection({ runId }: { runId: number }) {
+function TimeSeriesSection({ runId, requested }: { runId: number; requested: Load }) {
   const [state, setState] = useState<
     { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'empty' } | { kind: 'ready'; points: SeriesPoint[] }
   >({ kind: 'loading' });
@@ -420,10 +445,11 @@ function TimeSeriesSection({ runId }: { runId: number }) {
   }, [runId, retry]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Time series</CardTitle>
-      </CardHeader>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Time series</CardTitle>
+        </CardHeader>
       <CardContent>
         {state.kind === 'loading' && (
           <div className="space-y-3" data-testid="series-loading">
@@ -448,6 +474,44 @@ function TimeSeriesSection({ runId }: { runId: number }) {
           </p>
         )}
         {state.kind === 'ready' && <TimeSeriesCharts points={state.points} pct={pct} onPct={setPct} />}
+      </CardContent>
+    </Card>
+      {state.kind === 'ready' && (
+        <RequestedVsAchieved requested={requested} points={state.points} />
+      )}
+    </>
+  );
+}
+
+/** The requested-vs-achieved overlay: what was asked for (muted, constant) against what the engine actually held (strong). */
+function RequestedVsAchieved({ requested, points }: { requested: Load; points: SeriesPoint[] }) {
+  const line = requestedLine(
+    requested,
+    points.map((p) => ({ x: p.ts }))
+  );
+  if (line.length === 0) {
+    return null;
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Requested vs achieved</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div data-testid="chart-requested">
+          <TimeSeriesChart
+            xType="time"
+            yLabel="VUs"
+            height={180}
+            series={[
+              { name: 'requested', color: 'text-slate-400', points: line },
+              { name: 'achieved', color: 'text-sky-600', points: points.map((p) => ({ x: p.ts, y: p.vus })) },
+            ]}
+          />
+        </div>
+        <p className="text-caption mt-2 text-slate-500 dark:text-slate-400">
+          The concurrency the deployment asked for against what the engine actually held.
+        </p>
       </CardContent>
     </Card>
   );
@@ -564,7 +628,7 @@ function ReportDetail({ runId }: { runId: string }) {
             </CardContent>
           </Card>
 
-          <TimeSeriesSection runId={report.run_id} />
+          <TimeSeriesSection runId={report.run_id} requested={report.requested} />
 
           <Card>
             <CardHeader>

@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseShard, default as Reports } from './Reports';
+import { parseShard, requestedLine, default as Reports } from './Reports';
 import type { Report } from '../api/reports';
 import type { SeriesPoint } from '../api/series';
 
@@ -60,7 +60,8 @@ let root: Root | null = null;
 
 async function renderReportDetail(
   seriesBody: () => Response = () => json({ points: seriesFixture }),
-  calls: string[] = []
+  calls: string[] = [],
+  report: Report = reportFixture
 ) {
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -70,7 +71,7 @@ async function renderReportDetail(
       const url = String(input);
       calls.push(url);
       if (url.endsWith('/api/runs/9/report')) {
-        return json(reportFixture);
+        return json(report);
       }
       if (url.endsWith('/api/runs/9/series')) {
         return seriesBody();
@@ -110,7 +111,11 @@ describe('ReportDetail time series (mounted)', () => {
     await renderReportDetail();
 
     expect(container!.textContent).toContain('Time series');
-    expect(container!.querySelectorAll('svg[role="img"]').length).toBe(3);
+    // The time-series card's three charts (the overlay card adds its own).
+    for (const id of ['chart-vus-rps', 'chart-errors', 'chart-latency']) {
+      const wrap = container!.querySelector(`[data-testid="${id}"]`);
+      expect(wrap?.querySelector('svg[role="img"]')).not.toBeNull();
+    }
     expect(container!.querySelector('[data-series="VUs"]')).not.toBeNull();
     expect(container!.querySelector('[data-series="RPS"]')).not.toBeNull();
     expect(container!.querySelector('[data-series="error %"]')).not.toBeNull();
@@ -161,5 +166,76 @@ describe('ReportDetail time series (mounted)', () => {
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(calls.filter((u) => u.endsWith('/api/runs/9/series')).length).toBe(2);
+  });
+});
+
+describe('requestedLine', () => {
+  const xs = [
+    { x: 100 },
+    { x: 110 },
+    { x: 120 },
+  ];
+
+  it('returns nothing without points or without a requested concurrency', () => {
+    expect(requestedLine({ concurrency: 10, throughput: 100 }, [])).toEqual([]);
+    expect(requestedLine({ concurrency: 0, throughput: 100 }, xs)).toEqual([]);
+  });
+
+  it('holds the requested concurrency from the first sample to the last when no duration is known', () => {
+    expect(requestedLine({ concurrency: 10, throughput: 100 }, xs)).toEqual([
+      { x: 100, y: 10 },
+      { x: 120, y: 10 },
+    ]);
+  });
+
+  it('runs to first + duration_seconds when the load names one', () => {
+    // The run ended early: requested outlives the achieved samples.
+    expect(requestedLine({ concurrency: 10, throughput: 100, duration_seconds: 100 }, xs)).toEqual([
+      { x: 100, y: 10 },
+      { x: 200, y: 10 },
+    ]);
+    // The run overran its duration: requested stops at 105 while achieved
+    // continues to 120.
+    expect(requestedLine({ concurrency: 10, throughput: 100, duration_seconds: 5 }, xs)).toEqual([
+      { x: 100, y: 10 },
+      { x: 105, y: 10 },
+    ]);
+  });
+});
+
+describe('ReportDetail requested-vs-achieved overlay (mounted)', () => {
+  it('renders both series with the requested/achieved legend, as distinct paths', async () => {
+    await renderReportDetail();
+
+    const overlay = container!.querySelector('[data-testid="chart-requested"]');
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain('requested');
+    expect(overlay?.textContent).toContain('achieved');
+
+    const requestedPath = overlay?.querySelector('[data-series="requested"]');
+    const achievedPath = overlay?.querySelector('[data-series="achieved"]');
+    expect(requestedPath).not.toBeNull();
+    expect(achievedPath).not.toBeNull();
+    // Divergence (achieved 8-10 vs requested constant 10) must show as
+    // distinct lines, not two coincident flats.
+    expect(requestedPath?.getAttribute('d')).not.toBe(achievedPath?.getAttribute('d'));
+  });
+
+  it('hides the overlay card when the run has no series points', async () => {
+    await renderReportDetail(() => json({ points: [] }));
+
+    expect(container!.querySelector('[data-testid="series-empty"]')).not.toBeNull();
+    expect(container!.querySelector('[data-testid="chart-requested"]')).toBeNull();
+    expect(container!.textContent).not.toContain('Requested vs achieved');
+  });
+
+  it('hides the overlay card when the report carries no requested load', async () => {
+    await renderReportDetail(
+      () => json({ points: seriesFixture }),
+      [],
+      { ...reportFixture, requested: { concurrency: 0, throughput: 0 } }
+    );
+
+    expect(container!.querySelector('[data-testid="chart-requested"]')).toBeNull();
   });
 });
