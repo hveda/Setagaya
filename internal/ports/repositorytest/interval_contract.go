@@ -165,10 +165,11 @@ func RunIntervalRepositoryContract(t *testing.T, newStore NewIntervalStore) {
 		)); err != nil {
 			t.Fatalf("Absorb (later seconds): %v", err)
 		}
-		// A different shard, whose own sequence starts at one: within one
-		// stream seconds arrive in sequence order, so an earlier second
-		// reaching the store late comes from another pod.
-		if err := s.Absorb(ctx, seriesBatch(1, 1, "s1", false, seriesRow(1, 1000, "cart", 5, 10, 0))); err != nil {
+		// A different shard, whose own sequence starts at one -- and whose
+		// label may differ from the first shard's: within one stream seconds
+		// arrive in sequence order, so an earlier second reaching the store
+		// late comes from another pod.
+		if err := s.Absorb(ctx, seriesBatch(1, 1, "s1", false, seriesRow(1, 1000, "pay", 5, 10, 0))); err != nil {
 			t.Fatalf("Absorb (earlier second): %v", err)
 		}
 		got := listOrFail(t, s, 1)

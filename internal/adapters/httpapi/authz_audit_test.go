@@ -146,6 +146,7 @@ var authzAuditTable = []authzEntry{
 	{method: "GET", pattern: "/api/executions/{execution_id}/trend", decision: "report:read"},
 	{method: "GET", pattern: "/api/executions/{execution_id}/error-signatures", decision: "report:read"},
 	{method: "GET", pattern: "/api/runs/{run_id}/report", decision: "report:read"},
+	{method: "GET", pattern: "/api/runs/{run_id}/series", decision: "report:read"},
 	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", decision: "report:read"},
 	{method: "GET", pattern: "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", decision: "report:read"},
 

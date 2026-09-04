@@ -55,6 +55,10 @@ type Deps struct {
 	// Reports serves a run's stored report, the durable record of what it
 	// produced.
 	Reports ports.ReportStore
+	// Series reads a run's per-second measurements for the series endpoint.
+	// Optional; nil disables GET /api/runs/{run_id}/series (404), which serves
+	// report-store-only deployments that never absorbed intervals.
+	Series ports.IntervalRepository
 	// Reservations backs the reservation calendar (GET
 	// /api/tenants/{tenant_id}/reservations). Required alongside Tenants for
 	// that endpoint; nil disables it (tenantAdminGate 404s first anyway).
@@ -207,6 +211,7 @@ var routes = []Route{
 	{"GET", "/api/executions/{execution_id}/trend", "reports", hf(func(h *handlers) http.HandlerFunc { return h.executionTrend })},
 	{"GET", "/api/executions/{execution_id}/error-signatures", "reports", hf(func(h *handlers) http.HandlerFunc { return h.executionErrorSignatureHistory })},
 	{"GET", "/api/runs/{run_id}/report", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runReport })},
+	{"GET", "/api/runs/{run_id}/series", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runSeries })},
 	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardLog })},
 	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardConfig })},
 

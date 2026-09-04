@@ -78,6 +78,9 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 	}
 	audit := auditmem.New(nil)
 	reports := fake.NewReportStore()
+	// The series endpoint's interval store: wired the way cmd/api wires it,
+	// so the audit probe reaches the report:read gate rather than a 404.
+	series := fake.NewReportProgress()
 	bus := membus.New()
 	lifecycle := lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("honryu/jmeter:latest"))
 	quota := quotaapp.NewService(store)
@@ -96,6 +99,7 @@ func newRBACFixture(t *testing.T) *rbacFixture {
 		Calibrations: calibrations,
 		Store:        obj,
 		Reports:      reports,
+		Series:       series,
 		Usage:        usageapp.NewService(store),
 		Events:       bus,
 		Reservations: store,
