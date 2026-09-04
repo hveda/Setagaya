@@ -70,6 +70,7 @@ export default function ProfilePicker() {
             <button
               key={profile.id}
               type="button"
+              data-testid="profile-card"
               onClick={() => void select(profile.id)}
               disabled={selecting !== null}
               className="flex min-h-[44px] flex-col items-start gap-1 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition-colors duration-200 hover:border-sky-400 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-500 dark:hover:bg-sky-950/40"
