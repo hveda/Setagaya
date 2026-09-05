@@ -8,9 +8,14 @@ import CopyButton from '../components/ui/CopyButton';
 import EngineBadge from '../components/ui/EngineBadge';
 import Input from '../components/ui/Input';
 import OutcomeBadge from '../components/ui/OutcomeBadge';
+import LabelsTable from '../components/LabelsTable';
 import { ApiError } from '../api/client';
 import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from '../api/reports';
-import type { Report } from '../api/reports';
+import type { Load, Report } from '../api/reports';
+import { fetchSeries } from '../api/series';
+import type { SeriesPoint } from '../api/series';
+import TimeSeriesChart from '../components/charts/TimeSeriesChart';
+import { useSession } from '../hooks/useSession';
 import { formatApmLink, loadApmTemplate, saveApmTemplate } from '../api/apm';
 import { SignatureSection, TrendSection } from './ReportsTrend';
 
@@ -42,6 +47,7 @@ export default function Reports() {
 }
 
 function ReportsList() {
+  const { can } = useSession();
   const [executionId, setExecutionId] = useState('');
   const [reports, setReports] = useState<Report[] | null>(null);
   const [loadedExecutionId, setLoadedExecutionId] = useState<number | null>(null);
@@ -69,13 +75,32 @@ function ReportsList() {
     }
   };
 
+  // The compare deep-link: only meaningful once an execution with at
+  // least two runs is on screen, and only for callers who may read
+  // reports -- the same grant that shows the Reports nav item (task 10).
+  const compareHref =
+    loadedExecutionId !== null && reports !== null && reports.length >= 2 && can('report', 'read')
+      ? `/executions/${loadedExecutionId}/compare`
+      : null;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-display-sm text-slate-900 dark:text-white">Reports</h1>
-        <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
-          An execution's run history, most recent first.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-display-sm text-slate-900 dark:text-white">Reports</h1>
+          <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
+            An execution&apos;s run history, most recent first.
+          </p>
+        </div>
+        {compareHref && (
+          <Link
+            to={compareHref}
+            data-testid="compare-runs-link"
+            className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+          >
+            Compare runs →
+          </Link>
+        )}
       </div>
 
       <Card>
@@ -308,6 +333,212 @@ function ShardObjects({ report }: { report: Report }) {
   );
 }
 
+/** The percentiles the series endpoint serves, in display order. */
+const LATENCY_PERCENTILES = ['50', '90', '95', '99'];
+
+/** Shared pill styling for the latency percentile selector. */
+function pctPill(selected: boolean): string {
+  return selected
+    ? 'bg-sky-600 text-white'
+    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700';
+}
+
+/**
+ * The run's per-second shape once the series is in memory: VUs and RPS on
+ * one axis (the plan's dual-series chart; the legend names each unit),
+ * error rate, and latency with a percentile selector that switches the
+ * plotted series client-side -- every percentile arrived in the same
+ * fetch, so switching costs nothing.
+ */
+function TimeSeriesCharts({ points, pct, onPct }: { points: SeriesPoint[]; pct: string; onPct: (p: string) => void }) {
+  const available = LATENCY_PERCENTILES.filter((p) => points.some((pt) => pt.latency?.[p] !== undefined));
+  const effective = available.includes(pct) ? pct : available[available.length - 1] ?? pct;
+  const latencyPoints = points
+    .filter((p) => p.latency?.[effective] !== undefined)
+    .map((p) => ({ x: p.ts, y: (p.latency as Record<string, number>)[effective] * 1000 }));
+
+  return (
+    <div className="space-y-6">
+      <div data-testid="chart-vus-rps">
+        <p className="text-caption mb-2 font-medium text-slate-500 dark:text-slate-400">Concurrency and throughput</p>
+        <TimeSeriesChart
+          xType="time"
+          series={[
+            { name: 'VUs', color: 'text-sky-500', points: points.map((p) => ({ x: p.ts, y: p.vus })) },
+            { name: 'RPS', color: 'text-amber-500', points: points.map((p) => ({ x: p.ts, y: p.rps })) },
+          ]}
+        />
+      </div>
+      <div data-testid="chart-errors">
+        <p className="text-caption mb-2 font-medium text-slate-500 dark:text-slate-400">Error rate</p>
+        <TimeSeriesChart
+          xType="time"
+          yLabel="%"
+          series={[{ name: 'error %', color: 'text-rose-500', points: points.map((p) => ({ x: p.ts, y: p.err_pct })) }]}
+        />
+      </div>
+      <div data-testid="chart-latency">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Response time</p>
+          {available.length > 0 && (
+            <div className="flex gap-1" role="group" aria-label="Latency percentile">
+              {available.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  data-testid={`pct-${p}`}
+                  aria-pressed={p === effective}
+                  onClick={() => onPct(p)}
+                  className={`rounded-full px-3 py-1 text-caption font-medium transition-colors ${pctPill(p === effective)}`}
+                >
+                  p{p}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* The wire carries seconds; the chart reads milliseconds. */}
+        <TimeSeriesChart
+          xType="time"
+          yLabel="ms"
+          series={[{ name: effective ? `p${effective}` : 'latency', color: 'text-emerald-500', points: latencyPoints }]}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Expands the report's requested load into the constant line the overlay
+ * charts. Load carries no stages -- just concurrency and an optional
+ * duration_seconds -- so the requested profile is flat: concurrency held
+ * from the run's first measured second to last+duration when the duration
+ * is known (an early exit shows requested running past achieved, an overrun
+ * the reverse), and to the last sample when it is not. No series or no
+ * requested concurrency yields nothing, which is the card's hide rule.
+ */
+export function requestedLine(requested: Load, points: { x: number }[]): { x: number; y: number }[] {
+  if (points.length === 0 || !Number.isFinite(requested.concurrency) || requested.concurrency <= 0) {
+    return [];
+  }
+  const firstTs = points[0].x;
+  const lastTs = points[points.length - 1].x;
+  const end =
+    requested.duration_seconds && requested.duration_seconds > 0 ? firstTs + requested.duration_seconds : lastTs;
+  return [
+    { x: firstTs, y: requested.concurrency },
+    { x: Math.max(end, firstTs), y: requested.concurrency },
+  ];
+}
+
+/**
+ * The "Time series" card: loads the run's per-second series alongside the
+ * report, with loading, error (retry), and empty states -- runs finalised
+ * before the series store existed have a report but no series. When the
+ * series and a requested load both exist, the requested-vs-achieved overlay
+ * follows as its own card (hidden otherwise, per its own hide rule).
+ */
+function TimeSeriesSection({ runId, requested }: { runId: number; requested: Load }) {
+  const [state, setState] = useState<
+    { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'empty' } | { kind: 'ready'; points: SeriesPoint[] }
+  >({ kind: 'loading' });
+  const [retry, setRetry] = useState(0);
+  const [pct, setPct] = useState('95');
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: 'loading' });
+    fetchSeries(runId)
+      .then((got) => {
+        if (cancelled) {
+          return;
+        }
+        setState(got.points.length === 0 ? { kind: 'empty' } : { kind: 'ready', points: got.points });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setState({ kind: 'error', message: err instanceof ApiError ? err.message : 'Failed to load time series.' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, retry]);
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Time series</CardTitle>
+        </CardHeader>
+      <CardContent>
+        {state.kind === 'loading' && (
+          <div className="space-y-3" data-testid="series-loading">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-44 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-700/50" />
+            ))}
+          </div>
+        )}
+        {state.kind === 'error' && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+              {state.message}
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => setRetry((n) => n + 1)} data-testid="series-retry">
+              Retry
+            </Button>
+          </div>
+        )}
+        {state.kind === 'empty' && (
+          <p className="text-body-sm text-slate-500 dark:text-slate-400" data-testid="series-empty">
+            No per-second data recorded for this run.
+          </p>
+        )}
+        {state.kind === 'ready' && <TimeSeriesCharts points={state.points} pct={pct} onPct={setPct} />}
+      </CardContent>
+    </Card>
+      {state.kind === 'ready' && (
+        <RequestedVsAchieved requested={requested} points={state.points} />
+      )}
+    </>
+  );
+}
+
+/** The requested-vs-achieved overlay: what was asked for (muted, constant) against what the engine actually held (strong). */
+function RequestedVsAchieved({ requested, points }: { requested: Load; points: SeriesPoint[] }) {
+  const line = requestedLine(
+    requested,
+    points.map((p) => ({ x: p.ts }))
+  );
+  if (line.length === 0) {
+    return null;
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Requested vs achieved</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div data-testid="chart-requested">
+          <TimeSeriesChart
+            xType="time"
+            yLabel="VUs"
+            height={180}
+            series={[
+              { name: 'requested', color: 'text-slate-400', points: line },
+              { name: 'achieved', color: 'text-sky-600', points: points.map((p) => ({ x: p.ts, y: p.vus })) },
+            ]}
+          />
+        </div>
+        <p className="text-caption mt-2 text-slate-500 dark:text-slate-400">
+          The concurrency the deployment asked for against what the engine actually held.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ReportDetail({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const [report, setReport] = useState<Report | null>(null);
@@ -418,6 +649,11 @@ function ReportDetail({ runId }: { runId: string }) {
               <LoadStat label="Achieved" load={report.achieved} />
             </CardContent>
           </Card>
+
+          <TimeSeriesSection runId={report.run_id} requested={report.requested} />
+
+          {/* Hides itself when the report carries no labels (task 8's hide rule). */}
+          <LabelsTable labels={report.labels} />
 
           <Card>
             <CardHeader>

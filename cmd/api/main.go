@@ -69,6 +69,7 @@ type repository interface {
 	ports.RoleAssignmentRepository
 	ports.ReportProgress
 	ports.ReportStore
+	ports.IntervalRepository
 	ports.ReservationRepository
 	ports.ScheduleRepository
 	ports.CampaignRepository
@@ -174,6 +175,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 		Usage:        usage,
 		Metrics:      collector,
 		Reports:      repo,
+		Series:       repo,
 		Reservations: repo,
 		IngestToken:  cfg.Cluster.IngestToken,
 		// Per-cluster ingest credentials (BYOC): the repository resolves a

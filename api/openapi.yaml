@@ -595,6 +595,40 @@ components:
         labels:
           type: array
           items: { $ref: '#/components/schemas/LabelSummary' }
+    Series:
+      type: object
+      description: >-
+        A run's per-second series, ascending by timestamp -- the shape of the
+        run, as distinct from the verdicts its report carries.
+      properties:
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/SeriesPoint' }
+    SeriesPoint:
+      type: object
+      description: One measured second of a run, merged across pods and labels.
+      properties:
+        ts:
+          type: integer
+          format: int64
+          description: The second this point covers, in Unix seconds.
+        vus:
+          type: number
+          description: >-
+            Virtual users that second -- the larger of the engine's and the
+            per-label rows' readings.
+        rps:
+          type: number
+          description: Requests completed that second.
+        err_pct:
+          type: number
+          description: Failed share of that second's samples, in percent.
+        latency:
+          type: object
+          description: >-
+            'Percentile number to response-time seconds, e.g. {"95": 0.2};
+            unset on seconds that recorded no samples.'
+          additionalProperties: { type: number }
     Trend:
       type: object
       description: An execution's run-over-run history, most recent first.
@@ -1934,6 +1968,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Report' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/runs/{run_id}/series:
+    get:
+      tags: [reports]
+      summary: Fetch a run's per-second series
+      description: >-
+        The shape of the run -- virtual users, throughput, error rate, and
+        latency percentiles for every measured second, merged across pods and
+        labels, deduplicated by the ingest watermark. Latency is unset on
+        seconds that recorded no samples. Runs that predate the series store
+        return empty points. Authorization matches the run report route.
+      parameters: [{ $ref: '#/components/parameters/RunID' }]
+      responses:
+        '200':
+          description: Run series
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Series' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log:
