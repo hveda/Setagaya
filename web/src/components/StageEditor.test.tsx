@@ -189,6 +189,14 @@ describe('StageEditor raw mode', () => {
     expect(validity[validity.length - 1]).toBe(false);
   });
 
+  it('rejects non-object tests entries (they would otherwise validate as clean)', async () => {
+    await renderEditor();
+    await click(q('[aria-label="switch to JSON"]')!);
+    await type(q('[aria-label="stage config JSON"]')!, '{"tests": [5]}');
+    expect(q('[data-testid="raw-json-error"]')?.textContent).toContain('each tests[] entry must be an object');
+    expect(validity[validity.length - 1]).toBe(false);
+  });
+
   it('validates the full config in raw mode, including the scenario id', async () => {
     await renderEditor();
     await click(q('[aria-label="switch to JSON"]')!);

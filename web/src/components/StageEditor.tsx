@@ -54,6 +54,12 @@ function parseRawConfig(raw: string): RawParse {
     if (!Array.isArray(cfg?.tests)) {
       return { ok: false, error: 'config JSON must have a "tests" array' };
     }
+    // Entries must be objects: a primitives-filled tests[] would slip
+    // past validateStageRow (undefined-field comparisons are all false)
+    // and report the editor valid for garbage.
+    if (!cfg.tests.every((t) => typeof t === 'object' && t !== null)) {
+      return { ok: false, error: 'each tests[] entry must be an object' };
+    }
     return { ok: true, cfg };
   } catch (err: unknown) {
     return { ok: false, error: `not valid JSON: ${err instanceof Error ? err.message : String(err)}` };
