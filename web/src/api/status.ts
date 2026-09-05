@@ -42,9 +42,15 @@ export interface EngineMetric {
   run_id: string;
 }
 
-/** Subscribes to an execution's live metric stream. Returns an unsubscribe function. */
-export function streamExecutionMetrics(executionId: number, onMetric: (m: EngineMetric) => void): () => void {
+/** Subscribes to an execution's live metric stream. Returns an unsubscribe function. The optional handlers surface the EventSource's own open/error transitions (connection tracking) without every caller needing the source itself. */
+export function streamExecutionMetrics(
+  executionId: number,
+  onMetric: (m: EngineMetric) => void,
+  handlers: { onOpen?: () => void; onError?: () => void } = {}
+): () => void {
   const source = new EventSource(`${apiClient.baseUrl}/executions/${executionId}/stream`);
+  source.onopen = () => handlers.onOpen?.();
+  source.onerror = () => handlers.onError?.();
   source.onmessage = (event: MessageEvent<string>) => {
     try {
       onMetric(JSON.parse(event.data) as EngineMetric);

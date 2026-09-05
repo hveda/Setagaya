@@ -35,6 +35,16 @@
  * them -- point it at a demo stack that already ran something (locally:
  * cmd/api in demo mode + an ingest-driven run, as the phase 21 close did).
  *
+ * Phase 22 (task 10) extended the persona pass with the tier-2 surfaces:
+ * the Execution page's live section (heading + charts-or-idle-placeholder,
+ * asserted only while the discovered execution actually runs -- the section
+ * renders for no finished eventless execution, and this script never seeds
+ * runs), the NewTest page's stage-editor columns (Concurrency and Duration;
+ * the editor renders for every persona, only the create button is gated),
+ * and the Clusters page's Capacity column (alice alone holds system:admin).
+ * The Execution page holds an open metric stream (SSE) for any valid id,
+ * so networkidle never settles there -- it settles on domcontentloaded.
+ *
  * Needs a Chromium binary. Playwright's cache is found automatically; set
  * CHROMIUM_PATH to point elsewhere. Provision with:
  *   bunx playwright install chromium
@@ -173,10 +183,13 @@ function watchConsole(page, sink) {
 
 /** Navigates and resolves once the SPA settled (nav present, network
  * quiet), returning the page geometry -- or null when the route did not
- * load (reported by the caller). */
-async function settleAt(page, route) {
+ * load (reported by the caller). `waitUntil` is overridable for pages
+ * whose own design keeps the network busy: the Execution page holds an
+ * open metric stream, so networkidle never fires there and callers pass
+ * 'domcontentloaded' instead (the nav wait + settle pause carry the rest). */
+async function settleAt(page, route, { waitUntil = 'networkidle' } = {}) {
   try {
-    await page.goto(BASE_URL + route, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.goto(BASE_URL + route, { waitUntil, timeout: 20000 });
     await page.waitForSelector('nav', { timeout: 10000 });
     // One paint after load, so freshly-mounted cards measure their final
     // geometry rather than the pre-effect skeleton.
@@ -206,6 +219,19 @@ function readGeometry() {
     innerWidth: window.innerWidth,
     overflowing: overflowing.slice(0, 5),
   };
+}
+
+/** Console errors that are not mere 4xx resource-load notices. Chromium
+ * logs every failed fetch as "Failed to load resource ..." -- but some
+ * pages probe optional endpoints BY DESIGN (the Execution page's capacity
+ * panel: 404 capacity-profile is the documented "nothing calibrated"
+ * contract, and personas without scenario grants see 403s there). Those
+ * failures are handled -- the structural assertions prove the page still
+ * renders -- so what must stay at zero is everything else: uncaught throws
+ * (pageerror) and any other console error. Strict pages (compare, reports)
+ * keep asserting on the raw sink. */
+function nonResourceErrors(sink) {
+  return sink.filter((e) => !/^Failed to load resource/.test(e));
 }
 
 /** Drawer state, for the mobile-only open/close assertions. */
@@ -250,15 +276,22 @@ async function discoverResultsData(page) {
         return res.json();
       };
       const executions = await get('/api/executions');
-      if (!Array.isArray(executions)) {
+      if (!Array.isArray(executions) || executions.length === 0) {
         return null;
       }
+      // Phase 22 (task 10): the newest execution plus its phase -- the
+      // Execution page's live section asserts against it in the persona
+      // loop, whatever its state (running -> heading + charts/idle;
+      // otherwise an honest skip).
+      const live = { id: executions[0].id, phase: null };
+      const status = await get(`/api/executions/${live.id}/status`);
+      live.phase = status?.phase ?? null;
       for (const exe of executions.slice(0, 5)) {
         const reports = await get(`/api/executions/${exe.id}/reports`);
         if (!Array.isArray(reports) || reports.length < 2) {
           continue;
         }
-        const found = { executionId: exe.id, runIds: reports.map((r) => r.run_id), runId: null };
+        const found = { live, executionId: exe.id, runIds: reports.map((r) => r.run_id), runId: null };
         for (const rid of found.runIds) {
           const series = await get(`/api/runs/${rid}/series`);
           const report = await get(`/api/runs/${rid}/report`);
@@ -269,7 +302,7 @@ async function discoverResultsData(page) {
         }
         return found; // compare still works; the section assertions skip
       }
-      return null;
+      return { live }; // executions exist, but none with two finalised runs
     });
   } catch {
     return null; // no API on this origin, or it is unreachable
@@ -450,7 +483,7 @@ try {
         // p95 overlay need an execution with two finalised runs, which a
         // dataless target cannot offer (honest skip below).
         const results = await discoverResultsData(page);
-        const compareId = results ? results.executionId : 1;
+        const compareId = results?.executionId ?? 1;
         const compareRoute = `/executions/${compareId}/compare`;
         const consoleErrors = [];
         const unwatch = watchConsole(page, consoleErrors);
@@ -463,7 +496,7 @@ try {
             (h1 ?? '').includes('Compare runs'),
             `h1 = ${JSON.stringify(h1)}`
           );
-          if (results && results.runIds.length >= 2) {
+          if (results?.runIds && results.runIds.length >= 2) {
             const delta = await page
               .waitForSelector('[data-testid="delta-table"]', { timeout: 10000 })
               .then(() => true)
@@ -489,6 +522,129 @@ try {
         }
         unwatch();
 
+        // Phase 22 (task 10): the Execution page's live section. Every
+        // persona in PERSONAS reads executions (the same grant as the
+        // compare surface). The page opens a metric stream for any valid
+        // id, so it settles on domcontentloaded (see settleAt). The live
+        // section renders only while the execution runs (or once series
+        // arrived); a finished, eventless execution shows neither honestly,
+        // so the live assertions are phase-conditional and skip otherwise.
+        if (results?.live) {
+          const liveRoute = `/executions/${results.live.id}`;
+          const liveErrors = [];
+          const unwatchLive = watchConsole(page, liveErrors);
+          const liveGeo = await settleAt(page, liveRoute, { waitUntil: 'domcontentloaded' });
+          if (liveGeo) {
+            checkLayout(`${persona.id} ${liveRoute}`, liveGeo);
+            const h1 = await page.textContent('h1').catch(() => null);
+            check(
+              `${persona.id} ${liveRoute} renders its heading`,
+              (h1 ?? '').includes('Execution'),
+              `h1 = ${JSON.stringify(h1)}`
+            );
+            if (results.live.phase === 'running') {
+              const section = await page
+                .waitForSelector('[data-testid="live-section"]', { timeout: 10000 })
+                .then(() => true)
+                .catch(() => false);
+              check(`${persona.id} ${liveRoute} renders the live section while running`, section);
+              const heading = await page
+                .textContent('[data-testid="live-section"] h3')
+                .catch(() => null);
+              check(
+                `${persona.id} ${liveRoute} live section carries its "Live" heading`,
+                (heading ?? '').trim() === 'Live',
+                `heading = ${JSON.stringify(heading)}`
+              );
+              // Which of the two depends on whether events arrived yet:
+              // one comma-selector waits for either.
+              const idleOrChart = await page
+                .waitForSelector('[data-testid="live-idle"], [data-testid="live-chart-vus-rps"]', { timeout: 10000 })
+                .then(() => true)
+                .catch(() => false);
+              check(
+                `${persona.id} ${liveRoute} shows live charts or the idle placeholder`,
+                idleOrChart,
+                'neither the idle line nor the first chart rendered'
+              );
+            } else {
+              console.log(
+                `  skip ${persona.id} live-section assertions: execution ${results.live.id} is not running (phase ${JSON.stringify(results.live.phase)})`
+              );
+            }
+            check(
+              `${persona.id} ${liveRoute} logs no console errors beyond by-design 4xx probes`,
+              nonResourceErrors(liveErrors).length === 0,
+              nonResourceErrors(liveErrors).slice(0, 3).join(' | ')
+            );
+          }
+          unwatchLive();
+        } else {
+          console.log(`  skip ${persona.id} live-section assertions: no execution on this target`);
+        }
+
+        // Phase 22 (task 10): the NewTest page's stage editor. The editor
+        // renders for every persona -- only the create button is gated by
+        // execution:create -- so the table's header contract (the columns
+        // the phase named) asserts for all four.
+        {
+          const newErrors = [];
+          const unwatchNew = watchConsole(page, newErrors);
+          const newGeo = await settleAt(page, '/executions/new');
+          if (newGeo) {
+            checkLayout(`${persona.id} /executions/new`, newGeo);
+            const headers = await page.$$eval('[data-testid="stage-table"] thead th', (ths) =>
+              ths.map((t) => t.textContent?.trim() ?? '')
+            );
+            for (const col of ['Concurrency', 'Duration']) {
+              check(
+                `${persona.id} /executions/new keeps its "${col}" stage column`,
+                headers.some((h) => h.startsWith(col)),
+                `headers: ${headers.join(', ')}`
+              );
+            }
+            check(
+              `${persona.id} /executions/new logs no console errors`,
+              newErrors.length === 0,
+              newErrors.slice(0, 3).join(' | ')
+            );
+          }
+          unwatchNew();
+        }
+
+        // Phase 22 (task 10): the Clusters page's capacity column. alice
+        // is the only persona whose permission map grants /clusters
+        // (system:admin); the others' maps already assert they never even
+        // see the nav item. The table -- and its Capacity header -- exists
+        // only when the registry holds entries; an empty registry renders
+        // the honest empty state and the header check skips.
+        if (persona.hrefs.includes('/clusters')) {
+          const clusterErrors = [];
+          const unwatchClusters = watchConsole(page, clusterErrors);
+          const clusterGeo = await settleAt(page, '/clusters');
+          if (clusterGeo) {
+            checkLayout(`${persona.id} /clusters`, clusterGeo);
+            const headers = await page.$$eval('table thead th', (ths) => ths.map((t) => t.textContent?.trim() ?? ''));
+            if (headers.length > 0) {
+              check(
+                `${persona.id} /clusters keeps its Capacity column`,
+                headers.includes('Capacity'),
+                `headers: ${headers.join(', ')}`
+              );
+            } else {
+              console.log(
+                '  skip capacity-column assertion: no table to carry the header (empty registry, or registry endpoints not deployed -- they need the k8s scheduler)'
+              );
+            }
+            check(
+              `${persona.id} /clusters logs no console errors beyond by-design 4xx probes`,
+              nonResourceErrors(clusterErrors).length === 0,
+              nonResourceErrors(clusterErrors).slice(0, 3).join(' | ')
+            );
+          }
+          unwatchClusters();
+        }
+
         // The Reports page's new sections, once for the viewer persona at
         // every width: the time-series card, its requested-vs-achieved
         // overlay, and the per-label table only exist when a run actually
@@ -496,7 +652,7 @@ try {
         // is the least-privileged reader; if it renders for her it renders
         // for the rest.
         if (persona.id === SECTION_PERSONA) {
-          if (results && results.runId !== null) {
+          if (results?.runId != null) {
             const reportRoute = `/reports/${results.runId}`;
             const sectionErrors = [];
             const unwatchSections = watchConsole(page, sectionErrors);
