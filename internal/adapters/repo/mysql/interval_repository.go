@@ -120,6 +120,8 @@ func mergeSeriesSeconds(ctx context.Context, tx *sql.Tx, runID int64, fresh []me
 		openArgs...); err != nil {
 		return fmt.Errorf("mysql: open series seconds: %w", err)
 	}
+	// #nosec G202 -- inClause elements are the literal "?" assigned above;
+	// every value travels as a bound parameter. Same reasoning as the insert.
 	locked, err := tx.QueryContext(ctx,
 		`SELECT second, latency FROM execution_report_series
 		 WHERE run_id=? AND second IN (`+strings.Join(inClause, ",")+`) FOR UPDATE`,
