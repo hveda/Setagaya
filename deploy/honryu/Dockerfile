@@ -23,11 +23,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/honryu-${CMD} ./cmd/${CM
 
 FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 ARG CMD=api
-# ARGs are build-time only; ENTRYPOINT's shell form expands $CMD at
-# container *runtime*, so it must be re-exposed as an ENV to survive into
-# the running container (exec-form ENTRYPOINT's JSON array, tried first,
-# does not expand ARG/ENV at all -- verified, it shipped the literal
-# "${CMD}" string).
+# ARGs are build-time only; the running container needs $CMD at runtime,
+# so it is re-exposed as an ENV (a bare exec-form JSON array does not
+# expand ARG/ENV at all -- verified, it shipped the literal "${CMD}"
+# string). ENTRYPOINT stays JSON-form (hadolint DL3025) by letting the
+# shell expand it: sh -c runs, replaces itself with the binary via exec,
+# so the binary is PID 1 and receives OS signals directly -- same signal
+# behaviour shell-form promised, without its PID-1-is-a-shell pitfall.
 ENV CMD=${CMD}
 COPY --from=build /out/honryu-${CMD} /honryu-${CMD}
-ENTRYPOINT /honryu-${CMD}
+ENTRYPOINT ["/bin/sh", "-c", "exec /honryu-$CMD"]
