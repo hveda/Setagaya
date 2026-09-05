@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
+import StageEditor, { type StageEditorState } from '../components/StageEditor';
 import { apiClient, ApiError } from '../api/client';
 import { setScenarioRequests } from '../api/scenarios';
 import { useSession } from '../hooks/useSession';
 import {
-  buildConfig,
   buildFragment,
   concurrencyEnginesWarning,
   stepError,
   flowSteps,
   type NewTestForm,
 } from '../lib/newTestFlow';
+import { stagesToConfig, type StagesConfigJSON } from '../lib/stagesConfig';
 
 interface ProjectRef {
   id: number;
@@ -22,33 +23,67 @@ interface ProjectRef {
 const inputCls =
   'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100';
 
+/** The page's initial form. The load-shaping fields (concurrency, engines,
+ *  rampup, duration) seed the stage editor's first row; there is no
+ *  throughput field on this form, so the seeded stage is unlimited --
+ *  exactly what buildConfig emitted (the key was never written). */
+const initialForm: NewTestForm = {
+  name: '',
+  targetUrl: '',
+  method: 'GET',
+  headers: [],
+  concurrency: 50,
+  engines: 2,
+  // R9: ramp-up defaults NON-ZERO -- starting at full concurrency
+  // measures connection-pool cold start, not steady state.
+  rampup: 30,
+  duration: 300,
+  engine: 'jmeter',
+};
+
+/** The editor's first stage, derived once from the form defaults. */
+function seedStage(): StageEditorState {
+  return {
+    mode: 'table',
+    rows: [
+      {
+        name: '', // assigned at submit from the typed test name
+        scenarioId: 0, // assigned at submit from the created scenario
+        concurrency: initialForm.concurrency,
+        engines: initialForm.engines,
+        rampup: initialForm.rampup,
+        duration: initialForm.duration,
+      },
+    ],
+    rawJson: '',
+  };
+}
+
 /**
  * R9: one form, zero identifiers. The flow creates everything in order
  * (project-if-absent -> scenario -> execution -> fragment -> config) and
  * navigates to the execution hub. A failure names the STEP that failed.
+ * The load config (step 5) is shaped by the visual StageEditor; its
+ * single-stage output is byte-identical to the old form-built JSON.
  */
 export default function NewTest() {
   const navigate = useNavigate();
   const { can } = useSession();
   const canCreate = can('execution', 'create');
-  const [form, setForm] = useState<NewTestForm>({
-    name: '',
-    targetUrl: '',
-    method: 'GET',
-    headers: [],
-    concurrency: 50,
-    engines: 2,
-    // R9: ramp-up defaults NON-ZERO -- starting at full concurrency
-    // measures connection-pool cold start, not steady state.
-    rampup: 30,
-    duration: 300,
-    engine: 'jmeter',
-  });
+  const [form, setForm] = useState<NewTestForm>(initialForm);
+  const [stages, setStages] = useState<StageEditorState>(seedStage);
+  const [stagesValid, setStagesValid] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<string | null>(null);
 
-  const warning = concurrencyEnginesWarning(form.concurrency, form.engines);
+  // R9's clamp guard, per stage row. Raw JSON mode skips it: there the
+  // operator owns the config verbatim and the backend's own Validate is
+  // the authority.
+  const warning =
+    stages.mode === 'table'
+      ? (stages.rows.map((r) => concurrencyEnginesWarning(r.concurrency, r.engines)).find((w) => w !== null) ?? null)
+      : null;
   const set = (patch: Partial<NewTestForm>) => setForm((f) => ({ ...f, ...patch }));
   const setHeader = (i: number, hpatch: Partial<{ name: string; value: string }>) =>
     set({ headers: form.headers.map((h, j) => (j === i ? { ...h, ...hpatch } : h)) });
@@ -107,15 +142,43 @@ export default function NewTest() {
         throw stepError('save requests fragment', e);
       });
 
-      // Step 5: the load config (G7's JSON body).
+      // Step 5: the load config (G7's JSON body), shaped by the stage
+      // editor. Table mode is the guided path: the flow owns the test
+      // name and scenario binding (buildConfig's exact mapping), so the
+      // payload is byte-identical to the pre-editor flow. Raw mode is the
+      // escape hatch: submit the JSON as typed, patching only what the
+      // flow owns -- the wrapper ids always; scenario id and test name
+      // when the operator left them at their placeholder values.
       setStep(flowSteps[4]);
-      const cfg = buildConfig(form, scenarioId);
-      cfg.project_id = project.id;
-      cfg.execution_id = execution.id;
+      let cfg: StagesConfigJSON;
+      try {
+        if (stages.mode === 'table') {
+          cfg = stagesToConfig(
+            stages.rows.map((r) => ({ ...r, name: form.name, scenarioId })),
+            `${form.name}-load`,
+            project.id,
+            execution.id,
+          );
+        } else {
+          cfg = JSON.parse(stages.rawJson) as StagesConfigJSON;
+          cfg.project_id = project.id;
+          cfg.execution_id = execution.id;
+          for (const t of cfg.tests) {
+            if (!t.scenario_id) {
+              t.scenario_id = scenarioId;
+            }
+            if (!t.name) {
+              t.name = form.name;
+            }
+          }
+        }
+      } catch (e: unknown) {
+        throw stepError(flowSteps[4], e);
+      }
       await apiClient
         .putRaw(`/executions/${execution.id}/config`, 'application/json', JSON.stringify(cfg))
         .catch((e: unknown) => {
-          throw stepError('save load config', e);
+          throw stepError(flowSteps[4], e);
         });
 
       // Done: land on the deep-linkable hub.
@@ -159,29 +222,6 @@ export default function NewTest() {
             Target URL
             <input className={`${inputCls} mt-1 w-full`} value={form.targetUrl} onChange={(e) => set({ targetUrl: e.target.value })} placeholder="http://checkout.svc" />
           </label>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-            <label className="text-caption text-slate-600 dark:text-slate-300">
-              Concurrency
-              <input className={`${inputCls} mt-1 w-full`} type="number" min={1} value={form.concurrency} onChange={(e) => set({ concurrency: Number(e.target.value) })} />
-            </label>
-            <label className="text-caption text-slate-600 dark:text-slate-300">
-              Engines
-              <input className={`${inputCls} mt-1 w-full`} type="number" min={1} value={form.engines} onChange={(e) => set({ engines: Number(e.target.value) })} />
-            </label>
-            <label className="text-caption text-slate-600 dark:text-slate-300">
-              Ramp-up (s)
-              <input className={`${inputCls} mt-1 w-full`} type="number" min={0} value={form.rampup} onChange={(e) => set({ rampup: Number(e.target.value) })} />
-            </label>
-            <label className="text-caption text-slate-600 dark:text-slate-300">
-              Duration (s)
-              <input className={`${inputCls} mt-1 w-full`} type="number" min={1} value={form.duration} onChange={(e) => set({ duration: Number(e.target.value) })} />
-            </label>
-          </div>
-          {warning && (
-            <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" role="alert">
-              {warning}
-            </p>
-          )}
           <div>
             <div className="flex items-center justify-between">
               <p className="text-caption text-slate-600 dark:text-slate-300">Headers (a cookie is a header)</p>
@@ -202,25 +242,43 @@ export default function NewTest() {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            {canCreate ? (
-              <Button onClick={submit} disabled={busy}>
-                {busy ? `Working — ${step ?? '…'}` : 'Create test'}
-              </Button>
-            ) : (
-              <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="no-create-permission">
-                Your role cannot create executions.
-              </p>
-            )}
-            {busy && step && <span className="text-caption text-slate-500 dark:text-slate-400">step: {step}</span>}
-          </div>
-          {error && (
-            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-              {error}
+          {warning && (
+            <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" role="alert">
+              {warning}
             </p>
           )}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Load stages</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <StageEditor
+            state={stages}
+            onStateChange={setStages}
+            configName={`${form.name}-load`}
+            onValidityChange={setStagesValid}
+          />
+        </CardContent>
+      </Card>
+      <div className="flex items-center gap-3">
+        {canCreate ? (
+          <Button onClick={submit} disabled={busy || !stagesValid} data-testid="create-test">
+            {busy ? `Working — ${step ?? '…'}` : 'Create test'}
+          </Button>
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="no-create-permission">
+            Your role cannot create executions.
+          </p>
+        )}
+        {busy && step && <span className="text-caption text-slate-500 dark:text-slate-400">step: {step}</span>}
+      </div>
+      {error && (
+        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

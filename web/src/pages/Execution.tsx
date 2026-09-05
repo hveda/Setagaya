@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { ApiError } from '../api/client';
-import { getExecutionInfo, getExecutionStatus, getScenarioPodLog, streamExecutionMetrics } from '../api/status';
+import { getExecutionInfo, getExecutionStatus, getScenarioPodLog } from '../api/status';
 import { listExecutionReports, type Report } from '../api/reports';
 import TaurusEditor from '../components/TaurusEditor';
 import CapacityPanel from '../components/CapacityPanel';
-import type { EngineMetric, ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
+import type { ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
+import type { LiveSeriesPoint } from '../lib/liveSeries';
 import { deployExecution, purgeExecution, stopExecution, triggerExecution } from '../api/lifecycle';
 import { useSession } from '../hooks/useSession';
+import { useLiveSeries } from '../hooks/useLiveSeries';
+import TimeSeriesChart from '../components/charts/TimeSeriesChart';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import EngineBadge from '../components/ui/EngineBadge';
 
@@ -25,38 +28,6 @@ function PhaseBadge({ phase }: { phase: Phase }) {
       {phase}
     </span>
   );
-}
-
-/**
- * The stream carries one event per measured interval (roughly once a second
- * per active label/shard), not one per request -- there is no per-request
- * count to work with here, only what the interval already summarised. A
- * trailing window over received events is the closest "current" signal
- * obtainable without adding a new backend aggregation.
- */
-const windowMs = 10_000;
-
-interface ReceivedMetric {
-  receivedAt: number;
-  metric: EngineMetric;
-}
-
-interface LiveStats {
-  throughput: number;
-  errorRate: number;
-  latencySeconds: number | null;
-}
-
-function summarize(events: ReceivedMetric[]): LiveStats {
-  if (events.length === 0) {
-    return { throughput: 0, errorRate: 0, latencySeconds: null };
-  }
-  const errors = events.filter((e) => e.metric.status !== '200').length;
-  return {
-    throughput: events.length / (windowMs / 1000),
-    errorRate: errors / events.length,
-    latencySeconds: events[events.length - 1].metric.latency,
-  };
 }
 
 /**
@@ -166,6 +137,76 @@ export function shortTime(iso: string): string {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** The live chart's latency percentiles, in display order (same selector concept as Reports). */
+const LIVE_PERCENTILES = ['50', '95', '99'] as const;
+type LivePercentile = (typeof LIVE_PERCENTILES)[number];
+
+/** Which LiveSeriesPoint field each percentile pill plots. */
+const latencyField: Record<LivePercentile, 'p50' | 'p95' | 'p99'> = {
+  '50': 'p50',
+  '95': 'p95',
+  '99': 'p99',
+};
+
+/** Shared pill styling for the percentile selector (Reports' pctPill, same house style). */
+function pctPill(selected: boolean): string {
+  return selected
+    ? 'bg-sky-600 text-white'
+    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700';
+}
+
+/**
+ * The live run chart: VUs and RPS over run-relative seconds, plus the
+ * chosen latency percentile. Same two-series pattern as Reports' charts
+ * (sky/amber/emerald), except the x axis is seconds since the first
+ * received event -- a plain number axis, not xType="time", because t is
+ * not a Unix timestamp and the live view charts run-relative time. The
+ * wire's latencies are seconds; the chart reads ms, like Reports.
+ */
+function LiveCharts({ series, pct, onPct }: { series: LiveSeriesPoint[]; pct: LivePercentile; onPct: (p: LivePercentile) => void }) {
+  return (
+    <div className="space-y-6">
+      <div data-testid="live-chart-vus-rps">
+        <p className="text-caption mb-2 font-medium text-slate-500 dark:text-slate-400">Concurrency and throughput</p>
+        <TimeSeriesChart
+          series={[
+            { name: 'VUs', color: 'text-sky-500', points: series.map((p) => ({ x: p.t, y: p.vus })) },
+            { name: 'RPS', color: 'text-amber-500', points: series.map((p) => ({ x: p.t, y: p.rps })) },
+          ]}
+        />
+      </div>
+      <div data-testid="live-chart-latency">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Response time</p>
+          <div className="flex gap-1" role="group" aria-label="Latency percentile">
+            {LIVE_PERCENTILES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                data-testid={`pct-${p}`}
+                aria-pressed={p === pct}
+                onClick={() => onPct(p)}
+                className={`rounded-full px-3 py-1 text-caption font-medium transition-colors ${pctPill(p === pct)}`}
+              >
+                p{p}
+              </button>
+            ))}
+          </div>
+        </div>
+        <TimeSeriesChart
+          yLabel="ms"
+          series={[
+            { name: `p${pct}`, color: 'text-emerald-500', points: series.map((p) => ({ x: p.t, y: p[latencyField[pct]] * 1000 })) },
+          ]}
+        />
+      </div>
+      <p className="text-caption text-slate-500 dark:text-slate-400">
+        Seconds since the first received event; each bucket aggregates the events of one second.
+      </p>
+    </div>
+  );
+}
+
 /** A watched execution's live phase, deployment status, rolling metrics, and lifecycle controls. Deep-linkable: the execution id comes from the route. */
 export default function Execution() {
   const { id } = useParams<{ id: string }>();
@@ -175,14 +216,16 @@ export default function Execution() {
 
   const [info, setInfo] = useState<ExecutionInfo | null>(null);
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
-  const [stats, setStats] = useState<LiveStats>({ throughput: 0, errorRate: 0, latencySeconds: null });
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[] | null>(null);
   const [logsScenario, setLogsScenario] = useState<number | null>(null);
   const [logText, setLogText] = useState<string>('');
-  const eventsRef = useRef<ReceivedMetric[]>([]);
+  // The live stream (SSE subscribe, event window, per-second recompute)
+  // lives in the hook; this page keeps only the rolling numbers it feeds.
+  const { series, connected, stats, reset: resetLive } = useLiveSeries(executionId, validId);
+  const [pct, setPct] = useState<LivePercentile>('95');
 
   useEffect(() => {
     if (!validId) {
@@ -218,22 +261,8 @@ export default function Execution() {
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load reports.');
       });
-    eventsRef.current = [];
-    setStats({ throughput: 0, errorRate: 0, latencySeconds: null });
-    const prune = () => {
-      const now = Date.now();
-      eventsRef.current = eventsRef.current.filter((e) => now - e.receivedAt < windowMs);
-      setStats(summarize(eventsRef.current));
-    };
-    const unsubscribe = streamExecutionMetrics(executionId, (metric) => {
-      eventsRef.current = [...eventsRef.current, { receivedAt: Date.now(), metric }];
-      prune();
-    });
-    const ticker = setInterval(prune, 1000);
     return () => {
       cancelled = true;
-      unsubscribe();
-      clearInterval(ticker);
       clearInterval(poll);
     };
   }, [executionId, validId]);
@@ -275,7 +304,7 @@ export default function Execution() {
         getExecutionStatus(executionId).then((s) => setStatus(s));
         if (action === 'purge') {
           // Purged: the hub's live view resets to the idle snapshot.
-          setStats({ throughput: 0, errorRate: 0, latencySeconds: null });
+          resetLive();
         }
         void message;
       })
@@ -365,6 +394,29 @@ export default function Execution() {
               )}
             </CardContent>
           </Card>
+          {(status.phase === 'running' || series.length > 0) && (
+            <section aria-labelledby="live-heading" data-testid="live-section">
+              <h3 id="live-heading" className="text-lg font-semibold text-slate-900 sm:text-xl dark:text-white">
+                Live
+              </h3>
+              <div className="mt-3">
+                {!connected && (
+                  <p className="text-body-sm text-amber-600 dark:text-amber-400" role="status" data-testid="live-disconnected">
+                    Stream disconnected — reconnecting…
+                  </p>
+                )}
+                {series.length === 0 ? (
+                  connected && (
+                    <p className="text-body-sm text-slate-500 dark:text-slate-400" data-testid="live-idle">
+                      Waiting for first events…
+                    </p>
+                  )
+                ) : (
+                  <LiveCharts series={series} pct={pct} onPct={setPct} />
+                )}
+              </div>
+            </section>
+          )}
           <Card padding="none">
             {status.status.length === 0 ? (
               <p className="text-body-sm p-6 text-slate-500 dark:text-slate-400">No scenarios deployed yet.</p>
@@ -494,5 +546,3 @@ export default function Execution() {
     </div>
   );
 }
-export { summarize };
-export type { ReceivedMetric };
