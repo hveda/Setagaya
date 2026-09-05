@@ -22,6 +22,19 @@
  * run. Against the served SPA (`go run ./cmd/api` embeds web/dist) the
  * persona section runs for real.
  *
+ * Phase 21 (task 11) extended the persona pass with the new surfaces:
+ * /executions/:id/compare is asserted for every read-capable persona
+ * (layout invariants + heading always; delta table and p95 overlay only
+ * when the target's API offers an execution with two finalised runs), and
+ * the Reports page's time-series / requested-vs-achieved / per-label
+ * sections are asserted once, for the viewer persona, against a run with
+ * series and labels. Data is discovered read-only over the same endpoints
+ * the pages use; a target without such data (vite preview, a fresh stack)
+ * skips the data-dependent assertions honestly. Seeding is deliberately
+ * OUT of this script's design: it reads deployments, it does not build
+ * them -- point it at a demo stack that already ran something (locally:
+ * cmd/api in demo mode + an ingest-driven run, as the phase 21 close did).
+ *
  * Needs a Chromium binary. Playwright's cache is found automatically; set
  * CHROMIUM_PATH to point elsewhere. Provision with:
  *   bunx playwright install chromium
@@ -39,7 +52,12 @@ const SHOT_DIR = '.layout-check';
 
 /** Routes the nav exposes -- every one carries the shared DashboardLayout.
  * `/` is the picker (also under the layout: the nav renders, empty, until
- * a persona is selected). */
+ * a persona is selected).
+ *
+ * Parameterised routes cannot live here: their ids only exist once a
+ * persona's session can read data. Phase 21's additions --
+ * /executions/:id/compare and /reports/:runId with live sections -- are
+ * asserted in the per-persona pass below, where the session is active. */
 const ROUTES = ['/', '/reports', '/reservations', '/status', '/campaigns', '/clusters'];
 
 /**
@@ -67,6 +85,15 @@ const VIEWPORTS = [
   { name: 'tablet-768', width: 768, height: 1024, isMobile: false },
   { name: 'desktop-1280', width: 1280, height: 800, isMobile: false },
 ];
+
+/**
+ * Phase 21 (task 11): the persona that asserts the Reports page's new
+ * data-bearing sections (time-series charts, per-label table). carol is
+ * the tenant viewer -- the least-privileged persona that can still read
+ * reports, so if the sections render for her they render for everyone
+ * above her.
+ */
+const SECTION_PERSONA = 'carol';
 
 /**
  * The nav is h-16 (64px) plus a 1px bottom border. Allow a little slack for
@@ -103,6 +130,61 @@ function check(label, ok, detail) {
   } else {
     console.log(`  FAIL ${label}${detail ? ` -- ${detail}` : ''}`);
     failures.push(`${label}${detail ? `: ${detail}` : ''}`);
+  }
+}
+
+/** The three layout invariants every DashboardLayout route must hold. */
+function checkLayout(routeLabel, geo) {
+  check(
+    `${routeLabel} nav height <= ${NAV_HEIGHT_MAX}px`,
+    geo.navHeight !== null && geo.navHeight <= NAV_HEIGHT_MAX,
+    `got ${geo.navHeight}px`
+  );
+  check(
+    `${routeLabel} main sits directly under nav`,
+    geo.mainTop !== null && Math.abs(geo.mainTop - geo.navHeight) <= 2,
+    `main top ${geo.mainTop}px vs nav height ${geo.navHeight}px`
+  );
+  check(
+    `${routeLabel} no horizontal overflow`,
+    geo.scrollWidth <= geo.innerWidth + 1,
+    geo.overflowing.length ? geo.overflowing.join(', ') : `scrollWidth ${geo.scrollWidth} > ${geo.innerWidth}`
+  );
+}
+
+/** Collects console errors and page errors into `sink` (task 11: the new
+ * pages must render without console errors, which jsdom tests cannot see
+ * -- e.g. a chart component throwing only in a real layout pass). Returns
+ * an unwatch function. */
+function watchConsole(page, sink) {
+  const onConsole = (msg) => {
+    if (msg.type() === 'error') {
+      sink.push(msg.text());
+    }
+  };
+  const onPageError = (err) => sink.push(String(err));
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  return () => {
+    page.off('console', onConsole);
+    page.off('pageerror', onPageError);
+  };
+}
+
+/** Navigates and resolves once the SPA settled (nav present, network
+ * quiet), returning the page geometry -- or null when the route did not
+ * load (reported by the caller). */
+async function settleAt(page, route) {
+  try {
+    await page.goto(BASE_URL + route, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForSelector('nav', { timeout: 10000 });
+    // One paint after load, so freshly-mounted cards measure their final
+    // geometry rather than the pre-effect skeleton.
+    await page.waitForTimeout(300);
+    return await page.evaluate(readGeometry);
+  } catch (err) {
+    check(`${route} loads`, false, err.message.split('\n')[0]);
+    return null;
   }
 }
 
@@ -150,6 +232,50 @@ function readPickerIds() {
     .filter(Boolean);
 }
 
+/** Discovers, as the selected persona, the data phase 21's surfaces render:
+ * an execution with at least two finalised runs (the compare page needs
+ * two), and within it a run whose series and per-label rows both exist
+ * (the Reports page's new sections). Purely read-only API walks over the
+ * same endpoints the pages use; returns null when this target has no such
+ * data -- vite preview has no API, a fresh stack has no finalised runs --
+ * so the data-dependent assertions can skip honestly instead of failing. */
+async function discoverResultsData(page) {
+  try {
+    return await page.evaluate(async () => {
+      const get = async (url) => {
+        const res = await fetch(url, { headers: { accept: 'application/json' } });
+        if (!res.ok) {
+          return null;
+        }
+        return res.json();
+      };
+      const executions = await get('/api/executions');
+      if (!Array.isArray(executions)) {
+        return null;
+      }
+      for (const exe of executions.slice(0, 5)) {
+        const reports = await get(`/api/executions/${exe.id}/reports`);
+        if (!Array.isArray(reports) || reports.length < 2) {
+          continue;
+        }
+        const found = { executionId: exe.id, runIds: reports.map((r) => r.run_id), runId: null };
+        for (const rid of found.runIds) {
+          const series = await get(`/api/runs/${rid}/series`);
+          const report = await get(`/api/runs/${rid}/report`);
+          if (series?.points?.length > 0 && report?.labels?.length > 0) {
+            found.runId = rid;
+            return found;
+          }
+        }
+        return found; // compare still works; the section assertions skip
+      }
+      return null;
+    });
+  } catch {
+    return null; // no API on this origin, or it is unreachable
+  }
+}
+
 const executablePath = findChromium();
 if (!executablePath) {
   console.error(
@@ -180,33 +306,13 @@ try {
     const page = await context.newPage();
 
     for (const route of ROUTES) {
-      let geo;
-      try {
-        await page.goto(BASE_URL + route, { waitUntil: 'networkidle', timeout: 20000 });
-        await page.waitForSelector('nav', { timeout: 10000 });
-        geo = await page.evaluate(readGeometry);
-      } catch (err) {
-        check(`${route} loads`, false, err.message.split('\n')[0]);
+      const geo = await settleAt(page, route);
+      if (!geo) {
         continue;
       }
-
       // The bug this script exists for: a drawer left in flow inflates the
       // nav and pushes main down by its full height.
-      check(
-        `${route} nav height <= ${NAV_HEIGHT_MAX}px`,
-        geo.navHeight !== null && geo.navHeight <= NAV_HEIGHT_MAX,
-        `got ${geo.navHeight}px`
-      );
-      check(
-        `${route} main sits directly under nav`,
-        geo.mainTop !== null && Math.abs(geo.mainTop - geo.navHeight) <= 2,
-        `main top ${geo.mainTop}px vs nav height ${geo.navHeight}px`
-      );
-      check(
-        `${route} no horizontal overflow`,
-        geo.scrollWidth <= geo.innerWidth + 1,
-        geo.overflowing.length ? geo.overflowing.join(', ') : `scrollWidth ${geo.scrollWidth} > ${geo.innerWidth}`
-      );
+      checkLayout(route, geo);
 
       if (WANT_SCREENSHOTS) {
         await page.screenshot({
@@ -221,17 +327,24 @@ try {
     if (viewport.isMobile) {
       // /reports while unauthenticated: the nav chrome is there but the
       // permission-filtered nav holds NOTHING -- the picker is what
-      // unauthenticated looks like.
-      await page.goto(BASE_URL + '/reports', { waitUntil: 'networkidle', timeout: 20000 });
+      // unauthenticated looks like. Wrapped like the ROUTES loop: a down
+      // target must fail the run, not crash it behind a stack trace
+      // (found when phase 21 first pointed the script at a stopped preview).
+      const drawerGoto = await page
+        .goto(BASE_URL + '/reports', { waitUntil: 'networkidle', timeout: 20000 })
+        .then(() => true)
+        .catch((err) => {
+          check('/reports loads', false, err.message.split('\n')[0]);
+          return false;
+        });
 
       // A missing marker is itself a failure -- an older build, or a refactor
       // that dropped the class the click-outside handler matches on -- but it
       // has to report as one rather than throwing an uncaught timeout that
       // hides every remaining assertion behind a stack trace.
-      const hasBurger = await page
-        .waitForSelector('.mobile-menu-button', { timeout: 10000 })
-        .then(() => true)
-        .catch(() => false);
+      const hasBurger = drawerGoto
+        ? await page.waitForSelector('.mobile-menu-button', { timeout: 10000 }).then(() => true).catch(() => false)
+        : false;
       check('burger button carries its .mobile-menu-button marker', hasBurger);
 
       if (hasBurger) {
@@ -276,14 +389,22 @@ try {
     // inline links at every width, drawer links at mobile. Needs a demo
     // deployment; a target without one (vite preview with no API, a
     // non-demo deployment) skips honestly instead of failing.
-    await page.goto(BASE_URL + '/', { waitUntil: 'networkidle', timeout: 20000 });
+    const pickerLoaded = await page
+      .goto(BASE_URL + '/', { waitUntil: 'networkidle', timeout: 20000 })
+      .then(() => true)
+      .catch((err) => {
+        check('/ loads', false, err.message.split('\n')[0]);
+        return false;
+      });
     let pickerIds = [];
-    try {
-      await page.waitForSelector('[data-testid="profile-card"]', { timeout: 5000 });
-      pickerIds = await page.evaluate(readPickerIds);
-    } catch {
-      // No cards: either unauthenticated with demo off, or the API is
-      // unreachable and /api/me stayed in its error state.
+    if (pickerLoaded) {
+      try {
+        await page.waitForSelector('[data-testid="profile-card"]', { timeout: 5000 });
+        pickerIds = await page.evaluate(readPickerIds);
+      } catch {
+        // No cards: either unauthenticated with demo off, or the API is
+        // unreachable and /api/me stayed in its error state.
+      }
     }
     if (pickerIds.length === 0) {
       console.log('  skip persona nav checks: no demo profiles offered (demo off, or the API is unreachable)');
@@ -319,6 +440,94 @@ try {
           );
           await page.mouse.click(Math.round(viewport.width / 2), viewport.height - 80);
           await page.waitForTimeout(500);
+        }
+
+        // Phase 21 (task 11): /executions/:id/compare renders for every
+        // persona that can read executions/reports -- the same grant that
+        // shows the Reports nav item, i.e. PERSONAS wholesale (task 10 put
+        // the entry link behind can('report','read')). Layout invariants
+        // and the heading assert regardless of data; the delta table and
+        // p95 overlay need an execution with two finalised runs, which a
+        // dataless target cannot offer (honest skip below).
+        const results = await discoverResultsData(page);
+        const compareId = results ? results.executionId : 1;
+        const compareRoute = `/executions/${compareId}/compare`;
+        const consoleErrors = [];
+        const unwatch = watchConsole(page, consoleErrors);
+        const compareGeo = await settleAt(page, compareRoute);
+        if (compareGeo) {
+          checkLayout(`${persona.id} ${compareRoute}`, compareGeo);
+          const h1 = await page.textContent('h1').catch(() => null);
+          check(
+            `${persona.id} ${compareRoute} renders its heading`,
+            (h1 ?? '').includes('Compare runs'),
+            `h1 = ${JSON.stringify(h1)}`
+          );
+          if (results && results.runIds.length >= 2) {
+            const delta = await page
+              .waitForSelector('[data-testid="delta-table"]', { timeout: 10000 })
+              .then(() => true)
+              .catch(() => false);
+            check(`${persona.id} ${compareRoute} renders the delta table`, delta);
+            const overlay = await page
+              .waitForSelector('[data-testid="chart-compare-p95"]', { timeout: 10000 })
+              .then(() => true)
+              .catch(() => false);
+            check(
+              `${persona.id} ${compareRoute} renders the p95 overlay`,
+              overlay,
+              'both runs need per-second series for the overlay to show'
+            );
+          } else {
+            console.log(`  skip ${persona.id} delta/overlay assertions: no execution with two finalised runs on this target`);
+          }
+          check(
+            `${persona.id} ${compareRoute} logs no console errors`,
+            consoleErrors.length === 0,
+            consoleErrors.slice(0, 3).join(' | ')
+          );
+        }
+        unwatch();
+
+        // The Reports page's new sections, once for the viewer persona at
+        // every width: the time-series card, its requested-vs-achieved
+        // overlay, and the per-label table only exist when a run actually
+        // carries series and labels, so this too needs seeded data. carol
+        // is the least-privileged reader; if it renders for her it renders
+        // for the rest.
+        if (persona.id === SECTION_PERSONA) {
+          if (results && results.runId !== null) {
+            const reportRoute = `/reports/${results.runId}`;
+            const sectionErrors = [];
+            const unwatchSections = watchConsole(page, sectionErrors);
+            const reportGeo = await settleAt(page, reportRoute);
+            if (reportGeo) {
+              checkLayout(reportRoute, reportGeo);
+              const sections = await page.$$eval('h3', (hs) => hs.map((h) => h.textContent?.trim() ?? ''));
+              for (const title of ['Time series', 'Requested vs achieved', 'Per-label results']) {
+                check(
+                  `${reportRoute} renders the "${title}" section`,
+                  sections.includes(title),
+                  `h3 titles: ${sections.join(', ')}`
+                );
+              }
+              for (const testId of ['chart-vus-rps', 'chart-errors', 'chart-latency', 'chart-requested', 'labels-table']) {
+                const present = await page
+                  .waitForSelector(`[data-testid="${testId}"]`, { timeout: 10000 })
+                  .then(() => true)
+                  .catch(() => false);
+                check(`${reportRoute} renders ${testId}`, present);
+              }
+              check(
+                `${reportRoute} logs no console errors`,
+                sectionErrors.length === 0,
+                sectionErrors.slice(0, 3).join(' | ')
+              );
+            }
+            unwatchSections();
+          } else {
+            console.log('  skip report-section assertions: no run with series + labels on this target');
+          }
         }
 
         // Logout returns to the picker so the next persona can be selected.

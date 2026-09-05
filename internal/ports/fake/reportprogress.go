@@ -5,14 +5,22 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/heridotlife/honryu/internal/domain/metrics"
 	"github.com/heridotlife/honryu/internal/domain/report"
 	"github.com/heridotlife/honryu/internal/ports"
 )
 
 // ReportProgress is an in-memory ports.ReportProgress for fast use-case tests.
+// It also fakes ports.IntervalRepository (see interval_repository.go): the
+// per-second series Absorb builds is written by the same object, as it is in
+// the real adapter.
 type ReportProgress struct {
 	mu   sync.Mutex
 	runs map[int64]*progressRun
+	// series is a run's permanent per-second measurements. It is deliberately
+	// not part of progressRun: Discard drops working state, and the series
+	// outlives finalisation.
+	series map[int64]map[int64]*seriesSecond
 
 	// AbsorbErr, when set, is returned by Absorb.
 	AbsorbErr error
@@ -44,10 +52,14 @@ type shardStream struct {
 
 // NewReportProgress builds an empty accumulator store.
 func NewReportProgress() *ReportProgress {
-	return &ReportProgress{runs: map[int64]*progressRun{}}
+	return &ReportProgress{
+		runs:   map[int64]*progressRun{},
+		series: map[int64]map[int64]*seriesSecond{},
+	}
 }
 
 var _ ports.ReportProgress = (*ReportProgress)(nil)
+var _ ports.IntervalRepository = (*ReportProgress)(nil)
 
 // Absorb merges a shard's new intervals into the run.
 func (p *ReportProgress) Absorb(_ context.Context, b ports.ProgressBatch) error {
@@ -78,13 +90,16 @@ func (p *ReportProgress) Absorb(_ context.Context, b ports.ProgressBatch) error 
 		shard.seq = 0
 	}
 
+	var fresh []metrics.Interval
 	for _, iv := range b.Intervals {
 		if iv.Seq <= shard.seq {
 			continue // already absorbed; a retry re-sent it
 		}
 		run.acc.Add(iv)
+		fresh = append(fresh, iv)
 		shard.seq = iv.Seq
 	}
+	p.absorbSeries(b.RunID, fresh)
 	if b.Final {
 		shard.finished = true
 	}

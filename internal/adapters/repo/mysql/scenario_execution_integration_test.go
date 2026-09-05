@@ -172,6 +172,7 @@ func truncateAll(t *testing.T, db *sql.DB) {
 		"execution_launch", "execution_launch_history",
 		"tenant", "role_grant",
 		"execution_report", "report_error_signature",
+		"execution_report_series",
 		"report_progress_shard", "report_progress_label",
 		"report_progress_second", "report_progress_signature",
 		"reservation", "tenant_quota",

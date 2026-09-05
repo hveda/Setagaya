@@ -39,23 +39,30 @@ func (r *Repository) Absorb(ctx context.Context, b ports.ProgressBatch) error {
 
 	// Accumulate only what is new, then merge that much into the run. Building a
 	// small accumulator first means the domain decides what a measurement means
-	// and this file only decides how to add it to what is stored.
+	// and this file only decides how to add it to what is stored. The same
+	// fresh intervals also extend the run's permanent series (see
+	// mergeSeriesSeconds), inside this transaction so a retry's re-sent
+	// intervals -- already skipped by the watermark -- can never be counted
+	// there twice.
 	fresh := report.NewAccumulator()
 	highest := watermark
-	newIntervals := 0
+	freshIntervals := make([]metrics.Interval, 0, len(b.Intervals))
 	for _, iv := range b.Intervals {
 		if iv.Seq <= watermark {
 			continue // already absorbed; a retry re-sent it
 		}
 		fresh.Add(iv)
-		newIntervals++
+		freshIntervals = append(freshIntervals, iv)
 		if iv.Seq > highest {
 			highest = iv.Seq
 		}
 	}
 
-	if newIntervals > 0 {
+	if len(freshIntervals) > 0 {
 		if err := mergeProgress(ctx, tx, b.RunID, fresh.Snapshot()); err != nil {
+			return err
+		}
+		if err := mergeSeriesSeconds(ctx, tx, b.RunID, freshIntervals); err != nil {
 			return err
 		}
 	}

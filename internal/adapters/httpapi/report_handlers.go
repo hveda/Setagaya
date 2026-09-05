@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
+	"github.com/heridotlife/honryu/internal/app/reportapp"
 	"github.com/heridotlife/honryu/internal/domain/rbac"
 	"github.com/heridotlife/honryu/internal/domain/report"
 )
@@ -63,6 +64,50 @@ func (h *handlers) runReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, rep)
+}
+
+// seriesResponse is the wire shape of GET /api/runs/{run_id}/series: points
+// ascending by timestamp, and always an array, so an empty run charts nothing
+// rather than null.
+type seriesResponse struct {
+	Points []reportapp.SeriesPoint `json:"points"`
+}
+
+// runSeries returns a run's per-second series -- the shape of the run (VUs,
+// RPS, error rate, latency percentiles per second), as distinct from the
+// verdicts runReport serves. The unknown-run 404 and the authorization gate
+// are runReport's own: the stored report is what makes a run known, and its
+// ExecutionID is what the report-read gate checks against. Runs that predate
+// the series store have a report and no series, and chart empty.
+func (h *handlers) runSeries(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Series == nil {
+		writeError(w, http.StatusNotFound, "series not configured")
+		return
+	}
+	runID, ok := pathInt(r, "run_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid run id")
+		return
+	}
+	rep, err := h.deps.Reports.GetReport(r.Context(), runID)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeReport(r, rep.ExecutionID); err != nil {
+		respondError(w, err)
+		return
+	}
+	intervals, err := h.deps.Series.ListIntervalsByRun(r.Context(), runID)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	points := reportapp.BuildSeries(intervals, reportapp.SeriesPercentiles())
+	if points == nil {
+		points = []reportapp.SeriesPoint{}
+	}
+	writeJSON(w, http.StatusOK, seriesResponse{Points: points})
 }
 
 // executionReports lists an execution's reports, most recent first, so a

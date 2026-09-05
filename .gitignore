@@ -48,3 +48,4 @@ opencode.json.bak-*
 *.tmp
 *.temp
 debug.yaml
+.cortex/
