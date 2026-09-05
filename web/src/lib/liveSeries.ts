@@ -30,6 +30,43 @@ export interface LiveSeriesPoint {
 export const maxBuckets = 60;
 
 /**
+ * The trailing window behind the Execution page's three rolling numbers,
+ * unchanged from its inline predecessor in Execution.tsx.
+ */
+export const windowMs = 10_000;
+
+/** The three rolling numbers the Execution page's stat cards show. */
+export interface LiveStats {
+  throughput: number;
+  errorRate: number;
+  latencySeconds: number | null;
+}
+
+/**
+ * Trailing-window summary of received events, moved verbatim from
+ * Execution.tsx when the stream logic was extracted into
+ * hooks/useLiveSeries.ts: throughput = events per second over the window,
+ * errorRate = failed share (status !== '200'), latency = the most recent
+ * event's latency. The stream carries one event per measured interval
+ * (roughly once a second per active label/shard), not one per request --
+ * there is no per-request count to work with here, only what the interval
+ * already summarised. A trailing window over received events is the
+ * closest "current" signal obtainable without adding a new backend
+ * aggregation.
+ */
+export function summarize(events: ReceivedMetric[]): LiveStats {
+  if (events.length === 0) {
+    return { throughput: 0, errorRate: 0, latencySeconds: null };
+  }
+  const errors = events.filter((e) => e.metric.status !== '200').length;
+  return {
+    throughput: events.length / (windowMs / 1000),
+    errorRate: errors / events.length,
+    latencySeconds: events[events.length - 1].metric.latency,
+  };
+}
+
+/**
  * An event counts as failed when its status is not "200". The stream's
  * status field carries HTTP-code strings -- the ingest path
  * (internal/app/metricsapp/ingest.go record()) emits exactly "200" or

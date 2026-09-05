@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { ApiError } from '../api/client';
-import { getExecutionInfo, getExecutionStatus, getScenarioPodLog, streamExecutionMetrics } from '../api/status';
+import { getExecutionInfo, getExecutionStatus, getScenarioPodLog } from '../api/status';
 import { listExecutionReports, type Report } from '../api/reports';
 import TaurusEditor from '../components/TaurusEditor';
 import CapacityPanel from '../components/CapacityPanel';
-import type { EngineMetric, ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
+import type { ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
 import { deployExecution, purgeExecution, stopExecution, triggerExecution } from '../api/lifecycle';
 import { useSession } from '../hooks/useSession';
+import { useLiveSeries } from '../hooks/useLiveSeries';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import EngineBadge from '../components/ui/EngineBadge';
 
@@ -25,38 +26,6 @@ function PhaseBadge({ phase }: { phase: Phase }) {
       {phase}
     </span>
   );
-}
-
-/**
- * The stream carries one event per measured interval (roughly once a second
- * per active label/shard), not one per request -- there is no per-request
- * count to work with here, only what the interval already summarised. A
- * trailing window over received events is the closest "current" signal
- * obtainable without adding a new backend aggregation.
- */
-const windowMs = 10_000;
-
-interface ReceivedMetric {
-  receivedAt: number;
-  metric: EngineMetric;
-}
-
-interface LiveStats {
-  throughput: number;
-  errorRate: number;
-  latencySeconds: number | null;
-}
-
-function summarize(events: ReceivedMetric[]): LiveStats {
-  if (events.length === 0) {
-    return { throughput: 0, errorRate: 0, latencySeconds: null };
-  }
-  const errors = events.filter((e) => e.metric.status !== '200').length;
-  return {
-    throughput: events.length / (windowMs / 1000),
-    errorRate: errors / events.length,
-    latencySeconds: events[events.length - 1].metric.latency,
-  };
 }
 
 /**
@@ -175,14 +144,15 @@ export default function Execution() {
 
   const [info, setInfo] = useState<ExecutionInfo | null>(null);
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
-  const [stats, setStats] = useState<LiveStats>({ throughput: 0, errorRate: 0, latencySeconds: null });
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[] | null>(null);
   const [logsScenario, setLogsScenario] = useState<number | null>(null);
   const [logText, setLogText] = useState<string>('');
-  const eventsRef = useRef<ReceivedMetric[]>([]);
+  // The live stream (SSE subscribe, event window, per-second recompute)
+  // lives in the hook; this page keeps only the rolling numbers it feeds.
+  const { stats, reset: resetLive } = useLiveSeries(executionId, validId);
 
   useEffect(() => {
     if (!validId) {
@@ -218,22 +188,8 @@ export default function Execution() {
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load reports.');
       });
-    eventsRef.current = [];
-    setStats({ throughput: 0, errorRate: 0, latencySeconds: null });
-    const prune = () => {
-      const now = Date.now();
-      eventsRef.current = eventsRef.current.filter((e) => now - e.receivedAt < windowMs);
-      setStats(summarize(eventsRef.current));
-    };
-    const unsubscribe = streamExecutionMetrics(executionId, (metric) => {
-      eventsRef.current = [...eventsRef.current, { receivedAt: Date.now(), metric }];
-      prune();
-    });
-    const ticker = setInterval(prune, 1000);
     return () => {
       cancelled = true;
-      unsubscribe();
-      clearInterval(ticker);
       clearInterval(poll);
     };
   }, [executionId, validId]);
@@ -275,7 +231,7 @@ export default function Execution() {
         getExecutionStatus(executionId).then((s) => setStatus(s));
         if (action === 'purge') {
           // Purged: the hub's live view resets to the idle snapshot.
-          setStats({ throughput: 0, errorRate: 0, latencySeconds: null });
+          resetLive();
         }
         void message;
       })
@@ -494,5 +450,3 @@ export default function Execution() {
     </div>
   );
 }
-export { summarize };
-export type { ReceivedMetric };
