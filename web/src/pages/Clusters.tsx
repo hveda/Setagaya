@@ -9,6 +9,7 @@ import Card, { CardContent } from '../components/ui/Card';
 import { ApiError } from '../api/client';
 import { listClusters } from '../api/clusters';
 import type { Cluster, ClusterOrigin } from '../api/clusters';
+import CapacityMeter from '../components/CapacityMeter';
 
 const originClasses: Record<ClusterOrigin, string> = {
   operator: 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300',
@@ -37,6 +38,16 @@ export function originDescription(origin: ClusterOrigin): string {
 export function formatClusterTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+/** Capacity numbers for one cluster row, when the backend offers any.
+ * Honest scope (phase 22): GET /api/clusters' clusterResponse carries
+ * registration fields only -- no engine counts, no ceiling -- so this
+ * returns nothing today and every row renders the meter's "no capacity
+ * reported" state. This mapping is the single place to light the meters
+ * up when the API grows real fields (phase 23 backend candidate). */
+export function clusterCapacity(_cluster: Cluster): { used?: number; ceiling?: number } {
+  return {};
 }
 
 /** The cluster registry, read-only. */
@@ -86,6 +97,7 @@ export default function Clusters() {
                   <tr className="text-caption border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
                     <th scope="col" className="px-3 py-2 font-medium">Name</th>
                     <th scope="col" className="px-3 py-2 font-medium">Origin</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Capacity</th>
                     <th scope="col" className="px-3 py-2 font-medium">Engine namespace</th>
                     <th scope="col" className="px-3 py-2 font-medium">Sidecar image</th>
                     <th scope="col" className="px-3 py-2 font-medium">Ingest URL</th>
@@ -100,6 +112,9 @@ export default function Clusters() {
                       <td className="px-3 py-2 font-medium whitespace-nowrap text-slate-900 dark:text-white">{c.name}</td>
                       <td className="px-3 py-2">
                         <OriginBadge origin={c.origin} />
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <CapacityMeter label="engines" {...clusterCapacity(c)} />
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{c.namespace}</td>
                       <td className="px-3 py-2">
