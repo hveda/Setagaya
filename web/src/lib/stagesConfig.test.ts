@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   configToStages,
+  editableRowsValid,
+  stageRowsValid,
   stagesToConfig,
+  validateStageRow,
   type StageRow,
   type StagesConfigJSON,
 } from './stagesConfig';
@@ -150,6 +153,58 @@ describe('configToStages', () => {
     expect(configToStages({ name: 'n', project_id: 0, execution_id: 0, tests: [] })).toEqual([]);
     // Defensive: a malformed object never throws, it reads as no rows.
     expect(configToStages({ name: 'n', project_id: 0, execution_id: 0 } as StagesConfigJSON)).toEqual([]);
+  });
+});
+
+describe('validateStageRow (loadprofile.Entry.Validate mirror)', () => {
+  const valid: StageRow = { name: 'a', scenarioId: 1, concurrency: 10, engines: 2, rampup: 5, duration: 60 };
+
+  it('passes a valid row with no errors', () => {
+    expect(validateStageRow(valid)).toEqual({});
+  });
+
+  it('flags scenario id <= 0 as "scenario required"', () => {
+    expect(validateStageRow({ ...valid, scenarioId: 0 }).scenarioId).toBe('scenario required');
+  });
+
+  it('flags engines <= 0 as "engines must be positive"', () => {
+    expect(validateStageRow({ ...valid, engines: 0 }).engines).toBe('engines must be positive');
+  });
+
+  it('flags concurrency <= 0 as "concurrency must be positive"', () => {
+    expect(validateStageRow({ ...valid, concurrency: 0 }).concurrency).toBe('concurrency must be positive');
+  });
+
+  it('flags duration <= 0 as "duration must be positive"', () => {
+    expect(validateStageRow({ ...valid, duration: 0 }).duration).toBe('duration must be positive');
+  });
+
+  it('flags negative throughput (ErrThroughputInvalid mirror); unlimited is fine', () => {
+    expect(validateStageRow({ ...valid, throughput: -1 }).throughput).toBe('throughput cannot be negative');
+    expect(validateStageRow({ ...valid, throughput: undefined }).throughput).toBeUndefined();
+    expect(validateStageRow({ ...valid, throughput: 200 }).throughput).toBeUndefined();
+  });
+
+  it('collects every offending field at once (inline display, not first-error)', () => {
+    const errs = validateStageRow({ ...valid, scenarioId: 0, engines: 0, concurrency: 0, duration: 0 });
+    expect(Object.keys(errs).sort()).toEqual(['concurrency', 'duration', 'engines', 'scenarioId']);
+  });
+});
+
+describe('row-set validity helpers', () => {
+  const good: StageRow = { name: 'a', scenarioId: 1, concurrency: 10, engines: 2, rampup: 5, duration: 60 };
+
+  it('stageRowsValid: full mirror -- needs rows, all clean including scenario', () => {
+    expect(stageRowsValid([])).toBe(false);
+    expect(stageRowsValid([good])).toBe(true);
+    expect(stageRowsValid([{ ...good, scenarioId: 0 }])).toBe(false);
+    expect(stageRowsValid([good, { ...good, duration: 0 }])).toBe(false);
+  });
+
+  it('editableRowsValid: same minus the scenario id (the flow assigns it at submit)', () => {
+    expect(editableRowsValid([])).toBe(false);
+    expect(editableRowsValid([{ ...good, scenarioId: 0 }])).toBe(true);
+    expect(editableRowsValid([{ ...good, scenarioId: 0, engines: 0 }])).toBe(false);
   });
 });
 

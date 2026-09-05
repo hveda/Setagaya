@@ -77,7 +77,65 @@ export function stagesToConfig(
 }
 
 /**
- * Config JSON -> rows. Mechanical, never validating (see validateStageRow
+ * Per-field validation of one row, mirroring loadprofile.Entry.Validate's
+ * semantics and message copy (the UI's short forms): scenario required /
+ * engines / concurrency / duration must be positive, throughput cannot be
+ * negative. Collects all offenders (for inline display) rather than
+ * stopping at the first like the Go switch does.
+ */
+export interface StageRowErrors {
+  scenarioId?: string;
+  engines?: string;
+  concurrency?: string;
+  duration?: string;
+  throughput?: string;
+}
+
+export function validateStageRow(row: StageRow): StageRowErrors {
+  const e: StageRowErrors = {};
+  if (row.scenarioId <= 0) {
+    e.scenarioId = 'scenario required';
+  }
+  if (row.engines <= 0) {
+    e.engines = 'engines must be positive';
+  }
+  if (row.concurrency <= 0) {
+    e.concurrency = 'concurrency must be positive';
+  }
+  if (row.duration <= 0) {
+    e.duration = 'duration must be positive';
+  }
+  if (row.throughput !== undefined && row.throughput < 0) {
+    e.throughput = 'throughput cannot be negative';
+  }
+  return e;
+}
+
+const hasErrors = (e: StageRowErrors) => Object.keys(e).length > 0;
+
+/** Full Validate mirror over a row set: at least one row, every row clean. */
+export function stageRowsValid(rows: StageRow[]): boolean {
+  return rows.length > 0 && rows.every((r) => !hasErrors(validateStageRow(r)));
+}
+
+/**
+ * Table-mode validity: the fields the stage table actually edits. The
+ * scenario id is assigned by the host flow at submit (NewTest creates the
+ * scenario first), so a pending scenario does not block the table -- raw
+ * JSON mode owns the full check (see stageRowsValid).
+ */
+export function editableRowsValid(rows: StageRow[]): boolean {
+  return (
+    rows.length > 0 &&
+    rows.every((r) => {
+      const { scenarioId: _scenario, ...editable } = validateStageRow(r);
+      return !hasErrors(editable);
+    })
+  );
+}
+/**
+ * Config JSON -> rows. Mechanical, never validating
+ * (see validateStageRow
  * for that); tolerant of absent keys and canonicalizes the omitted
  * defaults: throughput 0/absent -> undefined (unlimited), csv_split
  * false/absent -> undefined (off).
