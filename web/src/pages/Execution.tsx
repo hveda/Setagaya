@@ -8,9 +8,11 @@ import { listExecutionReports, type Report } from '../api/reports';
 import TaurusEditor from '../components/TaurusEditor';
 import CapacityPanel from '../components/CapacityPanel';
 import type { ExecutionInfo, ExecutionStatus, Phase, ScenarioStatus } from '../api/status';
+import type { LiveSeriesPoint } from '../lib/liveSeries';
 import { deployExecution, purgeExecution, stopExecution, triggerExecution } from '../api/lifecycle';
 import { useSession } from '../hooks/useSession';
 import { useLiveSeries } from '../hooks/useLiveSeries';
+import TimeSeriesChart from '../components/charts/TimeSeriesChart';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import EngineBadge from '../components/ui/EngineBadge';
 
@@ -135,6 +137,76 @@ export function shortTime(iso: string): string {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** The live chart's latency percentiles, in display order (same selector concept as Reports). */
+const LIVE_PERCENTILES = ['50', '95', '99'] as const;
+type LivePercentile = (typeof LIVE_PERCENTILES)[number];
+
+/** Which LiveSeriesPoint field each percentile pill plots. */
+const latencyField: Record<LivePercentile, 'p50' | 'p95' | 'p99'> = {
+  '50': 'p50',
+  '95': 'p95',
+  '99': 'p99',
+};
+
+/** Shared pill styling for the percentile selector (Reports' pctPill, same house style). */
+function pctPill(selected: boolean): string {
+  return selected
+    ? 'bg-sky-600 text-white'
+    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700';
+}
+
+/**
+ * The live run chart: VUs and RPS over run-relative seconds, plus the
+ * chosen latency percentile. Same two-series pattern as Reports' charts
+ * (sky/amber/emerald), except the x axis is seconds since the first
+ * received event -- a plain number axis, not xType="time", because t is
+ * not a Unix timestamp and the live view charts run-relative time. The
+ * wire's latencies are seconds; the chart reads ms, like Reports.
+ */
+function LiveCharts({ series, pct, onPct }: { series: LiveSeriesPoint[]; pct: LivePercentile; onPct: (p: LivePercentile) => void }) {
+  return (
+    <div className="space-y-6">
+      <div data-testid="live-chart-vus-rps">
+        <p className="text-caption mb-2 font-medium text-slate-500 dark:text-slate-400">Concurrency and throughput</p>
+        <TimeSeriesChart
+          series={[
+            { name: 'VUs', color: 'text-sky-500', points: series.map((p) => ({ x: p.t, y: p.vus })) },
+            { name: 'RPS', color: 'text-amber-500', points: series.map((p) => ({ x: p.t, y: p.rps })) },
+          ]}
+        />
+      </div>
+      <div data-testid="live-chart-latency">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-caption font-medium text-slate-500 dark:text-slate-400">Response time</p>
+          <div className="flex gap-1" role="group" aria-label="Latency percentile">
+            {LIVE_PERCENTILES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                data-testid={`pct-${p}`}
+                aria-pressed={p === pct}
+                onClick={() => onPct(p)}
+                className={`rounded-full px-3 py-1 text-caption font-medium transition-colors ${pctPill(p === pct)}`}
+              >
+                p{p}
+              </button>
+            ))}
+          </div>
+        </div>
+        <TimeSeriesChart
+          yLabel="ms"
+          series={[
+            { name: `p${pct}`, color: 'text-emerald-500', points: series.map((p) => ({ x: p.t, y: p[latencyField[pct]] * 1000 })) },
+          ]}
+        />
+      </div>
+      <p className="text-caption text-slate-500 dark:text-slate-400">
+        Seconds since the first received event; each bucket aggregates the events of one second.
+      </p>
+    </div>
+  );
+}
+
 /** A watched execution's live phase, deployment status, rolling metrics, and lifecycle controls. Deep-linkable: the execution id comes from the route. */
 export default function Execution() {
   const { id } = useParams<{ id: string }>();
@@ -152,7 +224,8 @@ export default function Execution() {
   const [logText, setLogText] = useState<string>('');
   // The live stream (SSE subscribe, event window, per-second recompute)
   // lives in the hook; this page keeps only the rolling numbers it feeds.
-  const { stats, reset: resetLive } = useLiveSeries(executionId, validId);
+  const { series, connected, stats, reset: resetLive } = useLiveSeries(executionId, validId);
+  const [pct, setPct] = useState<LivePercentile>('95');
 
   useEffect(() => {
     if (!validId) {
@@ -321,6 +394,29 @@ export default function Execution() {
               )}
             </CardContent>
           </Card>
+          {(status.phase === 'running' || series.length > 0) && (
+            <section aria-labelledby="live-heading" data-testid="live-section">
+              <h3 id="live-heading" className="text-lg font-semibold text-slate-900 sm:text-xl dark:text-white">
+                Live
+              </h3>
+              <div className="mt-3">
+                {!connected && (
+                  <p className="text-body-sm text-amber-600 dark:text-amber-400" role="status" data-testid="live-disconnected">
+                    Stream disconnected — reconnecting…
+                  </p>
+                )}
+                {series.length === 0 ? (
+                  connected && (
+                    <p className="text-body-sm text-slate-500 dark:text-slate-400" data-testid="live-idle">
+                      Waiting for first events…
+                    </p>
+                  )
+                ) : (
+                  <LiveCharts series={series} pct={pct} onPct={setPct} />
+                )}
+              </div>
+            </section>
+          )}
           <Card padding="none">
             {status.status.length === 0 ? (
               <p className="text-body-sm p-6 text-slate-500 dark:text-slate-400">No scenarios deployed yet.</p>
