@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -129,8 +130,27 @@ func respondError(w http.ResponseWriter, err error) {
 		// well-formed request the ceiling refuses, not a server fault -- 429
 		// with the quota condition named. The fixed message deliberately
 		// replaces err.Error(), whose wrapped detail (tenant/cluster/ceiling)
-		// is diagnostics, not a stable API contract.
-		writeError(w, http.StatusTooManyRequests, "reservation would exceed tenant quota")
+		// is diagnostics, not a stable API contract; since phase 24 those
+		// numbers ride in the details envelope instead, with the PUT
+		// remediation an operator can act on. A bare sentinel (nothing typed
+		// attached) falls back to the message-only envelope.
+		var oqe *quotaapp.OverQuotaError
+		if errors.As(err, &oqe) {
+			hint := fmt.Sprintf("PUT /api/tenants/{tenant_id}/quota ceiling=%d", oqe.Ceiling)
+			if oqe.NoQuotaConfigured {
+				hint += "; no quota row exists for this tenant+cluster"
+			}
+			writeErrorDetails(w, http.StatusTooManyRequests, "reservation would exceed tenant quota", map[string]any{
+				"tenant_id": oqe.TenantID,
+				"cluster":   oqe.Cluster,
+				"requested": oqe.Requested,
+				"used":      oqe.Used,
+				"ceiling":   oqe.Ceiling,
+				"hint":      hint,
+			})
+		} else {
+			writeError(w, http.StatusTooManyRequests, "reservation would exceed tenant quota")
+		}
 	case matchesAny(err, conflictErrors):
 		writeError(w, http.StatusConflict, err.Error())
 	case matchesAny(err, badRequestErrors):
