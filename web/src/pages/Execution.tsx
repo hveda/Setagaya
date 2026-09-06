@@ -15,6 +15,7 @@ import { useLiveSeries } from '../hooks/useLiveSeries';
 import TimeSeriesChart from '../components/charts/TimeSeriesChart';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import EngineBadge from '../components/ui/EngineBadge';
+import CopyLink from '../components/CopyLink';
 
 const phaseClasses: Record<Phase, string> = {
   idle: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
@@ -330,11 +331,16 @@ export default function Execution() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-display-sm text-slate-900 dark:text-white">Execution #{executionId}</h1>
-        <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
-          Deployment status, lifecycle controls, and rolling metrics.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-display-sm text-slate-900 dark:text-white">Execution #{executionId}</h1>
+          <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
+            Deployment status, lifecycle controls, and rolling metrics.
+          </p>
+        </div>
+        {/* The page is deep-linkable (/executions/{id}); the copy-link hands
+            that URL to a colleague. */}
+        <CopyLink />
       </div>
       {error && (
         <p className="text-sm text-red-600 dark:text-red-400" role="alert">
