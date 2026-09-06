@@ -63,6 +63,22 @@ export function mobileMenuClasses(isOpen: boolean): string {
   return `${base} ${state}`;
 }
 
+/**
+ * The house focus ring (ui/Button's), reused for the raw <a> nav links so
+ * every focusable element in the shell shows the same keyboard affordance.
+ * focus: (not focus-visible:) matches Button's established contract.
+ */
+const focusRing = 'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500';
+
+/**
+ * Classes for the skip-to-content link: screen-reader-only until focused,
+ * then pinned over the nav (z-50 beats the nav's z-40) instead of reflowing
+ * the page underneath. Tailwind's documented skip-link pattern
+ * (sr-only + focus:not-sr-only) plus positioning.
+ */
+const skipLinkClasses =
+  'sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50 focus:rounded-md focus:bg-sky-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-lg';
+
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -114,17 +130,41 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isMobileMenuOpen]);
 
+  // Escape closes the open drawer -- keyboard parity with the tap-away close
+  // above. Same guard: no listener while the drawer is already closed.
+  useEffect(() => {
+    if (!isMobileMenuOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isMobileMenuOpen]);
+
   if (!mounted) {
     return null;
   }
 
   return (
     <div className="min-h-screen bg-white text-slate-700 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-300">
+      {/* Keyboard entry point (phase 23): first focusable in the DOM, so the
+          first Tab lands here and jumps straight to the content instead of
+          walking the whole nav. sr-only until focused (skipLinkClasses). */}
+      <a href="#main" data-testid="skip-link" className={skipLinkClasses}>
+        Skip to content
+      </a>
       <nav className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur-md dark:border-slate-800/70 dark:bg-slate-950/80">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center space-x-8">
-              <Link to="/" className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <Link
+                to="/"
+                className={`text-xl font-bold tracking-tight text-slate-900 dark:text-white ${focusRing}`}
+              >
                 Honryu<span className="text-sky-500">.</span>
               </Link>
               <div data-testid="nav-links" className="hidden space-x-2 md:flex">
@@ -132,7 +172,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <Link
                     key={item.href}
                     to={item.href}
-                    className={`flex min-h-[44px] items-center rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ${
+                    className={`flex min-h-[44px] items-center rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ${focusRing} ${
                       location.pathname === item.href
                         ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-sky-600 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-sky-400'
@@ -186,7 +226,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 key={item.href}
                 to={item.href}
                 onClick={() => setIsMobileMenuOpen(false)}
-                className={`block min-h-[44px] rounded-lg px-4 py-3 text-base font-medium transition-colors duration-200 ${
+                className={`block min-h-[44px] rounded-lg px-4 py-3 text-base font-medium transition-colors duration-200 ${focusRing} ${
                   location.pathname === item.href
                     ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
                     : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
@@ -199,7 +239,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      <main className="relative z-10 mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+      <main id="main" className="relative z-10 mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         {/* Persistent demo banner, INSIDE main so the nav-height and
             main-under-nav layout invariants are unaffected. Demo mode is a
             credential-free front door -- the banner must never go away. */}

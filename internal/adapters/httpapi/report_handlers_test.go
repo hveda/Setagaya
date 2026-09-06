@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -424,6 +425,173 @@ func TestReportHTTP_UncapturedShardObjectsAre404(t *testing.T) {
 		if rec := do(t, h, http.MethodGet, path); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", path, rec.Code)
 		}
+	}
+}
+
+// seedExportRun provisions the run both export formats read: a stored
+// report (one "checkout" label, 10 samples) plus two measured seconds
+// across two shards -- the same shape TestSeriesHTTP_ServesAMergedRun uses,
+// because the export is that endpoint's data re-serialised.
+func seedExportRun(t *testing.T, h http.Handler, reports *fake.ReportStore, progress *fake.ReportProgress) {
+	t.Helper()
+	if err := reports.SaveReport(context.Background(), sampleReport(1, 42)); err != nil {
+		t.Fatalf("SaveReport: %v", err)
+	}
+	mustAbsorb(t, progress, seriesBatch(42, 0, true,
+		metrics.Interval{
+			Seq: 1, Timestamp: 1000, Label: "checkout", Concurrency: 5,
+			Samples: 10, Succeeded: 9, Failed: 1, Latency: metrics.Histogram{0.01: 9, 0.2: 1},
+		},
+		metrics.Interval{
+			Seq: 2, Timestamp: 1001, Label: "checkout", Concurrency: 5,
+			Samples: 8, Succeeded: 8, Latency: metrics.Histogram{0.01: 8},
+		},
+	))
+	mustAbsorb(t, progress, seriesBatch(42, 1, true,
+		metrics.Interval{
+			Seq: 1, Timestamp: 1000, Label: "checkout", Concurrency: 4,
+			Samples: 5, Succeeded: 4, Failed: 1, Latency: metrics.Histogram{0.01: 5},
+		},
+	))
+}
+
+// format=json is the two endpoint shapes side by side: the report key is
+// what GET /report serves, the series key what GET /series serves.
+func TestRunExport_JSONCombinesReportAndSeries(t *testing.T) {
+	t.Parallel()
+	h, reports, progress := newSeriesEnv(t)
+	seedExportRun(t, h, reports, progress)
+
+	rec := do(t, h, http.MethodGet, "/api/runs/42/export?format=json")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET export json = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="run-42.json"` {
+		t.Errorf("Content-Disposition = %q, want run-42.json attachment", cd)
+	}
+	var got struct {
+		Report struct {
+			RunID   int64  `json:"run_id"`
+			Outcome string `json:"outcome"`
+			Labels  []struct {
+				Label   string `json:"label"`
+				Samples int64  `json:"samples"`
+			} `json:"labels"`
+		} `json:"report"`
+		Series struct {
+			Points []struct {
+				Ts  int64   `json:"ts"`
+				VUs float64 `json:"vus"`
+				RPS float64 `json:"rps"`
+			} `json:"points"`
+		} `json:"series"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.Report.RunID != 42 || got.Report.Outcome != string(taurus.OutcomeFailed) {
+		t.Errorf("report = %+v, want run 42 with its verdict", got.Report)
+	}
+	if len(got.Report.Labels) != 1 || got.Report.Labels[0].Label != "checkout" || got.Report.Labels[0].Samples != 10 {
+		t.Errorf("labels = %+v, want checkout with 10 samples", got.Report.Labels)
+	}
+	if len(got.Series.Points) != 2 || got.Series.Points[0].Ts != 1000 || got.Series.Points[1].Ts != 1001 {
+		t.Fatalf("points = %+v, want 1000 and 1001", got.Series.Points)
+	}
+	if got.Series.Points[0].VUs != 9 || got.Series.Points[0].RPS != 15 {
+		t.Errorf("first point = %+v, want vus 9 rps 15 (both shards summed)", got.Series.Points[0])
+	}
+}
+
+// format=csv is one download, two sections, each under a "# run" comment
+// header -- parsed back with csv.Reader to prove the quoting is real
+// library output, not concatenated strings.
+func TestRunExport_CSVPairsLabelAndSeriesSections(t *testing.T) {
+	t.Parallel()
+	h, reports, progress := newSeriesEnv(t)
+	seedExportRun(t, h, reports, progress)
+
+	rec := do(t, h, http.MethodGet, "/api/runs/42/export?format=csv")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET export csv = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
+		t.Errorf("Content-Type = %q, want text/csv", ct)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="run-42.csv"` {
+		t.Errorf("Content-Disposition = %q, want run-42.csv attachment", cd)
+	}
+	body := rec.Body.String()
+	// The section markers, verbatim: they are the download's table of
+	// contents, and the blank line between sections.
+	if !strings.Contains(body, "# run 42 — labels\n") || !strings.Contains(body, "\n\n# run 42 — per-second series\n") {
+		t.Fatalf("section markers missing:\n%s", body)
+	}
+	// LF, never CRLF (documented on the handler).
+	if strings.Contains(body, "\r") {
+		t.Errorf("csv contains CR; the export is LF-only")
+	}
+
+	// FieldsPerRecord = -1: the download deliberately pairs two tables of
+	// different widths (6-column labels, 8-column series).
+	cr := csv.NewReader(rec.Body)
+	cr.FieldsPerRecord = -1
+	cr.Comment = '#'
+	rows, err := cr.ReadAll()
+	if err != nil {
+		t.Fatalf("parse csv: %v", err)
+	}
+	// Header + 1 label row, then header + 2 series rows (comments and the
+	// blank line are skipped by the reader, not counted as records).
+	want := [][]string{
+		{"label", "samples", "error_rate", "p50", "p95", "p99"},
+		{"checkout", "10", "0.3", "0.01", "0.5", "0.5"},
+		{"ts", "vus", "rps", "err_pct", "p50", "p90", "p95", "p99"},
+		{"1000", "9", "15", "13.333333333333334", "0.01", "0.01", "0.2", "0.2"},
+		{"1001", "5", "8", "0", "0.01", "0.01", "0.01", "0.01"},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("csv rows = %d, want %d:\n%v", len(rows), len(want), rows)
+	}
+	for i, w := range want {
+		if strings.Join(rows[i], ",") != strings.Join(w, ",") {
+			t.Errorf("row %d = %v, want %v", i, rows[i], w)
+		}
+	}
+}
+
+// A missing or unknown format is the caller's error: 400 before any store
+// is consulted, whatever the deployment wires.
+func TestRunExport_RejectsMissingAndUnknownFormat(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newSeriesEnv(t)
+	for _, q := range []string{"", "?format=xml", "?format=CSV"} {
+		path := "/api/runs/42/export" + q
+		rec := do(t, h, http.MethodGet, path)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("GET %s = %d, want 400", path, rec.Code)
+		}
+		if got := strings.TrimSpace(rec.Body.String()); got != `{"message":"format must be json or csv"}` {
+			t.Errorf("GET %s body = %s", path, got)
+		}
+	}
+}
+
+// A report-store-only deployment has no interval store wired: the export
+// answers 404 rather than serving half a download, the series endpoint's
+// own optional-dependency rule.
+func TestRunExport_UnwiredSeriesIs404(t *testing.T) {
+	t.Parallel()
+	h := httpapi.NewRouter(httpapi.Deps{
+		Reports: fake.NewReportStore(), Store: fake.NewObjectStore(),
+		DefaultOwners: []string{"honryu"},
+	})
+	rec := do(t, h, http.MethodGet, "/api/runs/42/export?format=json")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET export (unwired series) = %d, want 404", rec.Code)
 	}
 }
 

@@ -45,6 +45,16 @@
  * The Execution page holds an open metric stream (SSE) for any valid id,
  * so networkidle never settles there -- it settles on domcontentloaded.
  *
+ * Phase 23 (task 7) added the keyboard/export affordances: every shell
+ * route must carry the skip link (a[href="#main"]), the FIRST Tab from
+ * the page body must land on it AND make it visible (checked once, on
+ * the first route of the first viewport -- every route shares the shell,
+ * so the DOM-order contract is identical everywhere; visibility is the
+ * Tailwind sr-only/focus:not-sr-only + focus:absolute ordering contract,
+ * which only a real layout engine can confirm), and alice asserts the
+ * report page's Export CSV/JSON + Copy link and the Execution page's
+ * Copy link -- honest skips when the target has no discovered data.
+ *
  * Needs a Chromium binary. Playwright's cache is found automatically; set
  * CHROMIUM_PATH to point elsewhere. Provision with:
  *   bunx playwright install chromium
@@ -134,6 +144,10 @@ function findChromium() {
 }
 
 const failures = [];
+
+/** Set once the first-Tab focus check has run (see the header comment:
+ * once per run is enough -- the shell DOM order is shared by every route). */
+let focusCheckDone = false;
 function check(label, ok, detail) {
   if (ok) {
     console.log(`  ok   ${label}`);
@@ -346,6 +360,37 @@ try {
       // The bug this script exists for: a drawer left in flow inflates the
       // nav and pushes main down by its full height.
       checkLayout(route, geo);
+
+      // Phase 23 (task 7): the skip link is part of the shell, so it must
+      // render on every route under the DashboardLayout -- including
+      // unauthenticated ones like these (the nav renders, empty).
+      const hasSkipLink = await page.evaluate(() => document.querySelector('a[href="#main"]') !== null);
+      check(`${route} renders the skip link`, hasSkipLink);
+
+      // Phase 23 (task 7): once per run, on the first route of the first
+      // viewport -- Tab from the page body must land on the skip link and
+      // it must become visible. Visible-while-focused is the real-engine
+      // contract the jsdom suite cannot check (Tailwind resolves the
+      // sr-only -> focus:not-sr-only + focus:absolute tie by stylesheet
+      // order; if that ever flips, this is what catches it).
+      if (!focusCheckDone) {
+        focusCheckDone = true;
+        await page.keyboard.press('Tab');
+        const focused = await page.evaluate(() => {
+          const el = document.activeElement;
+          const rect = el?.getBoundingClientRect?.() ?? null;
+          return {
+            href: el?.getAttribute?.('href') ?? null,
+            visible: rect !== null && rect.width > 0 && rect.height > 0,
+          };
+        });
+        check('first Tab lands on the skip link', focused.href === '#main', `activeElement href = ${JSON.stringify(focused.href)}`);
+        check(
+          'skip link becomes visible while focused',
+          focused.href === '#main' && focused.visible,
+          `href = ${JSON.stringify(focused.href)}, visible = ${focused.visible}`
+        );
+      }
 
       if (WANT_SCREENSHOTS) {
         await page.screenshot({
@@ -572,6 +617,17 @@ try {
                 `  skip ${persona.id} live-section assertions: execution ${results.live.id} is not running (phase ${JSON.stringify(results.live.phase)})`
               );
             }
+            // Phase 23 (task 7): the Execution page's copy-link button sits
+            // by the h1 for every session that can read the page; asserted
+            // for alice per the task's scope (her map reads everything, so
+            // the button's presence cannot be a permissions artifact).
+            if (persona.id === 'alice') {
+              const copyLink = await page
+                .waitForSelector('[data-testid="copy-link"]', { timeout: 10000 })
+                .then(() => true)
+                .catch(() => false);
+              check(`${persona.id} ${liveRoute} renders the copy-link button`, copyLink);
+            }
             check(
               `${persona.id} ${liveRoute} logs no console errors beyond by-design 4xx probes`,
               nonResourceErrors(liveErrors).length === 0,
@@ -581,6 +637,37 @@ try {
           unwatchLive();
         } else {
           console.log(`  skip ${persona.id} live-section assertions: no execution on this target`);
+        }
+
+        // Phase 23 (task 7): the report page's export + deep-link affordances,
+        // asserted for the admin persona: Export CSV / Export JSON anchors and
+        // the Copy link button. They render with the page itself, so the
+        // honest skip is the page's own: no discovered run on this target.
+        if (persona.id === 'alice') {
+          if (results?.runId != null) {
+            const exportRoute = `/reports/${results.runId}`;
+            const exportErrors = [];
+            const unwatchExport = watchConsole(page, exportErrors);
+            const exportGeo = await settleAt(page, exportRoute);
+            if (exportGeo) {
+              checkLayout(`alice ${exportRoute} (export affordances)`, exportGeo);
+              for (const id of ['export-csv', 'export-json', 'copy-link']) {
+                const present = await page
+                  .waitForSelector(`[data-testid="${id}"]`, { timeout: 10000 })
+                  .then(() => true)
+                  .catch(() => false);
+                check(`alice ${exportRoute} renders ${id}`, present);
+              }
+              check(
+                `alice ${exportRoute} logs no console errors`,
+                exportErrors.length === 0,
+                exportErrors.slice(0, 3).join(' | ')
+              );
+            }
+            unwatchExport();
+          } else {
+            console.log('  skip alice export/copy-link assertions: no run with series + labels on this target');
+          }
         }
 
         // Phase 22 (task 10): the NewTest page's stage editor. The editor

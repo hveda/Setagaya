@@ -518,7 +518,7 @@ export default function Campaigns() {
                   <button
                     type="button"
                     onClick={() => void selectCampaign(c.id)}
-                    className={`flex min-h-[44px] w-full flex-col gap-2 p-4 text-left transition-colors duration-200 sm:flex-row sm:items-center sm:justify-between ${
+                    className={`flex min-h-[44px] w-full flex-col gap-2 rounded p-4 text-left transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 sm:flex-row sm:items-center sm:justify-between ${
                       selectedId === c.id ? 'bg-sky-50 dark:bg-sky-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
                   >

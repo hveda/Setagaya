@@ -195,3 +195,25 @@ describe('Execution live section (mounted)', () => {
     expect(container!.textContent).not.toContain('Waiting for first events');
   });
 });
+
+// The Execution page is deep-linkable (/executions/{id}); its CopyLink
+// (task 4) hands that URL to a colleague. Same mounted harness as the live
+// section, plus the clipboard stub CopyLink.test.tsx uses.
+describe('Execution copy-link (mounted)', () => {
+  it('renders near the heading and copies the page URL on click', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    await renderExecution('running');
+
+    const btn = container!.querySelector('[data-testid="copy-link"]');
+    expect(btn?.textContent).toContain('Copy link');
+
+    await act(async () => {
+      btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(window.location.href);
+    expect(container!.querySelector('[data-testid="copy-link"]')?.textContent).toContain('Copied');
+  });
+});

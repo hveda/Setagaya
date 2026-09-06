@@ -171,6 +171,37 @@ describe('ReportDetail time series (mounted)', () => {
   });
 });
 
+describe('ReportDetail export + copy-link (mounted)', () => {
+  it('renders export anchors and copy-link next to the run heading', async () => {
+    await renderReportDetail();
+
+    const csv = container!.querySelector('[data-testid="export-csv"]');
+    expect(csv?.getAttribute('href')).toBe('/api/runs/9/export?format=csv');
+    expect(csv?.hasAttribute('download')).toBe(true);
+    expect(csv?.textContent).toContain('Export CSV');
+    const json = container!.querySelector('[data-testid="export-json"]');
+    expect(json?.getAttribute('href')).toBe('/api/runs/9/export?format=json');
+    expect(json?.hasAttribute('download')).toBe(true);
+    expect(json?.textContent).toContain('Export JSON');
+    expect(container!.querySelector('[data-testid="copy-link"]')).not.toBeNull();
+  });
+
+  it('copy-link puts the page URL on the clipboard and confirms', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    await renderReportDetail();
+
+    await act(async () => {
+      container!
+        .querySelector('[data-testid="copy-link"]')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(writeText).toHaveBeenCalledWith(window.location.href);
+    expect(container!.querySelector('[data-testid="copy-link"]')?.textContent).toContain('Copied');
+  });
+});
+
 describe('requestedLine', () => {
   const xs = [
     { x: 100 },

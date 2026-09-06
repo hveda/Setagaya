@@ -912,12 +912,12 @@ func TestRBAC_ViewerReadsOwnResourceBucket(t *testing.T) {
 	}
 }
 
-// The run/report bucket (task 10): all six report routes authorize
+// The run/report bucket (task 10): all seven report routes authorize
 // rbac.ResourceReport/ActionRead against the owning execution's tenant --
 // execution-keyed routes directly, run-keyed routes (run report, shard
-// log/config) by resolving the run's execution first. tenant_viewer and
-// campaign_manager both hold report:read; a caller with no relationship to
-// the tenant is denied on every one.
+// log/config, export) by resolving the run's execution first. tenant_viewer
+// and campaign_manager both hold report:read; a caller with no relationship
+// to the tenant is denied on every one.
 func TestRBAC_ReportRoutesRequireReportRead(t *testing.T) {
 	t.Parallel()
 	f := newRBACFixture(t)
@@ -954,6 +954,7 @@ func TestRBAC_ReportRoutesRequireReportRead(t *testing.T) {
 	reads := []string{
 		exec + "/reports", exec + "/trend", exec + "/error-signatures",
 		"/api/runs/" + strconv.FormatInt(runID, 10) + "/report",
+		"/api/runs/" + strconv.FormatInt(runID, 10) + "/export?format=json",
 		runBase + "/shards/0/log",
 	}
 	// The viewer and the campaign manager both hold report:read in acme.

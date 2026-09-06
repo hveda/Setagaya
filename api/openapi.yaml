@@ -1989,6 +1989,41 @@ paths:
               schema: { $ref: '#/components/schemas/Series' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/runs/{run_id}/export:
+    get:
+      tags: [reports]
+      summary: Export a run's report and series
+      description: >-
+        One run out of honryu, whole. format=json returns the report and the
+        series under their own keys, each exactly the shape its dedicated
+        endpoint serves; format=csv returns one download with two sections
+        under "# run {id}" comment headers -- the per-label table (label,
+        samples, error_rate, p50, p95, p99) then the per-second series (ts,
+        vus, rps, err_pct, p50, p90, p95, p99). CSV conventions: LF line
+        endings, latency in seconds, error_rate a fraction, an empty cell
+        where a percentile was not measured. Authorization and the optional
+        series dependency match the series route.
+      parameters:
+        - { $ref: '#/components/parameters/RunID' }
+        - name: format
+          in: query
+          required: true
+          description: 'Download format: json or csv.'
+          schema: { type: string, enum: [json, csv] }
+      responses:
+        '200':
+          description: Run export
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { $ref: '#/components/schemas/Report' }
+                  series: { $ref: '#/components/schemas/Series' }
+            text/csv: {}
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log:
     get:
       tags: [reports]
