@@ -76,8 +76,12 @@ export const flowSteps = [
 ] as const;
 export type FlowStep = (typeof flowSteps)[number];
 
-/** Wraps an error with the step that failed. */
+/**
+ * Wraps an error with the step that failed. The original rides along as
+ * `cause` (phase 24) so errorDetails can still reach the ApiError's
+ * structured envelope through the wrap.
+ */
 export function stepError(step: FlowStep, err: unknown): Error {
   const msg = err instanceof Error ? err.message : String(err);
-  return new Error(`Step "${step}" failed: ${msg}`);
+  return new Error(`Step "${step}" failed: ${msg}`, { cause: err });
 }

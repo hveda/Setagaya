@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient, ApiError } from './client';
+import { ApiClient, ApiError, errorDetails } from './client';
 
 describe('ApiClient', () => {
   afterEach(() => {
@@ -169,5 +169,65 @@ describe('putRaw', () => {
     const err = await client.putRaw('/scenarios/1/requests', 'text/yaml', 'a: 1\n').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(422);
+  });
+});
+
+// Phase 24's structured error envelope: {"message": ..., "details": {...}}
+// rides on select errors (429 quota, 409 engines-finished). errorDetails is
+// the single reader pages use -- details when present, null otherwise.
+describe('errorDetails', () => {
+  it('returns the details object of a 429 quota envelope, end to end through the client', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            message: 'reservation would exceed tenant quota',
+            details: { tenant_id: 1, ceiling: 1, used: 0, requested: 2, hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1' },
+          }),
+          { status: 429, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    );
+    const client = new ApiClient({ baseUrl: '/mock-api', getToken: () => null });
+    const err = await client.post('/executions/9/trigger', new URLSearchParams()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(errorDetails(err)).toEqual({
+      tenant_id: 1,
+      ceiling: 1,
+      used: 0,
+      requested: 2,
+      hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1',
+    });
+  });
+
+  it('returns null for a message-only envelope', () => {
+    expect(errorDetails(new ApiError(404, 'not found', { message: 'not found' }))).toBeNull();
+  });
+
+  it('returns null when the body never parsed (no data) and for non-ApiError errors', () => {
+    expect(errorDetails(new ApiError(500, 'Internal Server Error'))).toBeNull();
+    expect(errorDetails(new Error('boom'))).toBeNull();
+    expect(errorDetails('reservation would exceed tenant quota')).toBeNull();
+    expect(errorDetails(null)).toBeNull();
+  });
+
+  it('returns null when details is present but not an object', () => {
+    expect(errorDetails(new ApiError(400, 'bad', { message: 'bad', details: 'oops' }))).toBeNull();
+  });
+});
+
+describe('errorDetails through wrapper errors', () => {
+  it("reaches the envelope through a wrapper's cause chain (NewTest's stepError)", () => {
+    const api = new ApiError(429, 'reservation would exceed tenant quota', {
+      message: 'reservation would exceed tenant quota',
+      details: { ceiling: 1, hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1' },
+    });
+    const wrapped = new Error('Step "save load config" failed: reservation would exceed tenant quota', { cause: api });
+    expect(errorDetails(wrapped)).toEqual({ ceiling: 1, hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1' });
+  });
+
+  it('stays null for a cause chain with no ApiError in it', () => {
+    expect(errorDetails(new Error('outer', { cause: new Error('inner') }))).toBeNull();
   });
 });

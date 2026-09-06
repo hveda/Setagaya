@@ -138,6 +138,24 @@ type Freeze interface {
 // campaign's freeze. The error names the blocking campaign.
 var ErrCampaignFrozen = errors.New("lifecycleapp: blocked by an active campaign's freeze")
 
+// EnginesFinishedError is the typed form Trigger refuses with when the
+// deployed engines already ran and finished: it carries the orphaned
+// completion count so the HTTP layer can surface it in the details
+// envelope (phase 24). Error()'s text is a pinned contract -- byte-
+// identical to the fmt.Errorf wrap this type replaced.
+type EnginesFinishedError struct {
+	Orphaned int
+}
+
+// Error keeps the exact text of the wrap this type replaced.
+func (e *EnginesFinishedError) Error() string {
+	return fmt.Sprintf("%s: %d orphaned shard completion(s)", run.ErrEnginesFinished, e.Orphaned)
+}
+
+// Unwrap keeps the domain sentinel reachable through intervening %w
+// wraps: errors.Is(err, run.ErrEnginesFinished) still matches.
+func (e *EnginesFinishedError) Unwrap() error { return run.ErrEnginesFinished }
+
 type noopFreeze struct{}
 
 func (noopFreeze) IsFrozen(context.Context, int64, int64) (bool, string, error) {
@@ -454,7 +472,7 @@ func (s *Service) Trigger(ctx context.Context, executionID int64) error {
 	if orphans, err := s.repo.OrphanCompletions(ctx, executionID); err != nil {
 		return err
 	} else if len(orphans) > 0 {
-		return fmt.Errorf("%w: %d orphaned shard completion(s)", run.ErrEnginesFinished, len(orphans))
+		return &EnginesFinishedError{Orphaned: len(orphans)}
 	}
 
 	// Quota is opt-in with the tenant it scopes to: an execution that never

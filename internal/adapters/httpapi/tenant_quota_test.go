@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -91,6 +92,7 @@ type quotaEnv struct {
 	h           http.Handler
 	store       *fake.Store
 	executionID int64
+	tenantID    int64
 }
 
 func newQuotaEnv(t *testing.T) quotaEnv {
@@ -143,7 +145,7 @@ func newQuotaEnv(t *testing.T) quotaEnv {
 	}); err != nil {
 		t.Fatalf("store load profile: %v", err)
 	}
-	return quotaEnv{h: h, store: store, executionID: executionID}
+	return quotaEnv{h: h, store: store, executionID: executionID, tenantID: tenantID}
 }
 
 // An over-quota Trigger is a well-formed request the tenant's ceiling
@@ -166,5 +168,49 @@ func TestTenantQuota_TriggerOverQuotaIs429Not500(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "reservation would exceed tenant quota") {
 		t.Fatalf("429 body = %s, want the quota condition named", rec.Body.String())
+	}
+}
+
+// The 429 carries phase 24's details envelope: the fixed message stays the
+// stable contract, and the admission numbers plus the PUT remediation ride
+// along in "details" for the operator UI to surface.
+func TestTenantQuota_TriggerOverQuotaCarriesDetails(t *testing.T) {
+	t.Parallel()
+	e := newQuotaEnv(t)
+	base := "/api/executions/" + itoa(e.executionID)
+
+	if rec := do(t, e.h, http.MethodPost, base+"/deploy"); rec.Code != http.StatusOK {
+		t.Fatalf("deploy = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, e.h, http.MethodPost, base+"/trigger")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("over-quota trigger = %d (%s), want 429", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Message string `json:"message"`
+		Details struct {
+			TenantID  int64  `json:"tenant_id"`
+			Cluster   string `json:"cluster"`
+			Requested int    `json:"requested"`
+			Used      int    `json:"used"`
+			Ceiling   int    `json:"ceiling"`
+			Hint      string `json:"hint"`
+		} `json:"details"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("429 body is not the envelope: %v (%s)", err, rec.Body.String())
+	}
+	if body.Message != "reservation would exceed tenant quota" {
+		t.Fatalf("message = %q, want the fixed contract", body.Message)
+	}
+	if body.Details.TenantID != e.tenantID || body.Details.Ceiling != 1 || body.Details.Used != 0 {
+		t.Fatalf("details = %+v, want the ledger's tenant/ceiling/used", body.Details)
+	}
+	if body.Details.Requested <= body.Details.Ceiling {
+		t.Fatalf("requested = %d, want it over the ceiling (that is why this is a 429)", body.Details.Requested)
+	}
+	if !strings.Contains(body.Details.Hint, "PUT /api/tenants/{tenant_id}/quota") || !strings.Contains(body.Details.Hint, "ceiling=") {
+		t.Fatalf("hint = %q, want the PUT remediation naming the ceiling", body.Details.Hint)
 	}
 }

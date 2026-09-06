@@ -18,7 +18,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-// writeError writes a JSON error envelope.
+// writeError writes a JSON error envelope: the message-only shape every
+// existing consumer pins.
 func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"message": message})
+	writeErrorDetails(w, status, message, nil)
+}
+
+// writeErrorDetails writes the envelope with an optional structured
+// details payload (phase 24): {"message": ..., "details": {...}}. The
+// message stays the stable contract; details is strictly opt-in per error,
+// and a nil details omits the key entirely so message-only bodies remain
+// byte-identical to the pre-envelope encoding.
+func writeErrorDetails(w http.ResponseWriter, status int, message string, details any) {
+	if details == nil {
+		writeJSON(w, status, map[string]string{"message": message})
+		return
+	}
+	writeJSON(w, status, map[string]any{"message": message, "details": details})
 }

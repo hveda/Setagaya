@@ -45,6 +45,17 @@ func (h *handlers) triggerExecution(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deadline := time.Now().Add(timeout)
+	// The wait is bounded but can far outlive http.Server.WriteTimeout
+	// (2m vs 15s by default): a write deadline that expires mid-wait makes
+	// the final conflict answer unwritable -- zero bytes reach the client
+	// (curl exit 52, "empty reply"), and net/http swallows the failed write
+	// so the server logs nothing (phase-23 finding #1, root-caused phase 24
+	// T7). Push this connection's write deadline out to cover the whole
+	// wait plus one poll beat of grace for the final attempt's write -- the
+	// same per-response deadline control streaming handlers rely on. Best
+	// effort: without deadline control (unstarted/hijacked conns) behavior
+	// falls back to what the server configured.
+	_ = http.NewResponseController(w).SetWriteDeadline(deadline.Add(poll))
 	for {
 		err := h.deps.Lifecycle.Trigger(r.Context(), id)
 		if err == nil {

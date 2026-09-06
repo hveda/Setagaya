@@ -627,6 +627,58 @@ try {
                 .then(() => true)
                 .catch(() => false);
               check(`${persona.id} ${liveRoute} renders the copy-link button`, copyLink);
+
+              // Phase 24 (task 8): the action-error alert block. Rendering
+              // the details envelope inside it is unit-tested; the layout
+              // concern is that a FAILED lifecycle action puts a visible
+              // role=alert into the DOM at real viewport widths -- jsdom
+              // cannot see it, and a block that renders detached or zero-
+              // sized would surface here as a missing/invisible node. The
+              // failure is manufactured entirely client-side: the lifecycle
+              // POST is intercepted and answered with a stubbed 409 before
+              // it can leave the browser, so this stays read-only against
+              // any target (this script reads deployments, it never builds
+              // or stops them). Whichever lifecycle button the phase leaves
+              // enabled serves as the click.
+              const lifecyclePOST = /\/api\/executions\/\d+\/(deploy|trigger|stop|purge)$/;
+              const stubConflict = (route) =>
+                route.fulfill({
+                  status: 409,
+                  contentType: 'application/json',
+                  body: JSON.stringify({ message: 'layout-check stubbed conflict' }),
+                });
+              await page.route(lifecyclePOST, stubConflict);
+              const actionButton = page
+                .locator('button:enabled', { hasText: /^(Deploy|Trigger|Stop|Purge)$/ })
+                .first();
+              if ((await actionButton.count()) === 0) {
+                console.log(`  skip ${persona.id} action-error assertion: no enabled lifecycle button for phase ${JSON.stringify(results.live.phase)}`);
+              } else {
+                await actionButton.click();
+                // Several role=alert nodes can coexist on this page (the
+                // embedded TaurusEditor carries its own error alert, e.g.
+                // the 409 a native scenario's fragment fetch answers with)
+                // and one is present from load -- so waiting for "an alert"
+                // alone races the stubbed round trip. Wait for THE alert:
+                // only the action-error block can carry the stub's text.
+                const ok = await page
+                  .waitForFunction(
+                    () =>
+                      Array.from(document.querySelectorAll('p[role="alert"]')).some((p) =>
+                        (p.textContent ?? '').includes('layout-check stubbed conflict')
+                      ),
+                    { timeout: 10000 }
+                  )
+                  .then(() => true)
+                  .catch(() => false);
+                const alertTexts = ok
+                  ? null
+                  : await page
+                      .$$eval('p[role="alert"]', (ps) => ps.map((p) => (p.textContent ?? '').trim()))
+                      .catch(() => []);
+                check(`${persona.id} ${liveRoute} surfaces the action-error alert block`, ok, `alert texts = ${JSON.stringify(alertTexts)}`);
+              }
+              await page.unroute(lifecyclePOST, stubConflict);
             }
             check(
               `${persona.id} ${liveRoute} logs no console errors beyond by-design 4xx probes`,
