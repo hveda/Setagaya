@@ -15,6 +15,7 @@ import { useLiveSeries } from '../hooks/useLiveSeries';
 import TimeSeriesChart from '../components/charts/TimeSeriesChart';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import EngineBadge from '../components/ui/EngineBadge';
+import CopyLink from '../components/CopyLink';
 
 const phaseClasses: Record<Phase, string> = {
   idle: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
@@ -150,9 +151,11 @@ const latencyField: Record<LivePercentile, 'p50' | 'p95' | 'p99'> = {
 
 /** Shared pill styling for the percentile selector (Reports' pctPill, same house style). */
 function pctPill(selected: boolean): string {
-  return selected
-    ? 'bg-sky-600 text-white'
-    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700';
+  return `${
+    selected
+      ? 'bg-sky-600 text-white'
+      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700'
+  } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500`;
 }
 
 /**
@@ -330,11 +333,16 @@ export default function Execution() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-display-sm text-slate-900 dark:text-white">Execution #{executionId}</h1>
-        <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
-          Deployment status, lifecycle controls, and rolling metrics.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-display-sm text-slate-900 dark:text-white">Execution #{executionId}</h1>
+          <p className="text-body-sm mt-1 text-slate-500 dark:text-slate-400">
+            Deployment status, lifecycle controls, and rolling metrics.
+          </p>
+        </div>
+        {/* The page is deep-linkable (/executions/{id}); the copy-link hands
+            that URL to a colleague. */}
+        <CopyLink />
       </div>
       {error && (
         <p className="text-sm text-red-600 dark:text-red-400" role="alert">
@@ -485,7 +493,7 @@ export default function Execution() {
                     </div>
                     <Link
                       to={`/reports/${rep.run_id}`}
-                      className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+                      className="rounded text-sm font-medium text-sky-600 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:text-sky-400"
                     >
                       Report →
                     </Link>

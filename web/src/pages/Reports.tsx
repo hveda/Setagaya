@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Download } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import CopyButton from '../components/ui/CopyButton';
+import CopyLink from '../components/CopyLink';
 import EngineBadge from '../components/ui/EngineBadge';
 import Input from '../components/ui/Input';
 import OutcomeBadge from '../components/ui/OutcomeBadge';
 import LabelsTable from '../components/LabelsTable';
 import { ApiError } from '../api/client';
+import { apiClient } from '../api/client';
 import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from '../api/reports';
 import type { Load, Report } from '../api/reports';
 import { fetchSeries } from '../api/series';
@@ -32,6 +34,19 @@ function formatTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
+
+/** The run export download URL: the API base (same origin as the SPA) plus
+ * the run's export endpoint with the requested format. Anchors, not fetch:
+ * the browser performs the download natively. */
+function exportRunHref(runId: number, format: 'csv' | 'json'): string {
+  return `${apiClient.baseUrl}/runs/${runId}/export?format=${format}`;
+}
+
+/** Small-button styling for the run header's action group -- CopyButton's
+ * visual language, anchor-flavoured, so the export links and the copy-link
+ * read as one group. */
+const runActionClass =
+  'inline-flex min-h-[32px] items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-caption font-medium text-slate-600 transition-colors hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800';
 
 function sortedPercentiles(latency: Record<string, number>): [string, number][] {
   return Object.entries(latency).sort(([a], [b]) => Number(a) - Number(b));
@@ -96,7 +111,7 @@ function ReportsList() {
           <Link
             to={compareHref}
             data-testid="compare-runs-link"
-            className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+            className="rounded text-sm font-medium text-sky-600 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:text-sky-400"
           >
             Compare runs →
           </Link>
@@ -144,7 +159,7 @@ function ReportsList() {
                   <li key={r.run_id}>
                     <Link
                       to={`/reports/${r.run_id}`}
-                      className="flex min-h-[44px] flex-col gap-2 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex min-h-[44px] flex-col gap-2 rounded p-4 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:hover:bg-slate-700/50 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="flex flex-wrap items-center gap-3">
                         <OutcomeBadge outcome={r.outcome} />
@@ -338,9 +353,11 @@ const LATENCY_PERCENTILES = ['50', '90', '95', '99'];
 
 /** Shared pill styling for the latency percentile selector. */
 function pctPill(selected: boolean): string {
-  return selected
-    ? 'bg-sky-600 text-white'
-    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700';
+  return `${
+    selected
+      ? 'bg-sky-600 text-white'
+      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700'
+  } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500`;
 }
 
 /**
@@ -576,7 +593,30 @@ function ReportDetail({ runId }: { runId: string }) {
         <>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Run #{report.run_id}</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>Run #{report.run_id}</CardTitle>
+                {/* The get-data-out group: both export formats the endpoint
+                    serves, plus the deep-link to this very page. */}
+                <a
+                  href={exportRunHref(report.run_id, 'csv')}
+                  download
+                  data-testid="export-csv"
+                  className={runActionClass}
+                >
+                  <Download aria-hidden className="h-3.5 w-3.5" />
+                  Export CSV
+                </a>
+                <a
+                  href={exportRunHref(report.run_id, 'json')}
+                  download
+                  data-testid="export-json"
+                  className={runActionClass}
+                >
+                  <Download aria-hidden className="h-3.5 w-3.5" />
+                  Export JSON
+                </a>
+                <CopyLink />
+              </div>
               <OutcomeBadge outcome={report.outcome} />
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -627,7 +667,7 @@ function ReportDetail({ runId }: { runId: string }) {
                       href={formatApmLink(apmTemplate, report.correlation_id) as string}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-sm font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
+                      className="inline-flex items-center gap-1 rounded text-sm font-medium text-sky-600 hover:text-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:text-sky-400 dark:hover:text-sky-300"
                     >
                       Open in APM <ExternalLink aria-hidden className="h-3.5 w-3.5" />
                     </a>

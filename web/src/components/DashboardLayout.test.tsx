@@ -253,3 +253,66 @@ describe('DashboardLayout (mounted)', () => {
     expect(container?.querySelectorAll('[data-testid="nav-links"] a').length).toBe(0);
   });
 });
+
+// Task 5 (phase 23): keyboard navigation in the shell -- the skip link,
+// Escape-to-close for the mobile drawer, and the focus-ring contract on
+// the nav links. The theme toggle needs no assertion here: it is a
+// ui/Button, whose base classes already carry the house focus ring
+// (focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500).
+describe('DashboardLayout (keyboard)', () => {
+  it('renders the skip link as the first anchor, targeting #main', async () => {
+    await renderLayout(stubApi({ '/api/me': () => json(carol) }));
+
+    const skip = container?.querySelector('a[href="#main"]');
+    expect(skip).not.toBeNull();
+    expect(skip?.textContent).toContain('Skip to content');
+    // The anchor's target exists: main carries id="main".
+    expect(container?.querySelector('main#main')).not.toBeNull();
+    // DOM-order first: the skip link precedes the nav so Tab reaches it
+    // before any nav chrome.
+    expect(container?.querySelector('a')).toBe(skip);
+
+    // Nav links (inline desktop set) carry the house focus ring; the
+    // class string is the contract here, same as mobileMenuClasses above.
+    for (const link of Array.from(container?.querySelectorAll('[data-testid="nav-links"] a') ?? [])) {
+      expect(link.className).toContain('focus:ring-2');
+      expect(link.className).toContain('focus:ring-sky-500');
+    }
+  });
+
+  it('focuses the skip link on the first Tab from the page body', async () => {
+    await renderLayout(stubApi({ '/api/me': () => json(carol) }));
+
+    // jsdom implements no sequential focus navigation (a Tab keydown moves
+    // nothing on its own) and this repo carries no @testing-library/user-event,
+    // so this models userEvent.tab() the way the browser computes it for the
+    // forward-from-body case: the first element in DOM order matching the
+    // tabbable selector.
+    const tabbable = document.body.querySelector<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    tabbable?.focus();
+
+    const skip = container?.querySelector('a[href="#main"]');
+    expect(tabbable).toBe(skip);
+    expect(document.activeElement).toBe(skip);
+  });
+
+  it('Escape closes the open mobile menu', async () => {
+    await renderLayout(stubApi({ '/api/me': () => json(carol) }));
+
+    const burger = container?.querySelector('.mobile-menu-button') as HTMLButtonElement;
+    await act(async () => {
+      burger.click();
+    });
+    const drawer = container?.querySelector('.mobile-menu');
+    expect(drawer?.className).toContain('translate-y-0');
+    expect(drawer?.className).not.toContain('invisible');
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(drawer?.className).toContain('-translate-y-full');
+    expect(drawer?.className).toContain('invisible');
+  });
+});

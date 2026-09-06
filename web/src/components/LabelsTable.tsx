@@ -116,7 +116,7 @@ export default function LabelsTable({ labels }: { labels?: LabelSummary[] }) {
                       type="button"
                       data-testid={`sort-${col.key}`}
                       onClick={() => toggle(col.key)}
-                      className="inline-flex items-center gap-1 transition-colors hover:text-sky-600 dark:hover:text-sky-400"
+                      className="inline-flex items-center gap-1 rounded transition-colors hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:hover:text-sky-400"
                     >
                       {col.title}
                       {sort.key === col.key && <span aria-hidden="true">{sort.dir === 1 ? '↑' : '↓'}</span>}
