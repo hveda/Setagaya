@@ -115,6 +115,7 @@ var conflictErrors = []error{
 // respondError maps an application/domain error onto an HTTP status.
 func respondError(w http.ResponseWriter, err error) {
 	var probeErr *ports.ProbeError
+	var finishedErr *lifecycleapp.EnginesFinishedError
 	switch {
 	case errors.Is(err, ports.ErrNotFound), errors.Is(err, ports.ErrObjectNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -151,6 +152,15 @@ func respondError(w http.ResponseWriter, err error) {
 		} else {
 			writeError(w, http.StatusTooManyRequests, "reservation would exceed tenant quota")
 		}
+	case errors.As(err, &finishedErr):
+		// Triggering engines that already ran and finished: re-deploying is
+		// the fix. The verbatim conflict text stays the message (conflict
+		// bodies pass it through), and since phase 24 the orphan count and
+		// the purge-and-redeploy remediation ride in the details envelope.
+		writeErrorDetails(w, http.StatusConflict, finishedErr.Error(), map[string]any{
+			"orphaned_completions": finishedErr.Orphaned,
+			"hint":                 "purge the execution and redeploy before triggering",
+		})
 	case matchesAny(err, conflictErrors):
 		writeError(w, http.StatusConflict, err.Error())
 	case matchesAny(err, badRequestErrors):

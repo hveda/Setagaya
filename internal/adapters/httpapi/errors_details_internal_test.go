@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heridotlife/honryu/internal/app/lifecycleapp"
 	"github.com/heridotlife/honryu/internal/app/quotaapp"
+	"github.com/heridotlife/honryu/internal/domain/run"
 )
 
 // respondError's details envelope, driven directly: tenant_quota_test.go
@@ -111,5 +113,51 @@ func TestWriteErrorDetails_NilOmitsTheKey(t *testing.T) {
 	writeErrorDetails(rec, http.StatusNotFound, "ports: not found", nil)
 	if got := strings.TrimSpace(rec.Body.String()); got != `{"message":"ports: not found"}` {
 		t.Fatalf("nil-details body = %s, want message-only byte-identical", got)
+	}
+}
+
+// The engines-finished conflict (409) carries the orphan count and the
+// purge-and-redeploy remediation in the details envelope, on top of the
+// verbatim conflict message -- and the typed form survives a re-wrap.
+func TestRespondError_EnginesFinishedDetails(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	respondError(rec, fmt.Errorf("trigger: %w", &lifecycleapp.EnginesFinishedError{Orphaned: 3}))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	var body struct {
+		Message string `json:"message"`
+		Details struct {
+			OrphanedCompletions int    `json:"orphaned_completions"`
+			Hint                string `json:"hint"`
+		} `json:"details"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("409 body is not the envelope: %v (%s)", err, rec.Body.String())
+	}
+	const wantMsg = "run: engines already finished, redeploy before triggering: 3 orphaned shard completion(s)"
+	if body.Message != wantMsg {
+		t.Fatalf("message = %q, want the verbatim conflict text %q", body.Message, wantMsg)
+	}
+	if body.Details.OrphanedCompletions != 3 {
+		t.Fatalf("orphaned_completions = %d, want 3", body.Details.OrphanedCompletions)
+	}
+	if body.Details.Hint != "purge the execution and redeploy before triggering" {
+		t.Fatalf("hint = %q, want the purge+redeploy remediation", body.Details.Hint)
+	}
+}
+
+// A bare run.ErrEnginesFinished keeps the message-only 409: the details
+// envelope is opt-in per error, never an empty object.
+func TestRespondError_EnginesFinishedSentinelIsMessageOnly(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	respondError(rec, run.ErrEnginesFinished)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"message":"run: engines already finished, redeploy before triggering"}` {
+		t.Fatalf("bare-sentinel 409 body = %s, want message-only", got)
 	}
 }
