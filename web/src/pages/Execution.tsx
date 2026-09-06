@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
-import { ApiError } from '../api/client';
+import { ApiError, errorDetails } from '../api/client';
 import { getExecutionInfo, getExecutionStatus, getScenarioPodLog } from '../api/status';
 import { listExecutionReports, type Report } from '../api/reports';
 import TaurusEditor from '../components/TaurusEditor';
@@ -16,6 +16,7 @@ import TimeSeriesChart from '../components/charts/TimeSeriesChart';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import EngineBadge from '../components/ui/EngineBadge';
 import CopyLink from '../components/CopyLink';
+import ActionErrorDetails from '../components/ActionErrorDetails';
 
 const phaseClasses: Record<Phase, string> = {
   idle: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
@@ -221,6 +222,9 @@ export default function Execution() {
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The structured half of the last action error (phase 24): quota
+  // numbers / remediation hint when the server's envelope carried them.
+  const [actionDetails, setActionDetails] = useState<Record<string, unknown> | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[] | null>(null);
   const [logsScenario, setLogsScenario] = useState<number | null>(null);
@@ -298,10 +302,12 @@ export default function Execution() {
   const runAction = (action: 'deploy' | 'trigger' | 'stop' | 'purge') => {
     setBusyAction(action);
     setActionError(null);
+    setActionDetails(null);
     const fn = { deploy: deployExecution, trigger: triggerExecution, stop: stopExecution, purge: purgeExecution }[action];
     fn(executionId)
       .then((message) => {
         setActionError(null);
+        setActionDetails(null);
         // The mutation succeeded; refresh the snapshot immediately rather
         // than waiting for the next poll tick.
         getExecutionStatus(executionId).then((s) => setStatus(s));
@@ -312,9 +318,12 @@ export default function Execution() {
         void message;
       })
       .catch((err: unknown) => {
-        // A 409 surfaces the server's message verbatim -- that is the whole
-        // point of the typed ApiError, not a generic failure string.
+        // A 409/429 surfaces the server's message verbatim -- that is the
+        // whole point of the typed ApiError, not a generic failure string.
+        // Phase 24: keep the structured details (quota numbers, hint) for
+        // the second render line instead of flattening to message only.
         setActionError(err instanceof ApiError ? err.message : `${action} failed.`);
+        setActionDetails(errorDetails(err));
       })
       .finally(() => setBusyAction(null));
   };
@@ -396,9 +405,12 @@ export default function Execution() {
                 )}
               </div>
               {actionError && (
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-                  {actionError}
-                </p>
+                <div>
+                  <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                    {actionError}
+                  </p>
+                  <ActionErrorDetails details={actionDetails} />
+                </div>
               )}
             </CardContent>
           </Card>
