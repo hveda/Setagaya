@@ -69,8 +69,14 @@ func TestReportHTTP_UnknownRunIs404(t *testing.T) {
 	t.Parallel()
 	h, _, _ := newReportEnv(t)
 
-	if rec := do(t, h, http.MethodGet, "/api/runs/999/report"); rec.Code != http.StatusNotFound {
+	rec := do(t, h, http.MethodGet, "/api/runs/999/report")
+	if rec.Code != http.StatusNotFound {
 		t.Errorf("GET unknown report = %d, want 404", rec.Code)
+	}
+	// Phase 24 regression: the details envelope is strictly opt-in -- a
+	// message-only 404 must stay byte-identical to the pre-envelope shape.
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"message":"ports: not found"}` {
+		t.Errorf("GET unknown report body = %s, want the message-only envelope", got)
 	}
 }
 

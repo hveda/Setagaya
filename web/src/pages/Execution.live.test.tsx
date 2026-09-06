@@ -217,3 +217,100 @@ describe('Execution copy-link (mounted)', () => {
     expect(container!.querySelector('[data-testid="copy-link"]')?.textContent).toContain('Copied');
   });
 });
+
+// Phase 24: the action-error block surfaces the structured details envelope
+// when the failing response carried one (429 quota refusal), and stays a
+// single message line when it did not. The fetch stub is swapped after
+// mount because runAction fetches at click time.
+describe('Execution action-error details (mounted)', () => {
+  const clickTrigger = async () => {
+    const btn = Array.from(container!.querySelectorAll('button')).find((b) => b.textContent === 'Trigger');
+    expect(btn).toBeDefined();
+    await act(async () => {
+      btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+  };
+
+  it('renders the hint code line and the quota numbers under the message', async () => {
+    await renderExecution('deployed');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/api/executions/5/trigger')) {
+          return json(
+            {
+              message: 'reservation would exceed tenant quota',
+              details: {
+                tenant_id: 1,
+                cluster: '',
+                requested: 2,
+                used: 0,
+                ceiling: 1,
+                hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1',
+              },
+            },
+            429,
+          );
+        }
+        return json({ message: 'no stub' }, 500);
+      }),
+    );
+
+    await clickTrigger();
+
+    expect(container!.querySelector('[role="alert"]')?.textContent).toContain(
+      'reservation would exceed tenant quota',
+    );
+    const details = container!.querySelector('[data-testid="action-error-details"]');
+    expect(details?.querySelector('code')?.textContent).toBe('PUT /api/tenants/{tenant_id}/quota ceiling=1');
+    expect(details?.textContent).toContain('used 0 / ceiling 1 — requested 2');
+  });
+
+  it('renders a 409 with details (engines finished) as message plus hint line', async () => {
+    await renderExecution('deployed');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/api/executions/5/trigger')) {
+          return json(
+            {
+              message: 'run: engines already finished, redeploy before triggering: 3 orphaned shard completion(s)',
+              details: {
+                orphaned_completions: 3,
+                hint: 'purge the execution and redeploy before triggering',
+              },
+            },
+            409,
+          );
+        }
+        return json({ message: 'no stub' }, 500);
+      }),
+    );
+
+    await clickTrigger();
+
+    expect(container!.querySelector('[role="alert"]')?.textContent).toContain('engines already finished');
+    expect(container!.querySelector('[data-testid="action-error-details"] code')?.textContent).toBe(
+      'purge the execution and redeploy before triggering',
+    );
+  });
+
+  it('message-only failures keep the single alert line (no details node)', async () => {
+    await renderExecution('deployed');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/api/executions/5/trigger')) {
+          return json({ message: 'execution not found' }, 404);
+        }
+        return json({ message: 'no stub' }, 500);
+      }),
+    );
+
+    await clickTrigger();
+
+    expect(container!.querySelector('[role="alert"]')?.textContent).toContain('execution not found');
+    expect(container!.querySelector('[data-testid="action-error-details"]')).toBeNull();
+  });
+});

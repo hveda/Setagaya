@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import StageEditor, { type StageEditorState } from '../components/StageEditor';
-import { apiClient, ApiError } from '../api/client';
+import { apiClient, ApiError, errorDetails } from '../api/client';
 import { setScenarioRequests } from '../api/scenarios';
 import { useSession } from '../hooks/useSession';
 import {
@@ -14,6 +14,7 @@ import {
   type NewTestForm,
 } from '../lib/newTestFlow';
 import { stagesToConfig, type StagesConfigJSON } from '../lib/stagesConfig';
+import ActionErrorDetails from '../components/ActionErrorDetails';
 
 interface ProjectRef {
   id: number;
@@ -75,6 +76,9 @@ export default function NewTest() {
   const [stagesValid, setStagesValid] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The structured half of the last failure (phase 24): remediation hint /
+  // numbers when the server's envelope carried them.
+  const [errorDetail, setErrorDetail] = useState<Record<string, unknown> | null>(null);
   const [step, setStep] = useState<string | null>(null);
 
   // R9's clamp guard, per stage row. Raw JSON mode skips it: there the
@@ -95,6 +99,7 @@ export default function NewTest() {
     }
     setBusy(true);
     setError(null);
+    setErrorDetail(null);
 
     const run = async () => {
       // Step 1: resolve project-if-absent. The operator names a project;
@@ -188,6 +193,7 @@ export default function NewTest() {
     run()
       .catch((e: unknown) => {
         setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something failed.');
+        setErrorDetail(errorDetails(e));
       })
       .finally(() => setBusy(false));
   };
@@ -275,9 +281,12 @@ export default function NewTest() {
         {busy && step && <span className="text-caption text-slate-500 dark:text-slate-400">step: {step}</span>}
       </div>
       {error && (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-          {error}
-        </p>
+        <div>
+          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </p>
+          <ActionErrorDetails details={errorDetail} />
+        </div>
       )}
     </div>
   );

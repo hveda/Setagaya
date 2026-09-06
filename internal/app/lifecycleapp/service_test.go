@@ -255,6 +255,48 @@ func TestDeploy_MissingExecution(t *testing.T) {
 	}
 }
 
+// The typed form carries the orphan count for the HTTP details envelope
+// (phase 24); its message text stays byte-identical to the wrap it
+// replaced, and both the domain sentinel (errors.Is) and the typed form
+// (errors.As) survive an intervening re-wrap.
+func TestTrigger_EnginesFinishedErrorCarriesOrphanCount(t *testing.T) {
+	t.Parallel()
+	e := setup(t, false, 2)
+	ctx := context.Background()
+	if err := e.svc.Deploy(ctx, e.executionID); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	code := 0
+	if err := e.store.RecordOrphanCompletion(ctx, ports.OrphanCompletion{
+		ExecutionID: e.executionID, ScenarioID: e.planIDs[0], ShardIndex: 0,
+		ExitCode: &code, FinishedAt: time.Unix(1000, 0),
+	}); err != nil {
+		t.Fatalf("RecordOrphanCompletion: %v", err)
+	}
+
+	err := e.svc.Trigger(ctx, e.executionID)
+	var efe *lifecycleapp.EnginesFinishedError
+	if !errors.As(err, &efe) {
+		t.Fatalf("Trigger over finished engines = %T (%v), want *EnginesFinishedError", err, err)
+	}
+	if efe.Orphaned != 1 {
+		t.Fatalf("Orphaned = %d, want 1", efe.Orphaned)
+	}
+	const want = "run: engines already finished, redeploy before triggering: 1 orphaned shard completion(s)"
+	if err.Error() != want {
+		t.Fatalf("error text = %q, want %q", err.Error(), want)
+	}
+
+	wrapped := fmt.Errorf("trigger: %w", err)
+	if !errors.Is(wrapped, run.ErrEnginesFinished) {
+		t.Fatal("errors.Is(wrapped, run.ErrEnginesFinished) = false, want true")
+	}
+	var wrappedEfe *lifecycleapp.EnginesFinishedError
+	if !errors.As(wrapped, &wrappedEfe) || wrappedEfe.Orphaned != 1 {
+		t.Fatal("errors.As on the re-wrap lost the typed form / count")
+	}
+}
+
 // Trigger refuses to open a run for engines whose Finals already arrived
 // orphaned (they ran and finished while nobody triggered — task 121's live
 // stranding), and a fresh Deploy clears the evidence because it is genuinely
