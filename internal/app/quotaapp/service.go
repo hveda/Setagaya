@@ -21,6 +21,40 @@ import (
 // ceiling for its cluster.
 var ErrOverQuota = errors.New("quotaapp: reservation would exceed quota")
 
+// OverQuotaError is the typed form Reserve rejects with: it carries the
+// admission numbers so the HTTP layer can surface them as a structured
+// details envelope (phase 24) instead of parsing them back out of the
+// message. Error()'s text is a pinned contract -- it must stay
+// byte-identical to the fmt.Errorf wrap this type replaced.
+type OverQuotaError struct {
+	TenantID  int64
+	Cluster   string
+	Requested int
+	Used      int
+	Ceiling   int
+	// NoQuotaConfigured marks the ceiling-0 branch: an absent quota row
+	// reads as 0 (migrations/0028), so the remediation is to set a ceiling,
+	// not to free capacity.
+	NoQuotaConfigured bool
+}
+
+// Error keeps the exact text of the wrap this type replaced, including the
+// ceiling-0 remediation sentence.
+func (e *OverQuotaError) Error() string {
+	if e.NoQuotaConfigured {
+		return fmt.Sprintf(
+			"%s: tenant %d cluster %q wants %d engines, %d already reserved in this window, ceiling %d — no quota configured for this tenant+cluster; set one via PUT /api/tenants/{tenant_id}/quota",
+			ErrOverQuota, e.TenantID, e.Cluster, e.Requested, e.Used, e.Ceiling)
+	}
+	return fmt.Sprintf(
+		"%s: tenant %d cluster %q wants %d engines, %d already reserved in this window, ceiling %d",
+		ErrOverQuota, e.TenantID, e.Cluster, e.Requested, e.Used, e.Ceiling)
+}
+
+// Unwrap keeps the sentinel reachable through any number of intervening
+// %w wraps: errors.Is(err, ErrOverQuota) still matches.
+func (e *OverQuotaError) Unwrap() error { return ErrOverQuota }
+
 // Repo is the persistence quotaapp needs: the reservation ledger, plus
 // enough run state to tell whether a reservation's execution is still
 // actually running -- a still-running execution keeps occupying its
@@ -131,15 +165,19 @@ func (s *Service) Reserve(ctx context.Context, tenantID int64, cluster string, e
 			// A ceiling of 0 means no quota was ever configured for this
 			// tenant+cluster (absent reads as 0 -- migrations/0028), not that
 			// one was configured and exhausted: say so, so an operator knows
-			// the remediation is to set a ceiling, not to free capacity.
+			// the remediation is to set a ceiling, not to free capacity. The
+			// typed error carries the numbers for the HTTP details envelope.
 			if ceiling == 0 {
-				return fmt.Errorf(
-					"%w: tenant %d cluster %q wants %d engines, %d already reserved in this window, ceiling %d — no quota configured for this tenant+cluster; set one via PUT /api/tenants/{tenant_id}/quota",
-					ErrOverQuota, tenantID, cluster, engineCount, used, ceiling)
+				return &OverQuotaError{
+					TenantID: tenantID, Cluster: cluster,
+					Requested: engineCount, Used: used, Ceiling: ceiling,
+					NoQuotaConfigured: true,
+				}
 			}
-			return fmt.Errorf(
-				"%w: tenant %d cluster %q wants %d engines, %d already reserved in this window, ceiling %d",
-				ErrOverQuota, tenantID, cluster, engineCount, used, ceiling)
+			return &OverQuotaError{
+				TenantID: tenantID, Cluster: cluster,
+				Requested: engineCount, Used: used, Ceiling: ceiling,
+			}
 		}
 
 		id, err := s.repo.CreateReservation(ctx, r)

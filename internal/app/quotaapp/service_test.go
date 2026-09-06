@@ -3,6 +3,7 @@ package quotaapp_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -86,6 +87,82 @@ func TestReserve_ZeroCeilingRejectsEverything(t *testing.T) {
 		t.Fatalf("Reserve(unconfigured ceiling) = %v, want ErrOverQuota", err)
 	} else if !strings.Contains(err.Error(), "no quota configured for this tenant+cluster; set one via PUT /api/tenants/{tenant_id}/quota") {
 		t.Fatalf("Reserve(unconfigured ceiling) error = %q, want remediation naming the quota endpoint", err)
+	}
+}
+
+// The typed rejection carries the admission numbers (phase 24's details
+// envelope), and its message text is pinned byte-for-byte so the envelope
+// refactor can never drift what operators already match on.
+func TestReserve_OverQuotaErrorCarriesNumbers(t *testing.T) {
+	t.Parallel()
+	svc, store := newQuotaService(t)
+	ctx := context.Background()
+	if err := store.SetCeiling(ctx, 1, "default", 10); err != nil {
+		t.Fatalf("SetCeiling: %v", err)
+	}
+	if _, err := svc.Reserve(ctx, 1, "default", 8, at(0), at(60), 100); err != nil {
+		t.Fatalf("Reserve (first): %v", err)
+	}
+
+	_, err := svc.Reserve(ctx, 1, "default", 5, at(0), at(60), 101)
+	var oqe *quotaapp.OverQuotaError
+	if !errors.As(err, &oqe) {
+		t.Fatalf("Reserve (over quota) = %T (%v), want *OverQuotaError", err, err)
+	}
+	if oqe.TenantID != 1 || oqe.Cluster != "default" || oqe.Requested != 5 || oqe.Used != 8 || oqe.Ceiling != 10 {
+		t.Fatalf("OverQuotaError fields = %+v, want the admission numbers", *oqe)
+	}
+	if oqe.NoQuotaConfigured {
+		t.Fatalf("exhausted ceiling must not claim quota is unconfigured: %+v", *oqe)
+	}
+	const want = `quotaapp: reservation would exceed quota: tenant 1 cluster "default" wants 5 engines, 8 already reserved in this window, ceiling 10`
+	if err.Error() != want {
+		t.Fatalf("error text = %q, want %q", err.Error(), want)
+	}
+}
+
+// The zero-ceiling branch is the one with a remediation sentence in the
+// message; its typed form must keep that text and flag itself so the HTTP
+// layer's hint can say "no quota row exists" rather than "lower your
+// ask".
+func TestReserve_ZeroCeilingErrorIsFlaggedUnconfigured(t *testing.T) {
+	t.Parallel()
+	svc, _ := newQuotaService(t)
+
+	_, err := svc.Reserve(context.Background(), 7, "prod", 1, at(0), at(60), 100)
+	var oqe *quotaapp.OverQuotaError
+	if !errors.As(err, &oqe) {
+		t.Fatalf("Reserve (unconfigured ceiling) = %T (%v), want *OverQuotaError", err, err)
+	}
+	if oqe.TenantID != 7 || oqe.Cluster != "prod" || oqe.Requested != 1 || oqe.Used != 0 || oqe.Ceiling != 0 || !oqe.NoQuotaConfigured {
+		t.Fatalf("OverQuotaError fields = %+v, want zero-ceiling numbers + NoQuotaConfigured", *oqe)
+	}
+	const want = `quotaapp: reservation would exceed quota: tenant 7 cluster "prod" wants 1 engines, 0 already reserved in this window, ceiling 0 — no quota configured for this tenant+cluster; set one via PUT /api/tenants/{tenant_id}/quota`
+	if err.Error() != want {
+		t.Fatalf("error text = %q, want %q", err.Error(), want)
+	}
+}
+
+// Callers re-wrap reservation failures (Trigger's own %w chains), so both
+// the sentinel (errors.Is) and the typed form (errors.As) must survive an
+// intervening wrap.
+func TestOverQuotaError_SentinelAndTypeSurviveWrapping(t *testing.T) {
+	t.Parallel()
+	svc, _ := newQuotaService(t)
+	_, err := svc.Reserve(context.Background(), 1, "default", 1, at(0), at(60), 100)
+	if err == nil {
+		t.Fatal("Reserve (unconfigured) = nil, want an error")
+	}
+	wrapped := fmt.Errorf("trigger: %w", err)
+	if !errors.Is(wrapped, quotaapp.ErrOverQuota) {
+		t.Fatal("errors.Is(wrapped, ErrOverQuota) = false, want true")
+	}
+	var oqe *quotaapp.OverQuotaError
+	if !errors.As(wrapped, &oqe) {
+		t.Fatal("errors.As(wrapped, &OverQuotaError) = false, want true")
+	}
+	if oqe.Ceiling != 0 || !oqe.NoQuotaConfigured {
+		t.Fatalf("wrapped fields = %+v, want the zero-ceiling branch", *oqe)
 	}
 }
 
