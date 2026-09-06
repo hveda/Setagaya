@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Download } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import ClusterBadge from '../components/ui/ClusterBadge';
 import CopyButton from '../components/ui/CopyButton';
+import CopyLink from '../components/CopyLink';
 import EngineBadge from '../components/ui/EngineBadge';
 import Input from '../components/ui/Input';
 import OutcomeBadge from '../components/ui/OutcomeBadge';
 import LabelsTable from '../components/LabelsTable';
 import { ApiError } from '../api/client';
+import { apiClient } from '../api/client';
 import { getRunReport, getShardConfig, getShardLog, listExecutionReports } from '../api/reports';
 import type { Load, Report } from '../api/reports';
 import { fetchSeries } from '../api/series';
@@ -32,6 +34,19 @@ function formatTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
+
+/** The run export download URL: the API base (same origin as the SPA) plus
+ * the run's export endpoint with the requested format. Anchors, not fetch:
+ * the browser performs the download natively. */
+function exportRunHref(runId: number, format: 'csv' | 'json'): string {
+  return `${apiClient.baseUrl}/runs/${runId}/export?format=${format}`;
+}
+
+/** Small-button styling for the run header's action group -- CopyButton's
+ * visual language, anchor-flavoured, so the export links and the copy-link
+ * read as one group. */
+const runActionClass =
+  'inline-flex min-h-[32px] items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-caption font-medium text-slate-600 transition-colors hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800';
 
 function sortedPercentiles(latency: Record<string, number>): [string, number][] {
   return Object.entries(latency).sort(([a], [b]) => Number(a) - Number(b));
@@ -576,7 +591,30 @@ function ReportDetail({ runId }: { runId: string }) {
         <>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Run #{report.run_id}</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>Run #{report.run_id}</CardTitle>
+                {/* The get-data-out group: both export formats the endpoint
+                    serves, plus the deep-link to this very page. */}
+                <a
+                  href={exportRunHref(report.run_id, 'csv')}
+                  download
+                  data-testid="export-csv"
+                  className={runActionClass}
+                >
+                  <Download aria-hidden className="h-3.5 w-3.5" />
+                  Export CSV
+                </a>
+                <a
+                  href={exportRunHref(report.run_id, 'json')}
+                  download
+                  data-testid="export-json"
+                  className={runActionClass}
+                >
+                  <Download aria-hidden className="h-3.5 w-3.5" />
+                  Export JSON
+                </a>
+                <CopyLink />
+              </div>
               <OutcomeBadge outcome={report.outcome} />
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
