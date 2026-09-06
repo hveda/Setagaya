@@ -146,7 +146,7 @@ export function SignatureSection({ executionId }: { executionId: number }) {
               type="button"
               aria-pressed={by === axis}
               onClick={() => setBy(axis)}
-              className={`min-h-[32px] rounded-md px-3 py-1 text-caption font-medium transition-colors ${
+              className={`min-h-[32px] rounded-md px-3 py-1 text-caption font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 ${
                 by === axis
                   ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'
                   : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'

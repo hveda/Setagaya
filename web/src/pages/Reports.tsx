@@ -111,7 +111,7 @@ function ReportsList() {
           <Link
             to={compareHref}
             data-testid="compare-runs-link"
-            className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+            className="rounded text-sm font-medium text-sky-600 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:text-sky-400"
           >
             Compare runs →
           </Link>
@@ -159,7 +159,7 @@ function ReportsList() {
                   <li key={r.run_id}>
                     <Link
                       to={`/reports/${r.run_id}`}
-                      className="flex min-h-[44px] flex-col gap-2 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex min-h-[44px] flex-col gap-2 rounded p-4 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:hover:bg-slate-700/50 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="flex flex-wrap items-center gap-3">
                         <OutcomeBadge outcome={r.outcome} />
@@ -353,9 +353,11 @@ const LATENCY_PERCENTILES = ['50', '90', '95', '99'];
 
 /** Shared pill styling for the latency percentile selector. */
 function pctPill(selected: boolean): string {
-  return selected
-    ? 'bg-sky-600 text-white'
-    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700';
+  return `${
+    selected
+      ? 'bg-sky-600 text-white'
+      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700'
+  } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500`;
 }
 
 /**
@@ -665,7 +667,7 @@ function ReportDetail({ runId }: { runId: string }) {
                       href={formatApmLink(apmTemplate, report.correlation_id) as string}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-sm font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
+                      className="inline-flex items-center gap-1 rounded text-sm font-medium text-sky-600 hover:text-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:text-sky-400 dark:hover:text-sky-300"
                     >
                       Open in APM <ExternalLink aria-hidden className="h-3.5 w-3.5" />
                     </a>

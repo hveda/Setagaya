@@ -45,7 +45,7 @@ export default function Executions() {
         {can('execution', 'create') && (
           <Link
             to="/executions/new"
-            className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+            className="rounded text-sm font-medium text-sky-600 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:text-sky-400"
           >
             + New test
           </Link>
@@ -65,7 +65,7 @@ export default function Executions() {
             <li key={e.id}>
               <Link
                 to={`/executions/${e.id}`}
-                className="flex items-center justify-between py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50 px-2 rounded"
+                className="flex items-center justify-between rounded py-3 text-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:hover:bg-slate-800/50 px-2"
               >
                 <span className="font-medium text-slate-900 dark:text-slate-100">{e.name}</span>
                 <span className="text-slate-500">

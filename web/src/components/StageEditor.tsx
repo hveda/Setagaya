@@ -73,6 +73,7 @@ const inputCls =
 const tabCls = (active: boolean) =>
   [
     'px-3 py-1.5 text-sm font-medium transition-colors',
+    'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500',
     active
       ? 'bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-white'
       : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800',

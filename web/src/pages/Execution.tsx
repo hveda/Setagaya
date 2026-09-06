@@ -151,9 +151,11 @@ const latencyField: Record<LivePercentile, 'p50' | 'p95' | 'p99'> = {
 
 /** Shared pill styling for the percentile selector (Reports' pctPill, same house style). */
 function pctPill(selected: boolean): string {
-  return selected
-    ? 'bg-sky-600 text-white'
-    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700';
+  return `${
+    selected
+      ? 'bg-sky-600 text-white'
+      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700'
+  } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500`;
 }
 
 /**
@@ -491,7 +493,7 @@ export default function Execution() {
                     </div>
                     <Link
                       to={`/reports/${rep.run_id}`}
-                      className="text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
+                      className="rounded text-sm font-medium text-sky-600 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:text-sky-400"
                     >
                       Report →
                     </Link>
