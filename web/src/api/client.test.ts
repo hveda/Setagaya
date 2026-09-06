@@ -216,3 +216,18 @@ describe('errorDetails', () => {
     expect(errorDetails(new ApiError(400, 'bad', { message: 'bad', details: 'oops' }))).toBeNull();
   });
 });
+
+describe('errorDetails through wrapper errors', () => {
+  it("reaches the envelope through a wrapper's cause chain (NewTest's stepError)", () => {
+    const api = new ApiError(429, 'reservation would exceed tenant quota', {
+      message: 'reservation would exceed tenant quota',
+      details: { ceiling: 1, hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1' },
+    });
+    const wrapped = new Error('Step "save load config" failed: reservation would exceed tenant quota', { cause: api });
+    expect(errorDetails(wrapped)).toEqual({ ceiling: 1, hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1' });
+  });
+
+  it('stays null for a cause chain with no ApiError in it', () => {
+    expect(errorDetails(new Error('outer', { cause: new Error('inner') }))).toBeNull();
+  });
+});

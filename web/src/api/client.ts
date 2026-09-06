@@ -122,14 +122,19 @@ function extractErrorMessageFromText(bodyText: string, statusText: string, statu
  * {"message": ..., "details": {...}} on select errors like the 429 quota
  * refusal and the 409 engines-finished conflict), when the failing response
  * carried one -- otherwise null. Callers treat null as "render the message
- * only".
+ * only". Walks the error's cause chain so a wrapper (NewTest's stepError)
+ * does not hide the envelope.
  */
 export function errorDetails(err: unknown): Record<string, unknown> | null {
-  if (err instanceof ApiError && err.data !== null && typeof err.data === 'object') {
-    const details = (err.data as { details?: unknown }).details;
-    if (details !== null && typeof details === 'object') {
-      return details as Record<string, unknown>;
+  let e: unknown = err;
+  for (let depth = 0; e instanceof Error && depth < 5; depth++) {
+    if (e instanceof ApiError && e.data !== null && typeof e.data === 'object') {
+      const details = (e.data as { details?: unknown }).details;
+      if (details !== null && typeof details === 'object') {
+        return details as Record<string, unknown>;
+      }
     }
+    e = (e as { cause?: unknown }).cause;
   }
   return null;
 }

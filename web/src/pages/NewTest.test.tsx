@@ -176,3 +176,84 @@ describe('NewTest step 5 via StageEditor (mounted flow)', () => {
     expect(sent.tests[1].scenario_id).toBe(42);
   });
 });
+
+// Phase 24: a step failing with the structured details envelope surfaces
+// the hint/numbers under the message line; a message-only failure renders
+// exactly as before. renderNewTest's stub is swapped before submit because
+// the flow fetches at click time.
+describe('NewTest action-error details (mounted)', () => {
+  it('surfaces the hint code line and numbers when the failing step carried details', async () => {
+    await renderNewTest();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (method === 'GET' && url.endsWith('/api/projects')) {
+          return json([]);
+        }
+        if (method === 'POST' && url.endsWith('/api/projects')) {
+          return json({ id: 1, name: 'tests-checkout-smoke' });
+        }
+        if (method === 'POST' && url.endsWith('/api/scenarios')) {
+          return json({ id: 42 });
+        }
+        if (method === 'POST' && url.endsWith('/api/executions')) {
+          return json({ id: 9 });
+        }
+        if (method === 'PUT' && url.endsWith('/api/scenarios/42/requests')) {
+          return json({});
+        }
+        if (method === 'PUT' && url.endsWith('/api/executions/9/config')) {
+          return json(
+            {
+              message: 'reservation would exceed tenant quota',
+              details: { requested: 2, used: 0, ceiling: 1, hint: 'PUT /api/tenants/{tenant_id}/quota ceiling=1' },
+            },
+            429,
+          );
+        }
+        return json({ message: `no stub for ${method} ${url}` }, 500);
+      }),
+    );
+
+    await fillAndSubmit();
+    await act(async () => {});
+
+    expect(container!.querySelector('[role="alert"]')?.textContent).toContain(
+      'reservation would exceed tenant quota',
+    );
+    const details = container!.querySelector('[data-testid="action-error-details"]');
+    expect(details?.querySelector('code')?.textContent).toBe('PUT /api/tenants/{tenant_id}/quota ceiling=1');
+    expect(details?.textContent).toContain('used 0 / ceiling 1 — requested 2');
+    // The flow stopped at the failing step: no navigation away from the form.
+    expect(puts).toHaveLength(0);
+  });
+
+  it('message-only failures keep the single alert line (no details node)', async () => {
+    await renderNewTest();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (method === 'GET' && url.endsWith('/api/projects')) {
+          return json([]);
+        }
+        if (method === 'POST' && url.endsWith('/api/projects')) {
+          return json({ id: 1, name: 'tests-checkout-smoke' });
+        }
+        if (method === 'POST' && url.endsWith('/api/scenarios')) {
+          return json({ message: 'scenario name already in use' }, 409);
+        }
+        return json({ message: `no stub for ${method} ${url}` }, 500);
+      }),
+    );
+
+    await fillAndSubmit();
+    await act(async () => {});
+
+    expect(container!.querySelector('[role="alert"]')?.textContent).toContain('scenario name already in use');
+    expect(container!.querySelector('[data-testid="action-error-details"]')).toBeNull();
+  });
+});
