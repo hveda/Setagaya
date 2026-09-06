@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -38,6 +39,14 @@ type lifecycleEnv struct {
 // execution with one scenario (JMX test file) and a stored execution config.
 func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 	t.Helper()
+	return newLifecycleEnvWithTimings(t, owner, time.Millisecond, 10*time.Millisecond)
+}
+
+// newLifecycleEnvWithTimings is newLifecycleEnv with the trigger readiness
+// poll/timeout wired by the caller, for tests that need the wait to relate to
+// an outside clock (e.g. http.Server.WriteTimeout).
+func newLifecycleEnvWithTimings(t *testing.T, owner string, poll, timeout time.Duration) lifecycleEnv {
+	t.Helper()
 	ctx := context.Background()
 	store := fake.NewStore()
 	obj := fake.NewObjectStore()
@@ -50,8 +59,8 @@ func newLifecycleEnv(t *testing.T, owner string) lifecycleEnv {
 		Lifecycle:           lifecycleapp.NewService(store, sched, obj, lifecycleapp.StaticImage("img")),
 		Store:               obj,
 		DefaultOwners:       []string{"honryu"},
-		TriggerReadyPoll:    time.Millisecond,
-		TriggerReadyTimeout: 10 * time.Millisecond,
+		TriggerReadyPoll:    poll,
+		TriggerReadyTimeout: timeout,
 	})
 
 	p, _ := project.New("web", owner, "")
@@ -199,6 +208,40 @@ func TestLifecycleHTTP_TriggerWaitsForEngineReadiness(t *testing.T) {
 			t.Fatalf("cancelled trigger took %s, kept waiting past the disconnect", elapsed)
 		}
 	})
+}
+
+// Regression (phase 24, T7 / phase-23 finding #1): the readiness wait can
+// legitimately outlive http.Server.WriteTimeout (defaults: 2m wait vs 15s
+// write). A write deadline that expires mid-wait made the final 409
+// unwritable -- zero bytes hit the wire, the client saw an empty reply
+// (curl exit 52), and the server logged nothing, because net/http swallows
+// the failed write. The handler must push the connection's write deadline
+// out to cover its own bounded wait so the conflict answer always lands.
+// A recorder cannot carry deadlines, so this runs a real server with a
+// WriteTimeout shorter than the wait, unlike the recorder-based tests above.
+func TestLifecycleHTTP_TriggerWaitOutlivesServerWriteTimeout(t *testing.T) {
+	t.Parallel()
+	e := newLifecycleEnvWithTimings(t, "honryu", 5*time.Millisecond, 50*time.Millisecond)
+	srv := httptest.NewUnstartedServer(e.h)
+	srv.Config.WriteTimeout = 10 * time.Millisecond // < the 50ms wait
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/api/executions/"+itoa(e.executionID)+"/trigger", "", nil)
+	if err != nil {
+		t.Fatalf("trigger under a server WriteTimeout shorter than the readiness wait: %v -- this is the empty-reply regression", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read trigger body: %v", err)
+	}
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("trigger = %d (%s), want 409", resp.StatusCode, body)
+	}
+	if msg := string(body); !strings.Contains(msg, run.ErrNotDeployed.Error()) {
+		t.Fatalf("body = %s, want the not-deployed conflict message", msg)
+	}
 }
 
 func TestLifecycleHTTP_StopWithoutRunConflicts(t *testing.T) {
