@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/csv"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -108,6 +111,129 @@ func (h *handlers) runSeries(w http.ResponseWriter, r *http.Request) {
 		points = []reportapp.SeriesPoint{}
 	}
 	writeJSON(w, http.StatusOK, seriesResponse{Points: points})
+}
+
+// runExportResponse is the wire shape of GET /api/runs/{run_id}/export
+// ?format=json: the report and series under their own keys, each exactly the
+// shape its dedicated endpoint serves, so a consumer of one consumer of the
+// other needs no translation.
+type runExportResponse struct {
+	Report report.Report  `json:"report"`
+	Series seriesResponse `json:"series"`
+}
+
+// runExport serves a run's data out of honryu: ?format=json returns the
+// report and series in their endpoint shapes, ?format=csv a single
+// two-section download (per-label table, then per-second series, each under
+// a "# run {id} ..." comment header -- encoding/csv has no comment concept,
+// so those lines are written raw). The authorization and data path are
+// runSeries's own: the export is those two endpoints re-serialised, so it
+// shares their gate (report:read against the owning execution's tenant) and
+// their optional dependency (no series store wired -> 404, not a half
+// export). CSV details, fixed deliberately: LF line endings (csv.Writer's
+// default is CRLF; overridden because nothing in the house consumes CRLF and
+// LF diffs cleanly), latency in seconds and error_rate as a fraction exactly
+// as the JSON wire carries them (an export formats nothing), and an empty
+// cell where a percentile was not measured (the table renders an em-dash for
+// the same condition).
+func (h *handlers) runExport(w http.ResponseWriter, r *http.Request) {
+	// Input validated before the configuration check: a bad format is the
+	// caller's error whatever the deployment wires, and the 400 needs no
+	// store to answer.
+	format := r.URL.Query().Get("format")
+	if format != "json" && format != "csv" {
+		writeError(w, http.StatusBadRequest, "format must be json or csv")
+		return
+	}
+	if h.deps.Series == nil {
+		writeError(w, http.StatusNotFound, "series not configured")
+		return
+	}
+	runID, ok := pathInt(r, "run_id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid run id")
+		return
+	}
+	rep, err := h.deps.Reports.GetReport(r.Context(), runID)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.authorizeReport(r, rep.ExecutionID); err != nil {
+		respondError(w, err)
+		return
+	}
+	intervals, err := h.deps.Series.ListIntervalsByRun(r.Context(), runID)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	points := reportapp.BuildSeries(intervals, reportapp.SeriesPercentiles())
+	if points == nil {
+		points = []reportapp.SeriesPoint{}
+	}
+
+	w.Header().Set("Content-Disposition", `attachment; filename="run-`+strconv.FormatInt(runID, 10)+`.`+format+`"`)
+	if format == "json" {
+		writeJSON(w, http.StatusOK, runExportResponse{Report: rep, Series: seriesResponse{Points: points}})
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- Content-Type is text/csv; CSV cells are quoted by
+	// encoding/csv, so a hostile label cannot break out into a formula or
+	// HTML sink.
+	_, _ = w.Write(runExportCSV(runID, rep, points))
+}
+
+// runExportCSV renders the CSV download: the per-label table then the
+// per-second series, each preceded by a comment line naming the run. All
+// cell content goes through encoding/csv into a bytes.Buffer so quoting is
+// the library's problem, never string concatenation.
+func runExportCSV(runID int64, rep report.Report, points []reportapp.SeriesPoint) []byte {
+	var buf bytes.Buffer
+	// csv.Writer buffers internally, so it must be flushed before any raw
+	// write (comment lines, the blank separator) touches the same buffer.
+	cw := csv.NewWriter(&buf)
+	cw.UseCRLF = false // LF, documented on runExport
+
+	fmt.Fprintf(&buf, "# run %d — labels\n", runID)
+	_ = cw.Write([]string{"label", "samples", "error_rate", "p50", "p95", "p99"})
+	for _, l := range rep.Labels {
+		_ = cw.Write([]string{
+			l.Label, strconv.FormatInt(l.Samples, 10), exportFloat(l.ErrorRate),
+			exportPercentile(l.Latency, 50), exportPercentile(l.Latency, 95), exportPercentile(l.Latency, 99),
+		})
+	}
+	cw.Flush()
+
+	buf.WriteString("\n")
+	fmt.Fprintf(&buf, "# run %d — per-second series\n", runID)
+	_ = cw.Write([]string{"ts", "vus", "rps", "err_pct", "p50", "p90", "p95", "p99"})
+	for _, p := range points {
+		_ = cw.Write([]string{
+			strconv.FormatInt(p.Ts, 10), exportFloat(p.VUs), exportFloat(p.RPS), exportFloat(p.ErrPct),
+			exportPercentile(p.Latency, 50), exportPercentile(p.Latency, 90),
+			exportPercentile(p.Latency, 95), exportPercentile(p.Latency, 99),
+		})
+	}
+	cw.Flush()
+	return buf.Bytes()
+}
+
+// exportFloat writes a float in its shortest round-trip form -- the export
+// carries the wire's value, never a formatted or truncated one.
+func exportFloat(v float64) string {
+	return strconv.FormatFloat(v, 'g', -1, 64)
+}
+
+// exportPercentile writes one percentile of a latency map, or an empty cell
+// when that percentile was not measured.
+func exportPercentile(p report.Percentiles, pct float64) string {
+	if v, ok := p[pct]; ok {
+		return exportFloat(v)
+	}
+	return ""
 }
 
 // executionReports lists an execution's reports, most recent first, so a

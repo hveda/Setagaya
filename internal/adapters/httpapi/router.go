@@ -212,6 +212,7 @@ var routes = []Route{
 	{"GET", "/api/executions/{execution_id}/error-signatures", "reports", hf(func(h *handlers) http.HandlerFunc { return h.executionErrorSignatureHistory })},
 	{"GET", "/api/runs/{run_id}/report", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runReport })},
 	{"GET", "/api/runs/{run_id}/series", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runSeries })},
+	{"GET", "/api/runs/{run_id}/export", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runExport })},
 	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/log", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardLog })},
 	{"GET", "/api/runs/{run_id}/scenarios/{scenario_id}/shards/{shard}/config", "reports", hf(func(h *handlers) http.HandlerFunc { return h.runShardConfig })},
 
