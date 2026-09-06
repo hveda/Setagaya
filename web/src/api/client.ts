@@ -117,5 +117,22 @@ function extractErrorMessageFromText(bodyText: string, statusText: string, statu
   return statusText || `request failed with status ${status}`;
 }
 
+/**
+ * The structured details payload of the backend's error envelope (phase 24:
+ * {"message": ..., "details": {...}} on select errors like the 429 quota
+ * refusal and the 409 engines-finished conflict), when the failing response
+ * carried one -- otherwise null. Callers treat null as "render the message
+ * only".
+ */
+export function errorDetails(err: unknown): Record<string, unknown> | null {
+  if (err instanceof ApiError && err.data !== null && typeof err.data === 'object') {
+    const details = (err.data as { details?: unknown }).details;
+    if (details !== null && typeof details === 'object') {
+      return details as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
 /** The client every page uses; a fresh ApiClient() with custom options is only needed in tests. */
 export const apiClient = new ApiClient();
